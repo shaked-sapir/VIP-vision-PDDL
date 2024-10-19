@@ -1,11 +1,11 @@
-class State:
-    def __init__(self, is_initial: bool=False, is_goal:bool =False, fluents = None):
-        self.is_initial=is_initial
-        self.is_goal = is_goal
-        self.fluents = fluents
+from pddlgym.structs import State as PGState
 
-    def add_fluents(self, fluents: Any):
-        raise NotImplementedError
+from src.types.action_triplet import StateRepresentation
 
-    def remove_fluents(self, fluents: Any):
-        raise NotImplementedError
+
+class State(PGState, StateRepresentation):
+    """
+        At the moment, this class implements the exact same logic as PDDLGym's State.
+        It includes signals for goal states, literals ("fluents") and objects composing the state.
+    """
+    pass
