@@ -1,5 +1,6 @@
 from action import *
 from state_action_triplet import *
+from image_action_triplet import *
 from fluent import *
 from image import *
 from image_state_pair import *

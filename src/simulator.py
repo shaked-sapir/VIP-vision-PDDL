@@ -1,4 +1,9 @@
+from typing import List, Sequence
 
+from src.action_model.action_model import ActionModel
+from src.fluent_classification.fluent_mapping import FluentMapping
+from src.trajectory_handlers.baseline_image_trajectory_handler import BaselineImageTrajectoryHandler
+from src.types import State, Image, StateActionTriplet, ImageStatePair, ImageActionTriplet, Action
 
 
 def get_initial_action_model() -> ActionModel:
@@ -9,7 +14,7 @@ def get_initial_action_model() -> ActionModel:
     """
     raise NotImplementedError
 
-def extract_images_from_video(video_path: str) -> List[Image]:
+def extract_images_from_video(video_path: str) -> Sequence[Image]:
     """
     this function extracts images from a video, in a pre-determined fps to represent the video with proper images
     containing much data to preserve video's information.
@@ -20,19 +25,18 @@ def extract_images_from_video(video_path: str) -> List[Image]:
     raise NotImplementedError
 
 
-def construct_states(action_model: ActionModel, action_stream: List[Action], image_stream: List[Image], fluent_mapping: FluentMapping) -> List[State]:
+def construct_states(action_model: ActionModel, image_trajectory: Sequence[ImageActionTriplet], fluent_mapping: FluentMapping) -> Sequence[State]:
     """
     This function is the first function in the Notability file, constructing the states out of the current given action model,
     the first state and the images from the video and the currently-learnt fluent mapping.
     :param action_model: the PAM to work with
-    :param action_stream: the sequence of actions in the current trajectory
-    :param image_stream: the sequence of images representing states in the current trajectory
+    :param image_trajectory: a sequence of image_action triplets, representing the observed trajectoru
     :param fluent_mapping: the fluent mapping learnt so far by the classifiers
     """
     raise NotImplementedError
 
 
-def learn_fluents(image_state_pairs: List[ImageStatePair]=None) -> FluentMapping:
+def learn_fluents(image_state_pairs: Sequence[ImageStatePair]=None) -> FluentMapping:
     #TODO later: in a case of a classifier, we can make a binary classifier for each binary fluent, or at least for each "dynamic" fluent (meaning, fluent which can change its state during an episode)
     """
     this function learns fluents existence for each image in the image_stream, in order to be used in the process
@@ -45,15 +49,17 @@ def learn_fluents(image_state_pairs: List[ImageStatePair]=None) -> FluentMapping
 
 
 
-def construct_action_model(action_triplets: List[ActionTriplet]) -> ActionModel:
+def construct_action_model(action_triplets: Sequence[StateActionTriplet], current_action_model: ActionModel = None) -> ActionModel:
     """
     #TODO later: decide whether we want this action model to be safe, e.g. using SAM
     :param action_triplets: a list of ActionTriplets representing the video trajectory's transitions.
+    :param current_action_model: the current action model, whose behavior could be expanded using the action triplets.
+           defaults to None
     """
     raise NotImplementedError
 
 
-def enrich_action_triplets(action_triplets: List[ActionTriplet], action_model: ActionModel) -> List[ActionTriplet]:
+def enrich_action_triplets(action_triplets: Sequence[StateActionTriplet], action_model: ActionModel) -> Sequence[StateActionTriplet]:
     """
     this function gets action triplets as an input, feeds them into an action model and updates the states of
     each triplet using the action model's information (for example, if it can somehow affect the fluents of at least
@@ -65,12 +71,11 @@ def enrich_action_triplets(action_triplets: List[ActionTriplet], action_model: A
     raise NotImplementedError
 
 
-
-def update_image_state_pairs(image_state_pairs: List[ImageStatePair], action_triplets: List[ActionTriplet]) -> List[ImageStatePair]:
+def update_image_state_pairs(image_state_pairs: Sequence[ImageStatePair], action_triplets: List[StateActionTriplet]) -> Sequence[ImageStatePair]:
     raise NotImplementedError
 
 #TODO: we may not need the initial state, though it is good we have it for some initials/sanity checks from the fluent mapping
-def learn_action_model(initial_state: State, video_path: str, action_stream: List[Action]) -> ActionModel:
+def learn_action_model(initial_state: State, video_path: str, action_stream: Sequence[Action]) -> ActionModel:
     """
     This is the main function which aims to learn the action model of the provided domain solely from the videos
     filmed in the domain.
@@ -101,53 +106,62 @@ def learn_action_model(initial_state: State, video_path: str, action_stream: Lis
     #TODO later: we may want to inject it as a parameter, so we can "get an un-optimized action model as a parameter and our goal is to improve it
     image_stream: List[Image] = extract_images_from_video(video_path)
 
-    #1
+    # The following stages of the algorithm are numbered as they are in the research proposal, not in the Notability.
+    #0: preparation
     action_model: ActionModel = get_initial_action_model()
     fluent_mapping: FluentMapping = learn_fluents()
-    model_changes = True
+    action_model_changes = True
+    trajectory_handler: BaselineImageTrajectoryHandler = BaselineImageTrajectoryHandler()
 
-    #2
-    #the cycle runs until "convergence", meaning the action model has been fixed
-    #TODO later actually we can just run "while True" and if the action models are equal - just break. without the var..
-    while model_changes:
-        #3
-        constructed_states: List[State] = construct_states(action_model=action_model,
-                                                           action_stream=action_stream,
-                                                           image_stream=image_stream,
-                                                           fluent_mapping=fluent_mapping)
+    # TODO:  stick to the convention of sequence instead of list, as the resulted sequences should be read-only
+    T_img: Sequence[ImageActionTriplet] = trajectory_handler.build_trajectory(image_stream, action_stream)
 
-        #4 TODO extract this one to a function named "extract_action_triplets"
-        action_triplets: List[ActionTriplet] = [ActionTriplet(constructed_states[i], action_stream[i], constructed_states[i+1]) for i in range(len(action_stream))]
+    # 1
+    # the cycle runs until "convergence", meaning the action model has been fixed
+    while action_model_changes:
+        # 2
+        constructed_states: Sequence[State] = construct_states(action_model=action_model,
+                                                               image_trajectory=T_img,
+                                                               fluent_mapping=fluent_mapping)
 
-        #5
-        new_action_model: ActionModel = construct_action_model(action_triplets)
+        # 3
+        action_triplets: Sequence[StateActionTriplet] = trajectory_handler.build_trajectory(constructed_states, action_stream)
 
-        #6 TODO later: implement an "equals" method for ActionModel objects
-        if new_action_model == action_model:
-            #7
-            model_changes = False
-            #8
-            break
+        # 4
+        image_state_pairs: Sequence[ImageStatePair] = [ImageStatePair(image, state) for image, state in
+                                                       zip(image_stream, constructed_states)]
 
-        #9
-        action_model = new_action_model
+        """
+        These stages are nice-to-have but are not part of the original framework. TODO LATER: see if they are actually needed.
 
-        #10
-        image_state_pairs: List[ImageStatePair] = [ImageStatePair(image, state) for image, state in zip(image_stream, constructed_states)]
-
-        #11 TODO: this is optional and not necessary for the baseline (and the entire algorithm) to work, its a NiceToHave
+        # TODO: this is optional and not necessary for the baseline (and the entire algorithm) to work, its a NiceToHave
         action_triplets = enrich_action_triplets(action_triplets, action_model)
 
-        #12 TODO: this is optional and not necessary for the baseline (and the entire algorithm) to work, its a NiceToHave
+        # TODO: this is optional and not necessary for the baseline (and the entire algorithm) to work, its a NiceToHave
         image_state_pairs = update_image_state_pairs(image_state_pairs, action_triplets)
+        """
 
-        #13
-        fleunt_mapping = learn_fluents(image_state_pairs)
+        # 5
+        # TODO: decide how to involve the classifers in this - as a variable injected to the function, or maybe
+        #      turn the simulator into a class which holds the classifiers as a propoerty.
+        #      note: this is the "enrich_classifiers_from_PAM" in the proposal. actually, it is not connected directly
+        #      to the action model but to its resulted states... maybe it should be renamed properly.
+        fluent_mapping = learn_fluents(image_state_pairs)
 
-    #14
+        # 6
+        new_action_model: ActionModel = construct_action_model(action_triplets, action_model)
+
+        # 7 TODO later: implement an "equals" method for ActionModel objects
+        if new_action_model == action_model:
+            # 8
+            action_model_changes = False
+            break
+
+        # 11 (9-10 are endif + else)
+        action_model = new_action_model
+    # 14
     return action_model
 
 
-
-
 if __name__ == '__main__':
+    print("Starting simulator")
