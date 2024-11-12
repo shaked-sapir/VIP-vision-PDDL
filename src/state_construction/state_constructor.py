@@ -22,21 +22,21 @@ class StateConstructor:
         given actions and images using the fluent mapping and the action model.
     """
     def __init__(self, fluent_mapping: FluentMapping, action_model: ActionModel):
+        # TODO: consider not setting these as class attributes becuase in each fluent mapping/AM update it has to
+        # be reflected in the class so it doesn't fit the purpose of being class props.
+        # moreover - the fluent_mapping and AM should be props of Main Alg class, and being injected to the rest of the algorithms.
         self.fluent_mapping = fluent_mapping
         self.action_model = action_model
 
-    def construct_states(self, action_sequence: Sequence[Action], image_sequence: Sequence[Image]) -> Sequence[State]:
+    def construct_states(self, image_trajectory: Sequence[ImageActionTriplet]) -> Sequence[State]:
         """
         This function constructs states out of the given image and action sequences,
         using the current fluent mapping and the current action model.
-        :param action_sequence: the sequence of actions in the current trajectory
-        :param image_sequence: the sequence of images representing states in the current trajectory
+        :param image_trajectory: the sequence of images representing states in the current trajectory
         """
-        image_action_triplets = [ImageActionTriplet(image_sequence[i], action_sequence[i], image_sequence[i+1])
-                                 for i in range(len(action_sequence))]
 
         states: List[State] = []
-        for triplet in image_action_triplets:
+        for triplet in image_trajectory:
             prev_state = State(self.fluent_mapping.get_fluents(triplet.prev_image)) #TODO: the get_fluent mechanism should be implemented
 
             # TODO: we currently skip this stage as we are going to use SAM as a partial action model, and SAM could only be confident on effects and not on preconditions

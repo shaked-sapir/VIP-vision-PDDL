@@ -15,5 +15,5 @@ class ImageStatePair:
     def get_state(self) -> State:
         return self.state
 
-    def get_triplet(self) -> Tuple[Image, State]:
+    def get_pair(self) -> Tuple[Image, State]:
         return self.image, self.state

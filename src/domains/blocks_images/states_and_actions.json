@@ -1,0 +1,52 @@
+[
+    {
+        "step": 0,
+        "action": "initial_state",
+        "state": "State(literals=frozenset({handfull(robot:robot), ontable(f:block), on(d:block,e:block), clear(b:block), holding(a:block), on(c:block,d:block), on(b:block,c:block), on(e:block,f:block)}), objects=frozenset({f:block, robot:robot, b:block, d:block, a:block, e:block, c:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 1,
+        "action": "putdown(a:block)",
+        "state": "State(literals=frozenset({ontable(f:block), on(d:block,e:block), clear(b:block), on(c:block,d:block), handempty(robot:robot), on(b:block,c:block), clear(a:block), ontable(a:block), on(e:block,f:block)}), objects=frozenset({f:block, robot:robot, b:block, d:block, a:block, e:block, c:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 2,
+        "action": "unstack(b:block)",
+        "state": "State(literals=frozenset({handfull(robot:robot), ontable(f:block), on(d:block,e:block), on(c:block,d:block), ontable(a:block), clear(c:block), clear(a:block), holding(b:block), on(e:block,f:block)}), objects=frozenset({f:block, robot:robot, b:block, d:block, a:block, e:block, c:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 3,
+        "action": "stack(b:block,c:block)",
+        "state": "State(literals=frozenset({ontable(f:block), on(d:block,e:block), clear(b:block), on(c:block,d:block), handempty(robot:robot), on(b:block,c:block), clear(a:block), ontable(a:block), on(e:block,f:block)}), objects=frozenset({f:block, robot:robot, b:block, d:block, a:block, e:block, c:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 4,
+        "action": "unstack(b:block)",
+        "state": "State(literals=frozenset({handfull(robot:robot), ontable(f:block), on(d:block,e:block), on(c:block,d:block), ontable(a:block), clear(c:block), clear(a:block), holding(b:block), on(e:block,f:block)}), objects=frozenset({f:block, robot:robot, b:block, d:block, a:block, e:block, c:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 5,
+        "action": "stack(b:block,a:block)",
+        "state": "State(literals=frozenset({ontable(f:block), on(d:block,e:block), clear(b:block), on(c:block,d:block), handempty(robot:robot), clear(c:block), on(b:block,a:block), ontable(a:block), on(e:block,f:block)}), objects=frozenset({f:block, robot:robot, b:block, d:block, a:block, e:block, c:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 6,
+        "action": "unstack(c:block)",
+        "state": "State(literals=frozenset({handfull(robot:robot), ontable(f:block), on(d:block,e:block), clear(b:block), clear(d:block), on(b:block,a:block), ontable(a:block), on(e:block,f:block), holding(c:block)}), objects=frozenset({f:block, robot:robot, b:block, d:block, a:block, e:block, c:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 7,
+        "action": "stack(c:block,d:block)",
+        "state": "State(literals=frozenset({ontable(f:block), on(d:block,e:block), clear(b:block), handempty(robot:robot), on(c:block,d:block), clear(c:block), on(b:block,a:block), ontable(a:block), on(e:block,f:block)}), objects=frozenset({f:block, robot:robot, b:block, d:block, a:block, e:block, c:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 8,
+        "action": "unstack(c:block)",
+        "state": "State(literals=frozenset({handfull(robot:robot), ontable(f:block), on(d:block,e:block), clear(b:block), clear(d:block), on(b:block,a:block), ontable(a:block), on(e:block,f:block), holding(c:block)}), objects=frozenset({f:block, robot:robot, b:block, d:block, a:block, e:block, c:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 9,
+        "action": "putdown(c:block)",
+        "state": "State(literals=frozenset({ontable(f:block), on(d:block,e:block), clear(b:block), clear(d:block), handempty(robot:robot), clear(c:block), ontable(c:block), on(b:block,a:block), ontable(a:block), on(e:block,f:block)}), objects=frozenset({f:block, robot:robot, b:block, d:block, a:block, e:block, c:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    }
+]
