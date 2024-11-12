@@ -45,7 +45,19 @@ def learn_fluents(image_state_pairs: Sequence[ImageStatePair]=None) -> FluentMap
     domain) or, for example, a smarter classifier based on image and object detection.
     :param image_state_pairs:  pairs of image and the fluentic state that we believe representing the image
     """
-    raise NotImplementedError
+    # TODO: this is the algorithm pseudo-code, will need to be implemented properly. now these are placeholders
+    for pair in image_state_pairs:
+        img, state = pair.get_pair()
+        img_fluents = classify_fluents(img)
+        for fluent in state:
+            if fluent in img_fluents:
+                continue
+            elif fluent not in img_fluents and not(fluent) not in img_fluents:
+                img_fluents.append(fluent)
+            else: # conflict
+                resolve_conflict(fluent, img_fluents, state)
+
+
 
 
 
