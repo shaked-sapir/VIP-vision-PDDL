@@ -1,6 +1,7 @@
-from typing import List, Tuple
-
+from typing import List, Tuple, Dict
+import itertools
 import cv2
+import json
 import numpy as np
 
 
@@ -51,6 +52,33 @@ COLOR_RANGES = {
     'gray_robot': ((0, 0, 60), (180, 50, 130))
 }
 
+
+def get_image_predicates(image: cv2.typing.MatLike) -> Dict[str, bool]:
+    """
+    function that returns the grounded predicates appearing in the image.
+    it creates all the possible groundings using all objects detected in the image, then uses
+    predicate classifiers to determine whether the predicates hold.
+    :param image: the image to predict on
+    :return: a dictionary of the form {<grounded_predicate>: True/False}
+    """
+    predicates = {}
+    detected_objects = detect_objects_by_color(image)
+    blocks = [obj for obj in detected_objects if obj.obj_type == "block"]
+    robot = [obj for obj in detected_objects if obj.obj_type == "robot"][0]
+    table = [obj for obj in detected_objects if obj.obj_type == "table"][0]
+
+    for block1, block2 in itertools.combinations(blocks, 2):
+        predicates[f"on {block1.label} {block2.label}"] = is_on_top(block1, block2)
+
+    for block in blocks:
+        predicates[f"ontable {block.label}"] = is_on_table(block, table)
+        predicates[f"clear {block.label}"] = is_clear(block, blocks)
+        predicates[f"holding {block.label}"] = is_holding(robot, block)
+
+    predicates[f"handempty {robot.label}"] = is_handempty(robot, blocks)
+    predicates[f"handfull {robot.label}"] = is_handfull(robot, blocks)
+
+    return predicates
 
 # Function to detect objects by color
 def detect_objects_by_color(image: cv2.typing.MatLike):
@@ -164,7 +192,7 @@ def is_clear(block: VisualObject, objects: List[VisualObject], threshold=10):
     return True
 
 
-def handempty(robot: VisualObject, objects: List[VisualObject]):
+def is_handempty(robot: VisualObject, objects: List[VisualObject]):
     """
     Determines if the robot is not holding any box by checking if no box is near its bottom edge.
     """
@@ -179,12 +207,12 @@ def handempty(robot: VisualObject, objects: List[VisualObject]):
 
 
 # Function to check if the robot's hand is full (holding a box)
-def handfull(robot, objects: List[VisualObject]):
+def is_handfull(robot, objects: List[VisualObject]):
     """
     Determines if the robot is holding any box by checking if a box is near its bottom edge.
     """
     # If handempty is False, it means hand is full
-    return not handempty(robot, objects)
+    return not is_handempty(robot, objects)
 
 
 # Function to check if the robot is holding a specific box
@@ -232,14 +260,15 @@ assert not is_on_table(detected_objects["block:green"], detected_objects["table:
 assert not is_on_table(detected_objects["table:brown"], detected_objects["table:brown"])  # extreme case: table related to itself (should be validated in the function itself that the first object is a block
 
 # handempty tests
-assert not handempty(detected_objects["robot:gray"], list(detected_objects.values()))
+assert not is_handempty(detected_objects["robot:gray"], list(detected_objects.values()))
 
 # handfull tests
-assert handfull(detected_objects["robot:gray"], list(detected_objects.values()))
+assert is_handfull(detected_objects["robot:gray"], list(detected_objects.values()))
 
 # is_holding tests
 assert is_holding(detected_objects["robot:gray"], detected_objects["block:green"])
 assert not is_holding(detected_objects["robot:gray"], detected_objects["block:cyan"])
 assert not is_holding(detected_objects["robot:gray"], detected_objects["robot:gray"])  # extreme case: the robot could not hold itself
 
+print(json.dumps(get_image_predicates(image), indent=4))
 draw_objects(image, list(detected_objects.values()))
