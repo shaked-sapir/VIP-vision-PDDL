@@ -37,8 +37,9 @@ class VisualObject:
     def __init__(self, obj_type: str, color: str, x_anchor: int, y_anchor: int, width: int, height: int):
         self.obj_type = obj_type
         self.color = color
-        self.label = f"{self.obj_type}:{self.color}"
+        self.label = f"{self.color}:{self.obj_type}"
         self.bounding_box = BoundingBox(x_anchor, y_anchor, width, height)
+
 
 # Define color ranges in HSV for each object in the scene, including cyan
 COLOR_RANGES = {
@@ -68,15 +69,15 @@ def get_image_predicates(image: cv2.typing.MatLike) -> Dict[str, bool]:
     table = [obj for obj in detected_objects if obj.obj_type == "table"][0]
 
     for block1, block2 in itertools.permutations(blocks, 2):
-        predicates[f"on {block1.label} {block2.label}"] = is_on_top(block1, block2)
+        predicates[f"on({block1.label},{block2.label})"] = is_on_top(block1, block2)
 
     for block in blocks:
-        predicates[f"ontable {block.label}"] = is_on_table(block, table)
-        predicates[f"clear {block.label}"] = is_clear(block, blocks)
-        predicates[f"holding {block.label}"] = is_holding(robot, block)
+        predicates[f"ontable({block.label})"] = is_on_table(block, table)
+        predicates[f"clear({block.label})"] = is_clear(block, blocks)
+        predicates[f"holding({block.label})"] = is_holding(robot, block)
 
-    predicates[f"handempty {robot.label}"] = is_handempty(robot, blocks)
-    predicates[f"handfull {robot.label}"] = is_handfull(robot, blocks)
+    predicates[f"handempty({robot.label})"] = is_handempty(robot, blocks)
+    predicates[f"handfull({robot.label})"] = is_handfull(robot, blocks)
 
     return predicates
 
@@ -239,36 +240,36 @@ Testing predicates on picture 0008
 """
 
 # is_on_top tests
-assert is_on_top(detected_objects["block:blue"], detected_objects["block:cyan"])
-assert not is_on_top(detected_objects["block:cyan"], detected_objects["block:blue"])  # extreme case: blocks are touching but the second is on the first, so the function should fail
-assert not is_on_top(detected_objects["block:red"], detected_objects["block:cyan"])
-assert not is_on_top(detected_objects["block:green"], detected_objects["block:cyan"])  # extreme case: the block held by the robot is never placed on top of any other block
-assert not is_on_top(detected_objects["block:cyan"], detected_objects["block:cyan"])  # extreme case: a block cannot be on top of itself
+assert is_on_top(detected_objects["blue:block"], detected_objects["cyan:block"])
+assert not is_on_top(detected_objects["cyan:block"], detected_objects["blue:block"])  # extreme case: blocks are touching but the second is on the first, so the function should fail
+assert not is_on_top(detected_objects["red:block"], detected_objects["cyan:block"])
+assert not is_on_top(detected_objects["green:block"], detected_objects["cyan:block"])  # extreme case: the block held by the robot is never placed on top of any other block
+assert not is_on_top(detected_objects["cyan:block"], detected_objects["cyan:block"])  # extreme case: a block cannot be on top of itself
 
 # is_clear_tests
 # TODO: add tests for cases in which at least one of the object is not a box
-assert is_clear(detected_objects["block:blue"], list(detected_objects.values()))
-assert not is_clear(detected_objects["block:red"], list(detected_objects.values()))
-assert is_clear(detected_objects["block:green"], list(detected_objects.values()))  # extreme case: for the box being held by the robot
-assert is_clear(detected_objects["robot:gray"], list(detected_objects.values()))  # extreme case: the object is not a box
+assert is_clear(detected_objects["blue:block"], list(detected_objects.values()))
+assert not is_clear(detected_objects["red:block"], list(detected_objects.values()))
+assert is_clear(detected_objects["green:block"], list(detected_objects.values()))  # extreme case: for the box being held by the robot
+assert is_clear(detected_objects["gray:robot"], list(detected_objects.values()))  # extreme case: the object is not a box
 
 # is_on_table tests
-assert is_on_table(detected_objects["block:red"], detected_objects["table:brown"])
-assert is_on_table(detected_objects["block:pink"], detected_objects["table:brown"])
-assert not is_on_table(detected_objects["block:yellow"], detected_objects["table:brown"])
-assert not is_on_table(detected_objects["block:green"], detected_objects["table:brown"])
-assert not is_on_table(detected_objects["table:brown"], detected_objects["table:brown"])  # extreme case: table related to itself (should be validated in the function itself that the first object is a block
+assert is_on_table(detected_objects["red:block"], detected_objects["brown:table"])
+assert is_on_table(detected_objects["pink:block"], detected_objects["brown:table"])
+assert not is_on_table(detected_objects["yellow:block"], detected_objects["brown:table"])
+assert not is_on_table(detected_objects["green:block"], detected_objects["brown:table"])
+assert not is_on_table(detected_objects["brown:table"], detected_objects["brown:table"])  # extreme case: table related to itself (should be validated in the function itself that the first object is a block
 
 # handempty tests
-assert not is_handempty(detected_objects["robot:gray"], list(detected_objects.values()))
+assert not is_handempty(detected_objects["gray:robot"], list(detected_objects.values()))
 
 # handfull tests
-assert is_handfull(detected_objects["robot:gray"], list(detected_objects.values()))
+assert is_handfull(detected_objects["gray:robot"], list(detected_objects.values()))
 
 # is_holding tests
-assert is_holding(detected_objects["robot:gray"], detected_objects["block:green"])
-assert not is_holding(detected_objects["robot:gray"], detected_objects["block:cyan"])
-assert not is_holding(detected_objects["robot:gray"], detected_objects["robot:gray"])  # extreme case: the robot could not hold itself
+assert is_holding(detected_objects["gray:robot"], detected_objects["green:block"])
+assert not is_holding(detected_objects["gray:robot"], detected_objects["cyan:block"])
+assert not is_holding(detected_objects["gray:robot"], detected_objects["gray:robot"])  # extreme case: the robot could not hold itself
 
 print(json.dumps(get_image_predicates(image), indent=4))
 draw_objects(image, list(detected_objects.values()))
