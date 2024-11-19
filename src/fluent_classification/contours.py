@@ -67,7 +67,7 @@ def get_image_predicates(image: cv2.typing.MatLike) -> Dict[str, bool]:
     robot = [obj for obj in detected_objects if obj.obj_type == "robot"][0]
     table = [obj for obj in detected_objects if obj.obj_type == "table"][0]
 
-    for block1, block2 in itertools.combinations(blocks, 2):
+    for block1, block2 in itertools.permutations(blocks, 2):
         predicates[f"on {block1.label} {block2.label}"] = is_on_top(block1, block2)
 
     for block in blocks:
@@ -235,7 +235,7 @@ for obj in detected_objects.values():
 
 
 """
-Testing predicates
+Testing predicates on picture 0008
 """
 
 # is_on_top tests
