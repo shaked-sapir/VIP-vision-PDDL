@@ -224,7 +224,7 @@ def is_holding(robot:VisualObject, block: VisualObject):
 
 
 # Run the color-based detection pipeline
-image_path = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/blocks_images/state_0008.png"  # Path to the uploaded image
+image_path = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/fluent_classification/images/state_0008.png"  # Path to the uploaded image
 image = cv2.imread(image_path)
 
 detected_objects = detect_objects_by_color(image)

@@ -16,7 +16,7 @@ processor = ViltProcessor.from_pretrained("dandelin/vilt-b32-finetuned-vqa")
 model = ViltForQuestionAnswering.from_pretrained("dandelin/vilt-b32-finetuned-vqa")
 
 # Load and preprocess the image
-image_path = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/blocks_images/state_0007.png"
+image_path = "/src/domains/blocks/blocks_images/state_0007.png"
 image = Image.open(image_path).convert("RGB")
 
 # Prepare inputs for the model
