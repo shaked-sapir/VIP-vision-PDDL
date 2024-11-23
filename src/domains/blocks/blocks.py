@@ -1,10 +1,13 @@
 import os
+from pathlib import Path
+
 import pddlgym
 from pddlgym.core import _select_operator
 import random
 from PIL import Image
 import json
 import cv2
+from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser
 
 def sort_images_numerically(image_list):
     return sorted(image_list, key=lambda x: int(x.split('_')[1].split('.')[0]))
@@ -12,7 +15,21 @@ def sort_images_numerically(image_list):
 # Initialize the PDDLGym environment
 env = pddlgym.make("PDDLEnvBlocks-v0")
 obs, info = env.reset()
+new_obs = obs
 
+pddl_plus_blocks_domain = DomainParser(Path("blocks.pddl")).parse_domain()
+print(f"parsed domain: {pddl_plus_blocks_domain}")
+pplus_blocks_actions = {action_name: str(action.preconditions) for action_name, action in pddl_plus_blocks_domain.actions.items()}
+print(f"parsed domain actions: {pplus_blocks_actions}")
+print(f"parsed domain predicates: {pddl_plus_blocks_domain.predicates}")
+print("------------------------------------")
+pddl_plus_blocks_problem_9 = ProblemParser(Path("problem9.pddl"), pddl_plus_blocks_domain).parse_problem()
+print(f"parsed problem 09: {pddl_plus_blocks_problem_9}")
+print(f"problem 09 objects: {pddl_plus_blocks_problem_9.objects}")
+print("------------------------------------")
+print(f"env domain predicates: {env.domain.predicates}")
+print(f"info: {info}")
+print(f"obs: {obs}")
 # Create a directory to save images if it does not exist
 output_dir = "blocks_images"
 os.makedirs(output_dir, exist_ok=True)
@@ -35,12 +52,11 @@ img_pil.save(os.path.join(output_dir, f"state_{0:04d}.png"))
 # Run 1000 random moves and save the images
 for i in range(1, 10):
     # Sample a random valid action from the set of valid actions
-    new_obs = obs
+    obs = new_obs
 
     while new_obs == obs:
-    # obs, _, done, _ = env.step(action) # obs holds the "next_state", i.e. the state resulting in executing the action
         action = env.action_space.sample(obs)
-        new_obs = env.step(action)[0] # obs holds the "next_state", i.e. the state resulting in executing the action
+        new_obs = env.step(action)[0] # new_obs holds the "next_state", i.e. the state resulting in executing the action
 
     # obs = new_obs
     print(type(env.domain.operators['pick-up']))
@@ -59,9 +75,11 @@ for i in range(1, 10):
     # Record the state and action
     state_action_entry = {
         "step": i,
-        "action": str(action),
-        # "action": action.predicates,
-        "state": str(obs)
+        "current_state": str(obs),
+        "ground_action": str(action),
+        "operator_object_assignment": _select_operator(obs, action, env.domain)[1],
+        "lifted_preconds": str(env.domain.operators['pick-up'].preconds.literals),
+        "ground_resulted_state": str(new_obs)
     }
 
 
