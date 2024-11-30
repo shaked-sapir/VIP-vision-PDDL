@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pddlgym
 from pddlgym.core import _select_operator
+from pddlgym.rendering.blocks import block_name_to_color, _block_name_to_color
 import random
 from PIL import Image
 import json
@@ -14,6 +15,7 @@ def sort_images_numerically(image_list):
 
 # Initialize the PDDLGym environment
 env = pddlgym.make("PDDLEnvBlocks-v0")
+print(f"env: {env}")
 obs, info = env.reset()
 new_obs = obs
 
@@ -30,6 +32,16 @@ print("------------------------------------")
 print(f"env domain predicates: {env.domain.predicates}")
 print(f"info: {info}")
 print(f"obs: {obs}")
+
+print("-----------------")
+
+for i, lit in enumerate(obs.literals):
+    print(f"lit {i}: {lit}")
+    print(f"lit variables: {[lit.variables[j] for j in range(len(lit.variables))]}")
+    # print(f"color: {block_name_to_color(lit.variables[0])}")
+    # print(f"color: {block_name_to_color(lit.variables[0].split(':')[0])}")
+    print("@@@@@")
+print("--------------------")
 # Create a directory to save images if it does not exist
 output_dir = "blocks_images"
 os.makedirs(output_dir, exist_ok=True)
@@ -50,7 +62,19 @@ img = env.render(mode='rgb_array')
 img_pil = Image.fromarray(img)
 img_pil.save(os.path.join(output_dir, f"state_{0:04d}.png"))
 # Run 1000 random moves and save the images
+str_block_name_to_color = {str(obj): color for obj, color in _block_name_to_color.items()}
+print(f"str_box_name_to_color: {str_block_name_to_color}")
+print("%%%%%%%%%%%%%%%%%%%%%")
 for i in range(1, 10):
+    print(f"block colors: {_block_name_to_color}")
+    print(f"colored objects: {list(_block_name_to_color.keys())}")
+    print(f"colored objects name types: {[type(name) for name in list(_block_name_to_color.keys())]}")
+    print(f"colored objects struct names: {[str(obj) for obj in list(_block_name_to_color.keys())]}")
+    print(f"is f:block in colors: {'f:block' in list(_block_name_to_color.keys())}")
+    print(f"is f:block in str colors: {'f:block' in str_block_name_to_color}")
+    print(f"block f color: {str_block_name_to_color['f:block']}")
+    print(f"block f color: {block_name_to_color('f:block')}")
+    print("-------")
     # Sample a random valid action from the set of valid actions
     obs = new_obs
 

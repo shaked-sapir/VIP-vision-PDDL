@@ -4,6 +4,8 @@ import cv2
 import json
 import numpy as np
 
+from src.fluent_classification.colors import find_exact_rgb_color_mask_with_compare, to_int_rgb
+
 
 class BoundingBox:
 
@@ -41,16 +43,34 @@ class VisualObject:
         self.bounding_box = BoundingBox(x_anchor, y_anchor, width, height)
 
 
+"""
+TODO: Try to automatically extract the EXACT color of each block from the specific problem
+ trajectory, as we cannot know that these colors will be reproduced in a different problem
+  (we DO know they are going to be repreoduced when running the same problem because of
+   seed fixing)
+"""
 # Define color ranges in HSV for each object in the scene, including cyan
-COLOR_RANGES = {
-    'green_block': ((50, 100, 100), (70, 255, 255)),
-    'blue_block': ((100, 100, 100), (130, 255, 255)),
-    'cyan_block': ((85, 100, 100), (95, 255, 255)),
-    'red_block': ((0, 100, 100), (10, 255, 255)),
-    'yellow_block': ((20, 100, 100), (30, 255, 255)),
-    'pink_block': ((140, 100, 100), (170, 255, 255)),
-    'brown_table': ((10, 100, 20), (20, 255, 200)),
-    'gray_robot': ((0, 0, 60), (180, 50, 130))
+# COLOR_RANGES = {
+#     'green_block': ((50, 100, 100), (70, 255, 255)),
+#     'blue_block': ((100, 100, 100), (130, 255, 255)),
+#     'cyan_block': ((85, 100, 100), (95, 255, 255)),
+#     'red_block': ((0, 100, 100), (10, 255, 255)),
+#     'yellow_block': ((20, 100, 100), (30, 255, 255)),
+#     'pink_block': ((140, 100, 100), (170, 255, 255)),
+#     'brown_table': ((10, 100, 20), (20, 255, 200)),
+#     'gray_robot': ((0, 0, 60), (180, 50, 130))
+# }
+
+
+COLOR_RANGES = { # this is in normalized RGB
+    'red_block': (0.9, 0.1, 0.1),
+    'cyan_block': (0.43758721, 0.891773, 0.96366276),
+    'blue_block': (0.15896958, 0.11037514, 0.65632959),
+    'green_block': (0.1494483 , 0.86812606, 0.16249293),
+    'yellow_block': (0.94737059, 0.73085581, 0.25394164),
+    'pink_block': (0.96157015, 0.23170163, 0.94931882),
+    'brown_table': (0.5,0.2,0.0),
+    'gray_robot': (0.4, 0.4, 0.4)
 }
 
 
@@ -83,14 +103,16 @@ def get_image_predicates(image: cv2.typing.MatLike) -> Dict[str, bool]:
 
 # Function to detect objects by color
 def detect_objects_by_color(image: cv2.typing.MatLike):
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    image_copy = image.copy()
+    # hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
     detected_objects = []
 
-    for object_name, (lower, upper) in COLOR_RANGES.items():
+    # for object_name, (lower, upper) in COLOR_RANGES.items():
+    for object_name, color_tuple in COLOR_RANGES.items():
         # Create a mask for the current color range
-        mask = cv2.inRange(hsv_image, lower, upper)
+        # mask = cv2.inRange(hsv_image, lower, upper)
+        full_rgb_tuple = to_int_rgb(color_tuple)
+        mask = find_exact_rgb_color_mask_with_compare(image, full_rgb_tuple)
 
         # Find contours for the masked region
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -224,8 +246,8 @@ def is_holding(robot:VisualObject, block: VisualObject):
 
 
 # Run the color-based detection pipeline
-image_path = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/fluent_classification/images/state_0008.png"  # Path to the uploaded image
-image = cv2.imread(image_path)
+image_path = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/fluent_classification/images/state_0009.png"  # Path to the uploaded image
+image = cv2.imread(image_path) # in BGR format
 
 detected_objects = detect_objects_by_color(image)
 detected_objects = {obj.label: obj for obj in detected_objects}

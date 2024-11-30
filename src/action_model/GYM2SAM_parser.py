@@ -1,3 +1,4 @@
+ from collections import defaultdict
 from pathlib import Path
 from typing import List, Dict, Set, Tuple
 
@@ -6,16 +7,15 @@ from pddl_plus_parser.models import (
     State,
     GroundedPredicate,
     Observation,
-    ObservedComponent,
     ActionCall,
-    PDDLType, Domain, Problem, PDDLObject, SignatureType
+    Domain, Problem, PDDLObject, SignatureType
 )
-from collections import defaultdict
 
 ObjectMappingType = Dict[str, PDDLObject]
 
 
-def convert_grounded_to_lifted(grounded_predicate_str: str, pddl_domain: Domain) -> Tuple[str, SignatureType, Dict[str, str]]:
+def convert_grounded_to_lifted(grounded_predicate_str: str, pddl_domain: Domain) -> Tuple[
+    str, SignatureType, Dict[str, str]]:
     """
     parses a grounded predicate string in pddlgym format into pddl-plus-parser format ingredients.
     :param grounded_predicate_str: string representing the predicate in pddlgym format.
@@ -35,7 +35,8 @@ def convert_grounded_to_lifted(grounded_predicate_str: str, pddl_domain: Domain)
 
     grounded_arguments: List[str] = grounded_arguments_part.split(",")
     grounded_arguments_names: List[str] = [arg.split(":")[0] for arg in grounded_arguments]
-    object_mapping: Dict[str, str] = {lifted_param_name: grounded_arg for lifted_param_name, grounded_arg in zip(lifted_signature.keys(), grounded_arguments_names)}
+    object_mapping: Dict[str, str] = {lifted_param_name: grounded_arg for lifted_param_name, grounded_arg in
+                                      zip(lifted_signature.keys(), grounded_arguments_names)}
 
     return predicate_name, lifted_signature, object_mapping
 
@@ -45,7 +46,8 @@ def parse_grounded_predicates(grounded_predicate_strs: List[str], pddl_domain: D
     """Parse a list of grounded literals into a set of GroundedPredicate objects."""
     grounded_predicates = set()
     for predicate_str in grounded_predicate_strs:
-        predicate_name, lifted_predicate_signature, predicate_object_mapping = convert_grounded_to_lifted(predicate_str, pddl_domain)
+        predicate_name, lifted_predicate_signature, predicate_object_mapping = convert_grounded_to_lifted(predicate_str,
+                                                                                                          pddl_domain)
         grounded_predicates.add(
             GroundedPredicate(name=predicate_name,
                               signature=lifted_predicate_signature,
@@ -91,7 +93,8 @@ def parse_action_call(action_string: str) -> ActionCall:
     )
 
 
-def create_observation_from_trajectory(trajectory: List[Dict], pddl_domain: Domain, pddl_problem: Problem) -> Observation:
+def create_observation_from_trajectory(trajectory: List[Dict], pddl_domain: Domain,
+                                       pddl_problem: Problem) -> Observation:
     """Create an Observation object from a trajectory."""
 
     object_mapping = pddl_problem.objects
@@ -127,7 +130,7 @@ example_trajectory = [
             "?x": "a",
             "?robot": "robot"
         },
-         "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
         "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), ontable(f:block), handempty(robot:robot), ontable(a:block), on(b:block,c:block), on(e:block,f:block), clear(b:block), on(d:block,e:block), clear(a:block)}), objects=frozenset({f:block, c:block, b:block, robot:robot, e:block, a:block, d:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
     }
 ]
@@ -137,8 +140,6 @@ example_trajectory = [
 # Create Observation object from the trajectory
 pddl_plus_domain: Domain = DomainParser(Path("../domains/blocks/blocks.pddl")).parse_domain()
 pddl_plus_problem: Problem = ProblemParser(Path("../domains/blocks/problem9.pddl"), pddl_plus_domain).parse_problem()
-# problem_objects: Dict[str, PDDLType] = {_object.name: _object.type for _object in pddl_plus_problem.objects.values()}
-# observation: Observation = create_observation_from_trajectory(example_trajectory, problem_objects)
 observation: Observation = create_observation_from_trajectory(example_trajectory, pddl_plus_domain, pddl_plus_problem)
 
 # Output the resulting Observation object
