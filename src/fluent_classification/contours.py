@@ -4,7 +4,7 @@ import cv2
 import json
 import numpy as np
 
-from src.fluent_classification.colors import find_exact_rgb_color_mask_with_compare, to_int_rgb
+from src.fluent_classification.colors import find_exact_rgb_color_mask, to_int_rgb, NormalizedRGB
 
 
 class BoundingBox:
@@ -36,10 +36,10 @@ class BoundingBox:
 # TODO: extract this to the types dir
 # TODO: make this a DTO because there are a lot of properties to the object
 class VisualObject:
-    def __init__(self, obj_type: str, color: str, x_anchor: int, y_anchor: int, width: int, height: int):
+    def __init__(self, obj_type: str, name: str, x_anchor: int, y_anchor: int, width: int, height: int):
         self.obj_type = obj_type
-        self.color = color
-        self.label = f"{self.color}:{self.obj_type}"
+        self.name = name
+        self.label = f"{self.name}:{self.obj_type}"
         self.bounding_box = BoundingBox(x_anchor, y_anchor, width, height)
 
 
@@ -51,39 +51,43 @@ TODO: Try to automatically extract the EXACT color of each block from the specif
 """
 # Define color ranges in HSV for each object in the scene, including cyan
 # COLOR_RANGES = {
-#     'green_block': ((50, 100, 100), (70, 255, 255)),
-#     'blue_block': ((100, 100, 100), (130, 255, 255)),
-#     'cyan_block': ((85, 100, 100), (95, 255, 255)),
-#     'red_block': ((0, 100, 100), (10, 255, 255)),
-#     'yellow_block': ((20, 100, 100), (30, 255, 255)),
-#     'pink_block': ((140, 100, 100), (170, 255, 255)),
-#     'brown_table': ((10, 100, 20), (20, 255, 200)),
-#     'gray_robot': ((0, 0, 60), (180, 50, 130))
+#     'green:block': ((50, 100, 100), (70, 255, 255)),
+#     'blue:block': ((100, 100, 100), (130, 255, 255)),
+#     'cyan:block': ((85, 100, 100), (95, 255, 255)),
+#     'red:block': ((0, 100, 100), (10, 255, 255)),
+#     'yellow:block': ((20, 100, 100), (30, 255, 255)),
+#     'pink:block': ((140, 100, 100), (170, 255, 255)),
+#     'brown:table': ((10, 100, 20), (20, 255, 200)),
+#     'gray:robot': ((0, 0, 60), (180, 50, 130))
 # }
 
 
-COLOR_RANGES = { # this is in normalized RGB
-    'red_block': (0.9, 0.1, 0.1),
-    'cyan_block': (0.43758721, 0.891773, 0.96366276),
-    'blue_block': (0.15896958, 0.11037514, 0.65632959),
-    'green_block': (0.1494483 , 0.86812606, 0.16249293),
-    'yellow_block': (0.94737059, 0.73085581, 0.25394164),
-    'pink_block': (0.96157015, 0.23170163, 0.94931882),
-    'brown_table': (0.5,0.2,0.0),
-    'gray_robot': (0.4, 0.4, 0.4)
-}
+# COLOR_MAP = { # this is in normalized RGB
+#     'red:block': (0.9, 0.1, 0.1),
+#     'cyan:block': np.array((0.43758721, 0.891773, 0.96366276)),
+#     'blue:block': (0.15896958, 0.11037514, 0.65632959),
+#     'green:block': (0.1494483 , 0.86812606, 0.16249293),
+#     'yellow:block': (0.94737059, 0.73085581, 0.25394164),
+#     'pink:block': (0.96157015, 0.23170163, 0.94931882),
+#     'brown:table': (0.5,0.2,0.0),
+#     'gray:robot': (0.4, 0.4, 0.4)
+# }
 
 
-def get_image_predicates(image: cv2.typing.MatLike) -> Dict[str, bool]:
+# TODO: this is specific to blocks and therefore should be in an ad-hoc file related to blocks
+def get_image_predicates(image: cv2.typing.MatLike, color_map: Dict[str, NormalizedRGB]) -> Dict[str, bool]:
     """
     function that returns the grounded predicates appearing in the image.
     it creates all the possible groundings using all objects detected in the image, then uses
     predicate classifiers to determine whether the predicates hold.
     :param image: the image to predict on
+    :param color_map: mapping between an object to its color so we can detect it in the image.
     :return: a dictionary of the form {<grounded_predicate>: True/False}
     """
     predicates = {}
-    detected_objects = detect_objects_by_color(image)
+    detected_objects = detect_objects_by_color(image, color_map)
+    for obj in detected_objects:
+        print(f"Detected a {obj.label} at {obj.bounding_box.decompose()}")
     blocks = [obj for obj in detected_objects if obj.obj_type == "block"]
     robot = [obj for obj in detected_objects if obj.obj_type == "robot"][0]
     table = [obj for obj in detected_objects if obj.obj_type == "table"][0]
@@ -93,7 +97,9 @@ def get_image_predicates(image: cv2.typing.MatLike) -> Dict[str, bool]:
 
     for block in blocks:
         predicates[f"ontable({block.label})"] = is_on_table(block, table)
-        predicates[f"clear({block.label})"] = is_clear(block, blocks)
+
+        # clear -> we can stack upon it.
+        predicates[f"clear({block.label})"] = is_clear(block, blocks) and not is_holding(robot, block)
         predicates[f"holding({block.label})"] = is_holding(robot, block)
 
     predicates[f"handempty({robot.label})"] = is_handempty(robot, blocks)
@@ -101,18 +107,15 @@ def get_image_predicates(image: cv2.typing.MatLike) -> Dict[str, bool]:
 
     return predicates
 
-# Function to detect objects by color
-def detect_objects_by_color(image: cv2.typing.MatLike):
-    # hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
+# TODO: consider to export this one to some external file
+def detect_objects_by_color(image: cv2.typing.MatLike, color_map: Dict[str, NormalizedRGB]) -> List[VisualObject]:
     detected_objects = []
 
-    # for object_name, (lower, upper) in COLOR_RANGES.items():
-    for object_name, color_tuple in COLOR_RANGES.items():
+    for object_name, color_tuple in color_map.items():
         # Create a mask for the current color range
-        # mask = cv2.inRange(hsv_image, lower, upper)
         full_rgb_tuple = to_int_rgb(color_tuple)
-        mask = find_exact_rgb_color_mask_with_compare(image, full_rgb_tuple)
+        mask = find_exact_rgb_color_mask(image, full_rgb_tuple)
 
         # Find contours for the masked region
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -122,8 +125,8 @@ def detect_objects_by_color(image: cv2.typing.MatLike):
             # Save detected object info
             detected_objects.append(
                 VisualObject(
-                    obj_type=object_name.split('_')[1],
-                    color=object_name.split('_')[0],
+                    obj_type=object_name.split(':')[1],
+                    name=object_name.split(':')[0],
                     x_anchor=x,
                     y_anchor=y,
                     width=w,
@@ -134,12 +137,13 @@ def detect_objects_by_color(image: cv2.typing.MatLike):
     return detected_objects
 
 
-def draw_objects(image: cv2.typing.MatLike, detected_objects: List[VisualObject]):
+# TODO: extract to drawing file, this is general to objects (and specifically bounding boxes) and not specific to blocks
+def draw_objects(image: cv2.typing.MatLike, objects: List[VisualObject]):
     image_copy = image.copy()
 
-    for obj in detected_objects:
+    for obj in objects:
         x_anchor, y_anchor, width, height = obj.bounding_box.decompose()
-        color, obj_type, label = (obj.color, obj.obj_type, obj.label)
+        name, obj_type, label = (obj.name, obj.obj_type, obj.label)
 
         font_scale = min(width, height) / 100  # Scale font based on box size
         text_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
@@ -168,7 +172,7 @@ different objects:
 # TODO: format and test later
 """
 
-
+# TODO: for all predicates, see if we can export to spatial_relation file (as all of them should relate to relations between bounding box and not for blocks specifically
 # Function to check if box1 is on top of box2
 def is_on_top(obj1: VisualObject, obj2: VisualObject, threshold=10):
     """
@@ -245,53 +249,55 @@ def is_holding(robot:VisualObject, block: VisualObject):
             robot.bounding_box.intersects(block.bounding_box))
 
 
-# Run the color-based detection pipeline
-image_path = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/fluent_classification/images/state_0009.png"  # Path to the uploaded image
-image = cv2.imread(image_path) # in BGR format
+if __name__ == "__main__":
+    # Run the color-based detection pipeline
+    image_path = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/fluent_classification/images/state_0008.png"  # Path to the uploaded image
+    image = cv2.imread(image_path) # in BGR format
 
-detected_objects = detect_objects_by_color(image)
-detected_objects = {obj.label: obj for obj in detected_objects}
+    detected_objects = detect_objects_by_color(image, COLOR_MAP)
+    detected_objects = {obj.label: obj for obj in detected_objects}
 
-# Print detected objects information
-for obj in detected_objects.values():
-    print(f"Detected a {obj.label} at {obj.bounding_box.decompose()}")
+    # Print detected objects information
+    for obj in detected_objects.values():
+        print(f"Detected a {obj.label} at {obj.bounding_box.decompose()}")
 
 
-"""
-Testing predicates on picture 0008
-"""
+    # TODO: export the tests to some testing infrastructure (for a start, export to a different file)
+    """
+    Testing predicates on picture 0008
+    """
 
-# is_on_top tests
-assert is_on_top(detected_objects["blue:block"], detected_objects["cyan:block"])
-assert not is_on_top(detected_objects["cyan:block"], detected_objects["blue:block"])  # extreme case: blocks are touching but the second is on the first, so the function should fail
-assert not is_on_top(detected_objects["red:block"], detected_objects["cyan:block"])
-assert not is_on_top(detected_objects["green:block"], detected_objects["cyan:block"])  # extreme case: the block held by the robot is never placed on top of any other block
-assert not is_on_top(detected_objects["cyan:block"], detected_objects["cyan:block"])  # extreme case: a block cannot be on top of itself
+    # is_on_top tests
+    assert is_on_top(detected_objects["blue:block"], detected_objects["cyan:block"])
+    assert not is_on_top(detected_objects["cyan:block"], detected_objects["blue:block"])  # extreme case: blocks are touching but the second is on the first, so the function should fail
+    assert not is_on_top(detected_objects["red:block"], detected_objects["cyan:block"])
+    assert not is_on_top(detected_objects["green:block"], detected_objects["cyan:block"])  # extreme case: the block held by the robot is never placed on top of any other block
+    assert not is_on_top(detected_objects["cyan:block"], detected_objects["cyan:block"])  # extreme case: a block cannot be on top of itself
 
-# is_clear_tests
-# TODO: add tests for cases in which at least one of the object is not a box
-assert is_clear(detected_objects["blue:block"], list(detected_objects.values()))
-assert not is_clear(detected_objects["red:block"], list(detected_objects.values()))
-assert is_clear(detected_objects["green:block"], list(detected_objects.values()))  # extreme case: for the box being held by the robot
-assert is_clear(detected_objects["gray:robot"], list(detected_objects.values()))  # extreme case: the object is not a box
+    # is_clear_tests
+    # TODO: add tests for cases in which at least one of the object is not a box
+    assert is_clear(detected_objects["blue:block"], list(detected_objects.values()))
+    assert not is_clear(detected_objects["red:block"], list(detected_objects.values()))
+    assert is_clear(detected_objects["green:block"], list(detected_objects.values()))  # extreme case: for the box being held by the robot
+    assert is_clear(detected_objects["gray:robot"], list(detected_objects.values()))  # extreme case: the object is not a box
 
-# is_on_table tests
-assert is_on_table(detected_objects["red:block"], detected_objects["brown:table"])
-assert is_on_table(detected_objects["pink:block"], detected_objects["brown:table"])
-assert not is_on_table(detected_objects["yellow:block"], detected_objects["brown:table"])
-assert not is_on_table(detected_objects["green:block"], detected_objects["brown:table"])
-assert not is_on_table(detected_objects["brown:table"], detected_objects["brown:table"])  # extreme case: table related to itself (should be validated in the function itself that the first object is a block
+    # is_on_table tests
+    assert is_on_table(detected_objects["red:block"], detected_objects["brown:table"])
+    assert is_on_table(detected_objects["pink:block"], detected_objects["brown:table"])
+    assert not is_on_table(detected_objects["yellow:block"], detected_objects["brown:table"])
+    assert not is_on_table(detected_objects["green:block"], detected_objects["brown:table"])
+    assert not is_on_table(detected_objects["brown:table"], detected_objects["brown:table"])  # extreme case: table related to itself (should be validated in the function itself that the first object is a block
 
-# handempty tests
-assert not is_handempty(detected_objects["gray:robot"], list(detected_objects.values()))
+    # handempty tests
+    assert not is_handempty(detected_objects["gray:robot"], list(detected_objects.values()))
 
-# handfull tests
-assert is_handfull(detected_objects["gray:robot"], list(detected_objects.values()))
+    # handfull tests
+    assert is_handfull(detected_objects["gray:robot"], list(detected_objects.values()))
 
-# is_holding tests
-assert is_holding(detected_objects["gray:robot"], detected_objects["green:block"])
-assert not is_holding(detected_objects["gray:robot"], detected_objects["cyan:block"])
-assert not is_holding(detected_objects["gray:robot"], detected_objects["gray:robot"])  # extreme case: the robot could not hold itself
+    # is_holding tests
+    assert is_holding(detected_objects["gray:robot"], detected_objects["green:block"])
+    assert not is_holding(detected_objects["gray:robot"], detected_objects["cyan:block"])
+    assert not is_holding(detected_objects["gray:robot"], detected_objects["gray:robot"])  # extreme case: the robot could not hold itself
 
-print(json.dumps(get_image_predicates(image), indent=4))
-draw_objects(image, list(detected_objects.values()))
+    print(json.dumps(get_image_predicates(image, COLOR_MAP), indent=4))
+    draw_objects(image, list(detected_objects.values()))

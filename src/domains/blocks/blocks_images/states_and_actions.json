@@ -2,111 +2,107 @@
     {
         "step": 0,
         "action": "initial_state",
-        "state": "State(literals=frozenset({handfull(robot:robot), on(b:block,c:block), on(e:block,f:block), on(d:block,e:block), on(c:block,d:block), holding(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+        "state": "State(literals=frozenset({on(c:block,d:block), on(d:block,e:block), on(b:block,c:block), handfull(robot:robot), holding(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
     },
     {
         "step": 1,
-        "current_state": "State(literals=frozenset({handfull(robot:robot), on(b:block,c:block), on(e:block,f:block), on(d:block,e:block), on(c:block,d:block), holding(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
+        "current_state": "State(literals=frozenset({on(c:block,d:block), on(d:block,e:block), on(b:block,c:block), handfull(robot:robot), holding(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
         "ground_action": "putdown(a:block)",
         "operator_object_assignment": {
             "?x": "a",
             "?robot": "robot"
         },
         "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        "ground_resulted_state": "State(literals=frozenset({on(b:block,c:block), on(e:block,f:block), clear(a:block), on(d:block,e:block), handempty(robot:robot), on(c:block,d:block), ontable(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+        "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), on(d:block,e:block), on(b:block,c:block), handempty(robot:robot), clear(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
     },
     {
         "step": 2,
-        "current_state": "State(literals=frozenset({on(b:block,c:block), on(e:block,f:block), clear(a:block), on(d:block,e:block), handempty(robot:robot), on(c:block,d:block), ontable(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
-        "ground_action": "unstack(b:block)",
-        "operator_object_assignment": {
-            "?x": "b",
-            "?robot": "robot",
-            "?y": "c"
-        },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        "ground_resulted_state": "State(literals=frozenset({handfull(robot:robot), on(e:block,f:block), clear(c:block), clear(a:block), holding(b:block), on(d:block,e:block), on(c:block,d:block), ontable(a:block), ontable(f:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
-    },
-    {
-        "step": 3,
-        "current_state": "State(literals=frozenset({handfull(robot:robot), on(e:block,f:block), clear(c:block), clear(a:block), holding(b:block), on(d:block,e:block), on(c:block,d:block), ontable(a:block), ontable(f:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
-        "ground_action": "stack(b:block,c:block)",
-        "operator_object_assignment": {
-            "?x": "b",
-            "?y": "c",
-            "?robot": "robot"
-        },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        "ground_resulted_state": "State(literals=frozenset({on(b:block,c:block), on(e:block,f:block), clear(a:block), on(d:block,e:block), handempty(robot:robot), on(c:block,d:block), ontable(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
-    },
-    {
-        "step": 4,
-        "current_state": "State(literals=frozenset({on(b:block,c:block), on(e:block,f:block), clear(a:block), on(d:block,e:block), handempty(robot:robot), on(c:block,d:block), ontable(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
-        "ground_action": "unstack(b:block)",
-        "operator_object_assignment": {
-            "?x": "b",
-            "?robot": "robot",
-            "?y": "c"
-        },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        "ground_resulted_state": "State(literals=frozenset({handfull(robot:robot), on(e:block,f:block), clear(c:block), clear(a:block), holding(b:block), on(d:block,e:block), on(c:block,d:block), ontable(a:block), ontable(f:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
-    },
-    {
-        "step": 5,
-        "current_state": "State(literals=frozenset({handfull(robot:robot), on(e:block,f:block), clear(c:block), clear(a:block), holding(b:block), on(d:block,e:block), on(c:block,d:block), ontable(a:block), ontable(f:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
-        "ground_action": "stack(b:block,a:block)",
-        "operator_object_assignment": {
-            "?x": "b",
-            "?y": "a",
-            "?robot": "robot"
-        },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        "ground_resulted_state": "State(literals=frozenset({on(e:block,f:block), clear(c:block), on(b:block,a:block), on(d:block,e:block), handempty(robot:robot), on(c:block,d:block), ontable(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
-    },
-    {
-        "step": 6,
-        "current_state": "State(literals=frozenset({on(e:block,f:block), clear(c:block), on(b:block,a:block), on(d:block,e:block), handempty(robot:robot), on(c:block,d:block), ontable(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
-        "ground_action": "unstack(b:block)",
-        "operator_object_assignment": {
-            "?x": "b",
-            "?robot": "robot",
-            "?y": "a"
-        },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        "ground_resulted_state": "State(literals=frozenset({handfull(robot:robot), on(e:block,f:block), clear(c:block), holding(b:block), clear(a:block), on(d:block,e:block), on(c:block,d:block), ontable(a:block), ontable(f:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
-    },
-    {
-        "step": 7,
-        "current_state": "State(literals=frozenset({handfull(robot:robot), on(e:block,f:block), clear(c:block), holding(b:block), clear(a:block), on(d:block,e:block), on(c:block,d:block), ontable(a:block), ontable(f:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
-        "ground_action": "stack(b:block,c:block)",
-        "operator_object_assignment": {
-            "?x": "b",
-            "?y": "c",
-            "?robot": "robot"
-        },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        "ground_resulted_state": "State(literals=frozenset({on(b:block,c:block), on(e:block,f:block), clear(a:block), on(d:block,e:block), handempty(robot:robot), on(c:block,d:block), ontable(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
-    },
-    {
-        "step": 8,
-        "current_state": "State(literals=frozenset({on(b:block,c:block), on(e:block,f:block), clear(a:block), on(d:block,e:block), handempty(robot:robot), on(c:block,d:block), ontable(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
+        "current_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), on(d:block,e:block), on(b:block,c:block), handempty(robot:robot), clear(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
         "ground_action": "pickup(a:block)",
         "operator_object_assignment": {
             "?x": "a",
             "?robot": "robot"
         },
         "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        "ground_resulted_state": "State(literals=frozenset({handfull(robot:robot), on(b:block,c:block), on(e:block,f:block), on(d:block,e:block), on(c:block,d:block), holding(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+        "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), on(d:block,e:block), on(b:block,c:block), handfull(robot:robot), holding(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
     },
     {
-        "step": 9,
-        "current_state": "State(literals=frozenset({handfull(robot:robot), on(b:block,c:block), on(e:block,f:block), on(d:block,e:block), on(c:block,d:block), holding(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
+        "step": 3,
+        "current_state": "State(literals=frozenset({on(c:block,d:block), on(d:block,e:block), on(b:block,c:block), handfull(robot:robot), holding(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
         "ground_action": "putdown(a:block)",
         "operator_object_assignment": {
             "?x": "a",
             "?robot": "robot"
         },
         "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        "ground_resulted_state": "State(literals=frozenset({on(b:block,c:block), on(e:block,f:block), clear(a:block), on(d:block,e:block), handempty(robot:robot), on(c:block,d:block), ontable(a:block), ontable(f:block), clear(b:block)}), objects=frozenset({a:block, f:block, d:block, c:block, b:block, e:block, robot:robot}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+        "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), on(d:block,e:block), on(b:block,c:block), handempty(robot:robot), clear(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 4,
+        "current_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), on(d:block,e:block), on(b:block,c:block), handempty(robot:robot), clear(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
+        "ground_action": "unstack(b:block)",
+        "operator_object_assignment": {
+            "?x": "b",
+            "?robot": "robot",
+            "?y": "c"
+        },
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), holding(b:block), on(d:block,e:block), clear(a:block), clear(c:block), handfull(robot:robot), on(e:block,f:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 5,
+        "current_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), holding(b:block), on(d:block,e:block), clear(a:block), clear(c:block), handfull(robot:robot), on(e:block,f:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
+        "ground_action": "stack(b:block,c:block)",
+        "operator_object_assignment": {
+            "?x": "b",
+            "?y": "c",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), on(d:block,e:block), on(b:block,c:block), handempty(robot:robot), clear(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 6,
+        "current_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), on(d:block,e:block), on(b:block,c:block), handempty(robot:robot), clear(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
+        "ground_action": "pickup(a:block)",
+        "operator_object_assignment": {
+            "?x": "a",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), on(d:block,e:block), on(b:block,c:block), handfull(robot:robot), holding(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 7,
+        "current_state": "State(literals=frozenset({on(c:block,d:block), on(d:block,e:block), on(b:block,c:block), handfull(robot:robot), holding(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
+        "ground_action": "putdown(a:block)",
+        "operator_object_assignment": {
+            "?x": "a",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), on(d:block,e:block), on(b:block,c:block), handempty(robot:robot), clear(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 8,
+        "current_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), on(d:block,e:block), on(b:block,c:block), handempty(robot:robot), clear(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
+        "ground_action": "pickup(a:block)",
+        "operator_object_assignment": {
+            "?x": "a",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), on(d:block,e:block), on(b:block,c:block), handfull(robot:robot), holding(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+    },
+    {
+        "step": 9,
+        "current_state": "State(literals=frozenset({on(c:block,d:block), on(d:block,e:block), on(b:block,c:block), handfull(robot:robot), holding(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
+        "ground_action": "putdown(a:block)",
+        "operator_object_assignment": {
+            "?x": "a",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), ontable(a:block), on(d:block,e:block), on(b:block,c:block), handempty(robot:robot), clear(a:block), on(e:block,f:block), clear(b:block), ontable(f:block)}), objects=frozenset({robot:robot, f:block, c:block, e:block, b:block, d:block, a:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
     }
 ]
