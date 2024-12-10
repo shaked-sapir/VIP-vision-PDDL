@@ -226,7 +226,7 @@ if __name__ == "__main__":
     # TODO: establish a connection between the trajectory and the problem it was created from (needed for proper object mapping)
     # Create Observation object from the trajectory
     pddl_plus_domain: Domain = DomainParser(Path("../domains/blocks/blocks.pddl")).parse_domain()
-    pddl_plus_problem: Problem = ProblemParser(Path("../domains/blocks/problem9.pddl"),
+    pddl_plus_problem: Problem = ProblemParser(Path("../domains/blocks/problems/problem9.pddl"),
                                                pddl_plus_domain).parse_problem()
     observation: Observation = create_observation_from_trajectory(example_trajectory, pddl_plus_domain,
                                                                   pddl_plus_problem)

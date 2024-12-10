@@ -25,7 +25,7 @@ pplus_blocks_actions = {action_name: str(action.preconditions) for action_name, 
 print(f"parsed domain actions: {pplus_blocks_actions}")
 print(f"parsed domain predicates: {pddl_plus_blocks_domain.predicates}")
 print("------------------------------------")
-pddl_plus_blocks_problem_9 = ProblemParser(Path("problem9.pddl"), pddl_plus_blocks_domain).parse_problem()
+pddl_plus_blocks_problem_9 = ProblemParser(Path("problems/problem9.pddl"), pddl_plus_blocks_domain).parse_problem()
 print(f"parsed problem 09: {pddl_plus_blocks_problem_9}")
 print(f"problem 09 objects: {pddl_plus_blocks_problem_9.objects}")
 print("------------------------------------")

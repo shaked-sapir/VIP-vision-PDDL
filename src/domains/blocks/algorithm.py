@@ -7,7 +7,7 @@ import cv2
 from PIL import Image
 
 import pddlgym
-from pddlgym.core import _select_operator
+from pddlgym.core import _select_operator, PDDLEnv
 from pddlgym.rendering.blocks import _block_name_to_color
 
 from src.action_model.GYM2SAM_parser import create_observation_from_trajectory
@@ -63,23 +63,39 @@ def create_imaged_trajectory_info(ground_actions: List[str], object_name_to_colo
     return imaged_trajectory_info
 
 
-def alg(num_steps=1000):
+BLOCKS_DOMAIN_FILE_PATH = Path("blocks.pddl")
+BLOCKS_PROBLEM_DIR_PATH = Path("problems")
+
+
+def set_problem_by_name(pddl_env: PDDLEnv, problem_name: str):
+    # Ensure the problem name ends with '.pddl'
+    if not problem_name.endswith('.pddl'):
+        problem_name += '.pddl'
+    # Find the index of the problem with the given name
+    for idx, prob in enumerate(pddl_env.problems):
+        if prob.problem_fname.endswith(problem_name):
+            pddl_env.fix_problem_index(idx)
+            return
+    raise ValueError(f"Problem '{problem_name}' not found in the problem list of the environment you provided.")
+
+def alg(num_steps: int, output_dir: Path, problem_name: str):
     """
     This the main workflow of predicates classification within an image in the blocks world.
-    :param problem: the problem instance we desire to make trajectory from
-    :param num_steps: the number of steps we want to have for the trajectory
+    :param num_steps: the number of steps we want to have for the trajectory\
+    :param output_dir: the output directory name we want to save the images to
+    :param problem: the problem instance we desire to make trajectory from #TODO: find a way to make the problem injectable
     :return:
     """
 
     print("alg started")
-    #TODO: check how to apply for a specific problem file so we can use it later as a param to the Observation creation
     env = pddlgym.make("PDDLEnvBlocks-v0")
+    set_problem_by_name(env, problem_name)
 
     obs, info = env.reset()
+
     new_obs = obs
 
     # Create a directory to save images if it does not exist
-    output_dir = "blocks_images"
     os.makedirs(output_dir, exist_ok=True)
 
     # Create a file to save states and actions
@@ -150,9 +166,9 @@ def alg(num_steps=1000):
 
     print(f"Object name to color map: {object_name_to_color}")
 
-    pddl_plus_blocks_domain: Domain = DomainParser(Path("../blocks.pddl")).parse_domain()
-    pddl_plus_blocks_problem: Problem = ProblemParser(Path("../problem9.pddl"),
-                                               pddl_plus_blocks_domain).parse_problem()
+    pddl_plus_blocks_domain: Domain = DomainParser(BLOCKS_DOMAIN_FILE_PATH).parse_domain()
+    pddl_plus_blocks_problem: Problem = ProblemParser(Path(f"{BLOCKS_PROBLEM_DIR_PATH}/problem9.pddl"),
+                                                      pddl_plus_blocks_domain).parse_problem()
     GT_observation: Observation = create_observation_from_trajectory(states_and_actions, pddl_plus_blocks_domain,
                                                                   pddl_plus_blocks_problem)
 
@@ -174,5 +190,6 @@ def alg(num_steps=1000):
 
     print("*****************************")
 
+
 if __name__ == "__main__":
-    alg(num_steps=15)
+    alg(num_steps=15, output_dir=Path("blocks_images"), problem_name='problem3')
