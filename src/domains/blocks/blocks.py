@@ -32,12 +32,13 @@ print("------------------------------------")
 print(f"env domain predicates: {env.domain.predicates}")
 print(f"info: {info}")
 print(f"obs: {obs}")
-
 print("-----------------")
 
 for i, lit in enumerate(obs.literals):
     print(f"lit {i}: {lit}")
     print(f"lit variables: {[lit.variables[j] for j in range(len(lit.variables))]}")
+    print(f"is literal negative? : {lit.is_negative}")
+    print(f"negative form: {lit.negative}")
     # print(f"color: {block_name_to_color(lit.variables[0])}")
     # print(f"color: {block_name_to_color(lit.variables[0].split(':')[0])}")
     print("@@@@@")
@@ -69,6 +70,7 @@ for i in range(1, 10):
     print(f"block colors: {_block_name_to_color}")
     print(f"colored objects: {list(_block_name_to_color.keys())}")
     print(f"colored objects name types: {[type(name) for name in list(_block_name_to_color.keys())]}")
+    print(f"colored objects color types: {[type(color) for color in list(_block_name_to_color.values())]}")
     print(f"colored objects struct names: {[str(obj) for obj in list(_block_name_to_color.keys())]}")
     print(f"is f:block in colors: {'f:block' in list(_block_name_to_color.keys())}")
     print(f"is f:block in str colors: {'f:block' in str_block_name_to_color}")

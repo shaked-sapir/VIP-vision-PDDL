@@ -1,6 +1,6 @@
- from collections import defaultdict
+from collections import defaultdict
 from pathlib import Path
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Set, Tuple, Any
 
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser
 from pddl_plus_parser.models import (
@@ -51,26 +51,43 @@ def parse_grounded_predicates(grounded_predicate_strs: List[str], pddl_domain: D
         grounded_predicates.add(
             GroundedPredicate(name=predicate_name,
                               signature=lifted_predicate_signature,
-                              object_mapping=predicate_object_mapping)
+                              object_mapping=predicate_object_mapping,
+                              is_positive='Not' not in predicate_str)
         )
     return grounded_predicates
 
 
 def group_predicates_by_name(predicates: Set[GroundedPredicate]) -> Dict[str, Set[GroundedPredicate]]:
     grouped_predicates = defaultdict(set)
-    [grouped_predicates[obj.name].add(obj) for obj in predicates]
+    [grouped_predicates[predicate.name].add(predicate) for predicate in predicates]
 
     return grouped_predicates
 
 
-def parse_gym_state(gym_state_str: str, is_initial: bool, pddl_domain: Domain) -> State:
+# def parse_gym_state(gym_state_str: str, is_initial: bool, pddl_domain: Domain) -> State:
+#     """Parse a state string into a State object."""
+#     # Extract literals
+#     literals_part: str = gym_state_str.split("literals=frozenset({")[1].split("}),")[0]
+#     literals: List[str] = literals_part.split(", ")
+#
+#     # Parse grounded predicates
+#     grounded_predicates: Set[GroundedPredicate] = parse_grounded_predicates(literals, pddl_domain)
+#     grouped_predicates: Dict[str, Set[GroundedPredicate]] = group_predicates_by_name(grounded_predicates)
+#
+#     # Create and return the State object
+#     return State(
+#         is_init=is_initial,
+#         predicates=grouped_predicates,
+#         fluents={}
+#     )
+def parse_gym_state(state: Dict[str, List], is_initial: bool, pddl_domain: Domain) -> State:
     """Parse a state string into a State object."""
     # Extract literals
-    literals_part: str = gym_state_str.split("literals=frozenset({")[1].split("}),")[0]
-    literals: List[str] = literals_part.split(", ")
+    # literals_part: str = gym_state_str.split("literals=frozenset({")[1].split("}),")[0]
+    state_literals: List[str] = state["literals"]
 
     # Parse grounded predicates
-    grounded_predicates: Set[GroundedPredicate] = parse_grounded_predicates(literals, pddl_domain)
+    grounded_predicates: Set[GroundedPredicate] = parse_grounded_predicates(state_literals, pddl_domain)
     grouped_predicates: Dict[str, Set[GroundedPredicate]] = group_predicates_by_name(grounded_predicates)
 
     # Create and return the State object
@@ -103,8 +120,10 @@ def create_observation_from_trajectory(trajectory: List[Dict], pddl_domain: Doma
 
     for step in trajectory:
         # Parse current and resulted states
-        current_state = parse_gym_state(step["current_state"], is_initial=(step["step"] == 0), pddl_domain=pddl_domain)
-        resulted_state = parse_gym_state(step["ground_resulted_state"], is_initial=False, pddl_domain=pddl_domain)
+        # current_state = parse_gym_state(step["current_state"], is_initial=(step["step"] == 0), pddl_domain=pddl_domain) # TODO: fix this after the general form of the steps
+        # resulted_state = parse_gym_state(step["groent_state"], is_initial=(step["step"] == 0), pddl_domain=pddl_domain) # TODO: fix this after the general form of the steps
+        current_state = parse_gym_state(step["current_state"], is_initial=(step["step"] == 1), pddl_domain=pddl_domain) # TODO: fix this after the general form of the steps
+        resulted_state = parse_gym_state(step["next_state"], is_initial=False, pddl_domain=pddl_domain)
 
         # Parse action call
         action_call = parse_action_call(step["ground_action"])
@@ -120,28 +139,98 @@ def create_observation_from_trajectory(trajectory: List[Dict], pddl_domain: Doma
     return observation
 
 
-# Example trajectory data
-example_trajectory = [
-    {
-        "step": 0,
-        "current_state": "State(literals=frozenset({ontable(f:block), on(b:block,c:block), clear(b:block), holding(a:block), on(c:block,d:block), on(e:block,f:block), on(d:block,e:block), handfull(robot:robot)}), objects=frozenset({e:block, robot:robot, b:block, a:block, c:block, d:block, f:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
-        "ground_action": "putdown(a:block)",
-        "operator_object_assignment": {
-            "?x": "a",
-            "?robot": "robot"
-        },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), ontable(f:block), handempty(robot:robot), ontable(a:block), on(b:block,c:block), on(e:block,f:block), clear(b:block), on(d:block,e:block), clear(a:block)}), objects=frozenset({f:block, c:block, b:block, robot:robot, e:block, a:block, d:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
-    }
-]
+if __name__ == "__main__":
+    print("gym2sam_parser.py")
+    # Example trajectory data
+    example_trajectory = [
+        # {
+        #     "step": 0,
+        #     "current_state": "State(literals=frozenset({ontable(f:block), on(b:block,c:block), clear(b:block), holding(a:block), on(c:block,d:block), on(e:block,f:block), on(d:block,e:block), handfull(robot:robot)}), objects=frozenset({e:block, robot:robot, b:block, a:block, c:block, d:block, f:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
+        #     "ground_action": "putdown(a:block)",
+        #     "operator_object_assignment": {
+        #         "?x": "a",
+        #         "?robot": "robot"
+        #     },
+        #     "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        #     "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), ontable(f:block), handempty(robot:robot), ontable(a:block), on(b:block,c:block), on(e:block,f:block), clear(b:block), on(d:block,e:block), clear(a:block)}), objects=frozenset({f:block, c:block, b:block, robot:robot, e:block, a:block, d:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
+        # }
+        {
+            "step": 1,
+            "current_state": {
+                "literals": [
+                    "on(d:block,e:block)",
+                    "ontable(f:block)",
+                    "holding(a:block)",
+                    "handfull(robot:robot)",
+                    "on(c:block,d:block)",
+                    "clear(b:block)",
+                    "on(e:block,f:block)",
+                    "on(b:block,c:block)"
+                ],
+                "objects": [
+                    "c:block",
+                    "a:block",
+                    "e:block",
+                    "b:block",
+                    "robot:robot",
+                    "d:block",
+                    "f:block"
+                ],
+                "goal": [
+                    "on(b:block,c:block)",
+                    "on(c:block,d:block)",
+                    "on(d:block,e:block)",
+                    "on(e:block,f:block)",
+                    "on(f:block,a:block)"
+                ]
+            },
+            "ground_action": "stack(a:block,b:block)",
+            "operator_object_assignment": {
+                "?x": "a",
+                "?y": "b",
+                "?robot": "robot"
+            },
+            "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+            "ground_resulted_state": {
+                "literals": [
+                    "on(d:block,e:block)",
+                    "ontable(f:block)",
+                    "on(a:block,b:block)",
+                    "on(c:block,d:block)",
+                    "handempty(robot:robot)",
+                    "clear(a:block)",
+                    "on(e:block,f:block)",
+                    "on(b:block,c:block)"
+                ],
+                "objects": [
+                    "c:block",
+                    "a:block",
+                    "e:block",
+                    "b:block",
+                    "robot:robot",
+                    "d:block",
+                    "f:block"
+                ],
+                "goal": [
+                    "on(b:block,c:block)",
+                    "on(c:block,d:block)",
+                    "on(d:block,e:block)",
+                    "on(e:block,f:block)",
+                    "on(f:block,a:block)"
+                ]
+            }
+        }
+    ]
 
-# TODO: this part is only an example, should be generalized later
-# TODO: establish a connection between the trajectory and the problem it was created from (needed for proper object mapping)
-# Create Observation object from the trajectory
-pddl_plus_domain: Domain = DomainParser(Path("../domains/blocks/blocks.pddl")).parse_domain()
-pddl_plus_problem: Problem = ProblemParser(Path("../domains/blocks/problem9.pddl"), pddl_plus_domain).parse_problem()
-observation: Observation = create_observation_from_trajectory(example_trajectory, pddl_plus_domain, pddl_plus_problem)
+    # TODO: this part is only an example, should be generalized later
+    # TODO: establish a connection between the trajectory and the problem it was created from (needed for proper object mapping)
+    # Create Observation object from the trajectory
+    pddl_plus_domain: Domain = DomainParser(Path("../domains/blocks/blocks.pddl")).parse_domain()
+    pddl_plus_problem: Problem = ProblemParser(Path("../domains/blocks/problem9.pddl"),
+                                               pddl_plus_domain).parse_problem()
+    observation: Observation = create_observation_from_trajectory(example_trajectory, pddl_plus_domain,
+                                                                  pddl_plus_problem)
 
-# Output the resulting Observation object
-for component in observation.components:
-    print(str(component))
+    # Output the resulting Observation object
+    for component in observation.components:
+        print(str(component))
