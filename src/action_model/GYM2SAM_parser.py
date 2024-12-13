@@ -41,7 +41,6 @@ def convert_grounded_to_lifted(grounded_predicate_str: str, pddl_domain: Domain)
     return predicate_name, lifted_signature, object_mapping
 
 
-# TODO: fix this properly tomorrow.
 def parse_grounded_predicates(grounded_predicate_strs: List[str], pddl_domain: Domain) -> Set[GroundedPredicate]:
     """Parse a list of grounded literals into a set of GroundedPredicate objects."""
     grounded_predicates = set()
@@ -64,26 +63,9 @@ def group_predicates_by_name(predicates: Set[GroundedPredicate]) -> Dict[str, Se
     return grouped_predicates
 
 
-# def parse_gym_state(gym_state_str: str, is_initial: bool, pddl_domain: Domain) -> State:
-#     """Parse a state string into a State object."""
-#     # Extract literals
-#     literals_part: str = gym_state_str.split("literals=frozenset({")[1].split("}),")[0]
-#     literals: List[str] = literals_part.split(", ")
-#
-#     # Parse grounded predicates
-#     grounded_predicates: Set[GroundedPredicate] = parse_grounded_predicates(literals, pddl_domain)
-#     grouped_predicates: Dict[str, Set[GroundedPredicate]] = group_predicates_by_name(grounded_predicates)
-#
-#     # Create and return the State object
-#     return State(
-#         is_init=is_initial,
-#         predicates=grouped_predicates,
-#         fluents={}
-#     )
 def parse_gym_state(state: Dict[str, List], is_initial: bool, pddl_domain: Domain) -> State:
     """Parse a state string into a State object."""
     # Extract literals
-    # literals_part: str = gym_state_str.split("literals=frozenset({")[1].split("}),")[0]
     state_literals: List[str] = state["literals"]
 
     # Parse grounded predicates
@@ -112,30 +94,23 @@ def parse_action_call(action_string: str) -> ActionCall:
 
 def create_observation_from_trajectory(trajectory: List[Dict], pddl_domain: Domain,
                                        pddl_problem: Problem) -> Observation:
-    """Create an Observation object from a trajectory."""
 
     object_mapping = pddl_problem.objects
     observation = Observation()
     observation.add_problem_objects(object_mapping)
 
     for step in trajectory:
-        # Parse current and resulted states
-        # current_state = parse_gym_state(step["current_state"], is_initial=(step["step"] == 0), pddl_domain=pddl_domain) # TODO: fix this after the general form of the steps
-        # resulted_state = parse_gym_state(step["groent_state"], is_initial=(step["step"] == 0), pddl_domain=pddl_domain) # TODO: fix this after the general form of the steps
         current_state = parse_gym_state(step["current_state"], is_initial=(step["step"] == 1), pddl_domain=pddl_domain) # TODO: fix this after the general form of the steps
         resulted_state = parse_gym_state(step["next_state"], is_initial=False, pddl_domain=pddl_domain)
 
-        # Parse action call
         action_call = parse_action_call(step["ground_action"])
 
-        # Add ObservedComponent
         observation.add_component(
             previous_state=current_state,
             call=action_call,
             next_state=resulted_state
         )
 
-    # Create and return the Observation object
     return observation
 
 
@@ -143,17 +118,6 @@ if __name__ == "__main__":
     print("gym2sam_parser.py")
     # Example trajectory data
     example_trajectory = [
-        # {
-        #     "step": 0,
-        #     "current_state": "State(literals=frozenset({ontable(f:block), on(b:block,c:block), clear(b:block), holding(a:block), on(c:block,d:block), on(e:block,f:block), on(d:block,e:block), handfull(robot:robot)}), objects=frozenset({e:block, robot:robot, b:block, a:block, c:block, d:block, f:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])",
-        #     "ground_action": "putdown(a:block)",
-        #     "operator_object_assignment": {
-        #         "?x": "a",
-        #         "?robot": "robot"
-        #     },
-        #     "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-        #     "ground_resulted_state": "State(literals=frozenset({on(c:block,d:block), ontable(f:block), handempty(robot:robot), ontable(a:block), on(b:block,c:block), on(e:block,f:block), clear(b:block), on(d:block,e:block), clear(a:block)}), objects=frozenset({f:block, c:block, b:block, robot:robot, e:block, a:block, d:block}), goal=AND[on(b:block,c:block), on(c:block,d:block), on(d:block,e:block), on(e:block,f:block), on(f:block,a:block)])"
-        # }
         {
             "step": 1,
             "current_state": {
