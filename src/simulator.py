@@ -2,7 +2,7 @@ from typing import List, Sequence
 
 from src.action_model.action_model import ActionModel
 from src.fluent_classification.fluent_mapping import FluentMapping
-from src.trajectory_handlers.baseline_image_trajectory_handler import BaselineImageTrajectoryHandler
+from src.trajectory_handlers.image_trajectory_handler import ImageTrajectoryHandler
 from src.types import State, Image, StateActionTriplet, ImageStatePair, ImageActionTriplet, Action
 
 
@@ -123,7 +123,7 @@ def learn_action_model(initial_state: State, video_path: str, action_stream: Seq
     action_model: ActionModel = get_initial_action_model()
     fluent_mapping: FluentMapping = learn_fluents()
     action_model_changes = True
-    trajectory_handler: BaselineImageTrajectoryHandler = BaselineImageTrajectoryHandler()
+    trajectory_handler: ImageTrajectoryHandler = ImageTrajectoryHandler()
 
     # TODO:  stick to the convention of sequence instead of list, as the resulted sequences should be read-only
     T_img: Sequence[ImageActionTriplet] = trajectory_handler.build_trajectory(image_stream, action_stream)

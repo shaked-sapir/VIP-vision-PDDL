@@ -30,8 +30,10 @@ print(f"parsed problem 09: {pddl_plus_blocks_problem_9}")
 print(f"problem 09 objects: {pddl_plus_blocks_problem_9.objects}")
 print("------------------------------------")
 print(f"env domain predicates: {env.domain.predicates}")
+print(f"env operators: {env.domain.operators}")
 print(f"info: {info}")
 print(f"obs: {obs}")
+print(f"obs type: {type(obs)}")
 print("-----------------")
 
 for i, lit in enumerate(obs.literals):
@@ -85,8 +87,9 @@ for i in range(1, 10):
         new_obs = env.step(action)[0] # new_obs holds the "next_state", i.e. the state resulting in executing the action
 
     # obs = new_obs
-    print(type(env.domain.operators['pick-up']))
-    print(type(action))
+    print(f"action: {action}")
+    print(f"action-predicate-name: {action.predicate.name}")
+    print(f"type_of_action: {type(action)}")
     print(env.domain.operators["pick-up"])
     print(env.domain.operators["pick-up"].preconds)
     print(f"operator preconds: {type(env.domain.operators['pick-up'].preconds)}")
