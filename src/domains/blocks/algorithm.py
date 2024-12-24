@@ -39,8 +39,8 @@ def is_positive_gym_predicate(predicate_str: str) -> bool:
     return NEGATION_PREFIX not in predicate_str
 
 
-def create_imaged_trajectory_info(images_path: Path, ground_actions: List[str], object_name_to_color: Dict[str, str]):
-    imaged_trajectory_info = []
+def create_imaged_trajectory(images_path: Path, ground_actions: List[str], object_name_to_color: Dict[str, str]):
+    imaged_trajectory = []
     for i, action in enumerate(ground_actions):
         current_state_image = cv2.imread(f"{images_path}/state_{i:04d}.png")  # in BGR format
         current_state_image_predicates = get_image_predicates(current_state_image, object_name_to_color)
@@ -53,7 +53,7 @@ def create_imaged_trajectory_info(images_path: Path, ground_actions: List[str], 
         next_state_image_pddl_predicates: List[str] = [parse_image_predicate_to_gym(pred, holds_in_image) for
                                                        pred, holds_in_image in
                                                        next_state_image_predicates.items()]
-        imaged_trajectory_info.append({
+        imaged_trajectory.append({
             "step": i + 1,
             "current_state": {
                 "literals": [pred for pred in current_state_image_pddl_predicates if is_positive_gym_predicate(pred)]
@@ -63,7 +63,7 @@ def create_imaged_trajectory_info(images_path: Path, ground_actions: List[str], 
                 "literals": [pred for pred in next_state_image_pddl_predicates if is_positive_gym_predicate(pred)]
             },
         })
-    return imaged_trajectory_info
+    return imaged_trajectory
 
 
 
@@ -96,7 +96,7 @@ def alg(domain_name: str, num_steps: int, output_dir: Path, problem_name: str):
     print(f"Object name to color map: {object_name_to_color}")
 
     pddl_plus_blocks_domain: Domain = DomainParser(BLOCKS_DOMAIN_FILE_PATH).parse_domain()
-    pddl_plus_blocks_problem: Problem = ProblemParser(Path(f"{BLOCKS_PROBLEM_DIR_PATH}/problem9.pddl"),
+    pddl_plus_blocks_problem: Problem = ProblemParser(Path(f"{BLOCKS_PROBLEM_DIR_PATH}/{problem_name}"),
                                                       pddl_plus_blocks_domain).parse_problem()
     GT_observation: Observation = create_observation_from_trajectory(GT_trajectory, pddl_plus_blocks_domain,
                                                                      pddl_plus_blocks_problem)
@@ -109,7 +109,7 @@ def alg(domain_name: str, num_steps: int, output_dir: Path, problem_name: str):
     print("*****************************")
 
     grounded_actions = [step["ground_action"] for step in GT_trajectory]
-    imaged_trajectory_info = create_imaged_trajectory_info(output_dir, grounded_actions, object_name_to_color)
+    imaged_trajectory_info = create_imaged_trajectory(output_dir, grounded_actions, object_name_to_color)
     imaged_observation: Observation = create_observation_from_trajectory(imaged_trajectory_info,
                                                                          pddl_plus_blocks_domain,
                                                                          pddl_plus_blocks_problem)
@@ -130,4 +130,4 @@ if __name__ == "__main__":
                                                num_steps=15)
 
     # TODO TOMORROW: handle the part of the prediates after the image trajectyory saving.
-    alg(domain_name="PDDLEnvBlocks-v0", num_steps=15, output_dir=BLOCKS_OUTPUT_DIR_PATH, problem_name='problem9')
+    alg(domain_name="PDDLEnvBlocks-v0", num_steps=15, output_dir=BLOCKS_OUTPUT_DIR_PATH, problem_name='problem9.pddl')
