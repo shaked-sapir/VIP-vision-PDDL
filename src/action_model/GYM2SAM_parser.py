@@ -64,15 +64,12 @@ def group_predicates_by_name(predicates: Set[GroundedPredicate]) -> Dict[str, Se
 
 
 def parse_gym_state(state: Dict[str, List], is_initial: bool, pddl_domain: Domain) -> State:
-    """Parse a state string into a State object."""
-    # Extract literals
+    """Parse a state dict into a State object."""
     state_literals: List[str] = state["literals"]
 
-    # Parse grounded predicates
     grounded_predicates: Set[GroundedPredicate] = parse_grounded_predicates(state_literals, pddl_domain)
     grouped_predicates: Dict[str, Set[GroundedPredicate]] = group_predicates_by_name(grounded_predicates)
 
-    # Create and return the State object
     return State(
         is_init=is_initial,
         predicates=grouped_predicates,
@@ -81,7 +78,6 @@ def parse_gym_state(state: Dict[str, List], is_initial: bool, pddl_domain: Domai
 
 
 def parse_action_call(action_string: str) -> ActionCall:
-    """Parse an action string into an ActionCall object."""
     action_name, params = action_string.split("(", 1)
     params = params.rstrip(")").split(", ")
     params_names = [param.split(":")[0] for param in params]
@@ -94,17 +90,15 @@ def parse_action_call(action_string: str) -> ActionCall:
 
 def create_observation_from_trajectory(trajectory: List[Dict], pddl_domain: Domain,
                                        pddl_problem: Problem) -> Observation:
-
     object_mapping = pddl_problem.objects
     observation = Observation()
     observation.add_problem_objects(object_mapping)
 
     for step in trajectory:
-        current_state = parse_gym_state(step["current_state"], is_initial=(step["step"] == 1), pddl_domain=pddl_domain) # TODO: fix this after the general form of the steps
+        current_state = parse_gym_state(step["current_state"], is_initial=(step["step"] == 1),
+                                        pddl_domain=pddl_domain)  # TODO: fix this after the general form of the steps
         resulted_state = parse_gym_state(step["next_state"], is_initial=False, pddl_domain=pddl_domain)
-
         action_call = parse_action_call(step["ground_action"])
-
         observation.add_component(
             previous_state=current_state,
             call=action_call,
