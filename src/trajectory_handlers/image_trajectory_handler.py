@@ -1,13 +1,14 @@
 import json
+import math
 import os
 from pathlib import Path
-from PIL import Image
-import math
-from pddlgym.core import PDDLEnv, _select_operator
 
+from PIL import Image
+from pddlgym.core import PDDLEnv, _select_operator
 from pddlgym.structs import State, Literal
 
 from src.types import TrajectoryState, TrajectoryStep
+from src.utils.containers import serialize
 from src.utils.pddl import set_problem_by_name
 
 
@@ -82,7 +83,9 @@ class ImageTrajectoryHandler:
                 new_obs, _, done, _, _ = self.pddl_env.step(action)
 
             self._create_image(trajectory_output_dir, i)
-            state_action_entry = self._create_trajectory_step(curr_obs=obs, action=action, action_index=i,
+            state_action_entry = self._create_trajectory_step(curr_obs=obs,
+                                                              action=action,
+                                                              action_index=i,
                                                               next_obs=new_obs)
             trajectory.append(state_action_entry)
 
@@ -91,7 +94,7 @@ class ImageTrajectoryHandler:
 
         # Save the states and actions to the log file
         with open(trajectory_log_file_path, 'w') as log_file:
-            json.dump(trajectory, log_file, indent=4)
+            json.dump(serialize(trajectory), log_file, indent=4)
 
         print(f"Images saved to the directory '{trajectory_output_dir}'")
         print(f"Trajectory log saved to '{trajectory_log_file_path}'")
