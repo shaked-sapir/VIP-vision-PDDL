@@ -1,7 +1,10 @@
+from pathlib import Path
 from typing import List, Sequence
 
 from src.action_model.action_model import ActionModel
+from src.fluent_classification.base_fluent_classifier import FluentClassifier
 from src.fluent_classification.fluent_mapping import FluentMapping
+from src.object_detection.base_object_detector import ObjectDetector
 from src.trajectory_handlers.image_trajectory_handler import ImageTrajectoryHandler
 from src.types import State, Image, StateActionTriplet, ImageStatePair, ImageActionTriplet, Action
 
@@ -35,6 +38,19 @@ def construct_states(action_model: ActionModel, image_trajectory: Sequence[Image
     """
     raise NotImplementedError
 
+
+
+class Simulator:
+    image_trajectory_handler: ImageTrajectoryHandler
+    object_detector: ObjectDetector
+    fluent_classifier: FluentClassifier
+
+    def __init__(self, domain_name: str, output_dir_path: Path, image_trajectory_handler, object_detector: ObjectDetector, fluent_classifier: FluentClassifier):
+        self.domain_name = domain_name
+        self.output_dir = output_dir_path
+        self.image_trajectory_handler = image_trajectory_handler
+        self.object_detector = object_detector
+        self.fluent_classifier = fluent_classifier
 
 def learn_fluents(image_state_pairs: Sequence[ImageStatePair]=None) -> FluentMapping:
     #TODO later: in a case of a classifier, we can make a binary classifier for each binary fluent, or at least for each "dynamic" fluent (meaning, fluent which can change its state during an episode)

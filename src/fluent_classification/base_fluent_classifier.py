@@ -7,7 +7,7 @@ from src.utils.containers import group_objects_by_key
 
 
 # TODO Later: make this an actual Base class, with the option to be initialized with proper functions for the predicates - this includes both the constructor and the `classify` nethod
-class BaseFluentClassifier(ABC):
+class FluentClassifier(ABC):
     def __init__(self, object_detector: ObjectDetector):
         self.object_detector = object_detector
 
