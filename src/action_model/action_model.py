@@ -1,7 +1,7 @@
-class ActionModel:
-    """
-    This class should serve the purpose of action model - handle actions, preconditions and effects upon states.
-    TODO: implement
-    TODO: expand the docstring with right purpose of the class.
-    """
-    pass
+from pathlib import Path
+
+from pddl_plus_parser.lisp_parsers import DomainParser
+from pddl_plus_parser.models import Domain
+from sam_learning.learners.sam_learning import SAMLearner
+
+pddl_plus_domain: Domain = DomainParser(Path("../domains/blocks/blocks.pddl")).parse_domain()

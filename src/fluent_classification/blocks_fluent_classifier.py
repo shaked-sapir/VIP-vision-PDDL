@@ -2,22 +2,27 @@ import itertools
 import json
 from typing import List, Dict
 
-from src.fluent_classification.base_fluent_classifier import BaseFluentClassifier
+import cv2
+import numpy as np
+
+from src.fluent_classification.base_fluent_classifier import FluentClassifier
+from src.object_detection import ColorObjectDetector
 from src.object_detection.bounded_object import BoundedObject
+from src.types import ObjectLabel
 from src.utils.visualize import draw_objects
 
 
-class BlocksFluentClassifier(BaseFluentClassifier):
+class BlocksFluentClassifier(FluentClassifier):
 
     def classify(self, image) -> Dict[str, bool]:
         predicates = {}
         detected_objects = self.object_detector.detect(image)
 
         for obj in detected_objects:
-            print(f"Detected a {obj.label} at {obj.bounding_box.decompose()}")
-        blocks = [obj for obj in detected_objects if obj.obj_type == "block"]
-        robot = [obj for obj in detected_objects if obj.obj_type == "robot"][0]
-        table = [obj for obj in detected_objects if obj.obj_type == "table"][0]
+            print(f"Detected a {obj.label} at {obj.bounding_box.box}")
+        blocks = [obj for obj in detected_objects if obj.type == "block"]
+        robot = [obj for obj in detected_objects if obj.type == "robot"][0]
+        table = [obj for obj in detected_objects if obj.type == "table"][0]
 
         for block1, block2 in itertools.permutations(blocks, 2):
             predicates[f"on({block1.label},{block2.label})"] = self.is_on_top(block1, block2)
@@ -46,62 +51,32 @@ class BlocksFluentClassifier(BaseFluentClassifier):
     - if box1 is placed on the table, then the bottom of box1 should have a gap of 2 px from the top of the table.
     # TODO: format and test later
     """
-    # TODO: for all predicates, see if we can export to spatial_relation file (as all of them should relate to relations between bounding box and not for blocks specifically
-    # Function to check if box1 is on top of box2
-    def is_on_top(self, obj1: BoundedObject, obj2: BoundedObject, threshold=10):
-        """
-        Determines if box1 is on top of box2 based on bounding box coordinates.
-        """
-        x1, y1, w1, h1 = obj1.bounding_box.decompose()  # Coordinates of box1
-        x2, y2, w2, h2 = obj2.bounding_box.decompose()  # Coordinates of box2
+    @staticmethod
+    def is_on_top(obj1: BoundedObject, obj2: BoundedObject):
+        return obj1.bounding_box.on_top(obj2.bounding_box)
 
-        # Check if the bottom edge of box1 is close to the top edge of box2 and they are horizontally aligned.
-        # it considers box1 to be on top of box2 if box1 bottom's overalp, and not necessarily exactly aligned with the top of box2.
-        horizontal_overlap = (x1 < x2 + w2) and (x1 + w1 > x2)
-        vertical_gap = y2 - (y1 + h1)
+    def is_on_table(self, block: BoundedObject, table: BoundedObject):
+        assert block.type == "block" and table.type == "table"
 
-        return horizontal_overlap and 0 < vertical_gap < threshold
+        return self.is_on_top(block, table)
 
-    # Function to check if a box is directly on the table
-    def is_on_table(self, block: BoundedObject, table: BoundedObject, threshold=10):
-        """
-        Determines if a box is directly on the table based on bounding box coordinates.
-        """
-        x, y, w, h = block.bounding_box.decompose()  # Coordinates of the box
-        table_x, table_y, table_w, table_h = table.bounding_box.decompose()  # Coordinates of the table
-
-        # Check if the bottom edge of the box is close to the top edge of the table and they are horizontally aligned
-        vertical_gap = table_y - (y + h)
-        horizontal_overlap = (x < table_x + table_w) and (x + w > table_x)
-
-        return horizontal_overlap and 0 < vertical_gap < threshold
-
-    def is_clear(self, block: BoundedObject, objects: List[BoundedObject], threshold=10):
+    def is_clear(self, block: BoundedObject, objects: List[BoundedObject]):
         """
         Determines if a box is clear, i.e., no other box is on top of it.
         """
-        for obj in objects:
-            # Skip the box itself
-            if obj.bounding_box.decompose() == block.bounding_box.decompose():
-                continue
+        assert block.type == "block"
 
-            # Check if any other box is on top of this box
-            if self.is_on_top(obj, block, threshold):
-                return False
-        return True
+        other_blocks = [obj for obj in objects if obj.type == block.type and obj.name != block.name]
+        return all(not self.is_on_top(other_block, block) for other_block in other_blocks)
 
     def is_handempty(self, robot: BoundedObject, objects: List[BoundedObject]):
         """
         Determines if the robot is not holding any box by checking if no box is near its bottom edge.
         """
-        # x_robot, y_robot, w_robot, h_robot = robot  # Coordinates of the robot
+        assert robot.type == "robot"
 
-        # Check if there is any box within holding range of the robot
-        for obj in objects:
-            if obj.obj_type == "block":
-                if robot.bounding_box.intersects(obj.bounding_box):
-                    return False  # If there's an intersection, the robot's hand is not empty
-        return True
+        blocks = [obj for obj in objects if obj.type == "block"]
+        return all(not robot.bounding_box.intersects(block.bounding_box) for block in blocks)
 
     # Function to check if the robot's hand is full (holding a box)
     def is_handfull(self, robot: BoundedObject, objects: List[BoundedObject]):
@@ -113,21 +88,21 @@ class BlocksFluentClassifier(BaseFluentClassifier):
 
     # Function to check if the robot is holding a specific box
     def is_holding(self, robot: BoundedObject, block: BoundedObject):
-        return (robot.obj_type == "robot" and
-                block.obj_type == "block" and
+        return (robot.type == "robot" and
+                block.type == "block" and
                 robot.bounding_box.intersects(block.bounding_box))
 
 
 if __name__ == "__main__":
     COLOR_MAP = { # this is in normalized RGB
-        'red:block': (0.9, 0.1, 0.1),
-        'cyan:block': np.array((0.43758721, 0.891773, 0.96366276)),
-        'blue:block': (0.15896958, 0.11037514, 0.65632959),
-        'green:block': (0.1494483 , 0.86812606, 0.16249293),
-        'yellow:block': (0.94737059, 0.73085581, 0.25394164),
-        'pink:block': (0.96157015, 0.23170163, 0.94931882),
-        'brown:table': (0.5,0.2,0.0),
-        'gray:robot': (0.4, 0.4, 0.4)
+        ObjectLabel('red:block'): (0.9, 0.1, 0.1),
+        ObjectLabel('cyan:block'): np.array((0.43758721, 0.891773, 0.96366276)),
+        ObjectLabel('blue:block'): (0.15896958, 0.11037514, 0.65632959),
+        ObjectLabel('green:block'): (0.1494483 , 0.86812606, 0.16249293),
+        ObjectLabel('yellow:block'): (0.94737059, 0.73085581, 0.25394164),
+        ObjectLabel('pink:block'): (0.96157015, 0.23170163, 0.94931882),
+        ObjectLabel('brown:table'): (0.5, 0.2, 0.0),
+        ObjectLabel('gray:robot'): (0.4, 0.4, 0.4)
     }
 
     # Run the color-based detection pipeline
@@ -140,7 +115,7 @@ if __name__ == "__main__":
 
     # Print detected objects information
     for obj in detected_objects.values():
-        print(f"Detected a {obj.label} at {obj.bounding_box.decompose()}")
+        print(f"Detected a {obj.label} at {obj.bounding_box.box}")
 
 
     # TODO: export the tests to some testing infrastructure (for a start, export to a different file)

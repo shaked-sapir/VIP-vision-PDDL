@@ -2,21 +2,14 @@ from typing import List, Dict
 
 import cv2
 
-from src.fluent_classification.colors import to_int_rgb, find_exact_rgb_color_mask, NormalizedRGB
+from src.types import ObjectLabel
+from src.utils.visualize import to_int_rgb, find_exact_rgb_color_mask, NormalizedRGB
 from src.object_detection.base_object_detector import ObjectDetector
 from src.object_detection.bounded_object import BoundedObject
 
 
-# TODO: consider making it a type in a separate file
-class ObjectName(str):
-    def __new__(cls, value):
-        if ':' not in value:
-            raise ValueError("ObjectName must include a colon ':'")
-        return super().__new__(cls, value)
-
-
 class ColorObjectDetector(ObjectDetector):
-    def __init__(self, object_color_map: Dict[ObjectName, NormalizedRGB]):
+    def __init__(self, object_color_map: Dict[ObjectLabel, NormalizedRGB]):
         self._object_color_map = object_color_map
 
     @property
@@ -26,7 +19,7 @@ class ColorObjectDetector(ObjectDetector):
     def detect(self, image: cv2.typing.MatLike, **kwargs) -> List[BoundedObject]:
         detected_objects = []
 
-        for object_name, color_tuple in self._object_color_map.items():
+        for object_label, color_tuple in self._object_color_map.items():
             # Create a mask for the current color range
             full_rgb_tuple = to_int_rgb(color_tuple)
             mask = find_exact_rgb_color_mask(image, full_rgb_tuple)
@@ -39,8 +32,8 @@ class ColorObjectDetector(ObjectDetector):
                 # Save detected object info
                 detected_objects.append(
                     BoundedObject(
-                        obj_type=object_name.split(':')[1],
-                        name=object_name.split(':')[0],
+                        obj_type=object_label.type,
+                        name=object_label.name,
                         x_anchor=x,
                         y_anchor=y,
                         width=w,
