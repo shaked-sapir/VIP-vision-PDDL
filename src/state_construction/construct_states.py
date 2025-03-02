@@ -7,11 +7,15 @@ from src.action_model.pddl2gym_parser import parse_image_predicate_to_gym, is_po
 from src.trajectory_handlers import ImageTrajectoryHandler
 
 
-def construct_states_from_images(image_trajectory_handler: ImageTrajectoryHandler, fluent_classifier, images_path: Path, ground_actions: List[str], action_model=None):
+def construct_states_from_images(
+        image_trajectory_handler: ImageTrajectoryHandler,
+        fluent_classifier, images_path: Path,
+        ground_actions: List[str],
+        action_model=None
+):
     imaged_trajectory = []
     for i, action in enumerate(ground_actions):
         current_state_image = image_trajectory_handler.load_image(images_path, i)
-        # current_state_image = cv2.imread(f"{images_path}/state_{i:04d}.png")
         current_state_image_predicates = fluent_classifier.classify(current_state_image)
         current_state_image_pddl_predicates: List[str] = [parse_image_predicate_to_gym(pred, holds_in_image) for
                                                           pred, holds_in_image in
