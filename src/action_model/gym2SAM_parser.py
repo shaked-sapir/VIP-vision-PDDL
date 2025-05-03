@@ -1,6 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import List, Dict, Set, Tuple, Any
+from typing import List, Dict, Set, Tuple, Any, Union
 
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser
 from pddl_plus_parser.models import (
@@ -12,6 +12,7 @@ from pddl_plus_parser.models import (
 )
 
 from src.action_model.pddl2gym_parser import NEGATION_PREFIX
+from src.types import TrajectoryStep
 
 ObjectMappingType = Dict[str, PDDLObject]
 
@@ -91,7 +92,7 @@ def parse_action_call(action_string: str) -> ActionCall:
     )
 
 
-def create_observation_from_trajectory(trajectory: List[Dict], pddl_domain: Domain,
+def create_observation_from_trajectory(trajectory: List[Union[Dict, TrajectoryStep]], pddl_domain: Domain,
                                        pddl_problem: Problem) -> Observation:
     object_mapping = pddl_problem.objects
     observation = Observation()

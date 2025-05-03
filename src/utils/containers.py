@@ -1,12 +1,13 @@
+import re
 from collections import defaultdict
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Union
 
 
 def to_list(obj: Any) -> List[Any]:
     return [obj] if not isinstance(obj, list) else obj
 
 
-def serialize(obj):
+def serialize(obj) -> Union[dict, list]:
     if isinstance(obj, (int, float, str, bool, type(None))):
         return obj  # Base case: primitive types
     elif isinstance(obj, list):
@@ -25,3 +26,8 @@ def group_objects_by_key(objects: List[Any], key: str) -> Dict[str, List[Any]]:
         grouped[getattr(obj, key)].append(obj)
 
     return dict(grouped)
+
+
+def shrink_whitespaces(s: str) -> str:
+    """Shrink all multiple spaces into a single space"""
+    return re.sub(r'\s+', ' ', s).strip()
