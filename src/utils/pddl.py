@@ -1,5 +1,9 @@
+import os
+from pathlib import Path
+
 from pddlgym.core import PDDLEnv
 from pddlgym.parser import Operator
+from typing import List
 
 from src.utils.containers import shrink_whitespaces
 
@@ -50,3 +54,46 @@ def parse_gym_to_pddl_ground_action(ground_action: str) -> str:
         # If no parentheses, just remove dashes
         parsed_action = f"({ground_action})"
     return shrink_whitespaces(parsed_action)
+
+
+def build_trajectory_file(trajectory: List[dict], output_path: Path) -> None:
+    output_path = os.path.join(output_path, "trajectory.trajectory")
+
+    trajectory_lines = ["("]  # the opener of the trajectory file
+
+    # Step 0: Write the initial state from current_state of the first entry
+    init_literals = trajectory[0]['current_state']['literals']
+    init_literals_parsed = ' '.join(parse_gym_to_pddl_literal(lit) for lit in init_literals)
+    trajectory_lines.append(f"(:init {init_literals_parsed})")
+
+    # Step 1: Write the first operator (from first entry)
+    ground_action = trajectory[0]['ground_action']
+    ground_action_parsed = parse_gym_to_pddl_ground_action(ground_action)
+    trajectory_lines.append(f"(operator: {ground_action_parsed})")
+
+    # Then continue: For each NEXT state and NEXT action
+    for i in range(1, len(trajectory)):
+        step_info = trajectory[i]
+
+        # Write the state
+        current_literals = step_info['current_state']['literals']
+        current_literals_parsed = ' '.join(parse_gym_to_pddl_literal(lit) for lit in current_literals)
+        trajectory_lines.append(f"(:state {current_literals_parsed})")
+
+        # Write the operator
+        ground_action = step_info['ground_action']
+        ground_action_parsed = parse_gym_to_pddl_ground_action(ground_action)
+        trajectory_lines.append(f"(operator: {ground_action_parsed})")
+
+    # Finally write the last :state after the last action
+    final_state_literals = trajectory[-1]['next_state']['literals']
+    final_state_literals_parsed = ' '.join(parse_gym_to_pddl_literal(lit) for lit in final_state_literals)
+    trajectory_lines.append(f"(:state {final_state_literals_parsed})")
+
+    trajectory_lines.append(")")  # the closer of the trajectory file
+
+    # Save to file
+    with open(output_path, "w") as f:
+        f.write('\n'.join(trajectory_lines))
+
+    print(f"Trajectory saved to {output_path}")

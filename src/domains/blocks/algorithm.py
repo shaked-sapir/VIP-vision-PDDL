@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Dict
 
@@ -14,6 +15,7 @@ from utilities import NegativePreconditionPolicy
 from src.action_model.gym2SAM_parser import create_observation_from_trajectory
 from src.fluent_classification.blocks_fluent_classifier import BlocksFluentClassifier
 from src.object_detection import ColorObjectDetector
+from src.trajectory_handlers.blocks_image_trajectory_handler import BlocksImageTrajectoryHandler
 from src.types import ObjectLabel
 from src.trajectory_handlers import ImageTrajectoryHandler
 from src.utils.visualize import NormalizedRGB
@@ -22,42 +24,27 @@ from src.pi_sam.pi_sam_learning import PISAMLearner, RandomMasking, PercentageMa
 
 BLOCKS_DOMAIN_FILE_PATH = Path("blocks.pddl")
 BLOCKS_PROBLEM_DIR_PATH = Path("problems")
-BLOCKS_OUTPUT_DIR_PATH = Path("blocks_images")
 
 # TODO IMM: this should be refactored into an Experiments package, and not be contained inside "domains" package
 if __name__ == "__main__":
+    """
+    This is after refactoring to the BlocksImageTrajectoryHandler class
+    """
     blocks_domain_name = "PDDLEnvBlocks-v0"
     blocks_problem_name = "problem9.pddl"
-
-    image_trajectory_handler = ImageTrajectoryHandler(blocks_domain_name)
-    GT_trajectory, _, _ = image_trajectory_handler.create_trajectory_from_gym( # TODO: assign the right values to the underscores
-        domain_name=blocks_domain_name,
-        problem_name=blocks_problem_name,
-        num_steps=100
-    )
-    """
-        extracting colors of objects from trajectory so we can detect the objects in the image
-        """
-    # TODO IMM:  the mapping is generated at problem initialization, so it has to be returned from the trajectory making process
-    object_name_to_color: Dict[ObjectLabel, NormalizedRGB] = {
-        **{ObjectLabel(str(obj)): color for obj, color in _block_name_to_color.items()},
-        ObjectLabel("robot:robot"): (0.4, 0.4, 0.4),
-        ObjectLabel("table:table"): (0.5, 0.2, 0.0)
-    }
-
-    blocks_object_detector = ColorObjectDetector(object_name_to_color)
-    blocks_fluent_classifier = BlocksFluentClassifier(blocks_object_detector)
-
+    BLOCKS_OUTPUT_DIR_PATH_TEMP = Path(f"{blocks_domain_name}_{blocks_problem_name}_temp")
+    #
     print("alg started")
-
-    # with open(f"{BLOCKS_OUTPUT_DIR_PATH}/trajectory.json", 'r') as file:
-    #     GT_trajectory = json.load(file)
-
-    print(f"Object name to color map: {blocks_object_detector.object_color_map}")
+    image_trajectory_handler = BlocksImageTrajectoryHandler(blocks_domain_name)
+    image_trajectory_handler.image_trajectory_pipeline(problem_name=blocks_problem_name, output_path=BLOCKS_OUTPUT_DIR_PATH_TEMP)
 
     pddl_plus_blocks_domain: Domain = DomainParser(BLOCKS_DOMAIN_FILE_PATH).parse_domain()
     pddl_plus_blocks_problem: Problem = ProblemParser(Path(f"{BLOCKS_PROBLEM_DIR_PATH}/{blocks_problem_name}"),
                                                       pddl_plus_blocks_domain).parse_problem()
+
+    # check that we could load the trajectory from the resulted path if needed
+    with open(f"{BLOCKS_OUTPUT_DIR_PATH_TEMP}/trajectory.json", 'r') as file:
+        GT_trajectory = json.load(file)
     GT_observation: Observation = create_observation_from_trajectory(GT_trajectory, pddl_plus_blocks_domain,
                                                                      pddl_plus_blocks_problem)
 
@@ -68,15 +55,8 @@ if __name__ == "__main__":
 
     print("*****************************")
 
-    grounded_actions = [step["ground_action"] for step in GT_trajectory]
-    imaged_trajectory_info = image_trajectory_handler.construct_trajectory_from_images(blocks_fluent_classifier,
-                                                                                       BLOCKS_OUTPUT_DIR_PATH, grounded_actions)
-    # imaged_observation: Observation = create_observation_from_trajectory(imaged_trajectory_info,
-    #                                                                      pddl_plus_blocks_domain,
-    #                                                                      pddl_plus_blocks_problem)
-    image_trajectory_handler.build_trajectory_file(imaged_trajectory_info)
     trajectory_parser = TrajectoryParser(pddl_plus_blocks_domain, pddl_plus_blocks_problem)
-    imaged_observation = trajectory_parser.parse_trajectory(Path('trajectory.trajectory'))
+    imaged_observation = trajectory_parser.parse_trajectory(BLOCKS_OUTPUT_DIR_PATH_TEMP / 'trajectory.trajectory')
 
     # Output the resulting Observation object
     print("printing imaged observation:")
