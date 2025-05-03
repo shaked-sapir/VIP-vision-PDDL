@@ -16,11 +16,15 @@ class BlocksImageTrajectoryHandler(ImageTrajectoryHandler):
         are determined only at problem initialization time by the `_block_name_to_color`
         method from gym.
         """
+
+        # extracting colors of objects from trajectory so we can detect the objects in the image
         object_name_to_color: Dict[ObjectLabel, NormalizedRGB] = {
             **{ObjectLabel(str(obj)): color for obj, color in _block_name_to_color.items()},
-            ObjectLabel("robot:robot"): (0.4, 0.4, 0.4),
-            ObjectLabel("table:table"): (0.5, 0.2, 0.0)
+            ObjectLabel("robot:robot"): (0.4, 0.4, 0.4), # robot color is const
+            ObjectLabel("table:table"): (0.5, 0.2, 0.0)  # table color is const
         }
 
         self.object_detector = ColorObjectDetector(object_name_to_color)
         self.fluent_classifier = BlocksFluentClassifier(self.object_detector)
+
+        print(f"Object name to color map: {self.object_detector.object_color_map}")
