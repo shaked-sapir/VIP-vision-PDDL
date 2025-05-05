@@ -95,7 +95,7 @@ class ImageTrajectoryHandler(ABC):
         :param num_steps: number of random actions to be taken for the trajectory
         :return: None
         """
-        GT_trajectory, actions = self.create_trajectory_from_gym(problem_name, output_path, num_steps)
+        actions = self.create_trajectory_from_gym(problem_name, output_path, num_steps)
 
         # TODO: putting it here is a hack because the color detector has to be initialized only after deciding on
         #  the problem to be solved, potentially we need to initialize it in the constructor
@@ -115,7 +115,7 @@ class ImageTrajectoryHandler(ABC):
         pass
 
     def create_trajectory_from_gym(self, problem_name: str, output_path: Path,
-                                   num_steps: int = 100) -> Tuple[List[TrajectoryStep], List[str]]:
+                                   num_steps: int = 100) -> List[str]:
 
         """
         This method creates a trajectory of randomly-taken actions within a pddlgym environment, using a specific
@@ -126,7 +126,7 @@ class ImageTrajectoryHandler(ABC):
         :param problem_name: name of specific problem to generate trajectory for
         :param output_path: the path for storing the method outcomes like trajectory images, GT_trajectory info, etc.
         :param num_steps: number of random actions to be taken for the trajectory
-        :return: (GT_trajectory, action_sequence)
+        :return: action sequence of the trajectory
         """
         if num_steps > self.trajectory_size_limit:
             raise ValueError(f"cannot have more than {self.trajectory_size_limit} steps!")
@@ -137,8 +137,8 @@ class ImageTrajectoryHandler(ABC):
         os.makedirs(output_path, exist_ok=True)
         trajectory_log_file_path = os.path.join(output_path, "trajectory.json")
 
-        GT_trajectory = []
-        actions = []
+        GT_trajectory: list[TrajectoryStep] = []
+        ground_actions: list[str] = []
         new_obs = obs
         self.create_image(output_path, 0)
 
@@ -151,12 +151,12 @@ class ImageTrajectoryHandler(ABC):
                 new_obs, _, done, _, _ = self.pddl_env.step(action)
 
             self.create_image(output_path, i)
-            state_action_entry: TrajectoryStep = self._create_trajectory_step(curr_obs=obs,
+            trajectory_step: TrajectoryStep = self._create_trajectory_step(curr_obs=obs,
                                                                               action=action,
                                                                               action_index=i,
                                                                               next_obs=new_obs)
-            GT_trajectory.append(state_action_entry)
-            actions.append(state_action_entry.ground_action)
+            GT_trajectory.append(trajectory_step)
+            ground_actions.append(trajectory_step.ground_action)
             if done:
                 break
 
@@ -168,7 +168,7 @@ class ImageTrajectoryHandler(ABC):
         print(f"Images saved to the directory '{output_path}'")
         print(f"Trajectory log saved to '{trajectory_log_file_path}'")
 
-        return GT_trajectory, actions
+        return ground_actions
 
     def construct_trajectory_from_images(self,
                                          images_path: Path, ground_actions: List[str], action_model=None) -> List[dict]:
