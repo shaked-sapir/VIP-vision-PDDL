@@ -101,7 +101,7 @@ class ImageTrajectoryHandler(ABC):
         #  the problem to be solved, potentially we need to initialize it in the constructor
         self._init_visual_components()
         imaged_trajectory = self.construct_trajectory_from_images(images_path=output_path, ground_actions=actions)
-        build_trajectory_file(imaged_trajectory, output_path)
+        build_trajectory_file(imaged_trajectory, problem_name, output_path)
         return
 
     @abstractmethod
@@ -135,7 +135,7 @@ class ImageTrajectoryHandler(ABC):
         obs, info = self.pddl_env.reset()
 
         os.makedirs(output_path, exist_ok=True)
-        trajectory_log_file_path = os.path.join(output_path, "trajectory.json")
+        trajectory_log_file_path = os.path.join(output_path, f"{problem_name}_trajectory.json")
 
         GT_trajectory: list[TrajectoryStep] = []
         ground_actions: list[str] = []

@@ -3,7 +3,7 @@ from typing import Set
 from src.types import Fluent
 
 
-class FluentMapping:
+class FluentMapping: #  TODO: this class might be unnecessary
     def __init__(self, num_states: int):
         self.num_states = num_states
         self.mapping = {i: set() for i in range(num_states)}
