@@ -1,59 +1,36 @@
-import itertools
 import random
-from abc import ABC, abstractmethod
-from enum import Enum
+from pathlib import Path
 from typing import Dict, List, Tuple, Set
 
-from pddl_plus_parser.models import GroundedPredicate, SignatureType, Domain, Observation, State, PDDLObject, Predicate
-from sam_learning.learners import SAMLearner
+from pddl_plus_parser.lisp_parsers import TrajectoryParser, ProblemParser
+from pddl_plus_parser.models import GroundedPredicate, Domain, Observation, State, Problem
 from sam_learning.core import LearnerDomain
+from sam_learning.learners import SAMLearner
 
-
-class MaskingType(str, Enum):
-    RANDOM = "random"
-    PERCENTAGE = "percentage"
-
-
-class MaskingStrategy(ABC):
-    """
-    This class serves as a base class for masking a set of predicates based on some logic/strategy.
-    """
-    @abstractmethod
-    def mask(self, predicates: set[GroundedPredicate], *args, **kwargs) -> set[GroundedPredicate]:
-        raise NotImplementedError
-
-class RandomMasking(MaskingStrategy):
-    """
-    this class masks a certain predicate with probability p, and leaves it as it is with probability (1 - p).
-    """
-    def mask(self, predicates: set[GroundedPredicate], masking_proba: float = 0.3, *args, **kwargs) -> set[GroundedPredicate]:
-        for predicate in predicates:
-            if random.random() < masking_proba:
-                predicate.is_masked = True
-        return predicates
-
-
-class PercentageMasking(MaskingStrategy):
-    """
-    This class masks some p percent of predicates from the set
-    """
-    def mask(self, predicates: set[GroundedPredicate], masking_ratio: float = 0.75, *args, **kwargs) -> set[GroundedPredicate]:
-        sample_size = max(1, round(len(predicates) * masking_ratio))  # Ensure at least 1 element if p > 0
-        sample = set(random.sample(list(predicates), sample_size))
-        for predicate in sample:
-            predicate.is_masked = True
-        return predicates
-
+from src.pi_sam.predicate_masking import MaskingType, RandomMasking, PercentageMasking
+from src.utils.pddl import copy_observation, observation_to_trajectory_file, get_all_possible_groundings
 
 
 class PISAMLearner(SAMLearner):
-    def __init__(self, partial_domain: Domain):
+    """
+    A learner that applies the PI-SAM learning algorithm, which includes masking strategies for grounded predicates
+    to provide partial observations during the learning process.
+
+    This class extends the SAMLearner class and overrides methods to incorporate masking strategies for grounded predicates.
+
+    :param partial_domain: The domain to learn from, which should be a partial domain with grounded predicates.
+    :param seed: An seed for random number generation to ensure reproducibility of the masking process.
+    """
+
+    def __init__(self, partial_domain: Domain, seed: int = 42):
         super().__init__(partial_domain)
 
         self.masking_strategies = {
             MaskingType.RANDOM: RandomMasking(),
             MaskingType.PERCENTAGE: PercentageMasking()
         }
+        self.seed = seed
+        random.seed(seed)
 
     """
     Going over SAMLearner methods to see what methods should be modified regarding the masking operations.
@@ -82,77 +59,121 @@ class PISAMLearner(SAMLearner):
     @_remove_unobserved_actions_from_partial_domain: GOOD - affected only by `observed_actions`
     """
 
-    def mask(self, predicates: set[GroundedPredicate], masking_strategy: MaskingType = MaskingType.RANDOM, *args, **kwargs) -> set[GroundedPredicate]:
-        return self.masking_strategies[masking_strategy].mask(predicates, *args, **kwargs)
 
-        """
-        Important note!
-        we decided on a couple of things (summarize this and insert into the progress report with Roni:
-        1. we will create the "full" state for each state in the trajectory, i.e. each literal in the domain will appear
-        either with positive or negative form (in oppose to the current trajectory files, which only include predicates 
-        [positive form only]). this way we'll be consistent with the definitions of PI-SAM and could apply its rules
-        properly.
-    
+    """
+    important note! # TODO: go over and delete afterwards
         
-        3. we can pass the snapshots, but it will require as to override some logics of SAMLearner in this class,
-        in order to make sure the masked literals are handled correctly.
+    we can pass the snapshots, but it will require as to override some logics of SAMLearner in this class,
+    in order to make sure the masked literals are handled correctly.
+    """
+
+
+    def _get_all_possible_groundings_for_domain(self, observation: Observation) -> Dict[str, Set[GroundedPredicate]]:
         """
+        For each lifted predicate in the domain, compute all possible groundings for the given observation.
+        Note: this returns all groundings as positive literals, regardless of the actual state of the observation -
+        so negativity can be handled as needed in states creation.
 
-    def get_all_possible_groundings(self, predicate: Predicate, grounded_objects: Dict[str, PDDLObject]) -> Set[GroundedPredicate]:
-        param_names = list(predicate.signature.keys())
-        param_types = list(predicate.signature.values()) # this one also handles signature with multiple objects of the same type
-
-        # Get all objects compatible with each parameter type
-        object_domains = []
-        for t in param_types:
-            matches = [obj.name for obj in grounded_objects.values() if obj.type.is_sub_type(t)]
-            object_domains.append(matches)
-
-        grounded = set()
-
-        for values in itertools.product(*object_domains):
-            mapping = dict(zip(param_names, values))
-            grounded.add(GroundedPredicate(
-                name=predicate.name,
-                signature=predicate.signature,
-                object_mapping=mapping,
-                is_positive=predicate.is_positive
-            ))
-
-        return grounded
-
-    def _prepare_state(self, state: State, grounded_objects: Dict[str, PDDLObject]) -> State:
-        # TODO: implement
-        # return state
-        for lifted_predicate in self.partial_domain.predicates.values():
-            predicate_representation = lifted_predicate.untyped_representation()
-            all_predicate_groundings = self.get_all_possible_groundings(lifted_predicate, grounded_objects)
-
-            #TODO: 1. compute diff between all to state, and 2. put the diff in the state in negative form. 3. make sure that literals in a state are necessarily positives
-
-
-    def _prepare_observation(self, observation: Observation) -> Observation:
+        :param observation: The observation containing grounded objects.
+        :return: A dictionary mapping lifted predicate names to their possible grounded predicates.
         """
-        for a given trajectory, create all possible literals (either positive or negative) for each state,
-        where positive literals are given by the predicates of the state and negative literals are the "complementary"
-        set of the predicates of the state.
+        grounded_objects = observation.grounded_objects
+        all_grounded_predicates = {}
+
+        for lifted_predicate_name, lifted_predicate in self.partial_domain.predicates.items():
+            all_grounded_predicates[lifted_predicate_name] = get_all_possible_groundings(
+                lifted_predicate, grounded_objects)
+
+        return all_grounded_predicates
+
+    @staticmethod
+    def _ground_all_predicates_in_state(state: State,
+                                        all_domain_grounded_predicates: Dict[str, Set[GroundedPredicate]]) -> State:
+        """
+        for each predicate in domain predicates, check all its possible groundings against the state's grounded
+        predicates: if a grounding does not exist in the state then add it to the state as a negative literal.
+
+        :param state: the state to ground all predicates in
+        :param all_domain_grounded_predicates: a dictionary mapping each predicate name to its possible grounded
+        predicates in the domain
+        :return: a state with all predicates grounded, either positive or negative.
+        """
+        new_state = state.copy()
+
+        # Add all grounded predicates from the state
+        for predicate_name, grounded_predicates in state.state_predicates.items():
+            new_state.state_predicates[predicate_name] = set(grounded_predicates)
+
+        # For each predicate in the domain, check if it exists in the state, if not - add it as a negative literal
+        for predicate_name, grounded_predicates in all_domain_grounded_predicates.items():
+            for grounded_predicate in grounded_predicates:
+                # We have to check if the there are any predicates with the same name in the state, and handle properly
+                if grounded_predicate not in new_state.state_predicates.get(predicate_name, set()):
+                    (new_state.state_predicates.setdefault(predicate_name, set())
+                     .add(grounded_predicate.copy(is_negated=True)))
+
+        return new_state
+
+    def _ground_all_states_in_observation(self,
+                                          observation: Observation,
+                                          all_domain_grounded_predicates: Dict[str, Set[GroundedPredicate]]
+                                          ) -> Observation:
+        """
+        for a given observation, ground all predicates in each state of the observation.
 
         :param observation: an observation (trajectory) to handle
-        :return: a full observation, with all possible literals.
+        :return: a full observation, with all possible literals for each state
         """
+        new_observation = copy_observation(observation)
+        for component in new_observation.components:
+            component.previous_state = self._ground_all_predicates_in_state(
+                component.previous_state, all_domain_grounded_predicates)
+            component.next_state = self._ground_all_predicates_in_state(
+                component.next_state, all_domain_grounded_predicates)
 
-        observation.components[0].previous_state = self._prepare_state(observation.components[0].previous_state, observation.grounded_objects)
+        return new_observation
 
-        # for two consecutive components c_(i) and c_(i+1), it holds that c_(i).next_state == c_(i+1).prev_state
-        for i in range(len(observation.components)-1):
-            curr_component, next_component = observation.components[i], observation.components[i+1]
-            state_with_all_grounded_literals = self._prepare_state(curr_component.next_state, observation.grounded_objects)
+    def mask_observation(self, observation: Observation) -> Tuple[Observation, Dict[int, Set[GroundedPredicate]]]:
+        # TODO: implement properly, without the all_domain_grounded_predicates parameter which i mistakenly added as a part of the previous function's impolementation
+        """
+        :param observation:
+        :return:
+        """
+        observation.components[0].previous_state = self._ground_all_predicates_in_state(
+            observation.components[0].previous_state,
+            all_domain_grounded_predicates
+        )
+
+        # for two consecutive components c_(i) and c_(i+1), it holds that c_(i).next_state == c_(i+1).prev_state,
+        # so they should be masked in the same way.
+        for i in range(len(observation.components) - 1):
+            curr_component, next_component = observation.components[i], observation.components[i + 1]
+            state_with_all_grounded_literals = self._ground_all_predicates_in_state(curr_component.next_state,
+                                                                                    all_domain_grounded_predicates)
             curr_component.next_state = state_with_all_grounded_literals
             next_component.previous_state = state_with_all_grounded_literals
 
-        observation.components[-1].next_state = self._prepare_state(observation.components[-1].next_state, observation.grounded_objects)
+        observation.components[-1].next_state = self._ground_all_predicates_in_state(
+            observation.components[-1].next_state, all_domain_grounded_predicates)
 
         return observation
+
+    def mask_trajectory(self, trajectory_file_path: Path, domain: Domain,
+                        problem_path: Path) -> Tuple[Path, Dict[int, Set[GroundedPredicate]]]:
+        """
+        Masks the predicates in the trajectory file according to the PI-SAM algorithm.
+        :param trajectory_file_path: The path to the trajectory file to be masked.
+        :param domain: The domain of the problem, which contains the predicates to be masked.
+        :param problem_path: The path to problem file related to the trajectory
+        :return: A tuple containing the path to the masked trajectory file and a mapping of masked predicates.
+        """
+        problem: Problem = ProblemParser(problem_path, domain).parse_problem()
+        observation: Observation = TrajectoryParser(domain, problem).parse_trajectory(trajectory_file_path)
+        masked_observation, masked_predicates_mapping = self.mask_observation(observation)
+        masked_trajectory_path = trajectory_file_path.with_suffix('.masked.trajectory')
+        output_path = observation_to_trajectory_file(masked_observation, masked_trajectory_path)
+
+        return output_path, masked_predicates_mapping
 
     def prepare_observations(self, observations: List[Observation]) -> List[Observation]:
         """
@@ -161,8 +182,9 @@ class PISAMLearner(SAMLearner):
         :param observations:
         :return:
         """
-        return [self._prepare_observation(observation) for observation in observations]
+        return [self._ground_all_states_in_observation(observation) for observation in observations]
 
     def learn_action_model(self, observations: List[Observation]) -> Tuple[LearnerDomain, Dict[str, str]]:
         observations = self.prepare_observations(observations)
-        return super().learn_action_model(observations)
+        return super().learn_action_model(
+            observations)  # TODO: check if we need to override this method or not (or maybe its inner methods)

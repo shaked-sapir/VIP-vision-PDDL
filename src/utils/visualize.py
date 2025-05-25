@@ -52,4 +52,5 @@ def find_exact_rgb_color_mask(image_bgr: cv2.typing.MatLike, int_rgb_triplet: In
 
     # Combine masks to ensure all channels match
     mask = cv2.bitwise_and(mask_r, cv2.bitwise_and(mask_g, mask_b))
+
     return mask
