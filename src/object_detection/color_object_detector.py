@@ -43,7 +43,8 @@ class ColorObjectDetector(ObjectDetector):
 
             # Find contours for the masked region
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            contours = self.merge_close_contours(contours)
+            if len(contours) > 0:
+                contours = self.merge_close_contours(contours)
             for contour in contours:
                 x, y, w, h = cv2.boundingRect(contour)
 
