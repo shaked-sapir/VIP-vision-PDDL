@@ -2,7 +2,7 @@ import itertools
 import os
 from pathlib import Path
 
-from pddl_plus_parser.models import Observation, ObservedComponent, Predicate, PDDLObject, GroundedPredicate
+from pddl_plus_parser.models import Observation, ObservedComponent, Predicate, PDDLObject, GroundedPredicate, State
 from pddlgym.core import PDDLEnv
 from pddlgym.parser import Operator
 from typing import List, Dict, Set
@@ -183,3 +183,7 @@ def get_all_possible_groundings(predicate: Predicate,
         ))
 
     return grounded_predicates
+
+
+def get_state_grounded_predicates(state: State) -> Set[GroundedPredicate]:
+    return set.union(*state.state_predicates.values())

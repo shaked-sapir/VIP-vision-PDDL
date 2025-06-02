@@ -1,61 +1,80 @@
 import random
-from abc import ABC, abstractmethod
-from enum import Enum
+from typing import Set, List, Tuple
 
-from pddl_plus_parser.models import GroundedPredicate
+from pddl_plus_parser.models import GroundedPredicate, Observation, State
 
-
-class MaskingType(str, Enum):
-    RANDOM = "random"
-    PERCENTAGE = "percentage"
+from src.pi_sam.masking import MaskingType, PercentageMaskingStrategy, RandomMaskingStrategy
+from src.utils.pddl import get_state_grounded_predicates
 
 
-class MaskingStrategy(ABC):
-    """
-    This class serves as a base class for masking a set of predicates based on some logic/strategy.
-    """
-    @abstractmethod
-    def mask(self, predicates: set[GroundedPredicate], *args, **kwargs) -> set[GroundedPredicate]:
-        raise NotImplementedError
-
-
-class RandomMasking(MaskingStrategy):
-    """
-    this class masks a certain predicate with probability p, and leaves it as it is with probability (1 - p).
-    """
-    def mask(self, predicates: set[GroundedPredicate], masking_proba: float = 0.3,
-             *args, **kwargs) -> set[GroundedPredicate]:
-        for predicate in predicates:
-            if random.random() < masking_proba:
-                predicate.is_masked = True
-        return predicates
-
-
-class PercentageMasking(MaskingStrategy):
-    """
-    This class masks some p percent of predicates from the set
-    """
-    def mask(self, predicates: set[GroundedPredicate], masking_ratio: float = 0.75, *args, **kwargs) -> set[GroundedPredicate]:
-        sample_size = max(1, round(len(predicates) * masking_ratio))  # Ensure at least 1 element if p > 0
-        sample = set(random.sample(list(predicates), sample_size))
-        for predicate in sample:
-            predicate.is_masked = True
-        return predicates
-
-
-# create a class which gets a set of predicates and masks them according to the masking strategy
 class PredicateMasker:
     """
     This class is used to mask predicates based on a given masking strategy.
     """
-    def __init__(self, seed: int = 42):
-        self.masking_strategies = {
-            MaskingType.RANDOM: RandomMasking(),
-            MaskingType.PERCENTAGE: PercentageMasking()
-        }
-        self.seed = seed
 
-    def mask(self, predicates: set[GroundedPredicate], masking_strategy: MaskingType = MaskingType.RANDOM,
-             *args, **kwargs) -> set[GroundedPredicate]:
-        random.seed(self.seed) # Ensure reproducibility of masking
-        return self.masking_strategies[masking_strategy].mask(predicates, *args, **kwargs)
+    _masking_strategy: MaskingType
+    _masking_kwargs: dict
+
+    masking_strategies = {
+        MaskingType.RANDOM: RandomMaskingStrategy(),
+        MaskingType.PERCENTAGE: PercentageMaskingStrategy()
+    }
+
+    def __init__(self, seed: int = 42, masking_strategy: MaskingType = MaskingType.RANDOM,
+                 masking_kwargs: dict = None):
+        self.seed = seed
+        self.set_masking_strategy(masking_strategy, **(masking_kwargs or self._default_params_for(masking_strategy)))
+
+    @staticmethod
+    def _default_params_for(strategy: MaskingType) -> dict:
+        if strategy == MaskingType.RANDOM:
+            return {"masking_proba": 0.3}
+        elif strategy == MaskingType.PERCENTAGE:
+            return {"masking_ratio": 0.3}
+        else:
+            return {}
+
+    def set_masking_strategy(self, masking_strategy: MaskingType, **kwargs):
+        """
+        Sets the masking strategy to be used for masking predicates.
+
+        :param masking_strategy: The strategy to use for masking.
+        :param kwargs: Additional parameters for the selected masking strategy.
+        """
+        self._masking_strategy = masking_strategy
+        self._masking_kwargs = kwargs or self._default_params_for(masking_strategy)
+        self.masking_strategies[masking_strategy].validate_strategy_kwargs(self._masking_kwargs)
+
+    def mask(self, predicates: set[GroundedPredicate]) -> Tuple[set[GroundedPredicate], set[GroundedPredicate]]:
+        random.seed(self.seed)  # Ensures reproducibility of masking
+        return self.masking_strategies[self._masking_strategy].mask(predicates, **self._masking_kwargs)
+
+    def mask_state(self, state: State) -> Set[GroundedPredicate]:
+        """
+        Masks the predicates in the state based on the masking strategy.
+
+        :param state: The state containing predicates to be masked.
+        :return: The state with masked predicates and the set of masked predicates.
+        """
+        grounded_predicates = get_state_grounded_predicates(state)
+        masked_predicates, unmasked_predicates = self.mask(grounded_predicates)
+        return masked_predicates
+
+    def mask_observation(self, observation: Observation) -> List[set[GroundedPredicate]]:
+        """
+        Masks the predicates in the observation's states based on the masking strategy.
+        Note that for each 2 consecutive components (c, c'), it holds that c.next_state == c'.previous_state,
+        so they should be masked in the same way. Therefore, we generate the masking info only once for each component.
+
+        :param observation: The observation containing predicates to be masked.
+        :return: The observation with masked predicates.
+        """
+
+        # Mask the initial state
+        masking_info = [self.mask_state(observation.components[0].previous_state)]
+
+        # Mask the next state for each component in the observation
+        for i in range(len(observation.components)):
+            masking_info.append(self.mask_state(observation.components[i].next_state))
+
+        return masking_info

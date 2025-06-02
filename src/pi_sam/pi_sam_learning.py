@@ -1,14 +1,12 @@
 import random
-from pathlib import Path
 from typing import Dict, List, Tuple, Set
 
-from pddl_plus_parser.lisp_parsers import TrajectoryParser, ProblemParser
-from pddl_plus_parser.models import GroundedPredicate, Domain, Observation, State, Problem
+from pddl_plus_parser.models import GroundedPredicate, Domain, Observation, State
 from sam_learning.core import LearnerDomain
 from sam_learning.learners import SAMLearner
 
-from src.pi_sam.predicate_masking import MaskingType, RandomMasking, PercentageMasking
-from src.utils.pddl import copy_observation, observation_to_trajectory_file, get_all_possible_groundings
+from src.pi_sam.predicate_masking import MaskingType, PredicateMasker
+from src.utils.pddl import copy_observation, get_all_possible_groundings, get_state_grounded_predicates
 
 
 class PISAMLearner(SAMLearner):
@@ -22,13 +20,10 @@ class PISAMLearner(SAMLearner):
     :param seed: An seed for random number generation to ensure reproducibility of the masking process.
     """
 
-    def __init__(self, partial_domain: Domain, seed: int = 42):
+    def __init__(self, partial_domain: Domain, predicate_masker: PredicateMasker = None, seed: int = 42):
         super().__init__(partial_domain)
 
-        self.masking_strategies = {
-            MaskingType.RANDOM: RandomMasking(),
-            MaskingType.PERCENTAGE: PercentageMasking()
-        }
+        self.predicate_masker = predicate_masker or PredicateMasker(seed=seed)
         self.seed = seed
         random.seed(seed)
 
@@ -67,6 +62,8 @@ class PISAMLearner(SAMLearner):
     in order to make sure the masked literals are handled correctly.
     """
 
+    def set_masking_strategy(self, masking_strategy: MaskingType, masking_kwargs: dict = None) -> None:
+        self.predicate_masker.set_masking_strategy(masking_strategy, **masking_kwargs)
 
     def _get_all_possible_groundings_for_domain(self, observation: Observation) -> Dict[str, Set[GroundedPredicate]]:
         """
@@ -114,14 +111,15 @@ class PISAMLearner(SAMLearner):
 
         return new_state
 
-    def _ground_all_states_in_observation(self,
-                                          observation: Observation,
-                                          all_domain_grounded_predicates: Dict[str, Set[GroundedPredicate]]
-                                          ) -> Observation:
+    def ground_all_states_in_observation(self, observation: Observation,
+                                         all_domain_grounded_predicates: Dict[str, Set[GroundedPredicate]]
+                                         ) -> Observation:
         """
         for a given observation, ground all predicates in each state of the observation.
 
         :param observation: an observation (trajectory) to handle
+        :param all_domain_grounded_predicates: a dictionary mapping each predicate name to its possible groundings in the domain,
+               using the objects of the observation.
         :return: a full observation, with all possible literals for each state
         """
         new_observation = copy_observation(observation)
@@ -133,58 +131,102 @@ class PISAMLearner(SAMLearner):
 
         return new_observation
 
-    def mask_observation(self, observation: Observation) -> Tuple[Observation, Dict[int, Set[GroundedPredicate]]]:
-        # TODO: implement properly, without the all_domain_grounded_predicates parameter which i mistakenly added as a part of the previous function's impolementation
+    def ground_observation_completely(self, observation: Observation) -> Observation:
         """
-        :param observation:
-        :return:
+        Ground all predicates in the states of the observation.
+
+        :param observation: The observation to ground.
+        :return: A new observation with all predicates grounded.
         """
-        observation.components[0].previous_state = self._ground_all_predicates_in_state(
+        all_domain_grounded_predicates = self._get_all_possible_groundings_for_domain(observation)
+        return self.ground_all_states_in_observation(observation, all_domain_grounded_predicates)
+
+    @staticmethod
+    def _mask_state(state: State, masking_info: Set[GroundedPredicate]) -> State:
+        """
+        Masks the predicates in the state according to the masking info provided.
+
+        :param state: The state to mask predicates in.
+        :param masking_info: A set of predicates to mask in the state.
+        :return: A state with predicates masked according to the masking info provided.
+        """
+        for masked_pred in masking_info:
+            all_matching_predicates = state.state_predicates[masked_pred.lifted_untyped_representation]
+            for pred in all_matching_predicates:
+                if pred == masked_pred:
+                    pred.is_masked = True
+                    break
+            else:
+                # If the predicate is not found, we should log a warning or handle it as needed
+                print(f"Warning: Masked predicate {masked_pred} not found in state.")
+
+        return state
+
+    def _mask_observation(self, observation: Observation, masking_info: List[Set[GroundedPredicate]]) -> Observation:
+        """
+        This function masks the predicates in the observation so it could be used for learning with partial information.
+        NOTE: we assume that observation is "full" - meaning that all predicates are grounded in the states.
+
+        :param observation: The observation to mask predicates in.
+        :param masking_info: A dictionary mapping state indices to sets of predicates to mask.
+        :return: An observation with predicates masked according to the masking info provided.
+        """
+        #  TODO: list[set[GroundedPredicate]] is not a good type hint (and especially if we wrap it in list for the observation list. consider expoerting to a class
+
+        observation.components[0].previous_state = self._mask_state(
             observation.components[0].previous_state,
-            all_domain_grounded_predicates
+            masking_info[0]
         )
 
-        # for two consecutive components c_(i) and c_(i+1), it holds that c_(i).next_state == c_(i+1).prev_state,
-        # so they should be masked in the same way.
+        # Note that for each 2 consecutive components (c, c'), it holds that c.next_state == c'.previous_state,
+        # so they should be masked in the same way.Therefore, we generate the masking info only once for each component.
         for i in range(len(observation.components) - 1):
             curr_component, next_component = observation.components[i], observation.components[i + 1]
-            state_with_all_grounded_literals = self._ground_all_predicates_in_state(curr_component.next_state,
-                                                                                    all_domain_grounded_predicates)
-            curr_component.next_state = state_with_all_grounded_literals
-            next_component.previous_state = state_with_all_grounded_literals
+            masked_state = self._mask_state(
+                curr_component.next_state,
+                masking_info[i + 1]
+            )
+            curr_component.next_state = masked_state
+            next_component.previous_state = masked_state
 
-        observation.components[-1].next_state = self._ground_all_predicates_in_state(
-            observation.components[-1].next_state, all_domain_grounded_predicates)
+        observation.components[-1].next_state = self._mask_state(observation.components[-1].next_state,
+                                                                 masking_info[-1])
 
         return observation
 
-    def mask_trajectory(self, trajectory_file_path: Path, domain: Domain,
-                        problem_path: Path) -> Tuple[Path, Dict[int, Set[GroundedPredicate]]]:
+    def mask_observations(self, observations: List[Observation], masking_info: List[List[Set[GroundedPredicate]]]) -> List[Observation]:
         """
-        Masks the predicates in the trajectory file according to the PI-SAM algorithm.
-        :param trajectory_file_path: The path to the trajectory file to be masked.
-        :param domain: The domain of the problem, which contains the predicates to be masked.
-        :param problem_path: The path to problem file related to the trajectory
-        :return: A tuple containing the path to the masked trajectory file and a mapping of masked predicates.
+        Masks the predicates in each observation according to the masking strategy.
+
+        :param observations: A list of observations to mask.
+        :param masking_info: Optional information about which predicates to mask in each state.
+        :return: A list of masked observations.
         """
-        problem: Problem = ProblemParser(problem_path, domain).parse_problem()
-        observation: Observation = TrajectoryParser(domain, problem).parse_trajectory(trajectory_file_path)
-        masked_observation, masked_predicates_mapping = self.mask_observation(observation)
-        masked_trajectory_path = trajectory_file_path.with_suffix('.masked.trajectory')
-        output_path = observation_to_trajectory_file(masked_observation, masked_trajectory_path)
+        assert len(observations)+1 == len(masking_info), "Masking info should hold data foreach state in the Trajectory"
 
-        return output_path, masked_predicates_mapping
+        #TODO: this is the same code as the "return" line, might be more comprhesive for debugging purposes - remove when works
+        # masked_observations = []
+        # for obs, mask_info in zip(observations, masking_info):
+        #     masked_obs = self._mask_observation(obs, mask_info)
+        #     masked_observations.append(masked_obs)
+        # return masked_observations
 
-    def prepare_observations(self, observations: List[Observation]) -> List[Observation]:
+        return [self._mask_observation(obs, mask_info) for obs, mask_info in zip(observations, masking_info)]
+
+    def mask_observations_by_strategy(self, observations: List[Observation]) -> List[List[set[GroundedPredicate]]]:
         """
-        For each grounded literal in the domain, create a proper instance in the observations' states.
+        Masks the predicates in each observation according to the masking strategy.
 
-        :param observations:
-        :return:
+        :param observations: A list of observations to mask.
+        :return: A list of lists, where each inner list contains sets of predicates to mask for each state in the observation.
         """
-        return [self._ground_all_states_in_observation(observation) for observation in observations]
+        full_observations = [self.ground_observation_completely(obs) for obs in observations]
+        return [self.predicate_masker.mask_observation(obs) for obs in full_observations]
 
-    def learn_action_model(self, observations: List[Observation]) -> Tuple[LearnerDomain, Dict[str, str]]:
-        observations = self.prepare_observations(observations)
+    def learn_action_model(self, observations: List[Observation], masking_info: List[List[Set[GroundedPredicate]]]) -> Tuple[LearnerDomain, Dict[str, str]]:
+        # each observation has a dict, each dict is {<state_index>: <set of masked predicates>} where the set's values are the untyped representations of the masked predicates.
+        #  TODO: create a proper class / type for this
+        full_observations = [self.ground_observation_completely(obs) for obs in observations]
+        masked_observations = self.mask_observations(full_observations, masking_info)
         return super().learn_action_model(
-            observations)  # TODO: check if we need to override this method or not (or maybe its inner methods)
+            masked_observations)  # TODO: check if we need to override this method or not (or maybe its inner methods)
