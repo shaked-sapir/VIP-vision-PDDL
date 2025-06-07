@@ -6,7 +6,7 @@ from sam_learning.core import LearnerDomain, extract_discrete_effects_partial_ob
 from sam_learning.learners import SAMLearner
 
 from src.pi_sam.predicate_masking import MaskingType, PredicateMasker
-from src.utils.pddl import copy_observation, get_all_possible_groundings
+from src.utils.pddl import copy_observation, get_all_possible_groundings, get_state_grounded_predicates
 
 
 class PISAMLearner(SAMLearner):
@@ -29,34 +29,6 @@ class PISAMLearner(SAMLearner):
         self.predicate_masker = predicate_masker or PredicateMasker(seed=seed)
         self.seed = seed
         random.seed(seed)
-
-    """
-    Going over SAMLearner methods to see what methods should be modified regarding the masking operations.
-    The best thing, in my opinion, is to have my own thoughts about it, and then ask Argaman to hold a conversation about it,
-    see what she says and that I am heading at the right direction. maybe she could also have a DR for my PI-SAM agent.
-    
-    
-    @learn_action_model: BAD - needs masking of observations before calling the papa's function /// DONE!.
-    @are_states_different: GOOD - is compares states, which use the `GroundedPredicate.untyped_representation()` method to determine 
-                                  equality, and we override it in the MaskableGroundedPredicate class.
-    @end_measure_learning_time: GOOD - just time comparison
-    @start_measure_learning_time: GOOD - just time comparison
-    @construct_safe_actions: GOOD - as it should be safe by default #TODO actually we have to check this thing up with Argaman/Yarin
-    @handle_negative_preconditions_policy: GOOD - uses only the relevant field which is inherited by the papa class.
-    @remove_negative_preconditions: GOOD - when getting there, there should not be any masked predicates anymore
-    @deduce_initial_inequality_preconditions: GOOD - there should not be any manipulations regarding the masked predicates
-    @handle_single_trajectory_component: GOOD - it is just its internals which need work (add_new_action)/(update_action) -> `extract_effects`
-    @_verify_parameter_duplication: GOOD - this is not related to predicates by any means
-    @update_action: GOOD - depends on the `_handle_action_effects` -> `extract_effects` so this is what we should work on
-    @add_new_action: GOOD - depends on the `_handle_action_effects` -> `extract_effects` so this is what we should work on
-    @_construct_learning_report: GOOD - just constructing learning report from the un/safe actions
-    @_add_new_action_preconditions: GOOD? - should implement the "cannot_be_precondition" of PI-SAM
-    @_update_action_preconditions: BAD - need to check for rules with  masking, part of the "cannot_be_precondition" of PI-SAM
-    @_handle_action_effects: BAD - should implement the "is_effect" of PI-SAM /// DONE!
-    @_handle_consts_in_effects: BAD - should implement the "cannot_be_effect" of PI-SAM
-    @_remove_unobserved_actions_from_partial_domain: GOOD - affected only by `observed_actions`
-    """
-
 
     """
     important note! # TODO: go over and delete afterwards
@@ -235,7 +207,8 @@ class PISAMLearner(SAMLearner):
         # handle must_be_effects
         self.logger.debug(f"handling action {grounded_action.name} effects.")
         grounded_add_effects, grounded_del_effects = extract_discrete_effects_partial_observability(
-            previous_state.state_predicates, next_state.state_predicates
+            get_state_grounded_predicates(previous_state),
+            get_state_grounded_predicates(next_state)
         )
         lifted_add_effects = self.matcher.get_possible_literal_matches(grounded_action, list(grounded_add_effects))
         lifted_delete_effects = self.matcher.get_possible_literal_matches(grounded_action, list(grounded_del_effects))
@@ -271,6 +244,7 @@ class PISAMLearner(SAMLearner):
         self.observed_actions.append(observed_action.name)
         super()._add_new_action_preconditions(grounded_action)
         self.handle_effects(grounded_action, previous_state, next_state)
+        self.logger.debug(f"Finished adding the action {grounded_action.name}.")
 
     def update_action(self, grounded_action: ActionCall, previous_state: State, next_state: State) -> None:
         """updates an existing action in the domain based on a transition.
@@ -281,9 +255,48 @@ class PISAMLearner(SAMLearner):
             state.
         """
         self.logger.debug(f"updating action {str(grounded_action)}.")
-        super()._update_action_preconditions(grounded_action)
+        self._update_action_preconditions(grounded_action, previous_state)
         self.handle_effects(grounded_action, previous_state, next_state)
         self.logger.debug(f"finished updating action {str(grounded_action)}.")
+
+    def _add_new_action_preconditions(self, grounded_action: ActionCall) -> None:
+        """method to add new action's discrete preconditions.
+
+        in the new_action case, this is equivalent to the regular sam, because we should not
+        care about masking - we have to include the predicate as a potential precondition of
+        the action, so we won't miss it in case we don't have any other transitions with this
+        action - in this situation we might mistakenly exclude the predicate as a precondition
+        leading to unsafe action model.
+
+        :param grounded_action: the action that is currently being executed.
+        """
+        super()._add_new_action_preconditions(grounded_action)
+
+    def _update_action_preconditions(self, grounded_action: ActionCall, previous_state: State) -> None:
+        """Updates the preconditions of an action after it was observed at least once.
+        This method handles rule #1 (cannot_be_precondition) of PI-SAM.
+        It is much similar to the SAM's update_action_preconditions method, but it is more restrictive
+        to allow checking matches only for unmasked literals.
+
+        :param grounded_action: the grounded action that is being executed in the trajectory component.
+        """
+        current_action = self.partial_domain.actions[grounded_action.name]
+        previous_state_unmasked_predicates = [pred for pred in get_state_grounded_predicates(previous_state) if not pred.is_masked]
+        previous_state_lifted_predicates = set(
+            self.matcher.get_possible_literal_matches(
+                grounded_action,
+                previous_state_unmasked_predicates
+            )
+        )
+
+        conditions_to_remove = []
+        for current_precondition in current_action.preconditions.root.operands:
+            # assuming that the predicates in the preconditions are NOT nested.
+            if isinstance(current_precondition, Predicate) and current_precondition not in previous_state_lifted_predicates:
+                conditions_to_remove.append(current_precondition)
+
+        for condition in conditions_to_remove:
+            current_action.preconditions.remove_condition(condition)
 
     def learn_action_model(self, observations: List[Observation], *, masking_info: List[List[set[GroundedPredicate]]]
                            ) -> Tuple[LearnerDomain, Dict[str, str]]:
@@ -292,4 +305,4 @@ class PISAMLearner(SAMLearner):
         full_observations = [self.ground_observation_completely(obs) for obs in observations]
         masked_observations = self.mask_observations(full_observations, masking_info)
         return super().learn_action_model(
-            masked_observations)  # TODO: check if we need to override this method or not (or maybe its inner methods)
+            masked_observations)
