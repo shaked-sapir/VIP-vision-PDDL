@@ -13,7 +13,7 @@ from utilities import NegativePreconditionPolicy
 
 from src.action_model.gym2SAM_parser import create_observation_from_trajectory
 from src.experiments.BasicSamExperimentRunnner import OfflineBasicSamExperimentRunner
-from src.pi_sam.pi_sam_learning import PISAMLearner, MaskingType
+
 from src.trajectory_handlers.blocks_image_trajectory_handler import BlocksImageTrajectoryHandler
 
 BLOCKS_DOMAIN_FILE_PATH = Path("blocks.pddl")

@@ -1,12 +1,12 @@
 import random
 from typing import Dict, List, Tuple, Set
 
-from pddl_plus_parser.models import GroundedPredicate, Domain, Observation, State
-from sam_learning.core import LearnerDomain
+from pddl_plus_parser.models import GroundedPredicate, Domain, Observation, State, ActionCall, Predicate, Action
+from sam_learning.core import LearnerDomain, extract_discrete_effects_partial_observability, extract_not_effects_partial_observability
 from sam_learning.learners import SAMLearner
 
 from src.pi_sam.predicate_masking import MaskingType, PredicateMasker
-from src.utils.pddl import copy_observation, get_all_possible_groundings, get_state_grounded_predicates
+from src.utils.pddl import copy_observation, get_all_possible_groundings
 
 
 class PISAMLearner(SAMLearner):
@@ -17,6 +17,9 @@ class PISAMLearner(SAMLearner):
     This class extends the SAMLearner class and overrides methods to incorporate masking strategies for grounded predicates.
 
     :param partial_domain: The domain to learn from, which should be a partial domain with grounded predicates.
+    :param predicate_masker: An instance of PredicateMasker to handle the masking of predicates. If None, a default
+        PredicateMasker will be created with the provided seed. This is for the option to create a masking via strategy
+        if masking info isn't known ahead of time.
     :param seed: An seed for random number generation to ensure reproducibility of the masking process.
     """
 
@@ -33,7 +36,7 @@ class PISAMLearner(SAMLearner):
     see what she says and that I am heading at the right direction. maybe she could also have a DR for my PI-SAM agent.
     
     
-    @learn_action_model: GOOD - as this is the main function of the class, so we should change its inner methods.
+    @learn_action_model: BAD - needs masking of observations before calling the papa's function /// DONE!.
     @are_states_different: GOOD - is compares states, which use the `GroundedPredicate.untyped_representation()` method to determine 
                                   equality, and we override it in the MaskableGroundedPredicate class.
     @end_measure_learning_time: GOOD - just time comparison
@@ -42,15 +45,15 @@ class PISAMLearner(SAMLearner):
     @handle_negative_preconditions_policy: GOOD - uses only the relevant field which is inherited by the papa class.
     @remove_negative_preconditions: GOOD - when getting there, there should not be any masked predicates anymore
     @deduce_initial_inequality_preconditions: GOOD - there should not be any manipulations regarding the masked predicates
-    @handle_single_trajectory_component: BAD - (add_new_action)/(update_action) -> `extract_effects`
+    @handle_single_trajectory_component: GOOD - it is just its internals which need work (add_new_action)/(update_action) -> `extract_effects`
     @_verify_parameter_duplication: GOOD - this is not related to predicates by any means
-    @update_action: BAD - depends on the `_handle_action_effects` -> `extract_effects`
-    @add_new_action: BAD - depends on the `_handle_action_effects` -> `extract_effects`
+    @update_action: GOOD - depends on the `_handle_action_effects` -> `extract_effects` so this is what we should work on
+    @add_new_action: GOOD - depends on the `_handle_action_effects` -> `extract_effects` so this is what we should work on
     @_construct_learning_report: GOOD - just constructing learning report from the un/safe actions
-    @_add_new_action_preconditions: GOOD - for the initial preconditions definition - we define all predicates, regardless whether they are masked or not. it will only matter for applying SAM rules
-    @_update_action_preconditions: BAD - needs to update the `extract_effects` code to check for masked predicates
-    @_handle_action_effects: BAD - needs to update the `extract_effects` code to check for masked predicates (other than that - it should be ok though)
-    @_handle_consts_in_effects:
+    @_add_new_action_preconditions: GOOD? - should implement the "cannot_be_precondition" of PI-SAM
+    @_update_action_preconditions: BAD - need to check for rules with  masking, part of the "cannot_be_precondition" of PI-SAM
+    @_handle_action_effects: BAD - should implement the "is_effect" of PI-SAM /// DONE!
+    @_handle_consts_in_effects: BAD - should implement the "cannot_be_effect" of PI-SAM
     @_remove_unobserved_actions_from_partial_domain: GOOD - affected only by `observed_actions`
     """
 
@@ -65,6 +68,16 @@ class PISAMLearner(SAMLearner):
     def set_masking_strategy(self, masking_strategy: MaskingType, masking_kwargs: dict = None) -> None:
         self.predicate_masker.set_masking_strategy(masking_strategy, **masking_kwargs)
 
+    def mask_observations_by_strategy(self, observations: List[Observation]) -> List[List[set[GroundedPredicate]]]:
+        """
+        Masks the predicates in each observation according to the masking strategy.
+
+        :param observations: A list of observations to mask.
+        :return: A list of lists, where each inner list contains sets of predicates to mask for each state in the observation.
+        """
+        full_observations = [self.ground_observation_completely(obs) for obs in observations]
+        return [self.predicate_masker.mask_observation(obs) for obs in full_observations]
+
     def _get_all_possible_groundings_for_domain(self, observation: Observation) -> Dict[str, Set[GroundedPredicate]]:
         """
         For each lifted predicate in the domain, compute all possible groundings for the given observation.
@@ -78,7 +91,8 @@ class PISAMLearner(SAMLearner):
         all_grounded_predicates = {}
 
         for lifted_predicate_name, lifted_predicate in self.partial_domain.predicates.items():
-            all_grounded_predicates[lifted_predicate_name] = get_all_possible_groundings(
+            # keys are the untyped representations of the predicates, matching the predicate dicts of states
+            all_grounded_predicates[lifted_predicate.untyped_representation] = get_all_possible_groundings(
                 lifted_predicate, grounded_objects)
 
         return all_grounded_predicates
@@ -151,13 +165,14 @@ class PISAMLearner(SAMLearner):
         :return: A state with predicates masked according to the masking info provided.
         """
         for masked_pred in masking_info:
-            all_matching_predicates = state.state_predicates[masked_pred.lifted_untyped_representation]
+            # state.state_predicates are only positive- a positive version of the masked predicate is needed for access
+            masked_pred_positive_form = masked_pred.copy(is_negated=not masked_pred.is_positive)
+            all_matching_predicates = state.state_predicates[masked_pred_positive_form.lifted_untyped_representation]
             for pred in all_matching_predicates:
                 if pred == masked_pred:
                     pred.is_masked = True
                     break
             else:
-                # If the predicate is not found, we should log a warning or handle it as needed
                 print(f"Warning: Masked predicate {masked_pred} not found in state.")
 
         return state
@@ -171,7 +186,7 @@ class PISAMLearner(SAMLearner):
         :param masking_info: A dictionary mapping state indices to sets of predicates to mask.
         :return: An observation with predicates masked according to the masking info provided.
         """
-        #  TODO: list[set[GroundedPredicate]] is not a good type hint (and especially if we wrap it in list for the observation list. consider expoerting to a class
+        assert len(observation.components)+1 == len(masking_info), "Masking info should hold data foreach state in the Trajectory"
 
         observation.components[0].previous_state = self._mask_state(
             observation.components[0].previous_state,
@@ -202,28 +217,76 @@ class PISAMLearner(SAMLearner):
         :param masking_info: Optional information about which predicates to mask in each state.
         :return: A list of masked observations.
         """
-        assert len(observations)+1 == len(masking_info), "Masking info should hold data foreach state in the Trajectory"
-
-        #TODO: this is the same code as the "return" line, might be more comprhesive for debugging purposes - remove when works
-        # masked_observations = []
-        # for obs, mask_info in zip(observations, masking_info):
-        #     masked_obs = self._mask_observation(obs, mask_info)
-        #     masked_observations.append(masked_obs)
-        # return masked_observations
 
         return [self._mask_observation(obs, mask_info) for obs, mask_info in zip(observations, masking_info)]
 
-    def mask_observations_by_strategy(self, observations: List[Observation]) -> List[List[set[GroundedPredicate]]]:
-        """
-        Masks the predicates in each observation according to the masking strategy.
+    """
+        PI-SAM rules methods
+    """
 
-        :param observations: A list of observations to mask.
-        :return: A list of lists, where each inner list contains sets of predicates to mask for each state in the observation.
+    def handle_effects(self, grounded_action: ActionCall, previous_state: State, next_state: State) -> None:
         """
-        full_observations = [self.ground_observation_completely(obs) for obs in observations]
-        return [self.predicate_masker.mask_observation(obs) for obs in full_observations]
+        This method handles rules #2 (is_effect) & #3 (cannot_be_effect) of PI-SAM.
+        :param grounded_action: the grounded action that was executed according to the trajectory.
+        :param previous_state: the state that the action was executed on.
+        :param next_state: the state that was created after executing the action on the previous state.
+        :return:
+        """
+        # handle must_be_effects
+        self.logger.debug(f"handling action {grounded_action.name} effects.")
+        grounded_add_effects, grounded_del_effects = extract_discrete_effects_partial_observability(
+            previous_state.state_predicates, next_state.state_predicates
+        )
+        lifted_add_effects = self.matcher.get_possible_literal_matches(grounded_action, list(grounded_add_effects))
+        lifted_delete_effects = self.matcher.get_possible_literal_matches(grounded_action, list(grounded_del_effects))
 
-    def learn_action_model(self, observations: List[Observation], masking_info: List[List[Set[GroundedPredicate]]]) -> Tuple[LearnerDomain, Dict[str, str]]:
+        self.logger.debug("Adding the effects to the action effects.")
+        observed_action = self.partial_domain.actions[grounded_action.name]
+        observed_action.discrete_effects.update(set(lifted_add_effects).union(lifted_delete_effects))
+
+        # handle cannot_be_effects
+        cannot_be_effects = extract_not_effects_partial_observability(
+            previous_state.state_predicates, next_state.state_predicates
+        )
+
+        self.cannot_be_effects[grounded_action.name].update(
+            {
+                Predicate(
+                    name=pred.name, signature=pred.signature, is_positive=self.is_positive
+                ) for pred in cannot_be_effects
+            }
+        )
+        self.logger.debug(f"finished handling action- {grounded_action.name} effects.")
+
+    def add_new_action(self, grounded_action: ActionCall, previous_state: State, next_state: State) -> None:
+        """Create a new action in the domain.
+
+        :param grounded_action: the grounded action that was executed according to the trajectory.
+        :param previous_state: the state that the action was executed on.
+        :param next_state: the state that was created after executing the action on the previous
+        """
+        self.logger.info(f"Adding the action {str(grounded_action)} to the domain.")
+        # adding the preconditions each predicate is grounded in this stage.
+        observed_action = self.partial_domain.actions[grounded_action.name]
+        self.observed_actions.append(observed_action.name)
+        super()._add_new_action_preconditions(grounded_action)
+        self.handle_effects(grounded_action, previous_state, next_state)
+
+    def update_action(self, grounded_action: ActionCall, previous_state: State, next_state: State) -> None:
+        """updates an existing action in the domain based on a transition.
+
+        :param grounded_action: the grounded action that was executed according to the trajectory.
+        :param previous_state: the state that the action was executed on.
+        :param next_state: the state that was created after executing the action on the previous
+            state.
+        """
+        self.logger.debug(f"updating action {str(grounded_action)}.")
+        super()._update_action_preconditions(grounded_action)
+        self.handle_effects(grounded_action, previous_state, next_state)
+        self.logger.debug(f"finished updating action {str(grounded_action)}.")
+
+    def learn_action_model(self, observations: List[Observation], *, masking_info: List[List[set[GroundedPredicate]]]
+                           ) -> Tuple[LearnerDomain, Dict[str, str]]:
         # each observation has a dict, each dict is {<state_index>: <set of masked predicates>} where the set's values are the untyped representations of the masked predicates.
         #  TODO: create a proper class / type for this
         full_observations = [self.ground_observation_completely(obs) for obs in observations]

@@ -134,7 +134,7 @@ def observation_to_trajectory_file(observation: Observation, output_path: Path) 
     return output_path
 
 
-# TODO: suggest this to pddl_plus_parser as a new class method - I could use it
+# TODO: suggest this to pddl_plus_parser as a new class method - I could use it - passed CR, not merged yet
 def copy_observation(observation: Observation) -> Observation:
     """
     Creates a deep copy of the given Observation object.
@@ -159,7 +159,7 @@ def copy_observation(observation: Observation) -> Observation:
     return copied_observation
 
 
-# TODO: suggest this to pddl_plus_parser as a new class method - I could use it
+# TODO: suggest this to pddl_plus_parser as a new class method - I could use it => need to fix CR for supprting constants + add test
 def get_all_possible_groundings(predicate: Predicate,
                                 grounded_objects: Dict[str, PDDLObject]) -> Set[GroundedPredicate]:
     param_names = list(predicate.signature.keys())
@@ -185,5 +185,6 @@ def get_all_possible_groundings(predicate: Predicate,
     return grounded_predicates
 
 
+# TODO: suggest this to pddl_plus_parser as a new class method - I could use it
 def get_state_grounded_predicates(state: State) -> Set[GroundedPredicate]:
     return set.union(*state.state_predicates.values())
