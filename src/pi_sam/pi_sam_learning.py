@@ -20,7 +20,7 @@ class PISAMLearner(SAMLearner):
     :param predicate_masker: An instance of PredicateMasker to handle the masking of predicates. If None, a default
         PredicateMasker will be created with the provided seed. This is for the option to create a masking via strategy
         if masking info isn't known ahead of time.
-    :param seed: An seed for random number generation to ensure reproducibility of the masking process.
+    :param seed: A seed for random number generation to ensure reproducibility of the masking process.
     """
 
     def __init__(self, partial_domain: Domain, predicate_masker: PredicateMasker = None, seed: int = 42):
@@ -219,13 +219,14 @@ class PISAMLearner(SAMLearner):
 
         # handle cannot_be_effects
         cannot_be_effects = extract_not_effects_partial_observability(
-            previous_state.state_predicates, next_state.state_predicates
+            get_state_grounded_predicates(previous_state),
+            get_state_grounded_predicates(next_state)
         )
 
-        self.cannot_be_effects[grounded_action.name].update(
+        self.cannot_be_effect[grounded_action.name].update(
             {
                 Predicate(
-                    name=pred.name, signature=pred.signature, is_positive=self.is_positive
+                    name=pred.name, signature=pred.signature, is_positive=pred.is_positive
                 ) for pred in cannot_be_effects
             }
         )
