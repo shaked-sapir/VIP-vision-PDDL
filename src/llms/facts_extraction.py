@@ -7,7 +7,7 @@ from openai import OpenAI
 from src.llms.utils import encode_image
 
 # TODO: hide this key
-openai_apikey = "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"
+openai_apikey = ""
 openai_client = OpenAI(api_key=openai_apikey)
 
 def print_RGB(image_path: Path):

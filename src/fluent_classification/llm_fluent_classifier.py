@@ -1,5 +1,6 @@
 import base64
 import re
+from abc import abstractmethod
 from collections import Counter
 from pathlib import Path
 from typing import Dict, Union
@@ -74,6 +75,17 @@ class LLMFluentClassifier(FluentClassifier):
         """
         return {pred: relevance_dict.get(pred, uncertainty_label) for pred in all_possible_preds}
 
+    @abstractmethod
+    def _generate_all_possible_predicates(self, *args, **kwargs) -> set[str]:
+        """
+        Abstract method to generate all possible predicates for a specific domain.
+        Must be implemented by subclasses with domain-specific logic.
+
+        Returns:
+            Set of all possible predicate strings for the domain
+        """
+        pass
+
     def classify(self, image) -> Dict[str, PredicateTruthValue]:
         predicates_with_rel_judgement = self.simulate_relevance_judgement(
             image_path=image,
@@ -83,4 +95,18 @@ class LLMFluentClassifier(FluentClassifier):
             result_parse_func=self.result_parse_func,
             temperature=1.3
         )
+
+        all_possible_predicates = self._generate_all_possible_predicates(*args, **kwargs)
         predicates_with_rel_judgement = self.fill_missing_predicates_with_uncertainty(predicates_with_rel_judgement)
+        
+        # Convert relevance scores to PredicateTruthValue
+        result = {}
+        for predicate, relevance_score in predicates_with_rel_judgement.items():
+            if relevance_score == 2:
+                result[predicate] = PredicateTruthValue.TRUE
+            elif relevance_score == 0:
+                result[predicate] = PredicateTruthValue.FALSE
+            else:
+                result[predicate] = PredicateTruthValue.UNCERTAIN
+                
+        return result
