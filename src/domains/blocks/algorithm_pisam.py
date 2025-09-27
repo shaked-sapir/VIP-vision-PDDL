@@ -3,16 +3,19 @@ import os
 import shutil
 from pathlib import Path
 
+import pandas as pd
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 from pddl_plus_parser.models import (
     Observation,
     Domain, Problem
 )
 from sam_learning.learners.sam_learning import SAMLearner
+from typing import List
 from utilities import NegativePreconditionPolicy
 
 from src.action_model.gym2SAM_parser import create_observation_from_trajectory
-from src.experiments.BasicSamExperimentRunnner import OfflineBasicSamExperimentRunner
+from src.fluent_classification.base_fluent_classifier import PredicateTruthValue
+from src.vip_experiments.BasicSamExperimentRunnner import OfflineBasicSamExperimentRunner
 from src.pi_sam import PISAMLearner, PredicateMasker, MaskingType
 from src.pi_sam.PiSamExperimentRunner import OfflinePiSamExperimentRunner
 from src.trajectory_handlers.blocks_image_trajectory_handler import BlocksImageTrajectoryHandler
@@ -30,6 +33,7 @@ if __name__ == "__main__":
     The loop is for generating the data to the cross validation evaluation.
     #  TODO: separate the simulations from the evaluation.
     """
+    result_mapping = {}
     for num_steps in [10, 25, 50, 100]:
         blocks_domain_name = "PDDLEnvBlocks-v0"
         for blocks_problem_name in [
@@ -51,7 +55,7 @@ if __name__ == "__main__":
 
             # TODO: rename the method to a more indicative name/make it return something, right now it looks a bit odd
             # TODO: consider renaming the problems to contain the .pddl suffix
-            image_trajectory_handler.image_trajectory_pipeline(problem_name=blocks_problem_name, output_path=BLOCKS_OUTPUT_DIR_PATH_TEMP, num_steps=num_steps)
+            predicate_truth_value_per_state: List[dict[str, PredicateTruthValue]] = image_trajectory_handler.image_trajectory_pipeline(problem_name=blocks_problem_name, output_path=BLOCKS_OUTPUT_DIR_PATH_TEMP, num_steps=num_steps)
             pddl_plus_blocks_domain: Domain = DomainParser(BLOCKS_DOMAIN_FILE_PATH).parse_domain()
             pddl_plus_blocks_problem: Problem = ProblemParser(Path(f"{BLOCKS_PROBLEM_DIR_PATH}/{blocks_problem_name}{PDDL_FILES_SUFFIX}"),
                                                               pddl_plus_blocks_domain).parse_problem()
@@ -70,7 +74,7 @@ if __name__ == "__main__":
             print("*****************************")
 
             trajectory_parser = TrajectoryParser(pddl_plus_blocks_domain, pddl_plus_blocks_problem)
-            imaged_observation = trajectory_parser.parse_trajectory(BLOCKS_OUTPUT_DIR_PATH_TEMP / f'{blocks_problem_name}.trajectory')
+            imaged_observation: Observation = trajectory_parser.parse_trajectory(BLOCKS_OUTPUT_DIR_PATH_TEMP / f'{blocks_problem_name}.trajectory')
 
             # Output the resulting Observation object
             print("printing imaged observation:")
@@ -87,11 +91,11 @@ if __name__ == "__main__":
             # print(partial_domain.to_pddl())
             # print(report)
 
-            """ copy problem file and trajectory file into the experiments dir to automate the process"""
+            """ copy problem file and trajectory file into the vip_experiments dir to automate the process"""
             shutil.copy(f'./problems/{blocks_problem_name}.pddl', WORKING_DIRECTORY_PATH / f'{blocks_problem_name}.pddl')
             shutil.copy(BLOCKS_OUTPUT_DIR_PATH_TEMP / f'{blocks_problem_name}.trajectory', WORKING_DIRECTORY_PATH / f'{blocks_problem_name}.trajectory')
 
-        """ copy the GT domain file into the experiments dir to automate the process"""
+        """ copy the GT domain file into the vip_experiments dir to automate the process"""
         shutil.copy(BLOCKS_DOMAIN_FILE_PATH, WORKING_DIRECTORY_PATH / BLOCKS_DOMAIN_FILE_PATH)
 
         experiment_runner = OfflinePiSamExperimentRunner(
@@ -101,3 +105,10 @@ if __name__ == "__main__":
         )
 
         experiment_runner.run_cross_validation()
+        result_file_path = WORKING_DIRECTORY_PATH / "results_directory/sam_learning_blocks_combined_semantic_performance.csv"
+        result_mapping[f"t_size={str(num_steps)}, mask_p=0.8"] = pd.read_csv(result_file_path)
+
+    # gather all results to a single .csv file with sheets
+    with pd.ExcelWriter("all_experiment_results-percentage-0.8.xlsx", engine='xlsxwriter') as writer:
+        for sheet_name, dataframe in result_mapping.items():
+            dataframe.to_excel(writer, sheet_name=sheet_name, index=False)

@@ -58,16 +58,25 @@ class BoundingBox:
 
 
 class BoundedObject:
-    def __init__(self, obj_type: str, name: str, x_anchor: int, y_anchor: int, width: int, height: int):
+    def __init__(self, obj_type: str, name: str, x_anchor: int, y_anchor: int, width: int, height: int, confidence: float=1):
         self._type = obj_type
         self._name = name
         self.label = f"{self._name}:{self._type}" # TODO Maybe: turn this into an ObjectLabel type
-        self.bounding_box = BoundingBox(x_anchor, y_anchor, width, height)
+        self._bounding_box = BoundingBox(x_anchor, y_anchor, width, height)
+        self._confidence = confidence  # Confidence score of the detection, default is 1 (100% confidence)
 
     @property
     def type(self) -> str:
         return self._type
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self._name
+
+    @property
+    def bbox(self) -> BoundingBox:
+        return self._bounding_box
+
+    @property
+    def confidence_score(self) -> float:
+        return self._confidence

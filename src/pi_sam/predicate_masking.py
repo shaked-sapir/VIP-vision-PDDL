@@ -23,6 +23,7 @@ class PredicateMasker:
     def __init__(self, seed: int = 42, masking_strategy: MaskingType = MaskingType.RANDOM,
                  masking_kwargs: dict = None):
         self.seed = seed
+        # TODO: consider making the kwargs with * as I did with the sam_learning
         self.set_masking_strategy(masking_strategy, **(masking_kwargs or self._default_params_for(masking_strategy)))
 
     @staticmethod

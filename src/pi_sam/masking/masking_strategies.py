@@ -1,15 +1,18 @@
 import inspect
+import random
 from abc import ABC, abstractmethod
 from enum import Enum
-import random
+from typing import Tuple
 
 from pddl_plus_parser.models import GroundedPredicate
-from typing import Tuple
+
+from src.fluent_classification.base_fluent_classifier import PredicateTruthValue
 
 
 class MaskingType(str, Enum):
     RANDOM = "random"
     PERCENTAGE = "percentage"
+    UNCERTAIN = "uncertain"
 
 
 class MaskingStrategy(ABC):
@@ -95,4 +98,25 @@ class PercentageMaskingStrategy(MaskingStrategy):
         sample = set(random.sample(list(predicates), sample_size))
         for predicate in sample:
             predicate.is_masked = True
+        return self._split_masked_and_unmasked(predicates)
+
+
+class UncertainMaskingStrategy(MaskingStrategy):
+    """
+    This class gets the probability for each predicate to be true,
+    and a threshold for uncertainty, and masks the predicate if its probability is within
+    the threshold.
+    """
+    name: str = MaskingType.UNCERTAIN
+
+    def mask(self, predicates: set[GroundedPredicate], predicate_truth_values: dict[str, PredicateTruthValue] = None,
+             *args, **kwargs) -> Tuple[set[GroundedPredicate], set[GroundedPredicate]]:
+        if predicate_truth_values is None:  # no need for masking if we don't have probabilities
+            print("No predicate probabilities provided, skipping masking.")
+            return self._split_masked_and_unmasked(predicates)
+
+        print(f"using {self.name} masking strategy")
+        for predicate in predicates:
+            if predicate_truth_values[predicate.lifted_untyped_representation] == PredicateTruthValue.UNCERTAIN:
+                predicate.is_masked = True
         return self._split_masked_and_unmasked(predicates)

@@ -1,6 +1,6 @@
 from typing import Dict
 
-from src.fluent_classification.blocks_fluent_classifier import BlocksFluentClassifier
+from src.fluent_classification.blocks_contour_fluent_classifier import BlocksContourFluentClassifier
 from src.object_detection import ColorObjectDetector
 from src.trajectory_handlers import ImageTrajectoryHandler
 from src.types import ObjectLabel
@@ -25,6 +25,6 @@ class BlocksImageTrajectoryHandler(ImageTrajectoryHandler):
         }
 
         self.object_detector = ColorObjectDetector(object_name_to_color)
-        self.fluent_classifier = BlocksFluentClassifier(self.object_detector)
+        self.fluent_classifier = BlocksContourFluentClassifier(self.object_detector)
 
         print(f"Object name to color map: {self.object_detector.object_color_map}")

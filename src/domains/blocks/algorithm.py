@@ -12,7 +12,7 @@ from sam_learning.learners.sam_learning import SAMLearner
 from utilities import NegativePreconditionPolicy
 
 from src.action_model.gym2SAM_parser import create_observation_from_trajectory
-from src.experiments.BasicSamExperimentRunnner import OfflineBasicSamExperimentRunner
+from src.vip_experiments.BasicSamExperimentRunnner import OfflineBasicSamExperimentRunner
 
 from src.trajectory_handlers.blocks_image_trajectory_handler import BlocksImageTrajectoryHandler
 
@@ -82,11 +82,11 @@ if __name__ == "__main__":
             # print(partial_domain.to_pddl())
             # print(report)
 
-            """ copy problem file and trajectory file into the experiments dir to automate the process"""
+            """ copy problem file and trajectory file into the vip_experiments dir to automate the process"""
             shutil.copy(f'./problems/{blocks_problem_name}.pddl', WORKING_DIRECTORY_PATH / f'{blocks_problem_name}.pddl')
             shutil.copy(BLOCKS_OUTPUT_DIR_PATH_TEMP / f'{blocks_problem_name}.trajectory', WORKING_DIRECTORY_PATH / f'{blocks_problem_name}.trajectory')
 
-        """ copy the GT domain file into the experiments dir to automate the process"""
+        """ copy the GT domain file into the vip_experiments dir to automate the process"""
         shutil.copy(BLOCKS_DOMAIN_FILE_PATH, WORKING_DIRECTORY_PATH / BLOCKS_DOMAIN_FILE_PATH)
 
         experiment_runner = OfflineBasicSamExperimentRunner(

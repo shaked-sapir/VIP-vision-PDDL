@@ -10,8 +10,9 @@ from PIL import Image
 from pddlgym.core import _select_operator
 from pddlgym.structs import State, Literal
 
-from src.action_model.pddl2gym_parser import parse_image_predicate_to_gym, is_positive_gym_predicate
-from src.fluent_classification.base_fluent_classifier import FluentClassifier
+from src.action_model.pddl2gym_parser import parse_image_predicate_to_gym, is_positive_gym_predicate, \
+    is_unknown_gym_predicate
+from src.fluent_classification.base_fluent_classifier import FluentClassifier, PredicateTruthValue
 from src.object_detection.base_object_detector import ObjectDetector
 from src.types import TrajectoryState, TrajectoryStep
 from src.utils.containers import serialize
@@ -72,15 +73,12 @@ class ImageTrajectoryHandler(ABC):
             step=action_index,
             current_state=self._create_trajectory_state(curr_obs),
             ground_action=grounded_action,
-
-            # TODO later: the _select_operator seems to make it a "safe" action,
-            #  but the blocksworld is not a domain prone to unsafety - discuss with Roni
             operator_object_assignment=assignment,
             lifted_preconds=str(self.pddl_env.domain.operators[selected_operator.name].preconds.literals),
             next_state=self._create_trajectory_state(next_obs)
         )
 
-    def image_trajectory_pipeline(self, problem_name: str, output_path: Path, num_steps: int = 100) -> None:
+    def image_trajectory_pipeline(self, problem_name: str, output_path: Path, num_steps: int = 100) -> List[dict[str, PredicateTruthValue]]:
         """
         runs the pipeline of creating an imaged trajectory for a given domain and problem:
         1. initializes the specific problem in the domain and runs a number of random steps to
@@ -100,9 +98,9 @@ class ImageTrajectoryHandler(ABC):
         # TODO: putting it here is a hack because the color detector has to be initialized only after deciding on
         #  the problem to be solved, potentially we need to initialize it in the constructor
         self._init_visual_components()
-        imaged_trajectory = self.construct_trajectory_from_images(images_path=output_path, ground_actions=actions)
+        imaged_trajectory, predicate_truth_values_per_state = self.construct_trajectory_from_images(images_path=output_path, ground_actions=actions)
         build_trajectory_file(imaged_trajectory, problem_name, output_path)
-        return
+        return predicate_truth_values_per_state
 
     @abstractmethod
     def _init_visual_components(self) -> None:
@@ -171,11 +169,13 @@ class ImageTrajectoryHandler(ABC):
         return ground_actions
 
     def construct_trajectory_from_images(self,
-                                         images_path: Path, ground_actions: List[str], action_model=None) -> List[dict]:
+                                         images_path: Path, ground_actions: List[str], action_model=None
+                                         ) -> tuple[List[dict], List[dict[str, PredicateTruthValue]]]:
         imaged_trajectory = []
+        predicate_truth_values_per_state = []
         for i, action in enumerate(ground_actions):
             current_state_image = self.load_image(images_path, i)
-            current_state_image_predicates = self.fluent_classifier.classify(current_state_image)
+            current_state_image_predicates: dict[str, PredicateTruthValue] = self.fluent_classifier.classify(current_state_image)
             current_state_image_pddl_predicates: List[str] = [parse_image_predicate_to_gym(pred, holds_in_image) for
                                                               pred, holds_in_image in
                                                               current_state_image_predicates.items()]
@@ -190,12 +190,14 @@ class ImageTrajectoryHandler(ABC):
             imaged_trajectory.append({
                 "step": i + 1,
                 "current_state": {
-                    "literals": [pred for pred in current_state_image_pddl_predicates if
-                                 is_positive_gym_predicate(pred)]
+                    "literals": [pred for pred in current_state_image_pddl_predicates if is_positive_gym_predicate(pred)],
+                    "unknown": [pred for pred in current_state_image_pddl_predicates if is_unknown_gym_predicate(pred)]
                 },
                 "ground_action": action,
                 "next_state": {
-                    "literals": [pred for pred in next_state_image_pddl_predicates if is_positive_gym_predicate(pred)]
+                    "literals": [pred for pred in next_state_image_pddl_predicates if is_positive_gym_predicate(pred)],
+                    "unknown": [pred for pred in next_state_image_pddl_predicates if is_unknown_gym_predicate(pred)]
                 },
             })
-        return imaged_trajectory
+            predicate_truth_values_per_state.append(current_state_image_predicates)
+        return imaged_trajectory, predicate_truth_values_per_state

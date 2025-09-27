@@ -188,3 +188,13 @@ def get_all_possible_groundings(predicate: Predicate,
 # TODO: suggest this to pddl_plus_parser as a new class method - I could use it
 def get_state_grounded_predicates(state: State) -> Set[GroundedPredicate]:
     return set.union(*state.state_predicates.values())
+
+
+def get_state_unmasked_predicates(state: State) -> Set[GroundedPredicate]:
+    """Get all grounded predicates in the state, ignoring their negation."""
+    return {pred for pred in get_state_grounded_predicates(state) if not pred.is_masked}
+
+
+def get_state_masked_predicates(state: State) -> Set[GroundedPredicate]:
+    """Get all grounded predicates in the state, ignoring their negation."""
+    return {pred for pred in get_state_grounded_predicates(state) if pred.is_masked}
