@@ -16,7 +16,8 @@ from utilities import NegativePreconditionPolicy
 from src.action_model.gym2SAM_parser import create_observation_from_trajectory
 from src.fluent_classification.base_fluent_classifier import PredicateTruthValue
 from src.vip_experiments.BasicSamExperimentRunnner import OfflineBasicSamExperimentRunner
-from src.pi_sam import PISAMLearner, PredicateMasker, MaskingType
+from src.pi_sam import PISAMLearner, PredicateMasker
+from src.pi_sam.masking.masking_strategies import MaskingType
 from src.pi_sam.PiSamExperimentRunner import OfflinePiSamExperimentRunner
 from src.trajectory_handlers.blocks_image_trajectory_handler import BlocksImageTrajectoryHandler
 
@@ -55,7 +56,12 @@ if __name__ == "__main__":
 
             # TODO: rename the method to a more indicative name/make it return something, right now it looks a bit odd
             # TODO: consider renaming the problems to contain the .pddl suffix
-            predicate_truth_value_per_state: List[dict[str, PredicateTruthValue]] = image_trajectory_handler.image_trajectory_pipeline(problem_name=blocks_problem_name, output_path=BLOCKS_OUTPUT_DIR_PATH_TEMP, num_steps=num_steps)
+            # predicate_truth_value_per_state: List[dict[str, PredicateTruthValue]] = image_trajectory_handler.image_trajectory_pipeline(problem_name=blocks_problem_name, images_path=BLOCKS_OUTPUT_DIR_PATH_TEMP, num_steps=num_steps)
+            ground_actions: List[str] = image_trajectory_handler.create_trajectory_from_gym(
+                problem_name=blocks_problem_name, images_output_path=BLOCKS_OUTPUT_DIR_PATH_TEMP, num_steps=num_steps)
+            imaged_trajectory: List[dict] = image_trajectory_handler.image_trajectory_pipeline(
+                problem_name=blocks_problem_name, actions=ground_actions, images_path=BLOCKS_OUTPUT_DIR_PATH_TEMP
+            )
             pddl_plus_blocks_domain: Domain = DomainParser(BLOCKS_DOMAIN_FILE_PATH).parse_domain()
             pddl_plus_blocks_problem: Problem = ProblemParser(Path(f"{BLOCKS_PROBLEM_DIR_PATH}/{blocks_problem_name}{PDDL_FILES_SUFFIX}"),
                                                               pddl_plus_blocks_domain).parse_problem()
@@ -82,12 +88,26 @@ if __name__ == "__main__":
                 print(str(component))
 
             print("*****************************")
-            # initial_state_predicates = set.union(*(imaged_observation.components[0].previous_state.state_predicates.values()))
-            # pisam_learner = PISAMLearner(
-            #     partial_domain=pddl_plus_blocks_domain
+
+            # Example of using PI-SAM with decoupled masking:
+            # # Create masker and learner separately
+            # masker = PredicateMasker(
+            #     masking_strategy=MaskingType.PERCENTAGE,
+            #     masking_kwargs={"masking_ratio": 0.3}
             # )
-            # masking_info = pisam_learner.mask_observations_by_strategy([imaged_observation])
-            # partial_domain, report = pisam_learner.learn_action_model([imaged_observation], masking_info=masking_info)
+            # pisam_learner = PISAMLearner(partial_domain=pddl_plus_blocks_domain)
+            #
+            # # Ground observation completely
+            # grounded_obs = pisam_learner.ground_observation_completely(imaged_observation)
+            #
+            # # Generate masking info using the masker
+            # masking_info = masker.mask_observation(grounded_obs)
+            #
+            # # Apply mask to observation
+            # masked_obs = pisam_learner.mask_observation(grounded_obs, masking_info)
+            #
+            # # Learn from masked observation
+            # partial_domain, report = pisam_learner.learn_action_model([masked_obs])
             # print(partial_domain.to_pddl())
             # print(report)
 
@@ -106,9 +126,9 @@ if __name__ == "__main__":
 
         experiment_runner.run_cross_validation()
         result_file_path = WORKING_DIRECTORY_PATH / "results_directory/sam_learning_blocks_combined_semantic_performance.csv"
-        result_mapping[f"t_size={str(num_steps)}, mask_p=0.8"] = pd.read_csv(result_file_path)
+        result_mapping[f"t_size={str(num_steps)}, mask_p=0.3"] = pd.read_csv(result_file_path)
 
     # gather all results to a single .csv file with sheets
-    with pd.ExcelWriter("all_experiment_results-percentage-0.8.xlsx", engine='xlsxwriter') as writer:
+    with pd.ExcelWriter("all_experiment_results-percentage-0.3.xlsx", engine='xlsxwriter') as writer:
         for sheet_name, dataframe in result_mapping.items():
             dataframe.to_excel(writer, sheet_name=sheet_name, index=False)

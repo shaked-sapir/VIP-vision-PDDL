@@ -1,7 +1,9 @@
+import re
+
 from src.fluent_classification.base_fluent_classifier import PredicateTruthValue
 
-NEGATION_PREFIX = "Not"
-UNKNWON_PREFIX = "Unknown"
+NEGATION_PREFIX = "NOT"
+UNKNOWN_PREFIX = "UNK"
 
 
 def parse_image_predicate_to_gym(predicate_str: str, is_holding_in_image: PredicateTruthValue) -> str:
@@ -12,13 +14,23 @@ def parse_image_predicate_to_gym(predicate_str: str, is_holding_in_image: Predic
     :return: updated string representing the predicate
     """
     return predicate_str if is_holding_in_image == PredicateTruthValue.TRUE\
-        else f"{NEGATION_PREFIX}{predicate_str}" if is_holding_in_image == PredicateTruthValue.FALSE\
-        else f"{UNKNWON_PREFIX}{predicate_str}"
+        else f"{NEGATION_PREFIX} {predicate_str}" if is_holding_in_image == PredicateTruthValue.FALSE\
+        else f"{UNKNOWN_PREFIX} {predicate_str}"
 
 
 def is_positive_gym_predicate(predicate_str: str) -> bool:
-    return NEGATION_PREFIX not in predicate_str and UNKNWON_PREFIX not in predicate_str
+    return NEGATION_PREFIX not in predicate_str and UNKNOWN_PREFIX not in predicate_str
 
 
 def is_unknown_gym_predicate(predicate_str: str) -> bool:
-    return UNKNWON_PREFIX in predicate_str
+    return UNKNOWN_PREFIX in predicate_str
+
+
+def get_predicate_base_form(predicate_str: str) -> str:
+    return predicate_str.replace(f"{NEGATION_PREFIX} ", "").replace(f"{UNKNOWN_PREFIX} ", "")
+
+
+def pddlplus_to_gym_predicate(s: str) -> str:
+    pred = re.search(r'^\(\s*([^\s()]+)', s).group(1)
+    args = re.findall(r'([^\s()]+)\s*-\s*([^\s()]+)', s)
+    return f"{pred}({','.join(f'{n}:{t}' for n, t in args)})"

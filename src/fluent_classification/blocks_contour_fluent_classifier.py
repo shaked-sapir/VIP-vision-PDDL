@@ -1,5 +1,6 @@
 import itertools
 import json
+from pathlib import Path
 from typing import List, Dict
 
 import cv2
@@ -8,8 +9,8 @@ import numpy as np
 from src.fluent_classification.base_fluent_classifier import FluentClassifier, PredicateTruthValue
 from src.object_detection import ColorObjectDetector
 from src.object_detection.bounded_object import BoundedObject
-from src.types import ObjectLabel
-from src.utils.visualize import draw_objects
+from src.typings import ObjectLabel
+from src.utils.visualize import draw_objects, load_image
 
 
 class BlocksContourFluentClassifier(FluentClassifier):
@@ -30,9 +31,10 @@ class BlocksContourFluentClassifier(FluentClassifier):
         """
         return PredicateTruthValue.TRUE if value else PredicateTruthValue.FALSE
 
-    def classify(self, image: cv2.typing.MatLike) -> Dict[str, PredicateTruthValue]:
-        predicates = {}
+    def classify(self, image_path: Path | str) -> Dict[str, PredicateTruthValue]:
+        image = load_image(image_path)
         detected_objects = self.object_detector.detect(image)
+        predicates = {}
 
         for obj in detected_objects:
             print(f"Detected a {obj.label} at {obj.bbox.box}")

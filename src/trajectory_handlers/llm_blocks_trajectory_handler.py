@@ -1,0 +1,31 @@
+from pathlib import Path
+from typing import Dict, List
+
+from src.fluent_classification.llm_blocks_fluent_classifier import LLMBlocksFluentClassifier
+from src.object_detection.llm_blocks_object_detector import LLMBlocksObjectDetector
+from src.trajectory_handlers import ImageTrajectoryHandler
+
+
+class LLMBlocksImageTrajectoryHandler(ImageTrajectoryHandler):
+
+    def __init__(self, domain_name, openai_apikey: str, object_detector_model: str = "gpt-4o",
+                 fluent_classifier_model: str = "gpt-4o"):
+        super().__init__(domain_name=domain_name)
+        self.openai_apikey = openai_apikey
+        self.object_detector_model = object_detector_model
+        self.fluent_classifier_model = fluent_classifier_model
+
+    def init_visual_components(self, init_state_image_path: Path) -> None:
+        """
+        In this class, this method should only be called after initializing a specific
+        blocks problem, because the object detection module depends on blocks colors which
+        are determined only at problem initialization time - and they are extracted from the initial state image.
+        """
+
+        self.object_detector = LLMBlocksObjectDetector(openai_apikey=self.openai_apikey, model=self.object_detector_model)
+        detected_objects_by_type: Dict[str, List[str]] = self.object_detector.detect(str(init_state_image_path))
+
+        self.fluent_classifier = LLMBlocksFluentClassifier(
+            openai_apikey=self.openai_apikey, type_to_objects=detected_objects_by_type, model=self.fluent_classifier_model)
+
+        print(f"Initialized LLMBlocksImageTrajectoryHandler with detected objects: {detected_objects_by_type}")

@@ -1,0 +1,48 @@
+# VIP-vision-PDDL Configuration File (Example)
+# Copy this file to config.yaml and fill in your actual values
+
+# OpenAI API Configuration
+openai:
+  api_key: "your-api-key-here"  # Replace with your actual OpenAI API key
+
+# Default Paths
+paths:
+  domains_dir: "src/domains"
+  experiments_dir: "experiments"
+  
+# Domain-specific configurations
+domains:
+  blocks:
+    domain_name: "PDDLEnvBlocks-v0"
+    domain_file: "src/domains/blocks/blocks.pddl"
+    problems_dir: "src/domains/blocks/problems"
+    problem_prefix: "problem"
+  
+  hanoi:
+    domain_name: "PDDLEnvHanoi-v0"
+    domain_file: "src/domains/hanoi/hanoi.pddl"
+    problems_dir: "src/domains/hanoi/problems"
+    problem_prefix: "problem"
+
+# Masking Strategy Defaults
+masking:
+  default_strategy: "percentage"
+  percentage:
+    default_ratio: 0.8
+  random:
+    default_probability: 0.3
+
+# Trajectory Generation Defaults
+trajectory:
+  default_num_steps: 25
+  default_seed: 42
+
+# Experiment Settings
+experiment:
+  cross_validation_folds: 5
+  default_negative_precondition_policy: "hard"
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

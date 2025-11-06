@@ -1,9 +1,10 @@
 import json
 import math
 import os
-from pathlib import Path
-from typing import List, Tuple
 from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import List
+
 import cv2
 import pddlgym
 from PIL import Image
@@ -11,10 +12,10 @@ from pddlgym.core import _select_operator
 from pddlgym.structs import State, Literal
 
 from src.action_model.pddl2gym_parser import parse_image_predicate_to_gym, is_positive_gym_predicate, \
-    is_unknown_gym_predicate
-from src.fluent_classification.base_fluent_classifier import FluentClassifier, PredicateTruthValue
+    is_unknown_gym_predicate, get_predicate_base_form
+from src.fluent_classification.base_fluent_classifier import FluentClassifier
 from src.object_detection.base_object_detector import ObjectDetector
-from src.types import TrajectoryState, TrajectoryStep
+from src.typings import TrajectoryState, TrajectoryStep
 from src.utils.containers import serialize
 from src.utils.pddl import set_problem_by_name, ground_action, build_trajectory_file
 
@@ -54,8 +55,14 @@ class ImageTrajectoryHandler(ABC):
         img_pil.save(os.path.join(image_output_dir, f"state_{image_sequential_idx:{self.seq_idx_format}}.png"))
         return
 
-    def load_image(self, image_output_dir: Path, image_sequential_index: int) -> cv2.typing.MatLike:
-        return cv2.imread(os.path.join(image_output_dir, f"state_{image_sequential_index:{self.seq_idx_format}}.png"))
+    #  TODO: maybe use same approach (either PIL or cv2) for both create_image and load_image
+    @staticmethod
+    def get_image_full_path(image_dir: Path, image_name: str) -> str:
+        return os.path.join(image_dir, image_name)
+
+    def get_image_path_by_index(self, image_dir: Path, image_sequential_index: int) -> str:
+        image_name: str = f"state_{image_sequential_index:{self.seq_idx_format}}.png"
+        return self.get_image_full_path(image_dir, image_name)
 
     @staticmethod
     def _create_trajectory_state(obs: State) -> TrajectoryState:
@@ -78,41 +85,38 @@ class ImageTrajectoryHandler(ABC):
             next_state=self._create_trajectory_state(next_obs)
         )
 
-    def image_trajectory_pipeline(self, problem_name: str, output_path: Path, num_steps: int = 100) -> List[dict[str, PredicateTruthValue]]:
+    def image_trajectory_pipeline(self, problem_name: str, actions: List[str], images_path: Path) -> List[dict]:
         """
         runs the pipeline of creating an imaged trajectory for a given domain and problem:
-        1. initializes the specific problem in the domain and runs a number of random steps to
-        generate a sequence of states, recording the images representing them
-        2. initializes the visual components - object detectors, fluent classifiers, etc
-        3. creates a belief representation of the states from the images (imaged trajectory)
-        4. creates a .trajectory file from the belief representation, that could be fed into planning
+        1. if needed, initializes the visual components - object detectors, fluent classifiers, etc
+        2. creates a belief representation of the states from the images (imaged trajectory)
+        3. creates a .trajectory file from the belief representation, that could be fed into planning
         algorithms
 
         :param problem_name: name of specific problem to generate trajectory for
-        :param output_path: the path for storing the method outcomes like trajectory images, GT_trajectory info, etc.
-        :param num_steps: number of random actions to be taken for the trajectory
+        :param actions: list of ground actions taken in the trajectory which is being represented by images
+        :param images_path: the path for storing the method outcomes like trajectory images, GT_trajectory info, etc.
         :return: None
         """
-        actions = self.create_trajectory_from_gym(problem_name, output_path, num_steps)
+        if not self.object_detector or not self.fluent_classifier:
+            self.init_visual_components()
 
-        # TODO: putting it here is a hack because the color detector has to be initialized only after deciding on
-        #  the problem to be solved, potentially we need to initialize it in the constructor
-        self._init_visual_components()
-        imaged_trajectory, predicate_truth_values_per_state = self.construct_trajectory_from_images(images_path=output_path, ground_actions=actions)
-        build_trajectory_file(imaged_trajectory, problem_name, output_path)
-        return predicate_truth_values_per_state
+        imaged_trajectory = self.construct_trajectory_from_images(
+            images_path=images_path, ground_actions=actions)
+        build_trajectory_file(imaged_trajectory, problem_name, images_path)
+        return imaged_trajectory
 
     @abstractmethod
-    def _init_visual_components(self) -> None:
+    def init_visual_components(self, *args, **kwargs) -> None:
         """
-        Initialize the object detector and fluent classifier components.
+        Initialize the object detector and fluent classifier components, if they are not provided in the constructor.
         if needed - initialize more essential components, and this should be
         specific for each domain.
         :return:  None
         """
         pass
 
-    def create_trajectory_from_gym(self, problem_name: str, output_path: Path,
+    def create_trajectory_from_gym(self, problem_name: str, images_output_path: Path,
                                    num_steps: int = 100) -> List[str]:
 
         """
@@ -122,7 +126,7 @@ class ImageTrajectoryHandler(ABC):
         2. saves the image sequence of the trajectory to the specified directory
 
         :param problem_name: name of specific problem to generate trajectory for
-        :param output_path: the path for storing the method outcomes like trajectory images, GT_trajectory info, etc.
+        :param images_output_path: the path for storing the method outcomes like trajectory images, GT_trajectory info, etc.
         :param num_steps: number of random actions to be taken for the trajectory
         :return: action sequence of the trajectory
         """
@@ -132,13 +136,13 @@ class ImageTrajectoryHandler(ABC):
         set_problem_by_name(self.pddl_env, problem_name)
         obs, info = self.pddl_env.reset()
 
-        os.makedirs(output_path, exist_ok=True)
-        trajectory_log_file_path = os.path.join(output_path, f"{problem_name}_trajectory.json")
+        os.makedirs(images_output_path, exist_ok=True)
+        trajectory_log_file_path = os.path.join(images_output_path, f"{problem_name}_trajectory.json")
 
         GT_trajectory: list[TrajectoryStep] = []
         ground_actions: list[str] = []
         new_obs = obs
-        self.create_image(output_path, 0)
+        self.create_image(images_output_path, 0)
 
         for i in range(1, num_steps + 1):
             obs = new_obs
@@ -148,7 +152,7 @@ class ImageTrajectoryHandler(ABC):
                 action = self.pddl_env.action_space.sample(obs)
                 new_obs, _, done, _, _ = self.pddl_env.step(action)
 
-            self.create_image(output_path, i)
+            self.create_image(images_output_path, i)
             trajectory_step: TrajectoryStep = self._create_trajectory_step(curr_obs=obs,
                                                                               action=action,
                                                                               action_index=i,
@@ -163,41 +167,49 @@ class ImageTrajectoryHandler(ABC):
         with open(trajectory_log_file_path, 'w') as log_file:
             json.dump(GT_trajectory, log_file, indent=4)
 
-        print(f"Images saved to the directory '{output_path}'")
+        print(f"Images saved to the directory '{images_output_path}'")
         print(f"Trajectory log saved to '{trajectory_log_file_path}'")
 
         return ground_actions
 
     def construct_trajectory_from_images(self,
                                          images_path: Path, ground_actions: List[str], action_model=None
-                                         ) -> tuple[List[dict], List[dict[str, PredicateTruthValue]]]:
+                                         ) -> List[dict]:
         imaged_trajectory = []
-        predicate_truth_values_per_state = []
-        for i, action in enumerate(ground_actions):
-            current_state_image = self.load_image(images_path, i)
-            current_state_image_predicates: dict[str, PredicateTruthValue] = self.fluent_classifier.classify(current_state_image)
-            current_state_image_pddl_predicates: List[str] = [parse_image_predicate_to_gym(pred, holds_in_image) for
-                                                              pred, holds_in_image in
-                                                              current_state_image_predicates.items()]
 
-            next_state_image = self.load_image(images_path, i + 1)
-            next_state_image_predicates = self.fluent_classifier.classify(next_state_image)
-            next_state_image_pddl_predicates: List[str] = [parse_image_predicate_to_gym(pred, holds_in_image) for
-                                                           pred, holds_in_image in
-                                                           next_state_image_predicates.items()]
-            # TODO: add this when the action model procedures are ready
-            #  remove_effects(next_state_image_pddl_predicates, action, action_model)
-            imaged_trajectory.append({
+        # Process first state separately
+        first_image_path = self.get_image_path_by_index(images_path, 0)
+        current_state_predicates = self.fluent_classifier.classify(first_image_path)
+
+        # Process each transition
+        for i, action in enumerate(ground_actions):
+            # Load next image and classify predicates
+            next_image_path = self.get_image_path_by_index(images_path, i + 1)
+            next_state_predicates = self.fluent_classifier.classify(next_image_path)
+
+            # Convert predicates to PDDL format for trajectory
+            current_literals = [parse_image_predicate_to_gym(pred, truth_value)
+                                for pred, truth_value in current_state_predicates.items()]
+            next_literals = [parse_image_predicate_to_gym(pred, truth_value)
+                             for pred, truth_value in next_state_predicates.items()]
+
+            # Build trajectory step
+            trajectory_step = {
                 "step": i + 1,
                 "current_state": {
-                    "literals": [pred for pred in current_state_image_pddl_predicates if is_positive_gym_predicate(pred)],
-                    "unknown": [pred for pred in current_state_image_pddl_predicates if is_unknown_gym_predicate(pred)]
+                    "literals": [pred for pred in current_literals if is_positive_gym_predicate(pred)],
+                    "unknown": [pred for pred in current_literals if is_unknown_gym_predicate(pred)]
                 },
                 "ground_action": action,
                 "next_state": {
-                    "literals": [pred for pred in next_state_image_pddl_predicates if is_positive_gym_predicate(pred)],
-                    "unknown": [pred for pred in next_state_image_pddl_predicates if is_unknown_gym_predicate(pred)]
-                },
-            })
-            predicate_truth_values_per_state.append(current_state_image_predicates)
-        return imaged_trajectory, predicate_truth_values_per_state
+                    "literals": [pred for pred in next_literals if is_positive_gym_predicate(pred)],
+                    "unknown": [pred for pred in next_literals if is_unknown_gym_predicate(pred)]
+                }
+            }
+
+            imaged_trajectory.append(trajectory_step)
+
+            # Optimization: reuse next_state as current_state for next iteration
+            current_state_predicates = next_state_predicates
+
+        return imaged_trajectory

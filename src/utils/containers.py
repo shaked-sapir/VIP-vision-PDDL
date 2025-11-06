@@ -9,7 +9,7 @@ def to_list(obj: Any) -> List[Any]:
 
 def serialize(obj) -> Union[dict, list]:
     if isinstance(obj, (int, float, str, bool, type(None))):
-        return obj  # Base case: primitive types
+        return obj  # Base case: primitive typings
     elif isinstance(obj, list):
         return [serialize(item) for item in obj]  # Serialize lists
     elif isinstance(obj, dict):

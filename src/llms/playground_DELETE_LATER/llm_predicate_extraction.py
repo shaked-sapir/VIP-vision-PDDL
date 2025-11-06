@@ -49,7 +49,7 @@ def simulate_and_analyze_predicates(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=3000
+            # max_tokens=3000
         )
         text = response.choices[0].message.content.strip()
         return set(re.findall(r"\b[a-z]+\(.*?\)", text))
@@ -170,7 +170,7 @@ if __name__ == "__main__":
             "- handful(gripper-gripper)\n"
             "- holding(x-block, gripper-gripper)\n"
             "- clear(x-block)\n\n"
-            "Only use defined objects with proper types for grounding. Return one predicate per line."
+            "Only use defined objects with proper typings for grounding. Return one predicate per line."
         ),
         # models=["gpt-4o", "gpt-4o-mini", "gpt-4.1-nano"],      # You can modify this list
         models=["gpt-4o"],

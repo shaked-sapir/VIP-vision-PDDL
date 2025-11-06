@@ -1,7 +1,7 @@
 import base64
 
 predicate_extraction_regex = r"\b[a-z]+\(.*?\)"
-object_detection_regex = r"\b[a-z]+:[a-z]+\b" # Matches "color:type" format
+object_detection_regex = r"\b[a-z]+:[a-z]+\b" # Matches "name:type" format
 predicate_extraction_with_relevance_regex = r"([a-z]+\(.*?\))\s*:\s*([012])"
 
 

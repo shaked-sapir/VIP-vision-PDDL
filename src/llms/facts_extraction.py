@@ -7,7 +7,7 @@ from openai import OpenAI
 from src.llms.utils import encode_image
 
 # TODO: hide this key
-openai_apikey = ""
+openai_apikey = "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"
 openai_client = OpenAI(api_key=openai_apikey)
 
 def print_RGB(image_path: Path):
@@ -48,7 +48,7 @@ def extract_facts_once(image_path: Path, model: str, system_prompt_text: str, re
             {"role": "system", "content": system_prompt_text},
             {"role": "user", "content": user_prompt}
         ],
-        max_tokens=3000
+        # max_tokens=3000
     )
     response_text: str = response.choices[0].message.content.strip()
     facts: list[str] = re.findall(result_regex, response_text)

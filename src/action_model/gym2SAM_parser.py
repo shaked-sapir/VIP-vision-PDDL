@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import List, Dict, Set, Tuple, Any, Union
@@ -11,8 +12,8 @@ from pddl_plus_parser.models import (
     Domain, Problem, PDDLObject, SignatureType
 )
 
-from src.action_model.pddl2gym_parser import NEGATION_PREFIX
-from src.types import TrajectoryStep
+from src.action_model.pddl2gym_parser import NEGATION_PREFIX, UNKNOWN_PREFIX, get_predicate_base_form
+from src.typings import TrajectoryStep
 
 ObjectMappingType = Dict[str, PDDLObject]
 
@@ -31,7 +32,8 @@ def lift_predicate(grounded_predicate_str: str, pddl_domain: Domain) -> Tuple[
     - @ret object_mapping(Dict[str, str]): mapping a lifted predicate object name to its corresponding grounded object
                                            in the grounded instance parameter.
     """
-    predicate_name, grounded_arguments_part = grounded_predicate_str.split("(", 1)
+    predicate_base_form = get_predicate_base_form(grounded_predicate_str)  # remove predicate tags if any
+    predicate_name, grounded_arguments_part = predicate_base_form.split("(", 1)
     grounded_arguments_part = grounded_arguments_part.rstrip(')')
 
     lifted_signature: SignatureType = pddl_domain.predicates[predicate_name].signature
@@ -54,7 +56,8 @@ def parse_grounded_predicates(grounded_predicate_strs: List[str], pddl_domain: D
             GroundedPredicate(name=predicate_name,
                               signature=lifted_predicate_signature,
                               object_mapping=predicate_object_mapping,
-                              is_positive=NEGATION_PREFIX not in predicate_str)
+                              is_positive=NEGATION_PREFIX not in predicate_str,
+                              is_masked=UNKNOWN_PREFIX in predicate_str)
         )
     return grounded_predicates
 
@@ -70,8 +73,10 @@ def group_predicates_by_name(predicates: Set[GroundedPredicate]) -> Dict[str, Se
 def parse_gym_state(state: Dict[str, List], is_initial: bool, pddl_domain: Domain) -> State:
     """Parse a state dict into a State object."""
     state_literals: List[str] = state["literals"]
+    unknown_literals: List[str] = state.get("unknown", [])
+    all_literals = state_literals + unknown_literals
 
-    grounded_predicates: Set[GroundedPredicate] = parse_grounded_predicates(state_literals, pddl_domain)
+    grounded_predicates: Set[GroundedPredicate] = parse_grounded_predicates(all_literals, pddl_domain)
     grouped_predicates: Dict[str, Set[GroundedPredicate]] = group_predicates_by_name(grounded_predicates)
 
     return State(
@@ -92,7 +97,8 @@ def parse_action_call(action_string: str) -> ActionCall:
     )
 
 
-def create_observation_from_trajectory(trajectory: List[Union[Dict, TrajectoryStep]], pddl_domain: Domain,
+# TODO: make all calls to this accept trajectory only as a list of TrajectoryStep instead of regular dict
+def create_observation_from_trajectory(trajectory: List[Dict | TrajectoryStep], pddl_domain: Domain,
                                        pddl_problem: Problem) -> Observation:
     object_mapping = pddl_problem.objects
     observation = Observation()
@@ -110,89 +116,3 @@ def create_observation_from_trajectory(trajectory: List[Union[Dict, TrajectorySt
         )
 
     return observation
-
-
-if __name__ == "__main__":
-    print("gym2sam_parser.py")
-    # Example trajectory data
-    example_trajectory = [
-        {
-            "step": 1,
-            "current_state": {
-                "literals": [
-                    "on(d:block,e:block)",
-                    "ontable(f:block)",
-                    "holding(a:block)",
-                    "handfull(robot:robot)",
-                    "on(c:block,d:block)",
-                    "clear(b:block)",
-                    "on(e:block,f:block)",
-                    "on(b:block,c:block)"
-                ],
-                "objects": [
-                    "c:block",
-                    "a:block",
-                    "e:block",
-                    "b:block",
-                    "robot:robot",
-                    "d:block",
-                    "f:block"
-                ],
-                "goal": [
-                    "on(b:block,c:block)",
-                    "on(c:block,d:block)",
-                    "on(d:block,e:block)",
-                    "on(e:block,f:block)",
-                    "on(f:block,a:block)"
-                ]
-            },
-            "ground_action": "stack(a:block,b:block)",
-            "operator_object_assignment": {
-                "?x": "a",
-                "?y": "b",
-                "?robot": "robot"
-            },
-            "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
-            "ground_resulted_state": {
-                "literals": [
-                    "on(d:block,e:block)",
-                    "ontable(f:block)",
-                    "on(a:block,b:block)",
-                    "on(c:block,d:block)",
-                    "handempty(robot:robot)",
-                    "clear(a:block)",
-                    "on(e:block,f:block)",
-                    "on(b:block,c:block)"
-                ],
-                "objects": [
-                    "c:block",
-                    "a:block",
-                    "e:block",
-                    "b:block",
-                    "robot:robot",
-                    "d:block",
-                    "f:block"
-                ],
-                "goal": [
-                    "on(b:block,c:block)",
-                    "on(c:block,d:block)",
-                    "on(d:block,e:block)",
-                    "on(e:block,f:block)",
-                    "on(f:block,a:block)"
-                ]
-            }
-        }
-    ]
-
-    # TODO: this part is only an example, should be generalized later
-    # TODO: establish a connection between the trajectory and the problem it was created from (needed for proper object mapping)
-    # Create Observation object from the trajectory
-    pddl_plus_domain: Domain = DomainParser(Path("../domains/blocks/blocks.pddl")).parse_domain()
-    pddl_plus_problem: Problem = ProblemParser(Path("../domains/blocks/problems/problem9.pddl"),
-                                               pddl_plus_domain).parse_problem()
-    observation: Observation = create_observation_from_trajectory(example_trajectory, pddl_plus_domain,
-                                                                  pddl_plus_problem)
-
-    # Output the resulting Observation object
-    for component in observation.components:
-        print(str(component))

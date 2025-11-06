@@ -1,8 +1,9 @@
 import itertools
 import os
+import re
 from pathlib import Path
 
-from pddl_plus_parser.models import Observation, ObservedComponent, Predicate, PDDLObject, GroundedPredicate, State
+from pddl_plus_parser.models import Observation, ObservedComponent, Predicate, PDDLObject, GroundedPredicate, State, Domain
 from pddlgym.core import PDDLEnv
 from pddlgym.parser import Operator
 from typing import List, Dict, Set
@@ -198,3 +199,181 @@ def get_state_unmasked_predicates(state: State) -> Set[GroundedPredicate]:
 def get_state_masked_predicates(state: State) -> Set[GroundedPredicate]:
     """Get all grounded predicates in the state, ignoring their negation."""
     return {pred for pred in get_state_grounded_predicates(state) if pred.is_masked}
+
+
+def multi_replace_predicate(p: str, mapping: dict[str, str]) -> str:
+    # Sort by length to avoid partial overlaps (just in case)
+    keys = sorted(mapping.keys(), key=len, reverse=True)
+    # Match an exact token like "red:block" bounded by word boundaries
+    pattern = re.compile(r'\b(?:' + '|'.join(map(re.escape, keys)) + r')\b')
+    return pattern.sub(lambda m: mapping[m.group(0)], p)
+
+
+# ============================================================================
+# Observation Grounding Utilities
+# ============================================================================
+
+def get_all_possible_groundings_for_domain(domain: Domain, observation: Observation) -> Dict[str, Set[GroundedPredicate]]:
+    """
+    For each lifted predicate in the domain, compute all possible groundings for the given observation.
+
+    Note: This returns all groundings as positive literals, regardless of the actual state of the observation -
+    so negativity can be handled as needed in states creation.
+
+    :param domain: The domain containing lifted predicates.
+    :param observation: The observation containing grounded objects.
+    :return: A dictionary mapping lifted predicate names to their possible grounded predicates.
+    """
+    grounded_objects = observation.grounded_objects
+    all_grounded_predicates = {}
+
+    for lifted_predicate_name, lifted_predicate in domain.predicates.items():
+        # keys are the untyped representations of the predicates, matching the predicate dicts of states
+        all_grounded_predicates[lifted_predicate.untyped_representation] = get_all_possible_groundings(
+            lifted_predicate, grounded_objects)
+
+    return all_grounded_predicates
+
+
+def ground_all_predicates_in_state(state: State,
+                                   all_domain_grounded_predicates: Dict[str, Set[GroundedPredicate]]) -> State:
+    """
+    For each predicate in domain predicates, check all its possible groundings against the state's grounded
+    predicates: if a grounding does not exist in the state then add it to the state as a negative literal.
+
+    :param state: The state to ground all predicates in.
+    :param all_domain_grounded_predicates: A dictionary mapping each predicate name to its possible grounded
+        predicates in the domain.
+    :return: A state with all predicates grounded, either positive or negative.
+    """
+    new_state = state.copy()
+
+    # Add all grounded predicates from the state
+    for predicate_name, grounded_predicates in state.state_predicates.items():
+        new_state.state_predicates[predicate_name] = set(grounded_predicates)
+
+    # For each predicate in the domain, check if it exists in the state, if not - add it as a negative literal
+    for predicate_name, grounded_predicates in all_domain_grounded_predicates.items():
+        for grounded_predicate in grounded_predicates:
+            # We have to check if the there are any predicates with the same name in the state, and handle properly
+            if grounded_predicate not in new_state.state_predicates.get(predicate_name, set()):
+                (new_state.state_predicates.setdefault(predicate_name, set())
+                 .add(grounded_predicate.copy(is_negated=True)))
+
+    return new_state
+
+
+def ground_all_states_in_observation(observation: Observation,
+                                     all_domain_grounded_predicates: Dict[str, Set[GroundedPredicate]]
+                                     ) -> Observation:
+    """
+    For a given observation, ground all predicates in each state of the observation.
+
+    :param observation: An observation (trajectory) to handle.
+    :param all_domain_grounded_predicates: A dictionary mapping each predicate name to its possible groundings in the domain,
+           using the objects of the observation.
+    :return: A full observation, with all possible literals for each state.
+    """
+    new_observation = copy_observation(observation)
+    for component in new_observation.components:
+        component.previous_state = ground_all_predicates_in_state(
+            component.previous_state, all_domain_grounded_predicates)
+        component.next_state = ground_all_predicates_in_state(
+            component.next_state, all_domain_grounded_predicates)
+
+    return new_observation
+
+
+def ground_observation_completely(domain: Domain, observation: Observation) -> Observation:
+    """
+    Ground all predicates in the states of the observation.
+
+    This function creates a "complete" observation where every possible predicate grounding
+    is explicitly represented as either positive or negative in each state.
+
+    :param domain: The domain containing lifted predicates.
+    :param observation: The observation to ground.
+    :return: A new observation with all predicates grounded.
+    """
+    all_domain_grounded_predicates = get_all_possible_groundings_for_domain(domain, observation)
+    return ground_all_states_in_observation(observation, all_domain_grounded_predicates)
+
+
+# ============================================================================
+# Observation Masking Utilities
+# ============================================================================
+# TODO later: suggest a refactor to this file as it is pretty long...
+def mask_state(state: State, masking_info: Set[GroundedPredicate]) -> State:
+    """
+    Masks the predicates in the state according to the masking info provided.
+
+    This utility function applies masking to a state by setting the is_masked flag
+    on predicates specified in the masking_info.
+
+    :param state: The state to mask predicates in.
+    :param masking_info: A set of predicates to mask in the state.
+    :return: A state with predicates masked according to the masking info provided.
+    """
+    for masked_pred in masking_info:
+        # state.state_predicates are only positive- a positive version of the masked predicate is needed for access
+        masked_pred_positive_form = masked_pred.copy(is_negated=not masked_pred.is_positive)
+        all_matching_predicates = state.state_predicates[masked_pred_positive_form.lifted_untyped_representation]
+
+        # TODO LATER: maybe refactor the pos/neg search, it is a bit clunky
+        for pred in all_matching_predicates:
+            if pred == masked_pred or pred.copy(is_negated=True) == masked_pred:
+                pred.is_masked = True
+                break
+        else:
+            print(f"Warning: Masked predicate {masked_pred} not found in state.")
+
+    return state
+
+
+def mask_observation(observation: Observation, masking_info: List[Set[GroundedPredicate]]) -> Observation:
+    """
+    Masks the predicates in the observation for learning with partial information.
+
+    This utility function applies masking to an observation using provided masking info.
+    NOTE: Assumes observation is "full" - meaning that all predicates are grounded in the states.
+
+    :param observation: The observation to mask predicates in (should be grounded).
+    :param masking_info: A list of sets, where each set contains predicates to mask for each state.
+                        Length should be len(observation.components) + 1.
+    :return: An observation with predicates masked according to the masking info provided.
+    """
+    assert len(observation.components)+1 == len(masking_info), "Masking info should hold data foreach state in the Trajectory"
+
+    observation.components[0].previous_state = mask_state(
+        observation.components[0].previous_state,
+        masking_info[0]
+    )
+
+    # Note that for each 2 consecutive components (c, c'), it holds that c.next_state == c'.previous_state,
+    # so they should be masked in the same way.Therefore, we generate the masking info only once for each component.
+    for i in range(len(observation.components) - 1):
+        curr_component, next_component = observation.components[i], observation.components[i + 1]
+        masked_state = mask_state(
+            curr_component.next_state,
+            masking_info[i + 1]
+        )
+        curr_component.next_state = masked_state
+        next_component.previous_state = masked_state
+
+    observation.components[-1].next_state = mask_state(observation.components[-1].next_state,
+                                                             masking_info[-1])
+
+    return observation
+
+
+def mask_observations(observations: List[Observation], masking_info: List[List[Set[GroundedPredicate]]]) -> List[Observation]:
+    """
+    Masks the predicates in multiple observations according to provided masking info.
+
+    This utility function for batch masking of observations.
+
+    :param observations: A list of observations to mask (should be grounded).
+    :param masking_info: A list of masking info, one for each observation.
+    :return: A list of masked observations.
+    """
+    return [mask_observation(obs, mask_info) for obs, mask_info in zip(observations, masking_info)]

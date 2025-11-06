@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import List
 from typing import Tuple, Union
 
@@ -14,7 +15,7 @@ def draw_objects(image: cv2.typing.MatLike, objects: List[BoundedObject]):
     image_copy = image.copy()
 
     for obj in objects:
-        x_anchor, y_anchor, width, height = obj.bounding_box.box
+        x_anchor, y_anchor, width, height = obj.bbox.box
         name, obj_type, label = (obj.name, obj.type, obj.label)
 
         font_scale = min(width, height) / 100  # Scale font based on box size
@@ -54,3 +55,7 @@ def find_exact_rgb_color_mask(image_bgr: cv2.typing.MatLike, int_rgb_triplet: In
     mask = cv2.bitwise_and(mask_r, cv2.bitwise_and(mask_g, mask_b))
 
     return mask
+
+
+def load_image(image_path: str) -> cv2.typing.MatLike:
+    return cv2.imread(image_path)

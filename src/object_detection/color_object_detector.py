@@ -3,7 +3,7 @@ from typing import List, Dict
 import cv2
 import numpy as np
 
-from src.types import ObjectLabel
+from src.typings import ObjectLabel
 from src.utils.visualize import to_int_rgb, find_exact_rgb_color_mask, NormalizedRGB
 from src.object_detection.base_object_detector import ObjectDetector
 from src.object_detection.bounded_object import BoundedObject
@@ -33,7 +33,7 @@ class ColorObjectDetector(ObjectDetector):
 
 
 
-    def detect(self, image: cv2.typing.MatLike, **kwargs) -> List[BoundedObject]:
+    def detect(self, image: cv2.typing.MatLike, **kwargs) -> List[BoundedObject]: # TODO: also make this accept path instead of actual image, in here and in the base class and in the llm version
         detected_objects = []
 
         for object_label, color_tuple in self._object_color_map.items():

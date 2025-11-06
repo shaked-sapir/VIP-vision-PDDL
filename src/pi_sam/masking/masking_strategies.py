@@ -111,9 +111,8 @@ class UncertainMaskingStrategy(MaskingStrategy):
 
     def mask(self, predicates: set[GroundedPredicate], predicate_truth_values: dict[str, PredicateTruthValue] = None,
              *args, **kwargs) -> Tuple[set[GroundedPredicate], set[GroundedPredicate]]:
-        if predicate_truth_values is None:  # no need for masking if we don't have probabilities
-            print("No predicate probabilities provided, skipping masking.")
-            return self._split_masked_and_unmasked(predicates)
+        if predicate_truth_values is None:
+            raise ValueError("predicate_truth_values must be provided for UncertainMaskingStrategy")
 
         print(f"using {self.name} masking strategy")
         for predicate in predicates:
