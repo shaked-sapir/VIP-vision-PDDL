@@ -1,8 +1,11 @@
 """Conflict tree for tracking repair decisions during plan denoising."""
 
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from enum import Enum
+
+if TYPE_CHECKING:
+    from src.plan_denoising.detectors.effects_detector import EffectsViolation
 
 
 class RepairChoice(Enum):
@@ -35,32 +38,9 @@ class RepairOperation:
                 f"{action} fluent '{self.fluent_changed}')")
 
 
-@dataclass
-class Inconsistency:
-    """
-    Represents an inconsistency between two transitions.
-
-    Two transitions are inconsistent if they have the same action and same prev_state,
-    but different next_states with respect to some fluent.
-
-    Attributes:
-        transition1_index: Index of first transition
-        transition2_index: Index of second transition
-        action_name: Name of the action in both transitions
-        conflicting_fluent: The fluent that differs between next_states
-        fluent_in_trans1_next: Whether fluent is in transition1's next_state
-        fluent_in_trans2_next: Whether fluent is in transition2's next_state
-    """
-    transition1_index: int
-    transition2_index: int
-    action_name: str
-    conflicting_fluent: str
-    fluent_in_trans1_next: bool
-    fluent_in_trans2_next: bool
-
-    def __str__(self):
-        return (f"Inconsistency(transitions=[{self.transition1_index}, {self.transition2_index}], "
-                f"action='{self.action_name}', fluent='{self.conflicting_fluent}')")
+# For backward compatibility - alias DeterminismViolation as Inconsistency
+# This will be imported from the detector module at runtime
+Inconsistency = None  # Will be set after module imports
 
 
 class ConflictNode:
@@ -68,10 +48,10 @@ class ConflictNode:
     Node in the conflict resolution tree.
 
     Each node represents a decision point where we choose which transition to repair
-    to resolve an inconsistency.
+    to resolve a determinism violation.
 
     Attributes:
-        inconsistency: The inconsistency being resolved at this node
+        violation: The determinism violation being resolved at this node
         repair_operation: The repair that was performed at this node
         repair_choice: Which transition was chosen for repair (FIRST or SECOND)
         parent: Parent node (None for root)
@@ -81,12 +61,14 @@ class ConflictNode:
 
     def __init__(
         self,
-        inconsistency: Inconsistency,
+        violation,  # DeterminismViolation, but we avoid import for flexibility
         repair_operation: RepairOperation,
         repair_choice: RepairChoice,
         parent: Optional['ConflictNode'] = None
     ):
-        self.inconsistency = inconsistency
+        self.violation = violation
+        # For backward compatibility
+        self.inconsistency = violation
         self.repair_operation = repair_operation
         self.repair_choice = repair_choice
         self.parent = parent
@@ -112,7 +94,7 @@ class ConflictNode:
         return [node.repair_operation for node in path]
 
     def __str__(self):
-        return (f"ConflictNode(inconsistency={self.inconsistency}, "
+        return (f"ConflictNode(violation={self.violation}, "
                 f"choice={self.repair_choice.value}, "
                 f"repair={self.repair_operation})")
 
@@ -136,20 +118,20 @@ class ConflictTree:
 
     def add_repair(
         self,
-        inconsistency: Inconsistency,
+        violation,  # DeterminismViolation
         repair_operation: RepairOperation,
         repair_choice: RepairChoice
     ) -> ConflictNode:
         """
         Add a new repair decision to the tree.
 
-        :param inconsistency: The inconsistency being resolved
+        :param violation: The determinism violation being resolved
         :param repair_operation: The repair operation performed
         :param repair_choice: Which transition was repaired
         :return: The newly created node
         """
         new_node = ConflictNode(
-            inconsistency=inconsistency,
+            violation=violation,
             repair_operation=repair_operation,
             repair_choice=repair_choice,
             parent=self.current_node

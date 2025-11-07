@@ -2,23 +2,24 @@
 
 from pathlib import Path
 from pddl_plus_parser.lisp_parsers import DomainParser
+from pddl_plus_parser.models import Domain
 
 from src.plan_denoising import (
     PlanDenoiser,
     InconsistencyDetector
 )
+from src.simulator import load_config
 
 
-def example_detect_inconsistencies():
+def example_detect_inconsistencies(pddl_domain_file: Path, trajectory_path: Path):
     """Example: Detect inconsistencies in a trajectory."""
-    # Path to trajectory file
-    trajectory_path = Path("path/to/trajectory.trajectory")
+    domain: Domain = DomainParser(pddl_domain_file).parse_domain()
 
     # Create detector
-    detector = InconsistencyDetector()
+    detector = InconsistencyDetector(domain)
 
     # Detect inconsistencies
-    inconsistencies = detector.detect_inconsistencies_in_trajectory(trajectory_path)
+    inconsistencies = detector.detect_effects_inconsistencies_in_trajectory(trajectory_path)
 
     # Print results
     detector.print_inconsistencies(inconsistencies)
@@ -110,7 +111,12 @@ if __name__ == "__main__":
     print("Plan Denoising Examples")
     print("=" * 50)
 
+    config = load_config()
+    domain = "blocks"  # or "hanoi", etc.
+    pddl_domain_file = Path(config['domains'][domain]['domain_file'])
+    trajectory_path = Path(f"{config['paths']['experiments_dir']}/llm_cv_test__PDDLEnvBlocks-v0__gpt-4o__steps=25__01-11-2025T16:01:36/problem1.trajectory")
+
     # Uncomment to run examples:
-    # example_detect_inconsistencies()
-    # example_denoise_trajectory()
-    # example_manual_repair()
+    example_detect_inconsistencies(pddl_domain_file, trajectory_path)
+    example_denoise_trajectory()
+    example_manual_repair()

@@ -22,7 +22,7 @@ Detects inconsistencies in PDDL trajectory files.
 from src.plan_denoising import InconsistencyDetector
 
 detector = InconsistencyDetector()
-inconsistencies = detector.detect_inconsistencies_in_trajectory("trajectory.trajectory")
+inconsistencies = detector.detect_effects_inconsistencies_in_trajectory("trajectory.trajectory")
 
 # Print results
 detector.print_inconsistencies(inconsistencies)
@@ -184,7 +184,7 @@ from pathlib import Path
 from src.plan_denoising import InconsistencyDetector
 
 detector = InconsistencyDetector()
-inconsistencies = detector.detect_inconsistencies_in_trajectory(
+inconsistencies = detector.detect_effects_inconsistencies_in_trajectory(
     Path("./trajectories/problem1.trajectory")
 )
 

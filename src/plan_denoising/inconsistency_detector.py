@@ -1,53 +1,41 @@
-"""Inconsistency detector for finding conflicts in PDDL trajectories."""
+"""Main inconsistency detector that coordinates all violation detectors."""
 
 from pathlib import Path
-from typing import List, Set, Tuple, Dict
-from collections import defaultdict
-from dataclasses import dataclass
+from typing import List, Union
 
 from pddl_plus_parser.lisp_parsers import TrajectoryParser
-from pddl_plus_parser.models import Observation, ObservedComponent, State, Domain, GroundedPredicate
+from pddl_plus_parser.models import Observation, Domain
 
-from src.plan_denoising.conflict_tree import Inconsistency
-from src.utils.pddl import get_state_grounded_predicates
-
-
-@dataclass
-class Transition:
-    """
-    Represents a single transition in a trajectory.
-
-    Attributes:
-        index: Index of this transition in the trajectory
-        prev_state: Set of fluent strings in the previous state
-        action: Name of the grounded action
-        next_state: Set of fluent strings in the next state
-    """
-    index: int
-    prev_state: Set[str]
-    action: str
-    next_state: Set[str]
-
-    def get_prev_state_signature(self) -> frozenset:
-        """Get a hashable signature of the previous state."""
-        return frozenset(self.prev_state)
+from src.plan_denoising.detectors.base_detector import Transition
+from src.plan_denoising.detectors.frame_axiom_detector import FrameAxiomDetector, FrameAxiomViolation
+from src.plan_denoising.detectors.effects_detector import EffectsDetector, EffectsViolation
+from src.plan_denoising.transition_extractor import TransitionExtractor
 
 
 class InconsistencyDetector:
     """
-    Detects inconsistencies in PDDL trajectories.
+    Main coordinator for detecting all types of inconsistencies in PDDL trajectories.
 
-    An inconsistency occurs when two transitions have:
-    1. The same action
-    2. The same previous state (same set of fluents)
-    3. Different next states (at least one fluent differs)
+    This class coordinates multiple specialized detectors:
+    - FrameAxiomDetector: Detects frame axiom violations
+    - DeterminismDetector: Detects determinism violations (is_effect conflicts)
 
-    This violates determinism: the same action in the same state should
-    always lead to the same next state.
+    Each detector is modular and can be used independently or through this coordinator.
     """
 
     def __init__(self, domain: Domain):
+        """
+        Initialize the inconsistency detector.
+
+        :param domain: PDDL domain containing action definitions and effects
+        """
+        self.domain = domain
         self.trajectory_parser = TrajectoryParser(partial_domain=domain)
+        self.transition_extractor = TransitionExtractor(domain)
+
+        # Initialize specialized detectors
+        self.frame_axiom_detector = FrameAxiomDetector(domain)
+        self.effects_detector = EffectsDetector(domain)
 
     def load_trajectory(self, trajectory_path: Path) -> Observation:
         """
@@ -65,158 +53,166 @@ class InconsistencyDetector:
         :param observation: Observation object from trajectory parser
         :return: List of transitions
         """
-        transitions = []
+        return self.transition_extractor.extract_transitions(observation)
 
-        for idx, component in enumerate(observation.components):
-            # Extract fluent strings from states
-            prev_state_fluents = self._extract_fluents_from_state(component.previous_state)
-            next_state_fluents = self._extract_fluents_from_state(component.next_state)
+    # ==================== Frame Axiom Violations ====================
 
-            # Extract action name
-            action_name = str(component.grounded_action_call)
-
-            transition = Transition(
-                index=idx,
-                prev_state=prev_state_fluents,
-                action=action_name,
-                next_state=next_state_fluents
-            )
-            transitions.append(transition)
-
-        return transitions
-
-    @staticmethod
-    def _extract_fluents_from_state(state: State) -> Set[str]:
-        """
-        Extract fluent strings from a state.
-
-        :param state: State object
-        :return: Set of fluent strings (only positive, unmasked fluents)
-        """
-
-        grounded_predicates: Set[GroundedPredicate] = get_state_grounded_predicates(state)
-        return {pred.untyped_representation for pred in grounded_predicates if pred.is_positive and not pred.is_masked}
-
-    def find_inconsistencies(
+    def detect_frame_axiom_violations(
         self,
         transitions: List[Transition]
-    ) -> List[Inconsistency]:
+    ) -> List[FrameAxiomViolation]:
         """
-        Find all inconsistencies in a list of transitions.
-
-        An inconsistency is a pair of transitions (t1, t2) where:
-        - t1.action == t2.action
-        - t1.prev_state == t2.prev_state
-        - t1.next_state != t2.next_state (at least one fluent differs)
+        Detect frame axiom violations in the given transitions.
 
         :param transitions: List of transitions from a trajectory
-        :return: List of detected inconsistencies
+        :return: List of detected frame axiom violations
         """
-        inconsistencies = []
+        return self.frame_axiom_detector.detect(transitions)
 
-        # Group transitions by (action, prev_state_signature)
-        transition_groups: Dict[Tuple[str, frozenset], List[Transition]] = defaultdict(list)
-
-        for trans in transitions:
-            key = (trans.action, trans.get_prev_state_signature())
-            transition_groups[key].append(trans)
-
-        # For each group with multiple transitions, check for inconsistencies
-        for (action, prev_state_sig), group_transitions in transition_groups.items():
-            if len(group_transitions) < 2:
-                continue  # No inconsistency possible with only one transition
-
-            # Compare all pairs in the group
-            for i in range(len(group_transitions)):
-                for j in range(i + 1, len(group_transitions)):
-                    trans1 = group_transitions[i]
-                    trans2 = group_transitions[j]
-
-                    # Find fluents that differ between next states
-                    conflicting_fluents = self._find_conflicting_fluents(
-                        trans1.next_state,
-                        trans2.next_state
-                    )
-
-                    # Create an inconsistency for each conflicting fluent
-                    for fluent in conflicting_fluents:
-                        inconsistency = Inconsistency(
-                            transition1_index=trans1.index,
-                            transition2_index=trans2.index,
-                            action_name=action,
-                            conflicting_fluent=fluent,
-                            fluent_in_trans1_next=fluent in trans1.next_state,
-                            fluent_in_trans2_next=fluent in trans2.next_state
-                        )
-                        inconsistencies.append(inconsistency)
-
-        return inconsistencies
-
-    @staticmethod
-    def _find_conflicting_fluents(
-        state1: Set[str],
-        state2: Set[str]
-    ) -> Set[str]:
-        """
-        Find fluents that differ between two states.
-
-        :param state1: First state (set of fluent strings)
-        :param state2: Second state (set of fluent strings)
-        :return: Set of fluents that are in one state but not the other
-        """
-        # Symmetric difference: fluents in state1 XOR state2
-        return state1.symmetric_difference(state2)
-
-    def detect_inconsistencies_from_observation(
+    def detect_frame_axiom_violations_from_observation(
         self,
         observation: Observation
-    ) -> List[Inconsistency]:
+    ) -> List[FrameAxiomViolation]:
         """
-        Detect inconsistencies directly from an Observation object.
+        Detect frame axiom violations directly from an Observation object.
 
         :param observation: Observation object
-        :return: List of detected inconsistencies
+        :return: List of detected frame axiom violations
         """
-        # Extract transitions
-        transitions: List[Transition] = self.extract_transitions(observation)
+        transitions = self.extract_transitions(observation)
+        return self.detect_frame_axiom_violations(transitions)
 
-        # Find inconsistencies
-        inconsistencies = self.find_inconsistencies(transitions)
-
-        return inconsistencies
-
-    def detect_inconsistencies_in_trajectory(
+    def detect_frame_axiom_violations_in_trajectory(
         self,
         trajectory_path: Path
-    ) -> List[Inconsistency]:
+    ) -> List[FrameAxiomViolation]:
         """
-        Main method: load a trajectory and detect all inconsistencies.
+        Load a trajectory and detect all frame axiom violations.
 
         :param trajectory_path: Path to the .trajectory file
-        :return: List of detected inconsistencies
+        :return: List of detected frame axiom violations
         """
-        # Load trajectory
-        observation: Observation = self.load_trajectory(trajectory_path)
+        observation = self.load_trajectory(trajectory_path)
+        return self.detect_frame_axiom_violations_from_observation(observation)
 
-        return self.detect_inconsistencies_from_observation(observation)
+    # ==================== Effects Violations ====================
 
-    def print_inconsistencies(self, inconsistencies: List[Inconsistency]) -> None:
+    def detect_effects_violations(
+        self,
+        transitions: List[Transition]
+    ) -> List[EffectsViolation]:
         """
-        Print inconsistencies in a human-readable format.
+        Detect determinism violations in the given transitions.
 
-        :param inconsistencies: List of inconsistencies to print
+        :param transitions: List of transitions from a trajectory
+        :return: List of detected determinism violations
         """
-        if not inconsistencies:
-            print("No inconsistencies detected!")
-            return
+        return self.effects_detector.detect(transitions)
 
-        print(f"\nDetected {len(inconsistencies)} inconsistencies:\n")
+    def detect_effects_violations_from_observation(
+        self,
+        observation: Observation
+    ) -> List[EffectsViolation]:
+        """
+        Detect determinism violations directly from an Observation object.
 
-        for idx, incons in enumerate(inconsistencies, 1):
-            print(f"{idx}. {incons}")
-            print(f"   Transitions: {incons.transition1_index} vs {incons.transition2_index}")
-            print(f"   Action: {incons.action_name}")
-            print(f"   Conflicting fluent: {incons.conflicting_fluent}")
-            print(f"     - In transition {incons.transition1_index}'s next_state: {incons.fluent_in_trans1_next}")
-            print(f"     - In transition {incons.transition2_index}'s next_state: {incons.fluent_in_trans2_next}")
-            print()
+        :param observation: Observation object
+        :return: List of detected determinism violations
+        """
+        transitions = self.extract_transitions(observation)
+        return self.detect_effects_violations(transitions)
+
+    def detect_effects_violations_in_trajectory(
+        self,
+        trajectory_path: Path
+    ) -> List[EffectsViolation]:
+        """
+        Load a trajectory and detect all determinism violations.
+
+        :param trajectory_path: Path to the .trajectory file
+        :return: List of detected determinism violations
+        """
+        observation = self.load_trajectory(trajectory_path)
+        return self.detect_effects_violations_from_observation(observation)
+
+    # ==================== Unified Detection Methods ====================
+
+    def detect_all_violations(
+        self,
+        transitions: List[Transition]
+    ) -> dict[str, List[Union[FrameAxiomViolation, EffectsViolation]]]:
+        """
+        Detect all types of violations in the given transitions.
+
+        :param transitions: List of transitions from a trajectory
+        :return: Dictionary with violation types as keys and lists of violations as values
+        """
+        return {
+            'frame_axiom': self.detect_frame_axiom_violations(transitions),
+            'determinism': self.detect_effects_violations(transitions),
+        }
+
+    def detect_all_violations_from_observation(
+        self,
+        observation: Observation
+    ) -> dict[str, List[Union[FrameAxiomViolation, EffectsViolation]]]:
+        """
+        Detect all types of violations directly from an Observation object.
+
+        :param observation: Observation object
+        :return: Dictionary with violation types as keys and lists of violations as values
+        """
+        transitions = self.extract_transitions(observation)
+        return self.detect_all_violations(transitions)
+
+    def detect_all_violations_in_trajectory(
+        self,
+        trajectory_path: Path
+    ) -> dict[str, List[Union[FrameAxiomViolation, EffectsViolation]]]:
+        """
+        Load a trajectory and detect all types of violations.
+
+        :param trajectory_path: Path to the .trajectory file
+        :return: Dictionary with violation types as keys and lists of violations as values
+        """
+        observation = self.load_trajectory(trajectory_path)
+        return self.detect_all_violations_from_observation(observation)
+
+    # ==================== Print Methods ====================
+
+    def print_frame_axiom_violations(self, violations: List[FrameAxiomViolation]) -> None:
+        """Print frame axiom violations."""
+        self.frame_axiom_detector.print_violations(violations)
+
+    def print_effects_violations(self, violations: List[EffectsViolation]) -> None:
+        """Print determinism violations."""
+        self.effects_detector.print_violations(violations)
+
+    def print_all_violations(
+        self,
+        violations: dict[str, List[Union[FrameAxiomViolation, EffectsViolation]]]
+    ) -> None:
+        """
+        Print all types of violations.
+
+        :param violations: Dictionary with violation types and their lists
+        """
+        print("\n" + "="*60)
+        print("TRAJECTORY VIOLATION REPORT")
+        print("="*60)
+
+        # Print frame axiom violations
+        if 'frame_axiom' in violations:
+            print("\n--- Frame Axiom Violations ---")
+            self.print_frame_axiom_violations(violations['frame_axiom'])
+
+        # Print determinism violations
+        if 'determinism' in violations:
+            print("\n--- Determinism Violations ---")
+            self.print_effects_violations(violations['determinism'])
+
+        # Summary
+        total_violations = sum(len(v) for v in violations.values())
+        print("="*60)
+        print(f"Total violations: {total_violations}")
+        print("="*60)

@@ -7,7 +7,8 @@ from typing import Tuple, Union
 from openai import OpenAI
 from pddl_plus_parser.models import Observation, GroundedPredicate, State
 
-from src.plan_denoising.conflict_tree import Inconsistency, RepairOperation, RepairChoice
+from src.plan_denoising.detectors.effects_detector import EffectsViolation
+from src.plan_denoising.conflict_tree import RepairOperation, RepairChoice
 
 
 class DataRepairer:
@@ -142,7 +143,7 @@ Be precise and base your answer only on clear visual evidence."""
 
     def determine_repair_choice(
         self,
-        inconsistency: Inconsistency,
+        violation: EffectsViolation,
         image1_path: Path,
         image2_path: Path,
         domain_name: str = "unknown"
@@ -150,7 +151,7 @@ Be precise and base your answer only on clear visual evidence."""
         """
         Determine which transition should be repaired based on LLM verification.
 
-        :param inconsistency: The inconsistency to resolve
+        :param violation: The inconsistency to resolve
         :param image1_path: Path to image of transition1's next_state
         :param image2_path: Path to image of transition2's next_state
         :param domain_name: Name of the domain
@@ -161,14 +162,14 @@ Be precise and base your answer only on clear visual evidence."""
         # Ask LLM which image contains the fluent
         llm_result = self.verify_fluent_with_llm(
             image1_path, image2_path,
-            inconsistency.conflicting_fluent,
+            violation.conflicting_fluent,
             domain_name
         )
 
         # Determine which transition is wrong based on LLM result
         if llm_result == "IMAGE1":
             # IMAGE1 has the fluent, IMAGE2 should also have it (repair trans2)
-            if inconsistency.fluent_in_trans1_next and not inconsistency.fluent_in_trans2_next:
+            if violation.fluent_in_trans1_next and not violation.fluent_in_trans2_next:
                 return RepairChoice.SECOND, True
             else:
                 # Unexpected: trans1 doesn't have it but LLM says it should
@@ -176,7 +177,7 @@ Be precise and base your answer only on clear visual evidence."""
 
         elif llm_result == "IMAGE2":
             # IMAGE2 has the fluent, IMAGE1 should also have it (repair trans1)
-            if inconsistency.fluent_in_trans2_next and not inconsistency.fluent_in_trans1_next:
+            if violation.fluent_in_trans2_next and not violation.fluent_in_trans1_next:
                 return RepairChoice.FIRST, True
             else:
                 # Unexpected: trans2 doesn't have it but LLM says it should
@@ -184,14 +185,14 @@ Be precise and base your answer only on clear visual evidence."""
 
         elif llm_result == "NEITHER":
             # Neither has the fluent - repair whichever claims to have it
-            if inconsistency.fluent_in_trans1_next:
+            if violation.fluent_in_trans1_next:
                 return RepairChoice.FIRST, False
             else:
                 return RepairChoice.SECOND, False
 
         else:  # "BOTH"
             # Both should have the fluent - repair whichever doesn't
-            if not inconsistency.fluent_in_trans1_next:
+            if not violation.fluent_in_trans1_next:
                 return RepairChoice.FIRST, True
             else:
                 return RepairChoice.SECOND, True
@@ -199,7 +200,7 @@ Be precise and base your answer only on clear visual evidence."""
     def repair_observation(
         self,
         observation: Observation,
-        inconsistency: Inconsistency,
+        violation: EffectsViolation,
         repair_choice: RepairChoice,
         fluent_should_be_present: bool
     ) -> Tuple[Observation, RepairOperation]:
@@ -207,18 +208,18 @@ Be precise and base your answer only on clear visual evidence."""
         Repair the observation by fixing the next_state of the chosen transition.
 
         :param observation: The observation to repair (will be modified in-place)
-        :param inconsistency: The inconsistency being resolved
+        :param violation: The inconsistency being resolved
         :param repair_choice: Which transition to repair
         :param fluent_should_be_present: Whether the fluent should be present
         :return: Tuple of (repaired observation, repair operation)
         """
         # Determine which transition to repair
         if repair_choice == RepairChoice.FIRST:
-            trans_index = inconsistency.transition1_index
-            old_value = inconsistency.fluent_in_trans1_next
+            trans_index = violation.transition1_index
+            old_value = violation.fluent_in_trans1_next
         else:
-            trans_index = inconsistency.transition2_index
-            old_value = inconsistency.fluent_in_trans2_next
+            trans_index = violation.transition2_index
+            old_value = violation.fluent_in_trans2_next
 
         # Get the component to repair
         component = observation.components[trans_index]
@@ -226,7 +227,7 @@ Be precise and base your answer only on clear visual evidence."""
         # Repair the next_state
         self._repair_state(
             component.next_state,
-            inconsistency.conflicting_fluent,
+            violation.conflicting_fluent,
             fluent_should_be_present
         )
 
@@ -234,7 +235,7 @@ Be precise and base your answer only on clear visual evidence."""
         repair_op = RepairOperation(
             transition_index=trans_index,
             state_type='next_state',
-            fluent_changed=inconsistency.conflicting_fluent,
+            fluent_changed=violation.conflicting_fluent,
             old_value=old_value,
             new_value=fluent_should_be_present
         )
@@ -290,7 +291,7 @@ Be precise and base your answer only on clear visual evidence."""
     def repair_inconsistency(
         self,
         observation: Observation,
-        inconsistency: Inconsistency,
+        violation: EffectsViolation,
         image1_path: Path,
         image2_path: Path,
         domain_name: str = "unknown"
@@ -299,7 +300,7 @@ Be precise and base your answer only on clear visual evidence."""
         Main method: Repair an inconsistency using LLM verification.
 
         :param observation: The observation to repair
-        :param inconsistency: The inconsistency to resolve
+        :param violation: The inconsistency to resolve
         :param image1_path: Path to image of transition1's next_state
         :param image2_path: Path to image of transition2's next_state
         :param domain_name: Name of the domain

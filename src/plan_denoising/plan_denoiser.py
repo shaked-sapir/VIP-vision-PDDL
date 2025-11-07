@@ -1,20 +1,20 @@
 """Main plan denoising orchestrator."""
 
-from pathlib import Path
-from typing import List, Tuple, Optional, Callable
 import logging
+from pathlib import Path
+from typing import Tuple
 
 from pddl_plus_parser.models import Observation, Domain
 from sam_learning.core import LearnerDomain
+from utilities import NegativePreconditionPolicy
 
-from src.plan_denoising.inconsistency_detector import InconsistencyDetector
-from src.plan_denoising.data_repairer import DataRepairer
+from src.pi_sam import PISAMLearner
 from src.plan_denoising.conflict_tree import (
     ConflictTree, Inconsistency, RepairChoice, RepairOperation
 )
-from src.pi_sam import PISAMLearner
+from src.plan_denoising.data_repairer import DataRepairer
+from src.plan_denoising.inconsistency_detector import InconsistencyDetector
 from src.utils.pddl import copy_observation
-from utilities import NegativePreconditionPolicy
 
 
 class PlanDenoiser:
@@ -219,7 +219,7 @@ class PlanDenoiser:
             self.logger.info(f"\n=== Denoising iteration {iteration} ===")
 
             # Step 1: Detect inconsistencies
-            inconsistencies = self.detector.detect_inconsistencies_from_observation(
+            inconsistencies = self.detector.detect_effects_violations_from_observation(
                 current_observation
             )
 
