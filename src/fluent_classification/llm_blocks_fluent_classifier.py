@@ -1,7 +1,7 @@
 import itertools
 
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
-from src.llms.domains.blocks.prompts import confidence_system_prompt
+from src.llms.domains.blocks.prompts import with_uncertain_confidence_system_prompt, no_uncertain_confidence_system_prompt
 
 
 class LLMBlocksFluentClassifier(LLMFluentClassifier):
@@ -10,7 +10,18 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
     Uses GPT-4 Vision to extract predicates from images of blocks world scenarios.
     """
 
-    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o"):
+    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None,
+                 model: str = "gpt-4o", use_uncertain: bool = True):
+        """
+        Initialize the blocks fluent classifier.
+
+        :param openai_apikey: OpenAI API key
+        :param type_to_objects: Mapping of object types to object names
+        :param model: GPT-4 model to use
+        :param use_uncertain: If True, allows score 1 (uncertain); if False, only 0 or 2
+        """
+        self.use_uncertain = use_uncertain
+
         super().__init__(
             openai_apikey=openai_apikey,
             type_to_objects=type_to_objects,
@@ -31,11 +42,24 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
         """Sets the type_to_objects mapping and regenerates possible predicates."""
         self.type_to_objects = type_to_objects
 
+    def set_use_uncertain(self, use_uncertain: bool) -> None:
+        """
+        Set whether to allow uncertain predictions.
+
+        :param use_uncertain: If True, allows score 1 (uncertain); if False, only 0 or 2
+        """
+        self.use_uncertain = use_uncertain
+        # Update the system prompt
+        self.system_prompt = self._get_system_prompt()
+
     def _get_system_prompt(self) -> str:
         """Returns the system prompt for the Blocks domain."""
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."
 
-        return confidence_system_prompt(self.type_to_objects['block'])
+        if self.use_uncertain:
+            return with_uncertain_confidence_system_prompt(self.type_to_objects['block'])
+        else:
+            return no_uncertain_confidence_system_prompt(self.type_to_objects['block'])
 
     def _generate_all_possible_predicates(self) -> set[str]:
         """

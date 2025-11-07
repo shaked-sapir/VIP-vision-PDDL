@@ -6,9 +6,6 @@ from openai import OpenAI
 
 from src.llms.utils import encode_image
 
-# TODO: hide this key
-openai_apikey = "noder-noder"
-openai_client = OpenAI(api_key=openai_apikey)
 
 def print_RGB(image_path: Path):
     from PIL import Image

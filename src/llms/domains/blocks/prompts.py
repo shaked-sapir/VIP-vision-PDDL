@@ -46,58 +46,7 @@ def full_guidance_system_prompt(block_colors: list[str]) -> str:
 )""")
 
 
-def confidence_system_prompt(block_colors: list[str]) -> str:
-#     return (
-#         f"""
-#         You are a visual reasoning agent for a robotic planning system.
-#
-# Given an image with the following known objects:
-# - A grey-colored gripper (type=gripper)
-# - A brown-colored table (type=table)
-# - Colored blocks: {', '.join(block_colors)} (type=block)
-#
-# Your job is **not extraction** but **full classification** of a CLOSED SET of candidate predicates.
-# You MUST output a decision (0/1/2) for **every candidate** defined below. Omitting any required line is a CRITICAL ERROR.
-#
-# CONFIDENCE SCALE
-# - 2 → definitely holds (clear visual evidence)
-# - 1 → might hold (unclear/partial/occluded)
-# - 0 → definitely does not hold (clear evidence against)
-#
-# DEFINITIONS (apply consistently)
-# - on(x:block,y:block): x is directly on top of y.
-# - ontable(x:block): x is directly on the brown table (not on another block).
-# - handempty(gripper:gripper): gripper holds nothing.
-# - handfull(gripper:gripper): gripper holds some block.
-# - holding(x:block): gripper is clearly gripping x.
-# - clear(x:block): no block is on top of x AND the gripper is not holding x.
-#
-# 🚩 COVERAGE CONTRACT
-# Let B be the set of blocks = {', '.join(block_colors)}.
-# - You MUST score **every ordered pair (x,y) with x≠y** for `on(x:block,y:block)`.
-# - You MUST score **every x∈B** for `ontable(x:block)`, `holding(x:block)`, and `clear(x:block)`.
-# - You MUST score **both** `handempty(gripper:gripper)` and `handfull(gripper:gripper)`.
-#
-# 🚩 OUTPUT FORMAT (strict; no extra text)
-# 1) An ON-MATRIX section that covers **all** ordered pairs (x,y), x≠y:
-# on(x:block,y:block): <score>
-# ...
-# (Include exactly one line per ordered pair.)
-# 2) A UNARY section:
-# ontable(x:block): <score>    (one per x)
-# holding(x:block): <score>    (one per x)
-# clear(x:block): <score>      (one per x)
-# handempty(gripper:gripper): <score>
-# handfull(gripper:gripper): <score>
-#
-#
-# 🚩 STRICTNESS
-# - **Do not omit any required line.** If uncertain, use score 1, **you are encourged to do so if you are not sure**.
-# - Keep to the exact tokenization: names like red:block, blue:block.
-# - One predicate per line, exactly as in the schema above.
-#         """
-#     )
-
+def with_uncertain_confidence_system_prompt(block_colors: list[str]) -> str:
     return (
         f"""You are a visual reasoning agent for a robotic planning system.
  Given an image with the following known objects:\n
@@ -143,6 +92,61 @@ ontable(blue:block): 2\n
 clear(green:block): 1\n
 handempty(gripper:gripper): 0\n
 handfull(gripper:gripper): 2\n
+)""")
+
+
+def no_uncertain_confidence_system_prompt(block_colors: list[str]) -> str:
+    """
+    System prompt that does NOT allow uncertain (1) option.
+    Forces the model to make binary decisions: 0 or 2 only.
+    """
+    return (
+        f"""You are a visual reasoning agent for a robotic planning system.
+Given an image with the following known objects:
+- A grey-colored gripper (type=gripper)
+- A brown-colored table (type=table)
+- Colored blocks: {', '.join(block_colors)} (type=block).
+
+Your task is to extract **all grounded binary predicates** from the image and assign a **confidence score** to each.
+Each predicate must be written in **exactly one of the forms listed below**, using the defined objects only.
+Each argument must include the object name and its type, separated by a colon (e.g. red:block).
+DO NOT invent new predicates or omit typings.
+
+Valid predicate forms:
+- on(x:block,y:block)            → block x is on top of block y - order is important!
+- ontable(x:block)               → block x is placed on the brown table
+- handempty(gripper:gripper)     → gripper is empty
+- handfull(gripper:gripper)      → gripper is not empty
+- holding(x:block)               → gripper **clearly** holds block x
+- clear(x:block)                 → no block is on top of x AND gripper does not hold block x
+
+For each predicate, you must make a BINARY decision:
+- 2 → The predicate **definitely** holds, based on clear visual evidence
+- 0 → The predicate **definitely does not** hold, based on clear visual evidence
+
+☑️ You MUST assign a score to **every valid predicate**, including all `on(...)` predicates.
+Notice that you don't have to compute on(x,y) for x=y, only for x≠y.
+
+🚫 DO NOT use score 1. You must make a definite decision (0 or 2) for every predicate.
+If you are uncertain, choose the most likely option based on available evidence.
+
+❗IMPORTANT:
+- Each predicate must appear exactly as described — including typings
+- Do NOT use forms like 'holding(blue)' or 'on(red,blue)' — typings are REQUIRED
+- Do NOT skip or filter predicates
+- Return only one predicate per line, followed by a colon and the confidence score
+- ONLY use scores 0 or 2 (no score 1 allowed)
+
+✅ Format:
+<predicate>: <score>
+
+✅ Example output:
+on(red:block,blue:block): 2
+holding(red:block): 0
+ontable(blue:block): 2
+clear(green:block): 2
+handempty(gripper:gripper): 0
+handfull(gripper:gripper): 2
 )""")
 
 
