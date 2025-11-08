@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List
 
 from .base_detector import BaseDetector, Transition
+from ...action_model.pddl2gym_parser import negate_str_predicate
 
 
 @dataclass
@@ -51,16 +52,24 @@ class FrameAxiomDetector(BaseDetector):
         """
         Detect frame axiom violations in the given transitions.
 
+        Only considers unmasked fluents - masked fluents are filtered out since we
+        don't have reliable information about them and cannot determine if a violation
+        actually occurred.
+
         :param transitions: List of transitions from a trajectory
         :return: List of detected frame axiom violations
         """
         violations = []
 
         for transition in transitions:
+            transition_effects = transition.add_effects.union(transition.delete_effects)
             # Check for fluents that became true (false → true)
-            added_fluents = transition.next_state - transition.prev_state
+            # Filter out masked fluents - we can't reliably detect violations for them
+            added_fluents = (transition.next_state - transition.prev_state) - transition.prev_state_masked
+
             for fluent in added_fluents:
-                if fluent not in transition.add_effects:
+                # if fluent not in transition.add_effects:
+                if fluent not in transition_effects:
                     violation = FrameAxiomViolation(
                         transition_index=transition.index,
                         action_name=transition.action,
@@ -70,9 +79,17 @@ class FrameAxiomDetector(BaseDetector):
                     violations.append(violation)
 
             # Check for fluents that became false (true → false)
-            deleted_fluents = transition.prev_state - transition.next_state
+            # Filter out masked fluents - we can't reliably detect violations for them
+            deleted_fluents = (transition.prev_state - transition.next_state) - transition.next_state_masked
+            # unmasked_deleted_fluents = {
+            #     fluent for fluent in deleted_fluents
+            #     if fluent not in transition.prev_state_masked
+            # }
+
+            # for fluent in unmasked_deleted_fluents:
             for fluent in deleted_fluents:
-                if fluent not in transition.delete_effects:
+                # if fluent not in transition.delete_effects:
+                if negate_str_predicate(fluent) not in transition_effects:
                     violation = FrameAxiomViolation(
                         transition_index=transition.index,
                         action_name=transition.action,

@@ -22,7 +22,7 @@ class DataRepairer:
     Repairs trajectory inconsistencies using LLM-based visual verification.
 
     When an effects violation is detected (two transitions with the same action and
-    prev_state have different next_states), this class uses GPT-4 Vision to:
+    prev_state have different next_states), this class an LLM to:
     1. Examine images of both conflicting next_states
     2. Determine which image correctly represents the fluent in question
     3. Repair the incorrectly classified state in the observation

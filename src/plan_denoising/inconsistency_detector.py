@@ -88,15 +88,17 @@ class InconsistencyDetector:
 
     def detect_frame_axiom_violations_in_trajectory(
         self,
-        trajectory_path: Path
+        trajectory_path: Path,
+        trajectory_masking_path: Path
     ) -> List[FrameAxiomViolation]:
         """
         Load a trajectory and detect all frame axiom violations.
 
         :param trajectory_path: Path to the .trajectory file
+        :param trajectory_masking_path: Path to the trajectory masking file
         :return: List of detected frame axiom violations
         """
-        observation = self.load_trajectory(trajectory_path)
+        observation = self.load_masked_observation(trajectory_path, trajectory_masking_path)
         return self.detect_frame_axiom_violations_from_observation(observation)
 
     # ==================== Effects Violations ====================

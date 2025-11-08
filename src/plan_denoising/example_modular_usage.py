@@ -68,7 +68,7 @@ def example_individual_detectors():
     determinism_detector.print_violations(determinism_violations)
 
 
-def example_frame_axiom_only(pddl_domain_file: Path, trajectory_path: Path):
+def example_frame_axiom_only(pddl_domain_file: Path, trajectory_path: Path, trajectory_masking_path: Path):
     """Example: Detecting only frame axiom violations."""
     # Load domain
     domain: Domain = DomainParser(pddl_domain_file).parse_domain()
@@ -77,7 +77,7 @@ def example_frame_axiom_only(pddl_domain_file: Path, trajectory_path: Path):
     detector = InconsistencyDetector(domain)
 
     # Detect only frame axiom violations
-    violations = detector.detect_frame_axiom_violations_in_trajectory(trajectory_path)
+    violations = detector.detect_frame_axiom_violations_in_trajectory(trajectory_path, trajectory_masking_path)
 
     # Print violations
     detector.print_frame_axiom_violations(violations)
@@ -173,6 +173,6 @@ if __name__ == "__main__":
     # Uncomment to run examples:
     # example_main_detector(pddl_domain_file, trajectory_path)
     # example_individual_detectors()
-    # example_frame_axiom_only(pddl_domain_file, trajectory_path)
-    example_effects_only(pddl_domain_file, trajectory_path, trajectory_masking_path)
+    example_frame_axiom_only(pddl_domain_file, trajectory_path, trajectory_masking_path)
+    # example_effects_only(pddl_domain_file, trajectory_path, trajectory_masking_path)
     # example_custom_detector()
