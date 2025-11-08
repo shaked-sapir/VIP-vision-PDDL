@@ -6,15 +6,19 @@ in PDDL trajectories by using vision-language models to verify which observed st
 is correct when two transitions with the same preconditions lead to different outcomes.
 """
 
-import base64
 from pathlib import Path
-from typing import Tuple, Union
+from typing import Tuple, Union, List
 
 from openai import OpenAI
 from pddl_plus_parser.models import Observation, GroundedPredicate, State
 
 from src.plan_denoising.detectors.effects_detector import EffectsViolation
 from src.plan_denoising.conflict_tree import RepairOperation, RepairChoice
+from src.plan_denoising.repairer.prompts import (
+    create_binary_verification_prompt,
+    create_ternary_verification_prompt
+)
+from src.llms.utils import encode_image
 
 
 class DataRepairer:
@@ -32,41 +36,26 @@ class DataRepairer:
     which of the two conflicting observations is correct.
     """
 
-    def __init__(self, openai_apikey: str, model: str = "gpt-4o"):
+    def __init__(self, openai_apikey: str, model: str, use_uncertain: bool = False):
         """
         Initialize the data repairer with LLM access.
 
         Args:
             openai_apikey: OpenAI API key for GPT-4 Vision access
-            model: GPT-4 Vision model identifier (default: gpt-4o)
+            model: Vision model identifier (default: gpt-4o)
+            use_uncertain: If True, uses ternary mode (IMAGE1/IMAGE2/UNCERTAIN) and masks
+                         uncertain fluents. If False, uses binary mode (IMAGE1/IMAGE2 only)
+                         and repairs to the correct state.
         """
         self.openai_client = OpenAI(api_key=openai_apikey)
         self.model = model
-
-    # ==================== Image Processing ====================
-
-    @staticmethod
-    def _encode_image(image_path: Union[Path, str]) -> str:
-        """
-        Encode an image file to base64 for LLM API consumption.
-
-        Args:
-            image_path: Path to the image file
-
-        Returns:
-            Base64-encoded string representation of the image
-        """
-        with open(image_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
+        self.use_uncertain = use_uncertain
 
     # ==================== LLM Prompting ====================
 
-    def _create_verification_prompt(self, fluent: str, domain_name: str) -> str:
+    def _get_system_prompt(self, fluent: str, domain_name: str) -> str: # TODO: why fluent ?
         """
-        Create a system prompt instructing the LLM to verify fluent presence.
-
-        The prompt is designed to elicit a clear, unambiguous response about
-        which image(s) satisfy the given fluent.
+        Get the system prompt for verifying fluent presence based on use_uncertain mode.
 
         Args:
             fluent: PDDL fluent to verify (e.g., "(on red blue)")
@@ -75,36 +64,21 @@ class DataRepairer:
         Returns:
             System prompt string for the LLM
         """
-        return f"""You are a visual reasoning expert for PDDL planning domains.
-
-You will be shown TWO images from the {domain_name} domain.
-
-Your task: Determine which image (if any) satisfies the following fluent (predicate):
-
-**Fluent to verify**: {fluent}
-
-Analyze each image carefully and determine:
-1. Does IMAGE 1 satisfy this fluent?
-2. Does IMAGE 2 satisfy this fluent?
-
-Respond with EXACTLY one of the following:
-- "IMAGE1" if only the first image satisfies the fluent
-- "IMAGE2" if only the second image satisfies the fluent
-- "BOTH" if both images satisfy the fluent
-- "NEITHER" if neither image satisfies the fluent
-
-Be precise and base your answer only on clear visual evidence."""
+        if self.use_uncertain:
+            return create_ternary_verification_prompt(fluent, domain_name)
+        else:
+            return create_binary_verification_prompt(fluent, domain_name)
 
     def verify_fluent_with_llm(
         self,
         image1_path: Path,
         image2_path: Path,
         fluent: str,
-        domain_name: str = "unknown",
+        domain_name: str,
         temperature: float = 0.2
     ) -> str:
         """
-        Use GPT-4 Vision to determine which image(s) contain the fluent.
+        Use VisionModel to determine which image(s) contain the fluent.
 
         This is the core verification step: the LLM examines both images and
         determines the ground truth about the fluent's presence.
@@ -117,17 +91,18 @@ Be precise and base your answer only on clear visual evidence."""
             temperature: LLM sampling temperature (lower = more deterministic)
 
         Returns:
-            One of: "IMAGE1", "IMAGE2", "BOTH", "NEITHER"
+            - Binary mode: One of "IMAGE1", "IMAGE2"
+            - Ternary mode: One of "IMAGE1", "IMAGE2", "UNCERTAIN"
         """
         # Step 1: Encode both images to base64
-        base64_image1 = self._encode_image(image1_path)
-        base64_image2 = self._encode_image(image2_path)
+        base64_image1 = encode_image(image1_path)
+        base64_image2 = encode_image(image2_path)
 
-        # Step 2: Create the system prompt
-        system_prompt = self._create_verification_prompt(fluent, domain_name)
+        # Step 2: Get the system prompt based on use_uncertain mode
+        system_prompt = self._get_system_prompt(fluent, domain_name)
 
         # Step 3: Construct the user message with both images
-        user_message = [
+        user_prompt = [
             {"type": "text", "text": "IMAGE 1:"},
             {
                 "type": "image_url",
@@ -141,33 +116,42 @@ Be precise and base your answer only on clear visual evidence."""
             {"type": "text", "text": f"Which image(s) satisfy the fluent: {fluent}?"}
         ]
 
-        # Step 4: Call GPT-4 Vision API
+        # Step 4: Call Vision API
         response = self.openai_client.chat.completions.create(
             model=self.model,
             temperature=temperature,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
+                {"role": "user", "content": user_prompt}
             ],
-            max_tokens=100
         )
 
         # Step 5: Parse the response
         response_text = response.choices[0].message.content.strip().upper()
 
-        # Step 6: Extract the structured answer
-        if "IMAGE1" in response_text and "IMAGE2" not in response_text:
-            return "IMAGE1"
-        elif "IMAGE2" in response_text and "IMAGE1" not in response_text:
-            return "IMAGE2"
-        elif "BOTH" in response_text:
-            return "BOTH"
-        elif "NEITHER" in response_text:
-            return "NEITHER"
+        # Step 6: Extract the structured answer based on mode
+        if self.use_uncertain:
+            # Ternary mode: IMAGE1, IMAGE2, or UNCERTAIN
+            if "UNCERTAIN" in response_text:
+                return "UNCERTAIN"
+            elif "IMAGE1" in response_text and "IMAGE2" not in response_text:
+                return "IMAGE1"
+            elif "IMAGE2" in response_text and "IMAGE1" not in response_text:
+                return "IMAGE2"
+            else:
+                # Fallback: if response is unclear, default to UNCERTAIN
+                print(f"Warning: Unclear LLM response: {response_text}, defaulting to UNCERTAIN")
+                return "UNCERTAIN"
         else:
-            # Fallback: if response is unclear, default to NEITHER
-            print(f"Warning: Unclear LLM response: {response_text}")
-            return "NEITHER"
+            # Binary mode: IMAGE1 or IMAGE2
+            if "IMAGE1" in response_text and "IMAGE2" not in response_text:
+                return "IMAGE1"
+            elif "IMAGE2" in response_text and "IMAGE1" not in response_text:
+                return "IMAGE2"
+            else:
+                # Fallback: if response is unclear, default to IMAGE1
+                print(f"Warning: Unclear LLM response: {response_text}, defaulting to IMAGE1")
+                return "IMAGE1"
 
     # ==================== Repair Decision Logic ====================
 
@@ -176,8 +160,8 @@ Be precise and base your answer only on clear visual evidence."""
         violation: EffectsViolation,
         image1_path: Path,
         image2_path: Path,
-        domain_name: str = "unknown"
-    ) -> Tuple[RepairChoice, bool]:
+        domain_name: str
+    ) -> Tuple[RepairChoice, Union[bool, None]]:
         """
         Determine which transition to repair based on LLM verification.
 
@@ -185,7 +169,7 @@ Be precise and base your answer only on clear visual evidence."""
         different next_states), this method:
         1. Asks the LLM which image(s) contain the conflicting fluent
         2. Determines which transition's classification was incorrect
-        3. Decides how to repair it (add or remove the fluent)
+        3. Decides how to repair it (add or remove the fluent, or mask it)
 
         Args:
             violation: The effects violation to resolve
@@ -195,8 +179,8 @@ Be precise and base your answer only on clear visual evidence."""
 
         Returns:
             Tuple of:
-            - RepairChoice: Which transition to repair (FIRST or SECOND)
-            - bool: Whether the fluent should be present in the repaired state
+            - RepairChoice: Which transition to repair (FIRST, SECOND, or BOTH)
+            - bool or None: Whether the fluent should be present (True/False) or masked (None)
         """
         # Step 1: Query the LLM about fluent presence
         llm_result = self.verify_fluent_with_llm(
@@ -207,10 +191,12 @@ Be precise and base your answer only on clear visual evidence."""
         )
 
         # Step 2: Interpret LLM result and determine repair
-        # The logic: if LLM says fluent is in IMAGE1, then transition1's
-        # classification is correct, so we repair transition2 to match it.
 
-        if llm_result == "IMAGE1":
+        if llm_result == "UNCERTAIN":
+            # LLM is uncertain: mask the fluent in both states
+            return RepairChoice.BOTH, None
+
+        elif llm_result == "IMAGE1":
             # Ground truth: fluent is present in IMAGE1
             # Therefore, transition2 should also have the fluent
             if violation.fluent_in_trans1_next and not violation.fluent_in_trans2_next:
@@ -230,25 +216,11 @@ Be precise and base your answer only on clear visual evidence."""
                 # Trans2 doesn't have it but should - repair trans2
                 return RepairChoice.SECOND, True
 
-        elif llm_result == "NEITHER":
-            # Ground truth: fluent is absent in both images
-            # Remove it from whichever state incorrectly has it
-            if violation.fluent_in_trans1_next:
-                # Trans1 incorrectly has the fluent
-                return RepairChoice.FIRST, False
-            else:
-                # Trans2 incorrectly has the fluent
-                return RepairChoice.SECOND, False
-
-        else:  # llm_result == "BOTH"
-            # Ground truth: fluent is present in both images
-            # Add it to whichever state is missing it
-            if not violation.fluent_in_trans1_next:
-                # Trans1 is missing the fluent
-                return RepairChoice.FIRST, True
-            else:
-                # Trans2 is missing the fluent
-                return RepairChoice.SECOND, True
+        else:
+            # In binary mode, we should never get here
+            # Default to repairing first transition
+            print(f"Warning: Unexpected LLM result: {llm_result}")
+            return RepairChoice.FIRST, True
 
     # ==================== State Repair ====================
 
@@ -256,20 +228,20 @@ Be precise and base your answer only on clear visual evidence."""
     def _repair_state(
         state: State,
         fluent_str: str,
-        should_be_present: bool
+        should_be_present: Union[bool, None]
     ) -> None:
         """
-        Repair a state by modifying a fluent's truth value.
+        Repair a state by modifying a fluent's truth value or masking it.
 
         This modifies the State object in-place by:
         1. Finding the GroundedPredicate matching fluent_str
         2. Removing the old predicate
-        3. Adding a corrected predicate with the right is_positive value
+        3. Adding a corrected predicate with the right is_positive value or masked
 
         Args:
             state: The State object to repair (modified in-place)
             fluent_str: String representation of the fluent (e.g., "(on red blue)")
-            should_be_present: True to make fluent positive, False for negative
+            should_be_present: True for positive, False for negative, None to mask
 
         Note:
             The state's internal structure organizes predicates by name in
@@ -307,13 +279,24 @@ Be precise and base your answer only on clear visual evidence."""
         predicates_set.discard(target_pred)
 
         # Step 5: Create and add the corrected predicate
-        corrected_pred = GroundedPredicate(
-            name=target_pred.name,
-            signature=target_pred.signature,
-            object_mapping=target_pred.object_mapping,
-            is_positive=should_be_present,  # The corrected truth value
-            is_masked=target_pred.is_masked
-        )
+        if should_be_present is None:
+            # Mask the fluent (uncertain case)
+            corrected_pred = GroundedPredicate(
+                name=target_pred.name,
+                signature=target_pred.signature,
+                object_mapping=target_pred.object_mapping,
+                is_positive=target_pred.is_positive,  # Keep original truth value
+                is_masked=True  # Mark as masked
+            )
+        else:
+            # Set specific truth value (binary mode)
+            corrected_pred = GroundedPredicate(
+                name=target_pred.name,
+                signature=target_pred.signature,
+                object_mapping=target_pred.object_mapping,
+                is_positive=should_be_present,  # The corrected truth value
+                is_masked=target_pred.is_masked
+            )
         predicates_set.add(corrected_pred)
 
     def repair_observation(
@@ -321,8 +304,8 @@ Be precise and base your answer only on clear visual evidence."""
         observation: Observation,
         violation: EffectsViolation,
         repair_choice: RepairChoice,
-        fluent_should_be_present: bool
-    ) -> Tuple[Observation, RepairOperation]:
+        fluent_should_be_present: Union[bool, None]
+    ) -> Tuple[Observation, List[RepairOperation]]:
         """
         Repair an observation by fixing the next_state of a chosen transition.
 
@@ -332,42 +315,80 @@ Be precise and base your answer only on clear visual evidence."""
         Args:
             observation: The trajectory observation (modified in-place)
             violation: The effects violation being resolved
-            repair_choice: Which transition to repair (FIRST or SECOND)
-            fluent_should_be_present: Correct truth value for the fluent
+            repair_choice: Which transition to repair (FIRST, SECOND, or BOTH)
+            fluent_should_be_present: Correct truth value for the fluent, or None to mask
 
         Returns:
             Tuple of:
             - Observation: The repaired observation (same object, modified)
-            - RepairOperation: Record of the repair for tracking/backtracking
+            - List[RepairOperation]: Records of the repair(s) for tracking/backtracking
         """
-        # Step 1: Determine which transition to repair
-        if repair_choice == RepairChoice.FIRST:
-            trans_index = violation.transition1_index
-            old_value = violation.fluent_in_trans1_next
-        else:  # RepairChoice.SECOND
-            trans_index = violation.transition2_index
-            old_value = violation.fluent_in_trans2_next
+        repair_operations = []
 
-        # Step 2: Get the observation component for this transition
-        component = observation.components[trans_index]
+        if repair_choice == RepairChoice.BOTH:
+            # Mask the fluent in both transitions' next_states
+            # Repair transition 1
+            component1 = observation.components[violation.transition1_index]
+            self._repair_state(
+                component1.next_state,
+                violation.conflicting_fluent,
+                None  # Mask the fluent
+            )
+            repair_op1 = RepairOperation(
+                transition_index=violation.transition1_index,
+                state_type='next_state',
+                fluent_changed=violation.conflicting_fluent,
+                old_value=violation.fluent_in_trans1_next,
+                new_value=violation.fluent_in_trans1_next  # Truth value unchanged, but masked
+            )
+            repair_operations.append(repair_op1)
 
-        # Step 3: Repair the next_state by modifying the fluent
-        self._repair_state(
-            component.next_state,
-            violation.conflicting_fluent,
-            fluent_should_be_present
-        )
+            # Repair transition 2
+            component2 = observation.components[violation.transition2_index]
+            self._repair_state(
+                component2.next_state,
+                violation.conflicting_fluent,
+                None  # Mask the fluent
+            )
+            repair_op2 = RepairOperation(
+                transition_index=violation.transition2_index,
+                state_type='next_state',
+                fluent_changed=violation.conflicting_fluent,
+                old_value=violation.fluent_in_trans2_next,
+                new_value=violation.fluent_in_trans2_next  # Truth value unchanged, but masked
+            )
+            repair_operations.append(repair_op2)
 
-        # Step 4: Create a repair operation record for tracking
-        repair_op = RepairOperation(
-            transition_index=trans_index,
-            state_type='next_state',
-            fluent_changed=violation.conflicting_fluent,
-            old_value=old_value,
-            new_value=fluent_should_be_present
-        )
+        else:
+            # Single transition repair (FIRST or SECOND)
+            if repair_choice == RepairChoice.FIRST:
+                trans_index = violation.transition1_index
+                old_value = violation.fluent_in_trans1_next
+            else:  # RepairChoice.SECOND
+                trans_index = violation.transition2_index
+                old_value = violation.fluent_in_trans2_next
 
-        return observation, repair_op
+            # Get the observation component for this transition
+            component = observation.components[trans_index]
+
+            # Repair the next_state by modifying the fluent
+            self._repair_state(
+                component.next_state,
+                violation.conflicting_fluent,
+                fluent_should_be_present
+            )
+
+            # Create a repair operation record for tracking
+            repair_op = RepairOperation(
+                transition_index=trans_index,
+                state_type='next_state',
+                fluent_changed=violation.conflicting_fluent,
+                old_value=old_value,
+                new_value=fluent_should_be_present
+            )
+            repair_operations.append(repair_op)
+
+        return observation, repair_operations
 
     # ==================== High-Level Interface ====================
 
@@ -378,7 +399,7 @@ Be precise and base your answer only on clear visual evidence."""
         image1_path: Path,
         image2_path: Path,
         domain_name: str = "unknown"
-    ) -> Tuple[Observation, RepairOperation, RepairChoice]:
+    ) -> Tuple[Observation, List[RepairOperation], RepairChoice]:
         """
         Complete pipeline: verify and repair an effects violation.
 
@@ -397,8 +418,8 @@ Be precise and base your answer only on clear visual evidence."""
         Returns:
             Tuple of:
             - Observation: The repaired observation
-            - RepairOperation: Record of the repair performed
-            - RepairChoice: Which transition was repaired
+            - List[RepairOperation]: Record(s) of the repair(s) performed
+            - RepairChoice: Which transition(s) were repaired
         """
         # Step 1: Determine repair strategy using LLM
         repair_choice, fluent_should_be_present = self.determine_repair_choice(
@@ -406,13 +427,14 @@ Be precise and base your answer only on clear visual evidence."""
         )
 
         # Step 2: Apply the repair to the observation
-        repaired_obs, repair_op = self.repair_observation(
+        repaired_obs, repair_ops = self.repair_observation(
             observation, violation, repair_choice, fluent_should_be_present
         )
 
         # Step 3: Log the repair for debugging/tracking
         print(f"Repaired violation: {violation}")
         print(f"  Repair choice: {repair_choice.value}")
-        print(f"  Repair operation: {repair_op}")
+        for repair_op in repair_ops:
+            print(f"  Repair operation: {repair_op}")
 
-        return repaired_obs, repair_op, repair_choice
+        return repaired_obs, repair_ops, repair_choice

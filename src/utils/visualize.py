@@ -4,6 +4,7 @@ from typing import Tuple, Union
 
 import cv2
 import numpy as np
+import base64
 
 from src.object_detection.bounded_object import BoundedObject
 
@@ -59,3 +60,8 @@ def find_exact_rgb_color_mask(image_bgr: cv2.typing.MatLike, int_rgb_triplet: In
 
 def load_image(image_path: str) -> cv2.typing.MatLike:
     return cv2.imread(image_path)
+
+
+def encode_image_to_base64(image_path: Union[Path, str]) -> str:
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")

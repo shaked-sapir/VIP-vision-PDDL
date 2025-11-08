@@ -7,7 +7,7 @@ from src.llms.domains.blocks.prompts import with_uncertain_confidence_system_pro
 class LLMBlocksFluentClassifier(LLMFluentClassifier):
     """
     LLM-based fluent classifier for the Blocks domain.
-    Uses GPT-4 Vision to extract predicates from images of blocks world scenarios.
+    Uses VisionModel to extract predicates from images of blocks world scenarios.
     """
 
     def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None,
@@ -17,7 +17,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
 
         :param openai_apikey: OpenAI API key
         :param type_to_objects: Mapping of object types to object names
-        :param model: GPT-4 model to use
+        :param model: model to use
         :param use_uncertain: If True, allows score 1 (uncertain); if False, only 0 or 2
         """
         self.use_uncertain = use_uncertain

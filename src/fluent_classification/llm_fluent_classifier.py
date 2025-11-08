@@ -9,6 +9,7 @@ from openai import OpenAI
 
 from src.fluent_classification.base_fluent_classifier import FluentClassifier, PredicateTruthValue
 from src.utils.pddl import multi_replace_predicate
+from src.utils.visualize import encode_image_to_base64
 
 
 class LLMFluentClassifier(FluentClassifier, ABC):
@@ -44,13 +45,8 @@ class LLMFluentClassifier(FluentClassifier, ABC):
     def _parse_llm_predicate_relevance(predicate_fact: tuple[str, int]) -> tuple[str, int]:
         return predicate_fact[0].replace(" ", ""), int(predicate_fact[1])
 
-    @staticmethod
-    def encode_image(image_path: Union[Path, str]) -> str:
-        with open(image_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
-
     def extract_facts_once(self, image_path: Path | str, temperature=1.0) -> set[tuple[str, int]]:
-        base64_image: str = self.encode_image(image_path)
+        base64_image: str = encode_image_to_base64(image_path)
         user_prompt = [
             {
                 "type": "image_url",
@@ -69,10 +65,9 @@ class LLMFluentClassifier(FluentClassifier, ABC):
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            # max_tokens=3000   # TODO: make configurable
         )
         response_text: str = response.choices[0].message.content.strip()
-        facts: list[tuple[str, int]] = re.findall(self.result_regex, response_text) # assumes that a fact is like (<predicate>, <relevance>)
+        facts: list[tuple[str, int]] = re.findall(self.result_regex, response_text)
         return set([self.llm_result_parse_func(fact) for fact in facts])
 
     def simulate_predicate_probabilities(self, image_path: Path, temperature: float, trials: int = 10

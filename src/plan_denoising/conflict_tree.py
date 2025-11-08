@@ -12,6 +12,7 @@ class RepairChoice(Enum):
     """Which transition was repaired in a conflict."""
     FIRST = "first"
     SECOND = "second"
+    BOTH = "both"  # Used when both states need to be masked (uncertain case)
 
 
 @dataclass

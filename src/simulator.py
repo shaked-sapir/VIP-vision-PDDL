@@ -26,8 +26,9 @@ class Simulator:
     """
 
     def __init__(self, domain_name: str, openai_apikey: str,
-                 pddl_domain_file: Path, pddl_problem_dir: Path, experiment_dir_path: Path = Path("vip_experiments"),
-                 llm_model_name: str = "gpt-4o"):
+                 pddl_domain_file: Path, pddl_problem_dir: Path,
+                 visual_components_model_name: str,
+                 experiment_dir_path: Path = Path("vip_experiments")):
         """
         Initialize the simulator.
 
@@ -35,14 +36,17 @@ class Simulator:
         :param openai_apikey: OpenAI API key for LLM-based components.
         :param pddl_domain_file: Path to the PDDL domain file.
         :param pddl_problem_dir: Directory containing PDDL problem files.
+        :param visual_components_model_name: Name of the LLM model to use (e.g., 'gpt-4o').
         :param experiment_dir_path: Directory for experiment outputs.
         """
         self.domain_name = domain_name
         self.experiment_dir_path = experiment_dir_path
         self.openai_apikey = openai_apikey
 
-        # Initialize trajectory handler for blocks domain
-        self.image_trajectory_handler: ImageTrajectoryHandler = LLMBlocksImageTrajectoryHandler(domain_name, openai_apikey, llm_model_name, llm_model_name)
+        # Initialize trajectory handler for blocks domain, object detection & fluent classification done with same model
+        self.image_trajectory_handler: ImageTrajectoryHandler = LLMBlocksImageTrajectoryHandler(
+            domain_name, openai_apikey, visual_components_model_name, visual_components_model_name
+        )
 
         # Parse domain and set problem directory
         self.domain: Domain = DomainParser(pddl_domain_file).parse_domain()
@@ -281,7 +285,7 @@ if __name__ == '__main__':
 
     # Get API key from config
     openai_apikey = config['openai']['api_key']
-    llm_model_name = config['openai'].get('llm_model_name', 'gpt-4o')
+    visual_components_model_name = config['openai'].get('visual_components_model_name', 'gpt-4o')
 
     if openai_apikey == "your-api-key-here":
         raise ValueError(
@@ -306,7 +310,7 @@ if __name__ == '__main__':
             openai_apikey=openai_apikey,
             pddl_domain_file=Path(config['domains'][domain]['domain_file']),
             pddl_problem_dir=Path(config['domains'][domain]['problems_dir']),
-            llm_model_name=llm_model_name
+            visual_components_model_name=visual_components_model_name
         )
 
         simulation_start_time = time()
@@ -356,7 +360,7 @@ if __name__ == '__main__':
             "problem9"
         ]  # List of problems for cross-validation
         num_steps = 1  # Number of steps per trajectory
-        experiment_name = f"llm_cv_test__{domain_name}__{llm_model_name}"  # Name for this experiment
+        experiment_name = f"llm_cv_test__{domain_name}__{visual_components_model_name}"  # Name for this experiment
         # Create simulator
         simulator = Simulator(
             domain_name=domain_name,
@@ -364,7 +368,7 @@ if __name__ == '__main__':
             openai_apikey=openai_apikey,
             pddl_domain_file=Path(config['domains'][domain]['domain_file']),
             pddl_problem_dir=Path(config['domains'][domain]['problems_dir']),
-            llm_model_name=llm_model_name
+            visual_components_model_name=visual_components_model_name
         )
 
         # Run cross-validation with LLM-based procedures

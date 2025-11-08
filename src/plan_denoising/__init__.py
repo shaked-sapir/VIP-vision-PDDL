@@ -6,7 +6,7 @@ from .detectors.frame_axiom_detector import FrameAxiomDetector, FrameAxiomViolat
 from .detectors.effects_detector import EffectsDetector, EffectsViolation
 from .transition_extractor import TransitionExtractor
 from .conflict_tree import ConflictTree, ConflictNode, RepairOperation
-from .data_repairer import DataRepairer
+from .repairer.data_repairer import DataRepairer
 from .plan_denoiser import PlanDenoiser
 
 # Backward compatibility: alias DeterminismViolation as Inconsistency

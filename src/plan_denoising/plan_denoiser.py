@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, List
 
 from pddl_plus_parser.models import Observation, Domain
 from sam_learning.core import LearnerDomain
@@ -12,7 +12,7 @@ from src.pi_sam import PISAMLearner
 from src.plan_denoising.conflict_tree import (
     ConflictTree, Inconsistency, RepairChoice, RepairOperation
 )
-from src.plan_denoising.data_repairer import DataRepairer
+from src.plan_denoising.repairer.data_repairer import DataRepairer
 from src.plan_denoising.inconsistency_detector import InconsistencyDetector
 from src.utils.pddl import copy_observation
 
@@ -165,14 +165,14 @@ class PlanDenoiser:
         observation: Observation,
         inconsistency: Inconsistency,
         repair_choice: RepairChoice
-    ) -> Tuple[Observation, RepairOperation]:
+    ) -> Tuple[Observation, List[RepairOperation]]:
         """
         Repair an inconsistency with a specified repair choice.
 
         :param observation: The observation to repair
         :param inconsistency: The inconsistency to resolve
         :param repair_choice: Which transition to repair
-        :return: Tuple of (repaired observation, repair operation)
+        :return: Tuple of (repaired observation, list of repair operations)
         """
         # Get images for both transitions' next states
         # Transition indices correspond to state indices (state i+1 is after transition i)
@@ -183,16 +183,19 @@ class PlanDenoiser:
         if repair_choice == RepairChoice.FIRST:
             # We're repairing trans1, so trans2's value is correct
             fluent_should_be_present = inconsistency.fluent_in_trans2_next
-        else:
+        elif repair_choice == RepairChoice.SECOND:
             # We're repairing trans2, so trans1's value is correct
             fluent_should_be_present = inconsistency.fluent_in_trans1_next
+        else:  # RepairChoice.BOTH
+            # Mask both states (uncertain case)
+            fluent_should_be_present = None
 
         # Repair the observation
-        repaired_obs, repair_op = self.repairer.repair_observation(
+        repaired_obs, repair_ops = self.repairer.repair_observation(
             observation, inconsistency, repair_choice, fluent_should_be_present
         )
 
-        return repaired_obs, repair_op
+        return repaired_obs, repair_ops
 
     def denoise(
         self,
@@ -267,9 +270,10 @@ class PlanDenoiser:
             else:
                 # Try repairing the first transition by default
                 repair_choice = RepairChoice.FIRST
-                current_observation, repair_operation = self.repair_inconsistency_with_choice(
+                current_observation, repair_operations = self.repair_inconsistency_with_choice(
                     current_observation, inconsistency, repair_choice
                 )
+                repair_operation = repair_operations[0]  # Get first operation for tree tracking
 
             # Step 4: Add repair to conflict tree
             self.conflict_tree.add_repair(inconsistency, repair_operation, repair_choice)
@@ -309,9 +313,10 @@ class PlanDenoiser:
 
                         # Try alternative repair choice
                         alternative_choice = self.conflict_tree.get_alternative_repair_choice()
-                        current_observation, repair_operation = self.repair_inconsistency_with_choice(
+                        current_observation, repair_operations = self.repair_inconsistency_with_choice(
                             current_observation, inconsistency, alternative_choice
                         )
+                        repair_operation = repair_operations[0]  # Get first operation for tree tracking
 
                         # Add to tree
                         self.conflict_tree.add_repair(inconsistency, repair_operation, alternative_choice)

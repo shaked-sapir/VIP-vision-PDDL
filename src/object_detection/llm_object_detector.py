@@ -8,6 +8,7 @@ from typing import Dict, List, Union
 from openai import OpenAI
 
 from src.object_detection.base_object_detector import ObjectDetector
+from src.utils.visualize import encode_image_to_base64
 
 
 class LLMObjectDetector(ObjectDetector, ABC):
@@ -42,13 +43,8 @@ class LLMObjectDetector(ObjectDetector, ABC):
     def _parse_llm_object_detection(obj_detect_fact: str) -> str:
         return obj_detect_fact.replace(" ", "")  # remove spaces guardedly added by the LLM
 
-    @staticmethod
-    def _encode_image(image_path: Union[Path, str]) -> str:
-        with open(image_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
-
     def _detect_once(self, image_path: Union[Path, str], temperature: float = 1.0) -> set[str]:
-        base64_image: str = self._encode_image(image_path)
+        base64_image: str = encode_image_to_base64(image_path)
         user_prompt = [
             {
                 "type": "image_url",
@@ -66,11 +62,10 @@ class LLMObjectDetector(ObjectDetector, ABC):
             messages=[
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_prompt}
-            ],
-            # max_tokens=3000  # TODO: make configurable
+            ]
         )
         response_text: str = response.choices[0].message.content.strip()
-        facts: list[str] = re.findall(self.result_regex, response_text)  # assumes that a fact is like "<obj_name>:<obj_type>"
+        facts: list[str] = re.findall(self.result_regex, response_text)
         return set([self.llm_result_parse_func(fact) for fact in facts])
 
     def detect(self, image: Union[Path, str], *args, **kwargs) -> dict[str, List[str]]:

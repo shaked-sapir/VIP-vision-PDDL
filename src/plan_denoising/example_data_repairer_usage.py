@@ -9,11 +9,8 @@ from pathlib import Path
 from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 from pddl_plus_parser.models import Domain
 
-from src.plan_denoising import (
-    InconsistencyDetector,
-    DataRepairer,
-    EffectsViolation
-)
+from src.plan_denoising import InconsistencyDetector, EffectsViolation
+from src.plan_denoising.repairer import DataRepairer
 
 
 def example_basic_repair():
@@ -67,7 +64,7 @@ def example_basic_repair():
     observation = trajectory_parser.parse_trajectory(trajectory_file)
 
     # Repair the violation using LLM verification
-    repaired_obs, repair_op, repair_choice = repairer.repair_violation(
+    repaired_obs, repair_ops, repair_choice = repairer.repair_violation(
         observation=observation,
         violation=violation,
         image1_path=image1_path,
@@ -76,9 +73,10 @@ def example_basic_repair():
     )
 
     print(f"\nRepair completed!")
-    print(f"  Repaired transition: {repair_op.transition_index}")
-    print(f"  Fluent: {repair_op.fluent_changed}")
-    print(f"  Changed from: {repair_op.old_value} → {repair_op.new_value}")
+    for repair_op in repair_ops:
+        print(f"  Repaired transition: {repair_op.transition_index}")
+        print(f"  Fluent: {repair_op.fluent_changed}")
+        print(f"  Changed from: {repair_op.old_value} → {repair_op.new_value}")
 
 
 def example_stepwise_repair():
@@ -124,13 +122,14 @@ def example_stepwise_repair():
 
     # Step 3: Apply the repair
     print("\nStep 3: Applying repair to observation...")
-    repaired_obs, repair_op = repairer.repair_observation(
+    repaired_obs, repair_ops = repairer.repair_observation(
         observation=observation,
         violation=violation,
         repair_choice=repair_choice,
         fluent_should_be_present=fluent_should_be_present
     )
-    print(f"Repair operation: {repair_op}")
+    for repair_op in repair_ops:
+        print(f"Repair operation: {repair_op}")
 
 
 def example_repair_multiple_violations():
@@ -175,7 +174,7 @@ def example_repair_multiple_violations():
         image2_path = images_dir / f"state_{violation.transition2_index + 1}.png"
 
         # Repair
-        observation, repair_op, repair_choice = repairer.repair_violation(
+        observation, repair_ops, repair_choice = repairer.repair_violation(
             observation=observation,
             violation=violation,
             image1_path=image1_path,
@@ -183,7 +182,7 @@ def example_repair_multiple_violations():
             domain_name=domain_name
         )
 
-        print(f"Repaired! Choice: {repair_choice.value}\n")
+        print(f"Repaired! Choice: {repair_choice.value}, Operations: {len(repair_ops)}\n")
 
     # Verify all violations are fixed
     print("=== Verification ===")
@@ -245,7 +244,7 @@ def example_integration_with_workflow():
         img2 = config["images_dir"] / f"state_{violation.transition2_index + 1}.png"
 
         # Apply repair
-        observation, repair_op, _ = repairer.repair_violation(
+        observation, repair_ops, _ = repairer.repair_violation(
             observation=observation,
             violation=violation,
             image1_path=img1,

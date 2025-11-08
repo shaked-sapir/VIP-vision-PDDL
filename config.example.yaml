@@ -4,6 +4,8 @@
 # OpenAI API Configuration
 openai:
   api_key: "your-api-key-here"  # Replace with your actual OpenAI API key
+  visual_components_model_name: "gpt-5-mini"
+  conflict_verification_model_name: "gpt-5-mini" #for better results, this should be different from the above model
 
 # Default Paths
 paths:
@@ -13,13 +15,13 @@ paths:
 # Domain-specific configurations
 domains:
   blocks:
-    domain_name: "PDDLEnvBlocks-v0"
+    gym_domain_name: "PDDLEnvBlocks-v0"
     domain_file: "src/domains/blocks/blocks.pddl"
     problems_dir: "src/domains/blocks/problems"
     problem_prefix: "problem"
   
   hanoi:
-    domain_name: "PDDLEnvHanoi-v0"
+    gym_domain_name: "PDDLEnvHanoi-v0"
     domain_file: "src/domains/hanoi/hanoi.pddl"
     problems_dir: "src/domains/hanoi/problems"
     problem_prefix: "problem"
