@@ -2,13 +2,15 @@ import itertools
 import os
 import re
 from pathlib import Path
-
-from pddl_plus_parser.models import Observation, ObservedComponent, Predicate, PDDLObject, GroundedPredicate, State, Domain
-from pddlgym.core import PDDLEnv
-from pddlgym.parser import Operator
 from typing import List, Dict, Set
 
+from pddl_plus_parser.models import Observation, ObservedComponent, Predicate, PDDLObject, GroundedPredicate, State, \
+    Domain
+from pddlgym.core import PDDLEnv
+from pddlgym.parser import Operator
+
 from src.utils.containers import shrink_whitespaces
+
 
 # TODO: refactor this file, especially after exporting the pddl-plus-parser potential methods to this package.
 
@@ -297,83 +299,3 @@ def ground_observation_completely(domain: Domain, observation: Observation) -> O
     """
     all_domain_grounded_predicates = get_all_possible_groundings_for_domain(domain, observation)
     return ground_all_states_in_observation(observation, all_domain_grounded_predicates)
-
-
-# ============================================================================
-# Observation Masking Utilities
-# ============================================================================
-# TODO later: suggest a refactor to this file as it is pretty long...
-def mask_state(state: State, masking_info: Set[GroundedPredicate]) -> State:
-    """
-    Masks the predicates in the state according to the masking info provided.
-
-    This utility function applies masking to a state by setting the is_masked flag
-    on predicates specified in the masking_info.
-
-    :param state: The state to mask predicates in.
-    :param masking_info: A set of predicates to mask in the state.
-    :return: A state with predicates masked according to the masking info provided.
-    """
-    for masked_pred in masking_info:
-        # state.state_predicates are only positive- a positive version of the masked predicate is needed for access
-        masked_pred_positive_form = masked_pred.copy(is_negated=not masked_pred.is_positive)
-        all_matching_predicates = state.state_predicates[masked_pred_positive_form.lifted_untyped_representation]
-
-        # TODO LATER: maybe refactor the pos/neg search, it is a bit clunky
-        for pred in all_matching_predicates:
-            if pred == masked_pred or pred.copy(is_negated=True) == masked_pred:
-                pred.is_masked = True
-                break
-        else:
-            print(f"Warning: Masked predicate {masked_pred} not found in state.")
-
-    return state
-
-
-def mask_observation(observation: Observation, masking_info: List[Set[GroundedPredicate]]) -> Observation:
-    """
-    Masks the predicates in the observation for learning with partial information.
-
-    This utility function applies masking to an observation using provided masking info.
-    NOTE: Assumes observation is "full" - meaning that all predicates are grounded in the states.
-
-    :param observation: The observation to mask predicates in (should be grounded).
-    :param masking_info: A list of sets, where each set contains predicates to mask for each state.
-                        Length should be len(observation.components) + 1.
-    :return: An observation with predicates masked according to the masking info provided.
-    """
-    assert len(observation.components)+1 == len(masking_info), "Masking info should hold data foreach state in the Trajectory"
-
-    observation.components[0].previous_state = mask_state(
-        observation.components[0].previous_state,
-        masking_info[0]
-    )
-
-    # Note that for each 2 consecutive components (c, c'), it holds that c.next_state == c'.previous_state,
-    # so they should be masked in the same way.Therefore, we generate the masking info only once for each component.
-    for i in range(len(observation.components) - 1):
-        curr_component, next_component = observation.components[i], observation.components[i + 1]
-        masked_state = mask_state(
-            curr_component.next_state,
-            masking_info[i + 1]
-        )
-        curr_component.next_state = masked_state
-        next_component.previous_state = masked_state
-
-    observation.components[-1].next_state = mask_state(observation.components[-1].next_state,
-                                                             masking_info[-1])
-
-    return observation
-
-
-def mask_observations(observations: List[Observation], masking_info: List[List[Set[GroundedPredicate]]]) -> List[Observation]:
-    """
-    Masks the predicates in multiple observations according to provided masking info.
-
-    This utility function for batch masking of observations.
-
-    :param observations: A list of observations to mask (should be grounded).
-    :param masking_info: A list of masking info, one for each observation.
-    :return: A list of masked observations.
-    """
-    return [mask_observation(obs, mask_info) for obs, mask_info in zip(observations, masking_info)]

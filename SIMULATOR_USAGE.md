@@ -438,7 +438,7 @@ simulator.image_trajectory_handler = trajectory_handler
 
 ```python
 # Load existing masking info
-from src.pi_sam.utils import load_masking_info
+from src.utils.masking import load_masking_info
 
 masking_info = load_masking_info(
     experiment_path=Path("experiments/my_experiment"),

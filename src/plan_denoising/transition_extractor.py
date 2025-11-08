@@ -1,10 +1,11 @@
 """Utility for extracting transitions from observations."""
 
 from typing import List, Set, Tuple
-from pddl_plus_parser.models import Observation, ObservedComponent, State, Domain, GroundedPredicate, Predicate
+
+from pddl_plus_parser.models import Observation, State, Domain, GroundedPredicate, Predicate
 
 from src.plan_denoising.detectors.base_detector import Transition
-from src.utils.pddl import get_state_grounded_predicates
+from src.utils.pddl import get_state_masked_predicates, get_state_unmasked_predicates
 
 
 class TransitionExtractor:
@@ -34,8 +35,10 @@ class TransitionExtractor:
 
         for idx, component in enumerate(observation.components):
             # Extract fluent strings from states
-            prev_state_fluents = self._extract_fluents_from_state(component.previous_state)
-            next_state_fluents = self._extract_fluents_from_state(component.next_state)
+            prev_state_fluents = self._extract_fluents_from_state(component.previous_state, masking_bit=False)
+            prev_state_masked_fluents = self._extract_fluents_from_state(component.previous_state, masking_bit=True)
+            next_state_fluents = self._extract_fluents_from_state(component.next_state, masking_bit=False)
+            next_state_masked_fluents = self._extract_fluents_from_state(component.next_state, masking_bit=True)
 
             # Extract grounded action information
             grounded_action = component.grounded_action_call
@@ -51,8 +54,10 @@ class TransitionExtractor:
             transition = Transition(
                 index=idx,
                 prev_state=prev_state_fluents,
+                prev_state_masked=prev_state_masked_fluents,
                 action=str(grounded_action),
                 next_state=next_state_fluents,
+                next_state_masked=next_state_masked_fluents,
                 action_name=action_name,
                 parameters=parameters,
                 add_effects=add_effects,
@@ -105,12 +110,12 @@ class TransitionExtractor:
         return grounded_predicate.untyped_representation
 
     @staticmethod
-    def _extract_fluents_from_state(state: State) -> Set[str]:
+    def _extract_fluents_from_state(state: State, masking_bit: bool = False) -> Set[str]:
         """
         Extract fluent strings from a state.
 
         :param state: State object
         :return: Set of fluent strings (only positive, unmasked fluents)
         """
-        grounded_predicates: Set[GroundedPredicate] = get_state_grounded_predicates(state)
-        return {pred.untyped_representation for pred in grounded_predicates if pred.is_positive and not pred.is_masked}
+        relevant_predicates = get_state_masked_predicates(state) if masking_bit else get_state_unmasked_predicates(state)
+        return {pred.untyped_representation for pred in relevant_predicates}

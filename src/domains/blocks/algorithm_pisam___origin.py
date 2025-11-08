@@ -17,7 +17,7 @@ from src.action_model.gym2SAM_parser import create_observation_from_trajectory
 from src.fluent_classification.base_fluent_classifier import PredicateTruthValue
 from src.vip_experiments.BasicSamExperimentRunnner import OfflineBasicSamExperimentRunner
 from src.pi_sam import PISAMLearner, PredicateMasker, MaskingType
-from src.pi_sam.PiSamExperimentRunner import OfflinePiSamExperimentRunner
+from src.pi_sam.pisam_experiment_runner import OfflinePiSamExperimentRunner
 from src.trajectory_handlers.blocks_image_trajectory_handler import BlocksImageTrajectoryHandler
 
 BLOCKS_DOMAIN_FILE_PATH = Path("blocks.pddl")

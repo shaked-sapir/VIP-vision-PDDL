@@ -1,17 +1,16 @@
 import shutil
 from pathlib import Path
-from typing import Tuple, Dict, List, Set
+from typing import Tuple, Dict, List
 
 from experiments.basic_experiment_runner import OfflineBasicExperimentRunner
 from experiments.experiments_consts import DEFAULT_SPLIT
 from pddl_plus_parser.lisp_parsers import DomainParser
-from pddl_plus_parser.models import Domain, Observation, GroundedPredicate
+from pddl_plus_parser.models import Domain, Observation
 from sam_learning.core import LearnerDomain
 from utilities import LearningAlgorithmType
 
 from src.pi_sam import PISAMLearner
-from src.pi_sam.utils import load_masking_info
-from src.utils.pddl import ground_observation_completely, mask_observation
+from src.utils.masking import load_masked_observation
 
 
 #  TODO: this code should be moved to the sam_learning package when done
@@ -71,21 +70,24 @@ class OfflinePiSamExperimentRunner(OfflineBasicExperimentRunner):
 
         self.logger.info(f"Copied {copied_count} masking info files to train directory")
 
-    def collect_masking_info(self, train_set_dir_path: Path, domain: Domain) -> List[List[Set[GroundedPredicate]]]:
+    def load_masked_observations(self, train_set_dir_path: Path, domain: Domain) -> List[Observation]:
         """
-        Load masking info for all trajectory files in the training directory.
+        Load and prepare masked observations for all trajectory files in the training directory.
 
-        This method loads .masking_info files that were saved alongside trajectories,
-        matching each trajectory file with its corresponding masking info.
+        This method:
+        1. Finds all .trajectory files in the directory
+        2. For each trajectory, loads the corresponding .masking_info file
+        3. Uses load_masked_observation() to ground and mask each trajectory
+        4. Returns a list of ready-to-use masked observations
 
-        :param train_set_dir_path: Directory containing trajectory and masking info files.
-        :param domain: The domain to use for parsing predicates.
-        :return: A list of masking info, one per trajectory file (in sorted order).
+        :param train_set_dir_path: Directory containing trajectory and masking info files
+        :param domain: The domain to use for parsing
+        :return: A list of masked observations ready for PI-SAM learning
         """
-        masking_infos = []
+        masked_observations = []
         trajectory_files = sorted(train_set_dir_path.glob("*.trajectory"))
 
-        self.logger.info(f"Loading masking info for {len(trajectory_files)} trajectories")
+        self.logger.info(f"Loading and masking {len(trajectory_files)} trajectories")
 
         for traj_file in trajectory_files:
             problem_name = traj_file.stem  # e.g., "problem1"
@@ -95,12 +97,12 @@ class OfflinePiSamExperimentRunner(OfflineBasicExperimentRunner):
                 self.logger.warning(f"Masking info file not found for {problem_name}, skipping")
                 continue
 
-            # Pass the already-computed file path directly to avoid redundant path construction
-            masking_info = load_masking_info(masking_info_file, domain)
-            masking_infos.append(masking_info)
+            # Use the new unified loading method
+            masked_obs = load_masked_observation(traj_file, masking_info_file, domain)
+            masked_observations.append(masked_obs)
 
-        self.logger.info(f"Loaded masking info for {len(masking_infos)} trajectories")
-        return masking_infos
+        self.logger.info(f"Loaded and masked {len(masked_observations)} observations")
+        return masked_observations
 
     def learn_model_offline(self, fold_num: int, train_set_dir_path: Path, test_set_dir_path: Path) -> None:
         """
@@ -109,11 +111,8 @@ class OfflinePiSamExperimentRunner(OfflineBasicExperimentRunner):
         This method overrides the parent's learn_model_offline to add PI-SAM specific
         preprocessing steps:
         1. Copy masking info files from working directory to train directory
-        2. Load observations (from parent)
-        3. Load masking info from disk
-        4. Ground all observations completely
-        5. Apply masks to observations
-        6. Learn from masked observations
+        2. Load, ground, and mask all observations using load_masked_observations()
+        3. Learn from masked observations
 
         :param fold_num: the index of the current fold that is currently running.
         :param train_set_dir_path: the directory containing the trajectories to learn from.
@@ -129,31 +128,8 @@ class OfflinePiSamExperimentRunner(OfflineBasicExperimentRunner):
         partial_domain_path = train_set_dir_path / self.domain_file_name
         partial_domain = DomainParser(domain_path=partial_domain_path, partial_parsing=True).parse_domain()
 
-        # Collect observations using parent's method
-        allowed_observations = self.collect_observations(train_set_dir_path, partial_domain)
-        self.logger.info(f"Collected {len(allowed_observations)} observations")
-
-        # Load masking info from disk (now available in train directory)
-        masking_infos = self.collect_masking_info(train_set_dir_path, partial_domain)
-
-        if len(masking_infos) != len(allowed_observations):
-            raise ValueError(
-                f"Mismatch: {len(allowed_observations)} observations but {len(masking_infos)} masking infos"
-            )
-
-        # Ground all observations completely using utility function
-        self.logger.info("Grounding observations completely...")
-        grounded_observations = [
-            ground_observation_completely(partial_domain, obs)
-            for obs in allowed_observations
-        ]
-
-        # Mask observations using loaded masking info and utility function
-        self.logger.info("Applying masks to observations...")
-        masked_observations = [
-            mask_observation(obs, mask_info)
-            for obs, mask_info in zip(grounded_observations, masking_infos)
-        ]
+        # Load, ground, and mask all observations in one unified call
+        masked_observations = self.load_masked_observations(train_set_dir_path, partial_domain)
 
         # Now learn from masked observations
         self.logger.info(f"Learning action model from {len(masked_observations)} masked observations")

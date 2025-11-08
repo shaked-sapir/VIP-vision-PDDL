@@ -10,6 +10,7 @@ from src.plan_denoising.detectors.base_detector import Transition
 from src.plan_denoising.detectors.frame_axiom_detector import FrameAxiomDetector, FrameAxiomViolation
 from src.plan_denoising.detectors.effects_detector import EffectsDetector, EffectsViolation
 from src.plan_denoising.transition_extractor import TransitionExtractor
+from src.utils.masking import load_masked_observation
 
 
 class InconsistencyDetector:
@@ -45,6 +46,9 @@ class InconsistencyDetector:
         :return: Observation object containing the trajectory
         """
         return self.trajectory_parser.parse_trajectory(trajectory_path)
+
+    def load_masked_observation(self, trajectory_path: Path, trajectory_masking_path: Path) -> Observation:
+        return load_masked_observation(trajectory_path, trajectory_masking_path, self.domain)
 
     def extract_transitions(self, observation: Observation) -> List[Transition]:
         """
@@ -124,15 +128,17 @@ class InconsistencyDetector:
 
     def detect_effects_violations_in_trajectory(
         self,
-        trajectory_path: Path
+        trajectory_path: Path,
+        trajectory_masking_path: Path
     ) -> List[EffectsViolation]:
         """
         Load a trajectory and detect all determinism violations.
 
         :param trajectory_path: Path to the .trajectory file
+        :param trajectory_masking_path: Path to the trajectory masking file
         :return: List of detected determinism violations
         """
-        observation = self.load_trajectory(trajectory_path)
+        observation = self.load_masked_observation(trajectory_path, trajectory_masking_path)
         return self.detect_effects_violations_from_observation(observation)
 
     # ==================== Unified Detection Methods ====================

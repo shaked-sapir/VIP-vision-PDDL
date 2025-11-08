@@ -10,7 +10,7 @@ from src.plan_denoising import (
     EffectsDetector,
     TransitionExtractor,
 )
-from src.simulator import load_config
+from src.utils.config import load_config
 
 
 def example_main_detector(pddl_domain_file: Path, trajectory_path: Path):
@@ -89,7 +89,7 @@ def example_frame_axiom_only(pddl_domain_file: Path, trajectory_path: Path):
         print(f"  Action: {violation.action_name}")
 
 
-def example_effects_only(pddl_domain_file: Path, trajectory_path: Path):
+def example_effects_only(pddl_domain_file: Path, trajectory_path: Path, trajectory_masking_path: Path):
     """Example: Detecting only determinism violations."""
     domain: Domain = DomainParser(pddl_domain_file).parse_domain()
 
@@ -97,7 +97,7 @@ def example_effects_only(pddl_domain_file: Path, trajectory_path: Path):
     detector = InconsistencyDetector(domain)
 
     # Detect inconsistencies
-    inconsistencies = detector.detect_effects_violations_in_trajectory(trajectory_path)
+    inconsistencies = detector.detect_effects_violations_in_trajectory(trajectory_path, trajectory_masking_path)
 
     # Print results
     detector.print_effects_violations(inconsistencies)
@@ -167,11 +167,12 @@ if __name__ == "__main__":
     config = load_config()
     domain = "blocks"  # or "hanoi", etc.
     pddl_domain_file = Path(config['domains'][domain]['domain_file'])
-    trajectory_path = Path(f"{config['paths']['experiments_dir']}/llm_cv_test__PDDLEnvBlocks-v0__gpt-4o__steps=25__01-11-2025T16:01:36/problem1.trajectory")
-
+    curr_experiment = "llm_cv_test__PDDLEnvBlocks-v0__gpt-4o__steps=25__01-11-2025T16:01:36"
+    trajectory_path = Path(f"{config['paths']['experiments_dir']}/{curr_experiment}/problem1.trajectory")
+    trajectory_masking_path = Path(f"{config['paths']['experiments_dir']}/{curr_experiment}/problem1.masking_info")
     # Uncomment to run examples:
     # example_main_detector(pddl_domain_file, trajectory_path)
     # example_individual_detectors()
-    example_frame_axiom_only(pddl_domain_file, trajectory_path)
-    # example_effects_only(pddl_domain_file, trajectory_path)
+    # example_frame_axiom_only(pddl_domain_file, trajectory_path)
+    example_effects_only(pddl_domain_file, trajectory_path, trajectory_masking_path)
     # example_custom_detector()

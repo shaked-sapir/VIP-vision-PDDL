@@ -25,8 +25,10 @@ class Transition:
     """
     index: int
     prev_state: set[str]
+    prev_state_masked: set[str]
     action: str  # Full grounded action string
     next_state: set[str]
+    next_state_masked: set[str]
     action_name: str  # Lifted action name
     parameters: dict[str, str]  # Parameter mapping
     add_effects: set[str]

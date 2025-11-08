@@ -18,7 +18,7 @@ from src.fluent_classification.base_fluent_classifier import PredicateTruthValue
 from src.vip_experiments.BasicSamExperimentRunnner import OfflineBasicSamExperimentRunner
 from src.pi_sam import PISAMLearner, PredicateMasker
 from src.pi_sam.masking.masking_strategies import MaskingType
-from src.pi_sam.PiSamExperimentRunner import OfflinePiSamExperimentRunner
+from src.pi_sam.pisam_experiment_runner import OfflinePiSamExperimentRunner
 from src.trajectory_handlers.blocks_image_trajectory_handler import BlocksImageTrajectoryHandler
 
 BLOCKS_DOMAIN_FILE_PATH = Path("blocks.pddl")

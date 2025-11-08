@@ -98,7 +98,7 @@ class EffectsDetector(BaseDetector):
         Find fluents that differ between the next states of two transitions.
 
         This method is used to find conflicting fluents when two transitions
-        have the same action and same prev_state but different next_states.
+        have the same action and same fluent in their prev_state but different in next_states.
 
         :param trans1: First transition
         :param trans2: Second transition
@@ -106,10 +106,16 @@ class EffectsDetector(BaseDetector):
         """
         # Return symmetric difference: fluents that differ between the two next_states
         next_state_fluent_diffs = trans1.next_state.symmetric_difference(trans2.next_state)
+        unmasked_next_state_diffs = {fluent for fluent in next_state_fluent_diffs
+                                     if fluent not in trans1.next_state_masked
+                                     and fluent not in trans2.next_state_masked}
+
+        # now handles both pos and neg as observation is completely grounded, so if not both prev_state has it,
+        # at least one of them is masked out and therefore we don't consider it for violation
+        # TODO: consult with Roni about it ASAP!!
         return {
-            fluent for fluent in next_state_fluent_diffs
+            fluent for fluent in unmasked_next_state_diffs
             if (fluent in trans1.prev_state and fluent in trans2.prev_state)
-            or (fluent not in trans1.prev_state and fluent not in trans2.prev_state)
         }
 
     def print_violations(self, violations: List[EffectsViolation]) -> None:

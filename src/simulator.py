@@ -1,5 +1,4 @@
 import shutil
-import yaml
 from pathlib import Path
 from time import time
 from typing import List, Dict, Tuple
@@ -11,57 +10,13 @@ from utilities import NegativePreconditionPolicy
 
 from src.action_model.gym2SAM_parser import create_observation_from_trajectory, parse_grounded_predicates
 from src.pi_sam.pi_sam_learning import PISAMLearner
-from src.pi_sam.predicate_masking import PredicateMasker
-from src.pi_sam.masking.masking_strategies import MaskingType
-from src.pi_sam.PiSamExperimentRunner import OfflinePiSamExperimentRunner
-from src.pi_sam.utils import save_masking_info
+from src.pi_sam.pisam_experiment_runner import OfflinePiSamExperimentRunner
 from src.trajectory_handlers.image_trajectory_handler import ImageTrajectoryHandler
 from src.trajectory_handlers.llm_blocks_trajectory_handler import LLMBlocksImageTrajectoryHandler
+from src.utils.config import load_config
+from src.utils.masking import save_masking_info, mask_observation
+from src.utils.pddl import ground_observation_completely
 from src.utils.time import create_experiment_timestamp
-from src.utils.pddl import ground_observation_completely, mask_observation
-
-
-def load_config(config_path: Path = None) -> dict:
-    """
-    Load configuration from YAML file.
-
-    :param config_path: Path to config file. If None, uses default 'config.yaml' in project root.
-    :return: Configuration dictionary.
-    """
-    if config_path is None:
-        # Find project root (where config.yaml should be)
-        current_dir = Path(__file__).parent
-        project_root = current_dir.parent  # Go up from src/ to project root
-        config_path = project_root / "config.yaml"
-
-    if not config_path.exists():
-        raise FileNotFoundError(
-            f"Configuration file not found at {config_path}.\n"
-            f"Please copy config.example.yaml to config.yaml and fill in your values."
-        )
-
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-
-    base_dir = config_path.parent
-
-    # Normalize all path-like entries (recursive)
-    def resolve_paths(d):
-        if isinstance(d, dict):
-            return {k: resolve_paths(v) for k, v in d.items()}
-        elif isinstance(d, list):
-            return [resolve_paths(v) for v in d]
-        elif isinstance(d, str) and ("/" in d or "\\" in d):
-            p = Path(d)
-            if not p.is_absolute():
-                return str((base_dir / p).resolve())
-            return str(p)
-        else:
-            return d
-
-    config = resolve_paths(config)
-
-    return config
 
 
 class Simulator:
@@ -400,7 +355,7 @@ if __name__ == '__main__':
             "problem7",
             "problem9"
         ]  # List of problems for cross-validation
-        num_steps = 25  # Number of steps per trajectory
+        num_steps = 1  # Number of steps per trajectory
         experiment_name = f"llm_cv_test__{domain_name}__{llm_model_name}"  # Name for this experiment
         # Create simulator
         simulator = Simulator(
