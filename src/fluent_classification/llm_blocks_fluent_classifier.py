@@ -57,9 +57,11 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."
 
         if self.use_uncertain:
-            return with_uncertain_confidence_system_prompt(self.type_to_objects['block'])
+            return with_uncertain_confidence_system_prompt(
+                self.type_to_objects['block'])
         else:
-            return no_uncertain_confidence_system_prompt(self.type_to_objects['block'])
+            return no_uncertain_confidence_system_prompt(
+                self.type_to_objects['block'], self._generate_all_possible_predicates())
 
     def _generate_all_possible_predicates(self) -> set[str]:
         """

@@ -1,0 +1,68 @@
+[
+    {
+        "step": 1,
+        "current_state": {
+            "literals": [
+                "on(d:block,e:block)",
+                "on(b:block,c:block)",
+                "handfull(robot:robot)",
+                "clear(b:block)",
+                "on(e:block,f:block)",
+                "holding(a:block)",
+                "on(c:block,d:block)",
+                "ontable(f:block)"
+            ],
+            "objects": [
+                "a:block",
+                "b:block",
+                "robot:robot",
+                "e:block",
+                "f:block",
+                "c:block",
+                "d:block"
+            ],
+            "goal": [
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)",
+                "on(f:block,a:block)"
+            ]
+        },
+        "ground_action": "put-down(a:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "a",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "on(d:block,e:block)",
+                "on(b:block,c:block)",
+                "ontable(a:block)",
+                "clear(b:block)",
+                "on(e:block,f:block)",
+                "handempty(robot:robot)",
+                "clear(a:block)",
+                "on(c:block,d:block)",
+                "ontable(f:block)"
+            ],
+            "objects": [
+                "a:block",
+                "b:block",
+                "robot:robot",
+                "e:block",
+                "f:block",
+                "c:block",
+                "d:block"
+            ],
+            "goal": [
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)",
+                "on(f:block,a:block)"
+            ]
+        }
+    }
+]

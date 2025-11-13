@@ -1,0 +1,68 @@
+[
+    {
+        "step": 1,
+        "current_state": {
+            "literals": [
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "clear(a:block)",
+                "clear(c:block)",
+                "clear(b:block)",
+                "clear(d:block)",
+                "on(d:block,e:block)",
+                "ontable(b:block)",
+                "ontable(e:block)",
+                "ontable(a:block)"
+            ],
+            "objects": [
+                "b:block",
+                "c:block",
+                "d:block",
+                "robot:robot",
+                "e:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(e:block,d:block)",
+                "clear(e:block)",
+                "clear(a:block)"
+            ]
+        },
+        "ground_action": "pick-up(b:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "b",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "ontable(c:block)",
+                "clear(a:block)",
+                "clear(c:block)",
+                "clear(d:block)",
+                "on(d:block,e:block)",
+                "handfull(robot:robot)",
+                "ontable(e:block)",
+                "holding(b:block)",
+                "ontable(a:block)"
+            ],
+            "objects": [
+                "b:block",
+                "c:block",
+                "d:block",
+                "robot:robot",
+                "e:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(e:block,d:block)",
+                "clear(e:block)",
+                "clear(a:block)"
+            ]
+        }
+    }
+]

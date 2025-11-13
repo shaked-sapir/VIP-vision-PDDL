@@ -62,7 +62,12 @@ class LLMFluentClassifier(FluentClassifier, ABC):
             model=self.model,
             temperature=temperature,
             messages=[
-                {"role": "system", "content": self.system_prompt},
+                {
+                    "role": "system",
+                    "content": [
+                        {"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}
+                    ]
+                },
                 {"role": "user", "content": user_prompt}
             ],
         )

@@ -421,7 +421,7 @@ class Simulator:
         print(f"Starting simple VIP-vision-PDDL pipeline for {problem_name}")
 
         # Step 1 & 2: Create imaged trajectory
-        imaged_trajectory = self.create_trajectory(problem_name, num_steps)
+        imaged_trajectory, experiment_path = self.create_trajectory(problem_name, num_steps)
 
         # Step 3: Build observation
         observation = self.build_observation_from_trajectory(problem_name, imaged_trajectory)
@@ -521,7 +521,7 @@ def run_full_pipeline_with_cross_validation(
         print(f"\n[{i}/{len(problems)}] Processing problem: {problem_name}")
 
         # Create trajectory
-        imaged_trajectory = simulator.create_trajectory(problem_name, num_steps)
+        imaged_trajectory, experiment_path = simulator.create_trajectory(problem_name, num_steps)
 
         # Build observation
         observation = simulator.build_observation_from_trajectory(problem_name, imaged_trajectory)
