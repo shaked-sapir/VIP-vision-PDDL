@@ -46,19 +46,23 @@ def lift_predicate(grounded_predicate_str: str, pddl_domain: Domain) -> Tuple[
     return predicate_name, lifted_signature, object_mapping
 
 
+def parse_grounded_predicate(grounded_predicate_str: str, pddl_domain: Domain) -> GroundedPredicate:
+    """Parse a grounded literal into a GroundedPredicate object."""
+    predicate_name, lifted_predicate_signature, predicate_object_mapping = lift_predicate(grounded_predicate_str,
+                                                                                          pddl_domain)
+    return GroundedPredicate(
+        name=predicate_name,
+        signature=lifted_predicate_signature,
+        object_mapping=predicate_object_mapping,
+        is_positive=NEGATION_PREFIX not in grounded_predicate_str,
+        is_masked=UNKNOWN_PREFIX in grounded_predicate_str
+    )
+
+
 def parse_grounded_predicates(grounded_predicate_strs: List[str], pddl_domain: Domain) -> Set[GroundedPredicate]:
     """Parse a list of grounded literals into a set of GroundedPredicate objects."""
-    grounded_predicates = set()
-    for predicate_str in grounded_predicate_strs:
-        predicate_name, lifted_predicate_signature, predicate_object_mapping = lift_predicate(predicate_str,
-                                                                                              pddl_domain)
-        grounded_predicates.add(
-            GroundedPredicate(name=predicate_name,
-                              signature=lifted_predicate_signature,
-                              object_mapping=predicate_object_mapping,
-                              is_positive=NEGATION_PREFIX not in predicate_str,
-                              is_masked=UNKNOWN_PREFIX in predicate_str)
-        )
+    grounded_predicates = {parse_grounded_predicate(pred_str, pddl_domain) for pred_str in grounded_predicate_strs}
+
     return grounded_predicates
 
 

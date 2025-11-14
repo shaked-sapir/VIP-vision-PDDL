@@ -1,12 +1,14 @@
 import random
-from typing import Dict, List, Tuple, Set
+from typing import Dict, List, Tuple
 
-from pddl_plus_parser.models import GroundedPredicate, Domain, Observation, State, ActionCall, Predicate, Action
-from sam_learning.core import LearnerDomain, extract_discrete_effects_partial_observability, extract_not_effects_partial_observability
+from pddl_plus_parser.models import Domain, Observation, State, ActionCall, Predicate
+from sam_learning.core import LearnerDomain, extract_discrete_effects_partial_observability, \
+    extract_not_effects_partial_observability
 from sam_learning.learners import SAMLearner
-
-from src.utils.pddl import get_state_grounded_predicates, get_state_unmasked_predicates, get_state_masked_predicates
 from utilities import NegativePreconditionPolicy
+
+from src.utils.pddl import get_state_grounded_predicates, get_state_unmasked_predicates, get_state_masked_predicates, \
+    lift_predicate
 
 
 class PISAMLearner(SAMLearner):
@@ -67,9 +69,8 @@ class PISAMLearner(SAMLearner):
             get_state_grounded_predicates(next_state)
         )
 
-        # this is to preserve the current behaviour of Esam / future EPi-SAM, no use at the moment
         self.cannot_be_effect[grounded_action.name].update(
-            {pred.untyped_representation for pred in cannot_be_effects}
+            {lift_predicate(pred) for pred in cannot_be_effects}
         )
         self.logger.debug(f"finished handling action- {grounded_action.name} effects.")
 

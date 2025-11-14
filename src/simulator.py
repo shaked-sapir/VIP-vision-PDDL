@@ -457,7 +457,7 @@ if __name__ == '__main__':
 
     if RUN_SIMPLE_EXAMPLE:
         domain = 'blocks'
-        problem_name = "problem1"
+        problem_name = "problem9"
         num_steps = 10
 
         simulator = Simulator(
