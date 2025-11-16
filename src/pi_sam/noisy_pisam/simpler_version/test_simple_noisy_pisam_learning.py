@@ -129,44 +129,44 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
 
     # ==================== Model-Level Precondition Conflict Tests ====================
 
-    @unittest.skipIf(not Path(f"{absulute_path_prefix}/src/experiments/llm_cv_test__PDDLEnvBlocks-v0__gpt-5-mini__steps=25__03-11-2025T22:25:06/problem7.trajectory").exists(),
-                     "Trajectory file not found")
-    def test_precondition_require_vs_cannot_conflict(self):
-        """
-        Test model-level precondition conflict: PRE_REQUIRE_VS_CANNOT.
-
-        Scenario: REQUIRE a precondition that PI-SAM wants to remove
-        Expected: Conflict of type PRE_REQUIRE_VS_CANNOT
-
-        Note: The simpler version only detects precondition conflicts when
-        a REQUIRED precondition is being removed by SAM's update logic.
-        """
-        # Create required precondition patch
-        required_pbl = ParameterBoundLiteral("clear", ("?x",), is_positive=True)
-        model_patches = {
-            ModelLevelPatch(
-                action_name="pick-up",
-                model_part=ModelPart.PRECONDITION,
-                pbl=required_pbl,
-                operation=PatchOperation.REQUIRE
-            )
-        }
-
-        # Learn with required precondition patch
-        learned_domain, conflicts = self.learner.learn_action_model_with_conflicts(
-            observations=[self.masked_observation],
-            fluent_patches=set(),
-            model_patches=model_patches
-        )
-
-        self.assertIsNotNone(learned_domain)
-
-        # Check for PRE_REQUIRE_VS_CANNOT conflicts
-        pre_conflicts = [c for c in conflicts
-                        if c.conflict_type == ConflictType.PRE_REQUIRE_VS_CANNOT]
-
-        # May or may not have conflicts depending on whether SAM removes clear(?x)
-        print(f"PRE_REQUIRE_VS_CANNOT conflicts: {len(pre_conflicts)}")
+    # @unittest.skipIf(not Path(f"{absulute_path_prefix}/src/experiments/llm_cv_test__PDDLEnvBlocks-v0__gpt-5-mini__steps=25__03-11-2025T22:25:06/problem7.trajectory").exists(),
+    #                  "Trajectory file not found")
+    # def test_precondition_require_vs_cannot_conflict(self):
+    #     """
+    #     Test model-level precondition conflict: PRE_REQUIRE_VS_CANNOT.
+    #
+    #     Scenario: REQUIRE a precondition that PI-SAM wants to remove
+    #     Expected: Conflict of type PRE_REQUIRE_VS_CANNOT
+    #
+    #     Note: The simpler version only detects precondition conflicts when
+    #     a REQUIRED precondition is being removed by SAM's update logic.
+    #     """
+    #     # Create required precondition patch
+    #     required_pbl = ParameterBoundLiteral("clear", ("?x",), is_positive=True)
+    #     model_patches = {
+    #         ModelLevelPatch(
+    #             action_name="pick-up",
+    #             model_part=ModelPart.PRECONDITION,
+    #             pbl=required_pbl,
+    #             operation=PatchOperation.REQUIRE
+    #         )
+    #     }
+    #
+    #     # Learn with required precondition patch
+    #     learned_domain, conflicts = self.learner.learn_action_model_with_conflicts(
+    #         observations=[self.masked_observation],
+    #         fluent_patches=set(),
+    #         model_patches=model_patches
+    #     )
+    #
+    #     self.assertIsNotNone(learned_domain)
+    #
+    #     # Check for PRE_REQUIRE_VS_CANNOT conflicts
+    #     pre_conflicts = [c for c in conflicts
+    #                     if c.conflict_type == ConflictType.PRE_REQUIRE_VS_CANNOT]
+    #
+    #     # May or may not have conflicts depending on whether SAM removes clear(?x)
+    #     print(f"PRE_REQUIRE_VS_CANNOT conflicts: {len(pre_conflicts)}")
 
 
     # ==================== Model-Level Effect Conflict Tests ====================
@@ -202,7 +202,7 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
 
         # Check for FORBID_VS_MUST conflicts
         forbidden_conflicts = [c for c in conflicts
-                              if c.conflict_type == ConflictType.FORBID_VS_MUST]
+                              if c.conflict_type == ConflictType.FORBID_EFFECT_VS_MUST]
 
         # pickup action typically adds holding(?x), so should have conflicts
         print(f"FORBID_VS_MUST conflicts: {len(forbidden_conflicts)}")
@@ -238,7 +238,7 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
 
         # Check for REQUIRE_VS_CANNOT conflicts
         required_conflicts = [c for c in conflicts
-                             if c.conflict_type == ConflictType.REQUIRE_VS_CANNOT]
+                             if c.conflict_type == ConflictType.REQUIRE_EFFECT_VS_CANNOT]
 
         # Should detect that ontable(?x) cannot be an effect
         print(f"REQUIRE_VS_CANNOT conflicts: {len(required_conflicts)}")
@@ -265,8 +265,8 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
             ModelLevelPatch(
                 action_name="pick-up",
                 model_part=ModelPart.PRECONDITION,
-                pbl=ParameterBoundLiteral("handfull", ("?robot",), True),
-                operation=PatchOperation.REQUIRE
+                pbl=ParameterBoundLiteral("handempty", ("?robot",), True),
+                operation=PatchOperation.FORBID
             ),
             # Forbidden effect: Don't allow holding(?x) in pick-up effects
             # Can create FORBID_VS_MUST conflict
@@ -303,7 +303,7 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
         print(f"Total conflicts: {len(conflicts)}")
 
         # Verify all three types can be detected
-        all_types = {ConflictType.PRE_REQUIRE_VS_CANNOT, ConflictType.FORBID_VS_MUST, ConflictType.REQUIRE_VS_CANNOT}
+        all_types = {ConflictType.FORBID_PRECOND_VS_IS, ConflictType.FORBID_EFFECT_VS_MUST, ConflictType.REQUIRE_EFFECT_VS_CANNOT}
         print(f"Coverage: {len(conflict_types & all_types)}/3 conflict types detected")
 
         # Verify we have conflicts (exact types depend on the trajectory)
@@ -331,8 +331,8 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
             ModelLevelPatch(
                 action_name="put-down",
                 model_part=ModelPart.PRECONDITION,
-                pbl=ParameterBoundLiteral("handempty", ("?robot",), True),
-                operation=PatchOperation.REQUIRE
+                pbl=ParameterBoundLiteral("handfull", ("?robot",), True),
+                operation=PatchOperation.FORBID
             ),
             # put-down: FORBID handempty effect (can create FORBID_VS_MUST)
             ModelLevelPatch(
@@ -356,6 +356,7 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
         action_names = {c.action_name for c in conflicts}
         print(f"Actions with conflicts: {action_names}")
         print(f"Total conflicts: {len(conflicts)}")
+        print(conflicts)
 
         # Show conflict types
         conflict_types = {c.conflict_type for c in conflicts}
@@ -378,13 +379,13 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
                 observation_index=0,
                 component_index=1,
                 state_type='next',
-                fluent='on(a, b)'
+                fluent='on(a b)'
             ),
             FluentLevelPatch(
                 observation_index=0,
                 component_index=3,
                 state_type='prev',  # Use 'prev' instead of 'previous'
-                fluent='clear(c)'
+                fluent='(not (clear c))'
             )
         }
 
@@ -400,8 +401,8 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
             ModelLevelPatch(
                 action_name="pick-up",
                 model_part=ModelPart.PRECONDITION,
-                pbl=ParameterBoundLiteral("handfull", ("?robot",), True),
-                operation=PatchOperation.REQUIRE
+                pbl=ParameterBoundLiteral("handempty", ("?robot",), True),
+                operation=PatchOperation.FORBID
             )
         }
 
@@ -452,8 +453,8 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
             # put-down action patches
             # REQUIRE handempty precondition (can create PRE_REQUIRE_VS_CANNOT)
             ModelLevelPatch("put-down", ModelPart.PRECONDITION,
-                           ParameterBoundLiteral("handempty", ("?robot",), True),
-                           PatchOperation.REQUIRE),
+                           ParameterBoundLiteral("handfull", ("?robot",), True),
+                           PatchOperation.FORBID),
             # REQUIRE ontable effect (can create REQUIRE_VS_CANNOT)
             ModelLevelPatch("put-down", ModelPart.EFFECT,
                            ParameterBoundLiteral("ontable", ("?x",), True),
@@ -485,9 +486,9 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
         # Verify supported conflict types
         for conflict in conflicts:
             self.assertIn(conflict.conflict_type,
-                         [ConflictType.FORBID_VS_MUST,
-                          ConflictType.REQUIRE_VS_CANNOT,
-                          ConflictType.PRE_REQUIRE_VS_CANNOT],
+                         [ConflictType.FORBID_EFFECT_VS_MUST,
+                          ConflictType.REQUIRE_EFFECT_VS_CANNOT,
+                          ConflictType.FORBID_PRECOND_VS_IS],
                          f"Unexpected conflict type: {conflict.conflict_type}")
 
     # ==================== Baseline Test ====================

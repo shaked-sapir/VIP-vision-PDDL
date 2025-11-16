@@ -74,13 +74,12 @@ class ModelLevelPatch:
     """
     Model-level patch: constrain the learned model for a given action.
 
-    We support both:
-      - PRECONDITION patches
-      - EFFECT patches
+    Model-level patch for an action:
 
-    with operations:
-      - FORBID   : do not allow this PBL in that model part.
-      - REQUIRE  : this PBL must appear in that model part.
+      - (EFFECT, FORBID)   : cannot be effect
+      - (EFFECT, REQUIRE)  : must be effect
+      - (PRECONDITION, FORBID): cannot be precondition
+      - (PRECONDITION, REQUIRE): not supported (no SAM rule for 'must precondition')
     """
     def __init__(
         self,
@@ -157,23 +156,23 @@ class FluentLevelPatch:
 
 class ConflictType(Enum):
     """
-    Types of conflicts handled by the simple noisy learner:
+    Conflicts induced by the 3 patch types:
 
-    - FORBID_VS_MUST:
-        forbidding an effect that PI-SAM says must be an effect (from discrete
-        add/delete effects).
+      - FORBID_EFFECT_VS_MUST:
+            cannot-be-effect patch vs SAM's must-be-effect
+            (discrete add/delete).
 
-    - REQUIRE_VS_CANNOT:
-        requiring an effect that PI-SAM says cannot be an effect (from
-        cannot_be_effects).
+      - REQUIRE_EFFECT_VS_CANNOT:
+            must-be-effect patch vs SAM's cannot-be-effect
+            (cannot_be_effects).
 
-    - PRE_REQUIRE_VS_CANNOT:
-        requiring a precondition that PI-SAM's update logic wants to remove
-        (cannot_be_precondition).
+      - FORBID_PRECOND_VS_IS:
+            cannot-be-precondition patch vs SAM's attempt to
+            treat a literal as a precondition (via PI-SAM rule).
     """
-    FORBID_VS_MUST = "forbid_vs_must_effect"
-    REQUIRE_VS_CANNOT = "require_vs_cannot_effect"
-    PRE_REQUIRE_VS_CANNOT = "pre_require_vs_cannot_precondition"
+    FORBID_EFFECT_VS_MUST = "forbid_effect_vs_must"
+    REQUIRE_EFFECT_VS_CANNOT = "require_effect_vs_cannot"
+    FORBID_PRECOND_VS_IS = "forbid_precondition_vs_is_precondition"
 
 
 class Conflict:

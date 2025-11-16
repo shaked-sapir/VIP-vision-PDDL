@@ -78,7 +78,7 @@ class SimpleNoisyPisamLearner(PISAMLearner):
         # indexed model patches
         self.forbidden_effects: Dict[str, Set[ParameterBoundLiteral]] = {}
         self.required_effects: Dict[str, Set[ParameterBoundLiteral]] = {}
-        self.required_preconditions: Dict[str, Set[ParameterBoundLiteral]] = {}
+        self.forbidden_preconditions: Dict[str, Set[ParameterBoundLiteral]] = {}
 
         # conflicts
         self.conflicts: List[Conflict] = []
@@ -97,12 +97,13 @@ class SimpleNoisyPisamLearner(PISAMLearner):
         model_patches: Set[ModelLevelPatch],
     ) -> None:
         """
-        Set the current patch sets and build fast lookup dictionaries.
+        Set patch sets and build lookup dictionaries.
 
-        We support:
-          - PRECONDITION + REQUIRE   (must be precondition; used vs cannot_be_precondition pisam rule)
-          - EFFECT + FORBID          (must not be effect; used vs must_be_effect pisam rule)
-          - EFFECT + REQUIRE         (must be effect; used vs cannot_be_effect pisam rule)
+        Supported patch types:
+
+          - (EFFECT, FORBID)   : cannot be effect
+          - (EFFECT, REQUIRE)  : must be effect
+          - (PRECONDITION, FORBID): cannot be precondition
         """
         self.fluent_patches = fluent_patches
         self.model_patches = model_patches
@@ -110,7 +111,7 @@ class SimpleNoisyPisamLearner(PISAMLearner):
 
         self.forbidden_effects.clear()
         self.required_effects.clear()
-        self.required_preconditions.clear()
+        self.forbidden_preconditions.clear()
 
         for patch in model_patches:
             if patch.model_part == ModelPart.EFFECT:
@@ -120,12 +121,12 @@ class SimpleNoisyPisamLearner(PISAMLearner):
                     self.required_effects.setdefault(patch.action_name, set()).add(patch.pbl)
 
             else:  # PRECONDITION
-                if patch.operation == PatchOperation.REQUIRE:
-                    self.required_preconditions.setdefault(patch.action_name, set()).add(patch.pbl)
+                if patch.operation == PatchOperation.FORBID:
+                    self.forbidden_preconditions.setdefault(patch.action_name, set()).add(patch.pbl)
                 else:
                     # FORBID preconditions are not handled in this simple version
                     self.logger.warning(
-                        f"FORBID precondition patch not supported in SimpleNoisyPisamLearner: {patch}"
+                        f"REQUIRE precondition patch not supported in SimpleNoisyPisamLearner: {patch}"
                     )
 
     # -------------------------------------------------------------------------
@@ -230,11 +231,6 @@ class SimpleNoisyPisamLearner(PISAMLearner):
         grounded_args = []
         for p_name in pbl.parameters:
             grounded_args.append(signature_param_to_object[p_name])
-            # if p_name not in name_to_object:
-            #     # Fallback: keep the parameter name if mapping not found
-            #     grounded_args.append(p_name)
-            # else:
-            #     grounded_args.append(name_to_object[p_name])
 
         base = f"{pbl.predicate_name}({', '.join(grounded_args)})"
         return base if pbl.is_positive else f"not {base}"
@@ -242,138 +238,103 @@ class SimpleNoisyPisamLearner(PISAMLearner):
     # Preconditions: REQUIRE vs cannot_be_precondition
     # -------------------------------------------------------------------------
 
-    def _add_new_action_preconditions(self, grounded_action: ActionCall, previous_state: State) -> None:
+    def _collect_forbidden_precondition_conflicts(
+            self,
+            grounded_action: ActionCall,
+            previous_state: State,
+    ) -> List[Conflict]:
         """
-        Add new action's preconditions (PI-SAM rule) and detect conflicts for
-        required preconditions that are *not satisfied* in this first transition.
+        Detect 'cannot be precondition' violations for a single transition.
 
-        Scenario:
-          - Patch: 'handfull(?robot)' is a REQUIRED precondition of pick-up.
-          - First occurrence of pick-up(b1, r1) has handfull(r1) = FALSE in prev_state.
-          - PI-SAM won't add 'handfull' as a precondition (it's not in prev_state).
-          - Without this method, no conflict is ever seen.
+        A conflict arises when:
+          - There is a PRECONDITION+FORBID patch (cannot-be-precondition) for this action,
+          - AND the current transition's previous_state contains a fluent that
+            PI-SAM would treat as a candidate precondition,
+          - AND that fluent matches the forbidden PBL.
 
-        Here we:
-          1) Add the usual PI-SAM candidate preconditions.
-          2) For each REQUIRED PBL:
-                if no grounded predicate in prev_state satisfies it,
-                create PRE_REQUIRE_VS_CANNOT conflict for this transition.
+        Returns ALL such conflicts for this (obs_idx, comp_idx, action).
         """
-        self.logger.debug(
-            f"Adding preconditions of {grounded_action.name} with required-precondition patches."
-        )
-
         action_name = grounded_action.name
-        current_action = self.partial_domain.actions[action_name]
+        forbidden_set = self.forbidden_preconditions.get(action_name, set())
+        if not forbidden_set:
+            return []
 
-        # --- 1. Standard PI-SAM add-new behavior: add all possible preconditions ---
         prev_grounded = list(get_state_grounded_predicates(previous_state))
         prev_lifted = set(
             self.matcher.get_possible_literal_matches(grounded_action, prev_grounded)
         )
 
-        for predicate in prev_lifted:
-            current_action.preconditions.add_condition(predicate)
+        local_conflicts: List[Conflict] = []
 
-        # --- 2. Required-but-not-satisfied conflicts ---
-        required_set = self.required_preconditions.get(action_name, set())
-        if not required_set:
+        for lifted in prev_lifted:
+            if not isinstance(lifted, Predicate):
+                continue
+            for pbl in forbidden_set:
+                if pbl.matches(lifted):
+                    grounded_fluent = self._ground_pbl_with_action(pbl, grounded_action)
+                    conflict = Conflict(
+                        action_name=action_name,
+                        pbl=pbl,
+                        conflict_type=ConflictType.FORBID_PRECOND_VS_IS,
+                        observation_index=self.current_observation_index,
+                        component_index=self.current_component_index,
+                        grounded_fluent=grounded_fluent,
+                    )
+                    local_conflicts.append(conflict)
+                    self.logger.warning(f"Detected forbidden-precondition conflict: {conflict}")
+
+        return local_conflicts
+
+    def _add_new_action_preconditions(self, grounded_action: ActionCall, previous_state: State) -> None:
+        """
+        New action case (PI-SAM rule):
+
+        - If this transition violates a 'cannot be precondition' patch,
+          record all conflicts and DO NOT add preconditions.
+
+        - Otherwise, delegate to the base PI-SAM implementation, which:
+            * adds all candidate preconditions from previous_state.
+        """
+        self.logger.debug(
+            f"Adding preconditions of {grounded_action.name} with precondition patches."
+        )
+
+        conflicts = self._collect_forbidden_precondition_conflicts(
+            grounded_action,
+            previous_state,
+        )
+        if conflicts:
+            self.conflicts.extend(conflicts)
             return
 
-        for pbl in required_set:
-            # Is this required PBL satisfied in the previous state?
-            satisfied = any(pbl.matches(pred) for pred in prev_lifted)
-
-            if not satisfied:
-                # Data says: for this transition, the required precondition is false.
-                # Construct a grounded fluent using the action binding.
-                grounded_fluent = self._ground_pbl_with_action(pbl, grounded_action)
-
-                conflict = Conflict(
-                    action_name=action_name,
-                    pbl=pbl,
-                    conflict_type=ConflictType.PRE_REQUIRE_VS_CANNOT,
-                    observation_index=self.current_observation_index,
-                    component_index=self.current_component_index,
-                    grounded_fluent=grounded_fluent,
-                )
-                self.conflicts.append(conflict)
-                self.logger.warning(
-                    f"Detected conflict (required precondition not satisfied in first occurrence): {conflict}"
-                )
+        # No conflicts: normal PI-SAM behavior
+        super()._add_new_action_preconditions(grounded_action, previous_state)
 
     def _update_action_preconditions(self, grounded_action: ActionCall, previous_state: State) -> None:
         """
-        Update action preconditions as in PI-SAM, but detect conflicts of the form:
+        Existing action case (PI-SAM cannot_be_precondition rule):
 
-            PRE_REQUIRE_VS_CANNOT:
-                A precondition PBL is REQUIRED by a patch, but PI-SAM's
-                cannot_be_precondition rule wants to REMOVE that literal.
+        - If this transition violates a 'cannot be precondition' patch,
+          record all conflicts and DO NOT update preconditions for this
+          transition.
 
-        Mechanism (same structure as PISAMLearner._update_action_preconditions):
-
-        - previous_state_unmasked_predicates: grounded preds visible (unmasked).
-        - previous_state_masked_predicates  : grounded preds masked (we ignore).
-        - For each current precondition literal:
-              if it is not in unmasked and not in masked:
-                  -> cannot_be_precondition: candidate for removal.
-                  -> if any REQUIRED precondition PBL matches it: conflict.
-                  -> otherwise: remove it.
+        - Otherwise, delegate to the base PI-SAM implementation to apply
+          cannot_be_precondition logic.
         """
         self.logger.debug(
             f"Updating preconditions of {grounded_action.name} with precondition patches."
         )
-        action_name = grounded_action.name
-        current_action = self.partial_domain.actions[action_name]
 
-        required_set = self.required_preconditions.get(action_name, set())
-
-        previous_state_unmasked_predicates = set(
-            self.matcher.get_possible_literal_matches(
-                grounded_action, list(get_state_unmasked_predicates(previous_state))
-            )
+        conflicts = self._collect_forbidden_precondition_conflicts(
+            grounded_action,
+            previous_state,
         )
-        previous_state_masked_predicates = set(
-            self.matcher.get_possible_literal_matches(
-                grounded_action, list(get_state_masked_predicates(previous_state))
-            )
-        )
+        if conflicts:
+            self.conflicts.extend(conflicts)
+            return
 
-        conditions_to_remove = []
-        for current_precondition in current_action.preconditions.root.operands:
-            if not isinstance(current_precondition, Predicate):
-                continue
-
-            # PI-SAM cannot_be_precondition condition:
-            if (
-                current_precondition not in previous_state_masked_predicates
-                and current_precondition not in previous_state_unmasked_predicates
-            ):
-                # Candidate for removal: check required precondition patches
-                required_hit = False
-                for pbl in required_set:
-                    if pbl.matches(current_precondition):
-                        grounded_fluent_str = self._ground_pbl_with_action(pbl, grounded_action)
-                        conflict = Conflict(
-                            action_name=action_name,
-                            pbl=pbl,
-                            conflict_type=ConflictType.PRE_REQUIRE_VS_CANNOT,
-                            observation_index=self.current_observation_index,
-                            component_index=self.current_component_index,
-                            grounded_fluent=grounded_fluent_str,
-                        )
-                        self.conflicts.append(conflict)
-                        self.logger.warning(f"Detected conflict: {conflict}")
-                        required_hit = True
-                        break
-
-                if not required_hit:
-                    # No patch protecting it -> remove as usual
-                    conditions_to_remove.append(current_precondition)
-
-        for condition in conditions_to_remove:
-            current_action.preconditions.remove_condition(condition)
-
+        # No conflicts: normal PI-SAM update (cannot_be_precondition)
+        super()._update_action_preconditions(grounded_action, previous_state)
     # -------------------------------------------------------------------------
     # Effects: FORBID/REQUIRE vs must/cannot
     # -------------------------------------------------------------------------
@@ -410,7 +371,7 @@ class SimpleNoisyPisamLearner(PISAMLearner):
                     conflict = Conflict(
                         action_name=action_name,
                         pbl=pbl,
-                        conflict_type=ConflictType.FORBID_VS_MUST,
+                        conflict_type=ConflictType.FORBID_EFFECT_VS_MUST,
                         observation_index=self.current_observation_index,
                         component_index=self.current_component_index,
                         grounded_fluent=gp.untyped_representation,
@@ -428,7 +389,7 @@ class SimpleNoisyPisamLearner(PISAMLearner):
                     conflict = Conflict(
                         action_name=action_name,
                         pbl=pbl,
-                        conflict_type=ConflictType.REQUIRE_VS_CANNOT,
+                        conflict_type=ConflictType.REQUIRE_EFFECT_VS_CANNOT,
                         observation_index=self.current_observation_index,
                         component_index=self.current_component_index,
                         grounded_fluent=gp.untyped_representation,
