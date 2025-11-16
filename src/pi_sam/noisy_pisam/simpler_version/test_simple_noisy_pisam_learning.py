@@ -2,14 +2,17 @@
 Comprehensive test suite for SimpleNoisyPisamLearner.
 
 This test file includes tests for different conflict types supported in the simpler version:
-1. Fluent-level patches (no conflicts, just observation modification)
-2. PRE_REQUIRE_VS_CANNOT: Required precondition that PI-SAM wants to remove
-3. FORBID_VS_MUST: Forbidden effect that PI-SAM says must be an effect
-4. REQUIRE_VS_CANNOT: Required effect that PI-SAM says cannot be an effect
+1. Fluent-level patches (positive and negative, no conflicts, just observation modification)
+2. FORBID_PRECOND_VS_IS: Forbidden precondition that PI-SAM wants to add
+3. FORBID_EFFECT_VS_MUST: Forbidden effect that PI-SAM says must be an effect
+4. REQUIRE_EFFECT_VS_CANNOT: Required effect that PI-SAM says cannot be an effect
 5. Mixed model conflicts (combinations of the above)
 6. Mixed model and fluent patches
-
-Note: The simpler version does NOT support FORBID precondition patches.
+7. Negative predicate tests:
+   - Negative fluent patches (e.g., "(not (clear a))")
+   - Negative effect patches (e.g., ParameterBoundLiteral with is_positive=False)
+   - Negative precondition patches
+   - Complex mixed scenarios with both positive and negative patches
 
 Test Data:
 - Problem: problem7
@@ -18,11 +21,11 @@ Test Data:
 """
 
 import unittest
-from pathlib import Path
 from copy import deepcopy
+from pathlib import Path
 
 from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
-from pddl_plus_parser.models import Domain, Observation
+from pddl_plus_parser.models import Domain
 from utilities import NegativePreconditionPolicy
 
 from src.pi_sam.noisy_pisam.simpler_version.simple_noisy_pisam_learning import SimpleNoisyPisamLearner
@@ -34,8 +37,8 @@ from src.pi_sam.noisy_pisam.simpler_version.typings import (
     ModelPart,
     PatchOperation
 )
-from src.utils.pddl import ground_observation_completely
 from src.utils.masking import mask_observation, load_masking_info
+from src.utils.pddl import ground_observation_completely
 
 absulute_path_prefix = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/")
 
@@ -129,44 +132,44 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
 
     # ==================== Model-Level Precondition Conflict Tests ====================
 
-    # @unittest.skipIf(not Path(f"{absulute_path_prefix}/src/experiments/llm_cv_test__PDDLEnvBlocks-v0__gpt-5-mini__steps=25__03-11-2025T22:25:06/problem7.trajectory").exists(),
-    #                  "Trajectory file not found")
-    # def test_precondition_require_vs_cannot_conflict(self):
-    #     """
-    #     Test model-level precondition conflict: PRE_REQUIRE_VS_CANNOT.
-    #
-    #     Scenario: REQUIRE a precondition that PI-SAM wants to remove
-    #     Expected: Conflict of type PRE_REQUIRE_VS_CANNOT
-    #
-    #     Note: The simpler version only detects precondition conflicts when
-    #     a REQUIRED precondition is being removed by SAM's update logic.
-    #     """
-    #     # Create required precondition patch
-    #     required_pbl = ParameterBoundLiteral("clear", ("?x",), is_positive=True)
-    #     model_patches = {
-    #         ModelLevelPatch(
-    #             action_name="pick-up",
-    #             model_part=ModelPart.PRECONDITION,
-    #             pbl=required_pbl,
-    #             operation=PatchOperation.REQUIRE
-    #         )
-    #     }
-    #
-    #     # Learn with required precondition patch
-    #     learned_domain, conflicts = self.learner.learn_action_model_with_conflicts(
-    #         observations=[self.masked_observation],
-    #         fluent_patches=set(),
-    #         model_patches=model_patches
-    #     )
-    #
-    #     self.assertIsNotNone(learned_domain)
-    #
-    #     # Check for PRE_REQUIRE_VS_CANNOT conflicts
-    #     pre_conflicts = [c for c in conflicts
-    #                     if c.conflict_type == ConflictType.PRE_REQUIRE_VS_CANNOT]
-    #
-    #     # May or may not have conflicts depending on whether SAM removes clear(?x)
-    #     print(f"PRE_REQUIRE_VS_CANNOT conflicts: {len(pre_conflicts)}")
+    @unittest.skipIf(not Path(f"{absulute_path_prefix}/src/experiments/llm_cv_test__PDDLEnvBlocks-v0__gpt-5-mini__steps=25__03-11-2025T22:25:06/problem7.trajectory").exists(),
+                     "Trajectory file not found")
+    def test_precondition_forbid_vs_is_conflict(self):
+        """
+        Test model-level precondition conflict: PRE_REQUIRE_VS_CANNOT.
+
+        Scenario: REQUIRE a precondition that PI-SAM wants to remove
+        Expected: Conflict of type PRE_REQUIRE_VS_CANNOT
+
+        Note: The simpler version only detects precondition conflicts when
+        a REQUIRED precondition is being removed by SAM's update logic.
+        """
+        # Create required precondition patch
+        required_pbl = ParameterBoundLiteral("clear", ("?x",), is_positive=True)
+        model_patches = {
+            ModelLevelPatch(
+                action_name="pick-up",
+                model_part=ModelPart.PRECONDITION,
+                pbl=required_pbl,
+                operation=PatchOperation.FORBID
+            )
+        }
+
+        # Learn with required precondition patch
+        learned_domain, conflicts = self.learner.learn_action_model_with_conflicts(
+            observations=[self.masked_observation],
+            fluent_patches=set(),
+            model_patches=model_patches
+        )
+
+        self.assertIsNotNone(learned_domain)
+
+        # Check for PRE_REQUIRE_VS_CANNOT conflicts
+        pre_conflicts = [c for c in conflicts
+                        if c.conflict_type == ConflictType.FORBID_PRECOND_VS_IS]
+
+        # May or may not have conflicts depending on whether SAM removes clear(?x)
+        print(f"PRE_REQUIRE_VS_CANNOT conflicts: {len(pre_conflicts)}")
 
 
     # ==================== Model-Level Effect Conflict Tests ====================
@@ -379,7 +382,7 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
                 observation_index=0,
                 component_index=1,
                 state_type='next',
-                fluent='on(a b)'
+                fluent='(on a b)'
             ),
             FluentLevelPatch(
                 observation_index=0,
@@ -435,9 +438,9 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
         only supported conflict types in the simpler version.
         """
         fluent_patches = {
-            FluentLevelPatch(0, 1, 'next', 'on(a, b)'),
-            FluentLevelPatch(0, 2, 'next', 'clear(d)'),
-            FluentLevelPatch(0, 4, 'prev', 'holding(e)')  # Use 'prev' instead of 'previous'
+            FluentLevelPatch(0, 1, 'next', '(on a b)'),
+            FluentLevelPatch(0, 2, 'next', '(clear d)'),
+            FluentLevelPatch(0, 4, 'prev', '(holding e)')  # Use 'prev' instead of 'previous'
         }
 
         model_patches = {
@@ -482,6 +485,210 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
             conflict_summary[ct] = conflict_summary.get(ct, 0) + 1
 
         print(f"Conflicts by type: {conflict_summary}")
+
+        # Verify supported conflict types
+        for conflict in conflicts:
+            self.assertIn(conflict.conflict_type,
+                         [ConflictType.FORBID_EFFECT_VS_MUST,
+                          ConflictType.REQUIRE_EFFECT_VS_CANNOT,
+                          ConflictType.FORBID_PRECOND_VS_IS],
+                         f"Unexpected conflict type: {conflict.conflict_type}")
+
+    # ==================== Negative Predicate Tests ====================
+
+    @unittest.skipIf(not Path(f"{absulute_path_prefix}/src/experiments/llm_cv_test__PDDLEnvBlocks-v0__gpt-5-mini__steps=25__03-11-2025T22:25:06/problem7.trajectory").exists(),
+                     "Trajectory file not found")
+    def test_negative_fluent_patches_only(self):
+        """
+        Test with only negative fluent-level patches.
+
+        Expected: Learning completes, negative fluent patches are applied to observation.
+        """
+        # Create negative fluent patches
+        fluent_patches = {
+            FluentLevelPatch(
+                observation_index=0,
+                component_index=1,
+                state_type='next',
+                fluent='(not (clear a))'
+            ),
+            FluentLevelPatch(
+                observation_index=0,
+                component_index=3,
+                state_type='prev',
+                fluent='(not (on b c))'
+            ),
+            FluentLevelPatch(
+                observation_index=0,
+                component_index=5,
+                state_type='next',
+                fluent='(not (holding d))'
+            )
+        }
+
+        # Learn with only negative fluent patches
+        learned_domain, conflicts = self.learner.learn_action_model_with_conflicts(
+            observations=[self.masked_observation],
+            fluent_patches=fluent_patches,
+            model_patches=set()
+        )
+
+        # Should complete successfully
+        self.assertIsNotNone(learned_domain)
+        self.assertIsInstance(conflicts, list)
+        print(f"Negative fluent patches applied: {len(fluent_patches)}")
+
+    @unittest.skipIf(not Path(f"{absulute_path_prefix}/src/experiments/llm_cv_test__PDDLEnvBlocks-v0__gpt-5-mini__steps=25__03-11-2025T22:25:06/problem7.trajectory").exists(),
+                     "Trajectory file not found")
+    def test_negative_effect_patches(self):
+        """
+        Test model-level patches with negative effects.
+
+        Scenario: FORBID and REQUIRE negative effects
+        Expected: Conflicts when negative effects conflict with SAM rules
+        """
+        model_patches = {
+            # FORBID not holding(?x) as effect (can create FORBID_EFFECT_VS_MUST)
+            ModelLevelPatch(
+                action_name="put-down",
+                model_part=ModelPart.EFFECT,
+                pbl=ParameterBoundLiteral("holding", ("?x",), is_positive=False),
+                operation=PatchOperation.FORBID
+            ),
+            # REQUIRE not clear(?x) as effect (can create REQUIRE_EFFECT_VS_CANNOT)
+            ModelLevelPatch(
+                action_name="stack",
+                model_part=ModelPart.EFFECT,
+                pbl=ParameterBoundLiteral("clear", ("?y",), is_positive=False),
+                operation=PatchOperation.REQUIRE
+            )
+        }
+
+        # Learn with negative effect patches
+        learned_domain, conflicts = self.learner.learn_action_model_with_conflicts(
+            observations=[self.masked_observation],
+            fluent_patches=set(),
+            model_patches=model_patches
+        )
+
+        self.assertIsNotNone(learned_domain)
+
+        # Show conflicts
+        print(f"Negative effect patches conflicts: {len(conflicts)}")
+        for conflict in conflicts:
+            print(f"  - {conflict.conflict_type.value}: {conflict.grounded_fluent}")
+
+    @unittest.skipIf(not Path(f"{absulute_path_prefix}/src/experiments/llm_cv_test__PDDLEnvBlocks-v0__gpt-5-mini__steps=25__03-11-2025T22:25:06/problem7.trajectory").exists(),
+                     "Trajectory file not found")
+    def test_negative_precondition_patches(self):
+        """
+        Test model-level patches with negative preconditions.
+
+        Scenario: FORBID negative preconditions
+        Expected: Conflicts when negative preconditions conflict with SAM rules
+        """
+        model_patches = {
+            # FORBID not ontable(?x) as precondition (can create FORBID_PRECOND_VS_IS)
+            ModelLevelPatch(
+                action_name="pick-up",
+                model_part=ModelPart.PRECONDITION,
+                pbl=ParameterBoundLiteral("ontable", ("?x",), is_positive=False),
+                operation=PatchOperation.FORBID
+            ),
+            # FORBID not holding(?x) as precondition for put-down
+            ModelLevelPatch(
+                action_name="put-down",
+                model_part=ModelPart.PRECONDITION,
+                pbl=ParameterBoundLiteral("holding", ("?x",), is_positive=False),
+                operation=PatchOperation.FORBID
+            )
+        }
+
+        # Learn with negative precondition patches
+        learned_domain, conflicts = self.learner.learn_action_model_with_conflicts(
+            observations=[self.masked_observation],
+            fluent_patches=set(),
+            model_patches=model_patches
+        )
+
+        self.assertIsNotNone(learned_domain)
+
+        # Show conflicts
+        print(f"Negative precondition patches conflicts: {len(conflicts)}")
+        conflict_types = {c.conflict_type for c in conflicts}
+        print(f"Conflict types: {conflict_types}")
+
+    @unittest.skipIf(not Path(f"{absulute_path_prefix}/src/experiments/llm_cv_test__PDDLEnvBlocks-v0__gpt-5-mini__steps=25__03-11-2025T22:25:06/problem7.trajectory").exists(),
+                     "Trajectory file not found")
+    def test_complex_mixed_scenario_with_negatives(self):
+        """
+        Test complex scenario with both positive and negative patches.
+
+        This tests a realistic scenario mixing:
+        - Positive and negative fluent patches
+        - Positive and negative model patches for effects
+        - Positive and negative model patches for preconditions
+        """
+        fluent_patches = {
+            # Positive fluent patches
+            FluentLevelPatch(0, 1, 'next', '(on a b)'),
+            FluentLevelPatch(0, 2, 'next', '(clear d)'),
+            # Negative fluent patches
+            FluentLevelPatch(0, 3, 'prev', '(not (holding c))'),
+            FluentLevelPatch(0, 4, 'next', '(not (on e f))')
+        }
+
+        model_patches = {
+            # Positive effect patches
+            ModelLevelPatch("pick-up", ModelPart.EFFECT,
+                           ParameterBoundLiteral("holding", ("?x",), is_positive=True),
+                           PatchOperation.FORBID),
+            ModelLevelPatch("pick-up", ModelPart.EFFECT,
+                           ParameterBoundLiteral("ontable", ("?x",), is_positive=True),
+                           PatchOperation.REQUIRE),
+            # Negative effect patches
+            ModelLevelPatch("put-down", ModelPart.EFFECT,
+                           ParameterBoundLiteral("holding", ("?x",), is_positive=False),
+                           PatchOperation.FORBID),
+            ModelLevelPatch("stack", ModelPart.EFFECT,
+                           ParameterBoundLiteral("clear", ("?y",), is_positive=False),
+                           PatchOperation.REQUIRE),
+            # Positive precondition patches
+            ModelLevelPatch("pick-up", ModelPart.PRECONDITION,
+                           ParameterBoundLiteral("handempty", ("?robot",), is_positive=True),
+                           PatchOperation.FORBID),
+            # Negative precondition patches
+            ModelLevelPatch("put-down", ModelPart.PRECONDITION,
+                           ParameterBoundLiteral("ontable", ("?x",), is_positive=False),
+                           PatchOperation.FORBID)
+        }
+
+        # Learn with complex patch combination
+        learned_domain, conflicts = self.learner.learn_action_model_with_conflicts(
+            observations=[self.masked_observation],
+            fluent_patches=fluent_patches,
+            model_patches=model_patches
+        )
+
+        self.assertIsNotNone(learned_domain)
+
+        print(f"\n=== Complex Mixed Scenario with Negatives ===")
+        print(f"Fluent patches: {len(fluent_patches)} (positive and negative)")
+        print(f"Model patches: {len(model_patches)} (positive and negative)")
+        print(f"Total conflicts: {len(conflicts)}")
+
+        # Group conflicts by type
+        conflict_summary = {}
+        for conflict in conflicts:
+            ct = conflict.conflict_type.value
+            conflict_summary[ct] = conflict_summary.get(ct, 0) + 1
+
+        print(f"Conflicts by type: {conflict_summary}")
+
+        # Show examples of conflicts with negative predicates
+        negative_conflicts = [c for c in conflicts if hasattr(c.grounded_fluent, 'is_positive')
+                             and not c.grounded_fluent.is_positive]
+        print(f"Conflicts involving negative predicates: {len(negative_conflicts)}")
 
         # Verify supported conflict types
         for conflict in conflicts:

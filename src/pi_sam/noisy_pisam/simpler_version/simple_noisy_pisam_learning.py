@@ -6,6 +6,7 @@ from sam_learning.core import LearnerDomain, extract_discrete_effects_partial_ob
     extract_not_effects_partial_observability
 from utilities import NegativePreconditionPolicy
 
+from src.action_model.pddl2gym_parser import negate_str_predicate
 from src.utils.pddl import (
     get_state_grounded_predicates,
     get_state_unmasked_predicates,
@@ -181,7 +182,9 @@ class SimpleNoisyPisamLearner(PISAMLearner):
         # Simple implementation: look for matching grounded predicate strings
         for gp in get_state_grounded_predicates(state):
             if gp.untyped_representation == fluent_str:
-                gp_in_state = next((p for p in state.state_predicates[gp.lifted_untyped_representation]
+                gp_lifted_base_form = gp.lifted_untyped_representation if gp.is_positive else \
+                    negate_str_predicate(gp.lifted_untyped_representation)
+                gp_in_state = next((p for p in state.state_predicates[gp_lifted_base_form]
                                  if p.untyped_representation == fluent_str), None)
                 gp_in_state.is_positive = not gp_in_state.is_positive
                 self.logger.debug(f"Flipped fluent {fluent_str} in state.")
@@ -196,7 +199,7 @@ class SimpleNoisyPisamLearner(PISAMLearner):
     def _lift_and_match(
         self,
         grounded_action: ActionCall,
-        grounded_pred,
+        grounded_pred: GroundedPredicate,
         pbl: ParameterBoundLiteral,
     ) -> bool:
         """
