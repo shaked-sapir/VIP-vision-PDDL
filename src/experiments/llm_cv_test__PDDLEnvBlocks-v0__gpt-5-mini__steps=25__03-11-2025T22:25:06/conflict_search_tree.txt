@@ -1,0 +1,193 @@
+====================================================================================================
+CONFLICT-DRIVEN PATCH SEARCH - TREE TRAVERSAL
+====================================================================================================
+Started: 2025-11-16 22:40:56
+Total Nodes Expanded: 2
+====================================================================================================
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Node #1 (Depth=0)
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Cost: 0
+Patches: 0 model + 0 fluent
+Conflicts: 16
+Status: ✗ Has Conflicts
+
+Conflicts:
+  1. require_effect_vs_cannot
+     Action: stack
+     PBL: clear(?x)
+     Grounded: (clear e)
+     Location: obs[0][4]
+  2. require_effect_vs_cannot
+     Action: unstack
+     PBL: not clear(?x)
+     Grounded: (not (clear b))
+     Location: obs[0][5]
+  3. require_effect_vs_cannot
+     Action: stack
+     PBL: clear(?x)
+     Grounded: (clear f)
+     Location: obs[0][6]
+  4. require_effect_vs_cannot
+     Action: unstack
+     PBL: not clear(?x)
+     Grounded: (not (clear f))
+     Location: obs[0][7]
+  5. require_effect_vs_cannot
+     Action: stack
+     PBL: clear(?x)
+     Grounded: (clear d)
+     Location: obs[0][8]
+  6. require_effect_vs_cannot
+     Action: unstack
+     PBL: not clear(?x)
+     Grounded: (not (clear d))
+     Location: obs[0][9]
+  7. require_effect_vs_cannot
+     Action: stack
+     PBL: clear(?x)
+     Grounded: (clear d)
+     Location: obs[0][10]
+  8. require_effect_vs_cannot
+     Action: unstack
+     PBL: not clear(?x)
+     Grounded: (not (clear d))
+     Location: obs[0][11]
+  9. require_effect_vs_cannot
+     Action: stack
+     PBL: clear(?x)
+     Grounded: (clear b)
+     Location: obs[0][12]
+  10. require_effect_vs_cannot
+     Action: unstack
+     PBL: not clear(?x)
+     Grounded: (not (clear b))
+     Location: obs[0][13]
+  11. require_effect_vs_cannot
+     Action: stack
+     PBL: clear(?x)
+     Grounded: (clear f)
+     Location: obs[0][14]
+  12. require_effect_vs_cannot
+     Action: stack
+     PBL: clear(?x)
+     Grounded: (clear a)
+     Location: obs[0][18]
+  13. require_effect_vs_cannot
+     Action: unstack
+     PBL: not clear(?x)
+     Grounded: (not (clear c))
+     Location: obs[0][19]
+  14. require_effect_vs_cannot
+     Action: unstack
+     PBL: not clear(?x)
+     Grounded: (not (clear a))
+     Location: obs[0][21]
+  15. require_effect_vs_cannot
+     Action: stack
+     PBL: clear(?x)
+     Grounded: (clear a)
+     Location: obs[0][22]
+  16. require_effect_vs_cannot
+     Action: stack
+     PBL: clear(?x)
+     Grounded: (clear d)
+     Location: obs[0][24]
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Node #2 (Depth=1)
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Cost: 1
+  Patches: 0 model + 1 fluent
+  Conflicts: 16
+  Status: ✗ Has Conflicts
+
+  Fluent Patches:
+    - Flip '(clear e)' at obs[0][4].next
+
+  Conflicts:
+    1. require_effect_vs_cannot
+       Action: stack
+       PBL: clear(?x)
+       Grounded: (clear e)
+       Location: obs[0][4]
+    2. require_effect_vs_cannot
+       Action: unstack
+       PBL: not clear(?x)
+       Grounded: (not (clear b))
+       Location: obs[0][5]
+    3. require_effect_vs_cannot
+       Action: stack
+       PBL: clear(?x)
+       Grounded: (clear f)
+       Location: obs[0][6]
+    4. require_effect_vs_cannot
+       Action: unstack
+       PBL: not clear(?x)
+       Grounded: (not (clear f))
+       Location: obs[0][7]
+    5. require_effect_vs_cannot
+       Action: stack
+       PBL: clear(?x)
+       Grounded: (clear d)
+       Location: obs[0][8]
+    6. require_effect_vs_cannot
+       Action: unstack
+       PBL: not clear(?x)
+       Grounded: (not (clear d))
+       Location: obs[0][9]
+    7. require_effect_vs_cannot
+       Action: stack
+       PBL: clear(?x)
+       Grounded: (clear d)
+       Location: obs[0][10]
+    8. require_effect_vs_cannot
+       Action: unstack
+       PBL: not clear(?x)
+       Grounded: (not (clear d))
+       Location: obs[0][11]
+    9. require_effect_vs_cannot
+       Action: stack
+       PBL: clear(?x)
+       Grounded: (clear b)
+       Location: obs[0][12]
+    10. require_effect_vs_cannot
+       Action: unstack
+       PBL: not clear(?x)
+       Grounded: (not (clear b))
+       Location: obs[0][13]
+    11. require_effect_vs_cannot
+       Action: stack
+       PBL: clear(?x)
+       Grounded: (clear f)
+       Location: obs[0][14]
+    12. require_effect_vs_cannot
+       Action: stack
+       PBL: clear(?x)
+       Grounded: (clear a)
+       Location: obs[0][18]
+    13. require_effect_vs_cannot
+       Action: unstack
+       PBL: not clear(?x)
+       Grounded: (not (clear c))
+       Location: obs[0][19]
+    14. require_effect_vs_cannot
+       Action: unstack
+       PBL: not clear(?x)
+       Grounded: (not (clear a))
+       Location: obs[0][21]
+    15. require_effect_vs_cannot
+       Action: stack
+       PBL: clear(?x)
+       Grounded: (clear a)
+       Location: obs[0][22]
+    16. require_effect_vs_cannot
+       Action: stack
+       PBL: clear(?x)
+       Grounded: (clear d)
+       Location: obs[0][24]
+
+====================================================================================================
+END OF TREE TRAVERSAL
+====================================================================================================

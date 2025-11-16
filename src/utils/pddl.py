@@ -299,18 +299,3 @@ def ground_observation_completely(domain: Domain, observation: Observation) -> O
     """
     all_domain_grounded_predicates = get_all_possible_groundings_for_domain(domain, observation)
     return ground_all_states_in_observation(observation, all_domain_grounded_predicates)
-
-
-# TODO: suggest this to pddl-plus-parser as a new class method
-def lift_predicate(grounded_predicate: GroundedPredicate) -> Predicate:
-    """
-    Converts a grounded predicate to its lifted version by removing object mappings.
-
-    :param grounded_predicate: The grounded predicate to convert.
-    :return: A lifted predicate with the same name and signature, but without object mappings.
-    """
-    return Predicate(
-        name=grounded_predicate.name,
-        signature=grounded_predicate.signature,
-        is_positive=grounded_predicate.is_positive
-    )

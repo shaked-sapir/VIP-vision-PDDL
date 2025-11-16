@@ -7,8 +7,7 @@ from sam_learning.core import LearnerDomain, extract_discrete_effects_partial_ob
 from sam_learning.learners import SAMLearner
 from utilities import NegativePreconditionPolicy
 
-from src.utils.pddl import get_state_grounded_predicates, get_state_unmasked_predicates, get_state_masked_predicates, \
-    lift_predicate
+from src.utils.pddl import get_state_grounded_predicates, get_state_unmasked_predicates, get_state_masked_predicates
 
 
 class PISAMLearner(SAMLearner):
@@ -69,8 +68,10 @@ class PISAMLearner(SAMLearner):
             get_state_grounded_predicates(next_state)
         )
 
+        lifted_cannot_be_effects = self.matcher.get_possible_literal_matches(grounded_action, list(cannot_be_effects))
+
         self.cannot_be_effect[grounded_action.name].update(
-            {lift_predicate(pred) for pred in cannot_be_effects}
+            {pred for pred in lifted_cannot_be_effects}
         )
         self.logger.debug(f"finished handling action- {grounded_action.name} effects.")
 

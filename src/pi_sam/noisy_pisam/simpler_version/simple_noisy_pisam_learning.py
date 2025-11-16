@@ -7,13 +7,6 @@ from sam_learning.core import LearnerDomain, extract_discrete_effects_partial_ob
 from utilities import NegativePreconditionPolicy
 
 from src.action_model.pddl2gym_parser import negate_str_predicate
-from src.utils.pddl import (
-    get_state_grounded_predicates,
-    get_state_unmasked_predicates,
-    get_state_masked_predicates,
-)
-from src.pi_sam.pi_sam_learning import PISAMLearner
-
 from src.pi_sam.noisy_pisam.simpler_version.typings import (
     ParameterBoundLiteral,
     ModelLevelPatch,
@@ -23,45 +16,32 @@ from src.pi_sam.noisy_pisam.simpler_version.typings import (
     ConflictType,
     Conflict,
 )
+from src.pi_sam.pi_sam_learning import PISAMLearner
+from src.utils.pddl import (
+    get_state_grounded_predicates,
+)
 
 
-class SimpleNoisyPisamLearner(PISAMLearner):
+class NoisyPisamLearner(PISAMLearner):
     """
-    A simplified noisy PI-SAM learner that:
+    A PI-SAM learner with:
+      - Fluent-level patches (flip specific grounded fluents in trajectories).
+      - Model-level patches:
+            EFFECT + FORBID  -> cannot be effect
+            EFFECT + REQUIRE -> must be effect
+            PRE + FORBID     -> cannot be precondition
+      - Conflict detection:
+            * Patch vs PI-SAM:
+                - FORBID_EFFECT_VS_MUST
+                - REQUIRE_EFFECT_VS_CANNOT
+                - FORBID_PRECOND_VS_IS
+            * Data-only PI-SAM effect inconsistencies, using the same types:
+                - PRIOR cannot_be_effect + new must-effect -> FORBID_EFFECT_VS_MUST
+                - PRIOR must-effect + new cannot_be_effect -> REQUIRE_EFFECT_VS_CANNOT
 
-    - Applies fluent-level patches to trajectories (flipping specific fluents in
-      prev/next states of specific transitions).
-
-    - Applies model-level patches to PRECONDITIONS and EFFECTS:
-
-        * EFFECT patches:
-            - FORBID  : do not allow a certain PBL as effect.
-            - REQUIRE : a certain PBL must be an effect.
-
-        * PRECONDITION patches:
-            - REQUIRE : a certain PBL must be a precondition.
-                        We use this against the 'cannot_be_precondition' rule
-                        (PI-SAM's precondition removal logic).
-
-    - Detects conflicts directly at PI-SAM rule applications:
-
-        Effects:
-          - Must be effect (discrete add/del):
-                if FORBID patch matches -> FORBID_VS_MUST conflict (skip update).
-                else regular PI-SAM.
-
-          - Not effect (cannot_be_effects):
-                if REQUIRE patch matches -> REQUIRE_VS_CANNOT conflict (skip update).
-                else regular PI-SAM.
-
-        Preconditions:
-          - When updating preconditions (cannot_be_precondition rule):
-                if a literal is being removed AND matches a REQUIRED precondition PBL
-                -> PRE_REQUIRE_VS_CANNOT conflict (do NOT remove it).
-
-    All conflicts include:
-      - observation_index / component_index (trajectory & transition indices)
-      - grounded_fluent: always a grounded predicate string.
+    If *no* patches are given, conflicts may still arise from PI-SAM itself
+    whenever an effect literal is classified as both "must-be-effect" and
+    "cannot-be-effect" across different transitions of the SAME action schema.
     """
 
     def __init__(
@@ -72,19 +52,20 @@ class SimpleNoisyPisamLearner(PISAMLearner):
     ):
         super().__init__(partial_domain, negative_preconditions_policy, seed)
 
-        # patches
+        # fluent-level patches (data repairs)
         self.fluent_patches: Set[FluentLevelPatch] = set()
+
+        # model-level patches (global constraints)
         self.model_patches: Set[ModelLevelPatch] = set()
 
-        # indexed model patches
         self.forbidden_effects: Dict[str, Set[ParameterBoundLiteral]] = {}
         self.required_effects: Dict[str, Set[ParameterBoundLiteral]] = {}
         self.forbidden_preconditions: Dict[str, Set[ParameterBoundLiteral]] = {}
 
-        # conflicts
+        # conflicts (collected during learning)
         self.conflicts: List[Conflict] = []
 
-        # indices for conflict localization
+        # indices to localize conflicts
         self.current_observation_index: int = 0
         self.current_component_index: int = 0
 
@@ -121,13 +102,13 @@ class SimpleNoisyPisamLearner(PISAMLearner):
                 else:  # REQUIRE
                     self.required_effects.setdefault(patch.action_name, set()).add(patch.pbl)
 
-            else:  # PRECONDITION
+            elif patch.model_part == ModelPart.PRECONDITION:
                 if patch.operation == PatchOperation.FORBID:
                     self.forbidden_preconditions.setdefault(patch.action_name, set()).add(patch.pbl)
                 else:
-                    # FORBID preconditions are not handled in this simple version
+                    # FORBID preconditions are not handled in this version
                     self.logger.warning(
-                        f"REQUIRE precondition patch not supported in SimpleNoisyPisamLearner: {patch}"
+                        f"REQUIRE precondition patch not supported in NoisyPisamLearner: {patch}"
                     )
 
     # -------------------------------------------------------------------------
@@ -146,17 +127,17 @@ class SimpleNoisyPisamLearner(PISAMLearner):
 
         (Flipping itself is left as a hook; it depends on your State impl.)
         """
-        patched = deepcopy(observations)
+        patched_observations = deepcopy(observations)
 
         for patch in self.fluent_patches:
             obs_idx = patch.observation_index
             comp_idx = patch.component_index
 
-            if not (0 <= obs_idx < len(patched)):
+            if not (0 <= obs_idx < len(patched_observations)):
                 self.logger.warning(f"Fluent patch with invalid observation index: {patch}")
                 continue
 
-            obs = patched[obs_idx]
+            obs = patched_observations[obs_idx]
             if not (0 <= comp_idx < len(obs.components)):
                 self.logger.warning(f"Fluent patch with invalid component index: {patch}")
                 continue
@@ -173,7 +154,7 @@ class SimpleNoisyPisamLearner(PISAMLearner):
                 if comp.previous_state is not None:
                     self._flip_fluent_in_state(comp.previous_state, patch.fluent)
 
-        return patched
+        return patched_observations
 
     def _flip_fluent_in_state(self, state: State, fluent_str: str) -> None:
         """
@@ -339,36 +320,81 @@ class SimpleNoisyPisamLearner(PISAMLearner):
         # No conflicts: normal PI-SAM update (cannot_be_precondition)
         super()._update_action_preconditions(grounded_action, previous_state)
     # -------------------------------------------------------------------------
-    # Effects: FORBID/REQUIRE vs must/cannot
+    # Effects: FORBID/REQUIRE vs must/cannot (including data-only [non-patched] conflicts)
     # -------------------------------------------------------------------------
 
     def handle_effects(self, grounded_action: ActionCall, previous_state: State, next_state: State) -> None:
         """
-        PI-SAM effect handling with conflict detection, aligned with the pseudo-code:
+        PI-SAM effect handling with conflict detection for:
 
-        Must be effect (discrete add/del):
-            if FORBID patch matches -> FORBID_VS_MUST conflict, skip updates.
-            else regular PI-SAM.
+        1) Patch-based conflicts:
 
-        Not effect (cannot_be_effects):
-            if REQUIRE patch matches -> REQUIRE_VS_CANNOT conflict, skip updates.
-            else regular PI-SAM.
+            - FORBID_EFFECT_VS_MUST:
+                  cannot-be-effect patch vs must-be-effect (discrete add/del).
+
+            - REQUIRE_EFFECT_VS_CANNOT:
+                  must-be-effect patch vs cannot-be-effect (cannot_be_effects).
+
+        2) PI-SAM data-only inconsistencies:
+
+            - FORBID_EFFECT_VS_MUST:
+                  PRIOR cannot_be_effect contains literal L, but this transition
+                  treats L as must-be-effect (discrete_effect).
+
+            - REQUIRE_EFFECT_VS_CANNOT:
+                  PRIOR discrete_effects contains literal L, but this transition
+                  treats L as cannot-be-effect.
+
+        If ANY conflicts are found in this transition, we record them and
+        SKIP the regular PI-SAM effect update for this transition.
         """
         action_name = grounded_action.name
+        observed_action = self.partial_domain.actions[action_name]
 
         prev_preds = get_state_grounded_predicates(previous_state)
         next_preds = get_state_grounded_predicates(next_state)
 
         local_conflicts: List[Conflict] = []
 
-        # === Must-be effects: discrete add/delete effects ===
+        # --- Must-be effects: discrete add/delete for this transition ---
         grounded_add_effects, grounded_del_effects = extract_discrete_effects_partial_observability(
             prev_preds, next_preds
         )
+        all_grounded_must = list(grounded_add_effects) + list(grounded_del_effects)
 
+        # History BEFORE this transition:
+        prior_must_effects: Set[Predicate] = set(observed_action.discrete_effects)  # lifted Predicates
+        prior_cannot_effects: Set[Predicate] = set(self.cannot_be_effect.get(action_name, set()))  # lifted Predicates
+
+        # ------------------------------------------------------------------
+        # (2a) DATA-ONLY: PRIOR cannot_be_effect + new must-be-effect
+        #       -> treat as FORBID_EFFECT_VS_MUST
+        # ------------------------------------------------------------------
+        for gp in all_grounded_must:
+            possible_lifted_gp = self.matcher.get_possible_literal_matches(grounded_action, [gp])
+            lifted_gp = possible_lifted_gp[0] if possible_lifted_gp else None
+            if lifted_gp in prior_cannot_effects:
+                pbl = ParameterBoundLiteral(
+                    predicate_name=lifted_gp.name,
+                    parameters=tuple(p for p in lifted_gp.signature.keys()),
+                    is_positive=getattr(lifted_gp, "is_positive", True),
+                )
+                conflict = Conflict(
+                    action_name=action_name,
+                    pbl=pbl,
+                    conflict_type=ConflictType.FORBID_EFFECT_VS_MUST,
+                    observation_index=self.current_observation_index,
+                    component_index=self.current_component_index,
+                    grounded_fluent=gp.untyped_representation,
+                )
+                local_conflicts.append(conflict)
+                self.logger.warning(f"Detected data effect conflict (cannot vs must): {conflict}")
+
+        # ------------------------------------------------------------------
+        # (1a) PATCH-BASED: FORBID_EFFECT_VS_MUST
+        # ------------------------------------------------------------------
         forbid_set = self.forbidden_effects.get(action_name, set())
-
-        for gp in list(grounded_add_effects) + list(grounded_del_effects):
+        for gp in all_grounded_must:
             for pbl in forbid_set:
                 if self._lift_and_match(grounded_action, gp, pbl):
                     conflict = Conflict(
@@ -380,12 +406,39 @@ class SimpleNoisyPisamLearner(PISAMLearner):
                         grounded_fluent=gp.untyped_representation,
                     )
                     local_conflicts.append(conflict)
-                    self.logger.warning(f"Detected conflict: {conflict}")
+                    self.logger.warning(f"Detected patch-based effect conflict (FORBID vs must): {conflict}")
 
-        # === Not effects: cannot_be_effects (PI-SAM rule) ===
-        cannot_be_effects = extract_not_effects_partial_observability(prev_preds, next_preds)
+        # --- cannot-be-effects for this transition ---
+        cannot_be_effects: Set[GroundedPredicate] = extract_not_effects_partial_observability(prev_preds, next_preds)
+
+        # ------------------------------------------------------------------
+        # (2b) DATA-ONLY: PRIOR must-be-effect + new cannot-be-effect
+        #       -> treat as REQUIRE_EFFECT_VS_CANNOT
+        # ------------------------------------------------------------------
+        for gp in cannot_be_effects:
+            possible_lifted_gp = self.matcher.get_possible_literal_matches(grounded_action, [gp])
+            lifted_gp = possible_lifted_gp[0] if possible_lifted_gp else None
+            if lifted_gp in prior_must_effects:
+                pbl = ParameterBoundLiteral(
+                    predicate_name=lifted_gp.name,
+                    parameters=tuple(p for p in lifted_gp.signature.keys()),
+                    is_positive=getattr(lifted_gp, "is_positive", True),
+                )
+                conflict = Conflict(
+                    action_name=action_name,
+                    pbl=pbl,
+                    conflict_type=ConflictType.REQUIRE_EFFECT_VS_CANNOT,
+                    observation_index=self.current_observation_index,
+                    component_index=self.current_component_index,
+                    grounded_fluent=gp.untyped_representation,
+                )
+                local_conflicts.append(conflict)
+                self.logger.warning(f"Detected data effect conflict (must vs cannot): {conflict}")
+
+        # ------------------------------------------------------------------
+        # (1b) PATCH-BASED: REQUIRE_EFFECT_VS_CANNOT
+        # ------------------------------------------------------------------
         require_set = self.required_effects.get(action_name, set())
-
         for gp in cannot_be_effects:
             for pbl in require_set:
                 if self._lift_and_match(grounded_action, gp, pbl):
@@ -398,10 +451,12 @@ class SimpleNoisyPisamLearner(PISAMLearner):
                         grounded_fluent=gp.untyped_representation,
                     )
                     local_conflicts.append(conflict)
-                    self.logger.warning(f"Detected conflict: {conflict}")
+                    self.logger.warning(f"Detected patch-based effect conflict (REQUIRE vs cannot): {conflict}")
 
+        # ------------------------------------------------------------------
+        # Decide whether to apply PI-SAM effect update
+        # ------------------------------------------------------------------
         if local_conflicts:
-            # do not update effects if any conflicts detected
             self.conflicts.extend(local_conflicts)
             return
 
@@ -459,7 +514,7 @@ class SimpleNoisyPisamLearner(PISAMLearner):
         fluent_patches: Set[FluentLevelPatch],
         model_patches: Set[ModelLevelPatch],
         **kwargs,
-    ) -> Tuple[LearnerDomain, List[Conflict]]:
+    ) -> Tuple[LearnerDomain, List[Conflict], Dict[str, str]]:
         """
         High-level API:
 
@@ -470,5 +525,76 @@ class SimpleNoisyPisamLearner(PISAMLearner):
             Return (M, Conflicts)
         """
         self.set_patches(fluent_patches, model_patches)
-        learned_domain, _ = self.learn_action_model(observations, **kwargs)
-        return learned_domain, self.conflicts
+        learned_domain, learning_report = self.learn_action_model(observations, **kwargs)
+        return learned_domain, self.conflicts, learning_report
+
+        # -------------------------------------------------------------------------
+        # Effects: FORBID/REQUIRE vs must/cannot
+        # -------------------------------------------------------------------------
+
+    # TODO: this is the version without data-only conflicts, kept for reference
+    # def handle_effects(self, grounded_action: ActionCall, previous_state: State, next_state: State) -> None:
+    #     """
+    #     PI-SAM effect handling with conflict detection, aligned with the pseudo-code:
+    #
+    #     Must be effect (discrete add/del):
+    #         if FORBID patch matches -> FORBID_VS_MUST conflict, skip updates.
+    #         else regular PI-SAM.
+    #
+    #     Not effect (cannot_be_effects):
+    #         if REQUIRE patch matches -> REQUIRE_VS_CANNOT conflict, skip updates.
+    #         else regular PI-SAM.
+    #     """
+    #     action_name = grounded_action.name
+    #
+    #     prev_preds = get_state_grounded_predicates(previous_state)
+    #     next_preds = get_state_grounded_predicates(next_state)
+    #
+    #     local_conflicts: List[Conflict] = []
+    #
+    #     # === Must-be effects: discrete add/delete effects ===
+    #     grounded_add_effects, grounded_del_effects = extract_discrete_effects_partial_observability(
+    #         prev_preds, next_preds
+    #     )
+    #
+    #     forbid_set = self.forbidden_effects.get(action_name, set())
+    #
+    #     for gp in list(grounded_add_effects) + list(grounded_del_effects):
+    #         for pbl in forbid_set:
+    #             if self._lift_and_match(grounded_action, gp, pbl):
+    #                 conflict = Conflict(
+    #                     action_name=action_name,
+    #                     pbl=pbl,
+    #                     conflict_type=ConflictType.FORBID_EFFECT_VS_MUST,
+    #                     observation_index=self.current_observation_index,
+    #                     component_index=self.current_component_index,
+    #                     grounded_fluent=gp.untyped_representation,
+    #                 )
+    #                 local_conflicts.append(conflict)
+    #                 self.logger.warning(f"Detected conflict: {conflict}")
+    #
+    #     # === Not effects: cannot_be_effects (PI-SAM rule) ===
+    #     cannot_be_effects = extract_not_effects_partial_observability(prev_preds, next_preds)
+    #     require_set = self.required_effects.get(action_name, set())
+    #
+    #     for gp in cannot_be_effects:
+    #         for pbl in require_set:
+    #             if self._lift_and_match(grounded_action, gp, pbl):
+    #                 conflict = Conflict(
+    #                     action_name=action_name,
+    #                     pbl=pbl,
+    #                     conflict_type=ConflictType.REQUIRE_EFFECT_VS_CANNOT,
+    #                     observation_index=self.current_observation_index,
+    #                     component_index=self.current_component_index,
+    #                     grounded_fluent=gp.untyped_representation,
+    #                 )
+    #                 local_conflicts.append(conflict)
+    #                 self.logger.warning(f"Detected conflict: {conflict}")
+    #
+    #     if local_conflicts:
+    #         # do not update effects if any conflicts detected
+    #         self.conflicts.extend(local_conflicts)
+    #         return
+    #
+    #     # No conflicts -> regular PI-SAM effect handling
+    #     super().handle_effects(grounded_action, previous_state, next_state)
