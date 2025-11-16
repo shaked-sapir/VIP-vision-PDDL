@@ -69,6 +69,7 @@ class ParameterBoundLiteral:
         return base if self.is_positive else f"not {base}"
 
 
+# TODO: check if we should use the Action of pddl-plus-parser instead of just action name (to bound the PBL properly)
 class ModelLevelPatch:
     """
     Model-level patch: constrain the learned model for a given action.
@@ -182,7 +183,7 @@ class Conflict:
     All conflicts are:
       - localized to a transition via (observation_index, component_index).
       - grounded_fluent is ALWAYS a grounded predicate string (e.g. "holding(a)")
-        taken from the actual transition (effects / previous state).
+        taken from the actual transition (effects / previous state)  or from grounding the PBL with action args.
     """
     def __init__(
         self,
@@ -205,3 +206,6 @@ class Conflict:
             f"Conflict({self.conflict_type.value}: {self.grounded_fluent} vs {self.pbl} "
             f"in {self.action_name} at obs[{self.observation_index}][{self.component_index}])"
         )
+
+    def __repr__(self) -> str:
+        return self.__str__()

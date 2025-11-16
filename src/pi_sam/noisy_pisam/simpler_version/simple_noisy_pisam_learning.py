@@ -222,14 +222,14 @@ class SimpleNoisyPisamLearner(PISAMLearner):
         # Map parameter name (e.g. '?x') -> object name (e.g. 'b1')
         # We assume order of action_schema.parameters matches the order
         # of grounded_action.grounded_parameters.
-        name_to_object: Dict[str, str] = {
-            param.name: obj.name for param, obj in zip(action_schema.signature, grounded_action.parameters)
+        signature_param_to_object: Dict[str, str] = {
+            param: obj for param, obj in zip(action_schema.signature.keys(), grounded_action.parameters)
         }
 
         # Ground the PBL's parameters using that mapping
         grounded_args = []
         for p_name in pbl.parameters:
-            grounded_args.append(name_to_object[p_name])
+            grounded_args.append(signature_param_to_object[p_name])
             # if p_name not in name_to_object:
             #     # Fallback: keep the parameter name if mapping not found
             #     grounded_args.append(p_name)
@@ -241,6 +241,66 @@ class SimpleNoisyPisamLearner(PISAMLearner):
     # -------------------------------------------------------------------------
     # Preconditions: REQUIRE vs cannot_be_precondition
     # -------------------------------------------------------------------------
+
+    def _add_new_action_preconditions(self, grounded_action: ActionCall, previous_state: State) -> None:
+        """
+        Add new action's preconditions (PI-SAM rule) and detect conflicts for
+        required preconditions that are *not satisfied* in this first transition.
+
+        Scenario:
+          - Patch: 'handfull(?robot)' is a REQUIRED precondition of pick-up.
+          - First occurrence of pick-up(b1, r1) has handfull(r1) = FALSE in prev_state.
+          - PI-SAM won't add 'handfull' as a precondition (it's not in prev_state).
+          - Without this method, no conflict is ever seen.
+
+        Here we:
+          1) Add the usual PI-SAM candidate preconditions.
+          2) For each REQUIRED PBL:
+                if no grounded predicate in prev_state satisfies it,
+                create PRE_REQUIRE_VS_CANNOT conflict for this transition.
+        """
+        self.logger.debug(
+            f"Adding preconditions of {grounded_action.name} with required-precondition patches."
+        )
+
+        action_name = grounded_action.name
+        current_action = self.partial_domain.actions[action_name]
+
+        # --- 1. Standard PI-SAM add-new behavior: add all possible preconditions ---
+        prev_grounded = list(get_state_grounded_predicates(previous_state))
+        prev_lifted = set(
+            self.matcher.get_possible_literal_matches(grounded_action, prev_grounded)
+        )
+
+        for predicate in prev_lifted:
+            current_action.preconditions.add_condition(predicate)
+
+        # --- 2. Required-but-not-satisfied conflicts ---
+        required_set = self.required_preconditions.get(action_name, set())
+        if not required_set:
+            return
+
+        for pbl in required_set:
+            # Is this required PBL satisfied in the previous state?
+            satisfied = any(pbl.matches(pred) for pred in prev_lifted)
+
+            if not satisfied:
+                # Data says: for this transition, the required precondition is false.
+                # Construct a grounded fluent using the action binding.
+                grounded_fluent = self._ground_pbl_with_action(pbl, grounded_action)
+
+                conflict = Conflict(
+                    action_name=action_name,
+                    pbl=pbl,
+                    conflict_type=ConflictType.PRE_REQUIRE_VS_CANNOT,
+                    observation_index=self.current_observation_index,
+                    component_index=self.current_component_index,
+                    grounded_fluent=grounded_fluent,
+                )
+                self.conflicts.append(conflict)
+                self.logger.warning(
+                    f"Detected conflict (required precondition not satisfied in first occurrence): {conflict}"
+                )
 
     def _update_action_preconditions(self, grounded_action: ActionCall, previous_state: State) -> None:
         """
@@ -335,6 +395,8 @@ class SimpleNoisyPisamLearner(PISAMLearner):
         prev_preds = get_state_grounded_predicates(previous_state)
         next_preds = get_state_grounded_predicates(next_state)
 
+        local_conflicts: List[Conflict] = []
+
         # === Must-be effects: discrete add/delete effects ===
         grounded_add_effects, grounded_del_effects = extract_discrete_effects_partial_observability(
             prev_preds, next_preds
@@ -353,9 +415,8 @@ class SimpleNoisyPisamLearner(PISAMLearner):
                         component_index=self.current_component_index,
                         grounded_fluent=gp.untyped_representation,
                     )
-                    self.conflicts.append(conflict)
+                    local_conflicts.append(conflict)
                     self.logger.warning(f"Detected conflict: {conflict}")
-                    return  # do not update effects
 
         # === Not effects: cannot_be_effects (PI-SAM rule) ===
         cannot_be_effects = extract_not_effects_partial_observability(prev_preds, next_preds)
@@ -372,9 +433,13 @@ class SimpleNoisyPisamLearner(PISAMLearner):
                         component_index=self.current_component_index,
                         grounded_fluent=gp.untyped_representation,
                     )
-                    self.conflicts.append(conflict)
+                    local_conflicts.append(conflict)
                     self.logger.warning(f"Detected conflict: {conflict}")
-                    return  # do not update effects
+
+        if local_conflicts:
+            # do not update effects if any conflicts detected
+            self.conflicts.extend(local_conflicts)
+            return
 
         # No conflicts -> regular PI-SAM effect handling
         super().handle_effects(grounded_action, previous_state, next_state)
