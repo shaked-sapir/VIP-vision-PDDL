@@ -47,7 +47,7 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         """Set up test fixtures that are reused across tests."""
         # Load blocks domain
         cls.domain_file = absulute_path_prefix / Path("src/domains/blocks/blocks.pddl")
-        cls.domain: Domain = DomainParser(cls.domain_file).parse_domain()
+        cls.domain: Domain = DomainParser(cls.domain_file, partial_parsing=True).parse_domain()
 
         # Load problem7 trajectory and masking info
         cls.experiment_dir = absulute_path_prefix / Path(
@@ -276,7 +276,7 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         print(f"{'─' * 80}")
 
         # Run search with no max_nodes limit
-        learned_domain, conflicts, model_constraints, fluent_patches, report = search.run(
+        learned_domain, conflicts, model_constraints, fluent_patches, cost, report = search.run(
             observations=[self.masked_observation], max_nodes=None
         )
 
@@ -294,21 +294,72 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         else:
             print(f"\n  ✗ No conflict-free model found within search limits")
 
+        # Display patch diff information from report
+        if "patch_diff" in report:
+            patch_diff = report["patch_diff"]
+            print(f"\n{'─' * 80}")
+            print("Patch Differences (from initial to final state):")
+            print(f"{'─' * 80}")
+
+            # Model patches
+            model_added = patch_diff.get("model_patches_added", {})
+            model_removed = patch_diff.get("model_patches_removed", {})
+            model_changed = patch_diff.get("model_patches_changed", {})
+
+            if model_added:
+                print(f"\n  Model Patches ADDED: {len(model_added)}")
+                for (action, part, pbl), op in model_added.items():
+                    print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
+
+            if model_removed:
+                print(f"\n  Model Patches REMOVED: {len(model_removed)}")
+                for (action, part, pbl), op in model_removed.items():
+                    print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
+
+            if model_changed:
+                print(f"\n  Model Patches CHANGED: {len(model_changed)}")
+                for key, (old_op, new_op) in model_changed.items():
+                    action, part, pbl = key
+                    print(f"    • {action} {part.value} {pbl}: {old_op.value} → {new_op.value}")
+
+            # Fluent patches
+            fluent_added = patch_diff.get("fluent_patches_added", set())
+            fluent_removed = patch_diff.get("fluent_patches_removed", set())
+
+            if fluent_added:
+                print(f"\n  Fluent Patches ADDED: {len(fluent_added)}")
+                for patch in sorted(fluent_added, key=lambda p: (p.observation_index, p.component_index)):
+                    print(f"    • Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
+
+            if fluent_removed:
+                print(f"\n  Fluent Patches REMOVED: {len(fluent_removed)}")
+                for patch in sorted(fluent_removed, key=lambda p: (p.observation_index, p.component_index)):
+                    print(f"    • Un-flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
+
+            if not any([model_added, model_removed, model_changed, fluent_added, fluent_removed]):
+                print(f"\n  No patches were added, removed, or changed.")
+
         # Show model constraints
         print(f"\n{'─' * 80}")
         print("Model Constraints Applied:")
         print(f"{'─' * 80}")
-        for (action_name, part, pbl), op in model_constraints.items():
-            print(f"  {op.value.upper()} {pbl} in {part.value} of {action_name}")
+        if model_constraints:
+            for (action_name, part, pbl), op in model_constraints.items():
+                print(f"  {op.value.upper()} {pbl} in {part.value} of {action_name}")
+        else:
+            print(f"  (none)")
 
         # Show fluent patches
         print(f"\n{'─' * 80}")
         print("Fluent Patches Applied:")
         print(f"{'─' * 80}")
-        for patch in fluent_patches:
-            print(
-                f"  Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}"
-            )
+        if fluent_patches:
+            for patch in fluent_patches:
+                print(
+                    f"  Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}"
+                )
+        else:
+            print(f"  (none)")
 
         # Show final conflicts (if any)
         if conflicts:
@@ -337,6 +388,230 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
             print(f"\n  Action: {action_name}")
             print(f"    Preconditions: {len(action.preconditions.root.operands)} literals")
             print(f"    Effects: {len(action.discrete_effects)} effects")
+
+        self.assertIsNotNone(learned_domain)
+
+    @unittest.skipIf(
+        not Path(
+            f"{absulute_path_prefix}/src/experiments/llm_cv_test__PDDLEnvBlocks-v0__gpt-5-mini__steps=25__03-11-2025T22:25:06/problem7.trajectory"
+        ).exists(),
+        "Trajectory file not found",
+    )
+    def test_5_conflict_search_with_ontable_flip(self):
+        """
+        Test 5: Run ConflictDrivenPatchSearch demonstrating denoising capabilities.
+
+        This test shows how the conflict-driven search works with the problem7 trajectory.
+        The search starts from clean data and demonstrates the algorithm's ability to handle
+        the learning process systematically.
+        """
+        print("\n" + "=" * 100)
+        print("TEST 5: ConflictDrivenPatchSearch - Demonstrating Denoising Algorithm")
+        print("=" * 100)
+
+        print(f"\n{'─' * 100}")
+        print("Test Setup:")
+        print(f"{'─' * 100}")
+        print(f"  Trajectory: problem7 (25 steps, blocks world domain)")
+        print(f"  Observation: Grounded and masked")
+        print(f"  Search Strategy: Conflict-driven with best-first search")
+        print(f"  Cost Metric: Total number of patches (model + fluent)")
+        print(f"  ")
+        print(f"  This test demonstrates:")
+        print(f"    • How the search explores the patch space")
+        print(f"    • What conflicts arise during learning")
+        print(f"    • How the algorithm finds minimal corrections")
+
+        # Run conflict-driven search
+        print(f"\n{'─' * 100}")
+        print("Running Conflict-Driven Patch Search")
+        print(f"{'─' * 100}")
+
+        # Create logger for tree visualization
+        tree_log = ConflictTreeLogger()
+
+        # Create search instance
+        search = ConflictDrivenPatchSearch(
+            partial_domain_template=deepcopy(self.domain),
+            negative_preconditions_policy=NegativePreconditionPolicy.hard,
+            seed=42,
+            logger=tree_log,
+        )
+        # create the (ontable e) flip
+        ontable_fluent = "(ontable e)"
+        fluent_patch = FluentLevelPatch(
+            observation_index=0,
+            component_index=2,
+            state_type='next',
+            fluent=ontable_fluent
+        )
+
+        # Run search with no max_nodes limit
+        learned_domain, conflicts, model_constraints, fluent_patches, cost, report = search.run(
+            observations=[self.masked_observation],
+            max_nodes=None,
+            initial_fluent_patches={fluent_patch}
+        )
+
+        # Display results
+        print(f"\n{'─' * 100}")
+        print("Search Results:")
+        print(f"{'─' * 100}")
+        print(f"  Nodes Expanded: {tree_log.nodes_expanded}")
+        print(f"  Solution Found: {len(conflicts) == 0}")
+        print(f"  Final Conflicts: {len(conflicts)}")
+        print(f"  Total Cost: {cost} patches")
+        print(f"    - Model Constraints: {len(model_constraints)}")
+        print(f"    - Fluent Patches: {len(fluent_patches)}")
+
+        if len(conflicts) == 0:
+            print(f"\n  ✓ Conflict-free model found!")
+            print(f"    The search successfully completed")
+        else:
+            print(f"\n  ✗ No conflict-free model found")
+            print(f"    {len(conflicts)} conflicts remain")
+
+        # Display patch diff information from report
+        if "patch_diff" in report:
+            patch_diff = report["patch_diff"]
+            print(f"\n{'─' * 100}")
+            print("Patch Differences (from initial to final state):")
+            print(f"{'─' * 100}")
+            print(f"  This shows what patches were discovered during the search")
+
+            # Model patches
+            model_added = patch_diff.get("model_patches_added", {})
+            model_removed = patch_diff.get("model_patches_removed", {})
+            model_changed = patch_diff.get("model_patches_changed", {})
+
+            if model_added:
+                print(f"\n  Model Patches ADDED: {len(model_added)}")
+                for (action, part, pbl), op in model_added.items():
+                    print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
+
+            if model_removed:
+                print(f"\n  Model Patches REMOVED: {len(model_removed)}")
+                for (action, part, pbl), op in model_removed.items():
+                    print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
+
+            if model_changed:
+                print(f"\n  Model Patches CHANGED: {len(model_changed)}")
+                for key, (old_op, new_op) in model_changed.items():
+                    action, part, pbl = key
+                    print(f"    • {action} {part.value} {pbl}: {old_op.value} → {new_op.value}")
+
+            # Fluent patches
+            fluent_added = patch_diff.get("fluent_patches_added", set())
+            fluent_removed = patch_diff.get("fluent_patches_removed", set())
+
+            if fluent_added:
+                print(f"\n  Fluent Patches ADDED: {len(fluent_added)}")
+                for patch in sorted(fluent_added, key=lambda p: (p.observation_index, p.component_index)):
+                    print(f"    • Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
+
+            if fluent_removed:
+                print(f"\n  Fluent Patches REMOVED: {len(fluent_removed)}")
+                for patch in sorted(fluent_removed, key=lambda p: (p.observation_index, p.component_index)):
+                    print(f"    • Un-flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
+
+            if not any([model_added, model_removed, model_changed, fluent_added, fluent_removed]):
+                print(f"\n  No patches were added, removed, or changed from the initial state.")
+
+        # Show the solution patches
+        if model_constraints:
+            print(f"\n{'─' * 100}")
+            print("Model Constraints Applied:")
+            print(f"{'─' * 100}")
+            print(f"  These constraints limit what the learner can infer:")
+            for (action_name, part, pbl), op in model_constraints.items():
+                print(f"    • {op.value.upper()} {pbl} in {part.value} of {action_name}")
+
+        if fluent_patches:
+            print(f"\n{'─' * 100}")
+            print("Fluent Patches Applied:")
+            print(f"{'─' * 100}")
+            print(f"  These flips correct noisy observations:")
+            for patch in sorted(fluent_patches, key=lambda p: (p.observation_index, p.component_index)):
+                print(
+                    f"    • Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}"
+                )
+
+        # Show remaining conflicts if any
+        if conflicts:
+            print(f"\n{'─' * 100}")
+            print("Remaining Conflicts:")
+            print(f"{'─' * 100}")
+            for i, conflict in enumerate(conflicts, 1):
+                print(f"\n  {i}. {conflict.conflict_type.value}")
+                print(f"     Action: {conflict.action_name}")
+                print(f"     PBL: {conflict.pbl}")
+                print(f"     Grounded: {conflict.grounded_fluent}")
+                print(f"     Location: obs[{conflict.observation_index}][{conflict.component_index}]")
+
+        # Save tree visualization
+        output_file = self.experiment_dir / "conflict_search_tree_test5.txt"
+        tree_log.save_to_file(output_file)
+
+        print(f"\n{'─' * 100}")
+        print("Search Tree Visualization:")
+        print(f"{'─' * 100}")
+        print(f"  Saved to: {output_file}")
+        print(f"  ")
+        print(f"  The tree file contains:")
+        print(f"    • Complete search tree traversal")
+        print(f"    • Every node explored during the search")
+        print(f"    • Patches applied at each node")
+        print(f"    • Conflicts encountered at each node")
+        print(f"    • Solution path (if found)")
+
+        # Show summary of learned model
+        print(f"\n{'─' * 100}")
+        print("Learned Model Summary:")
+        print(f"{'─' * 100}")
+        for action_name, action in learned_domain.actions.items():
+            print(f"  Action: {action_name}")
+            print(f"    Preconditions: {len(action.preconditions.root.operands)} literals")
+            print(f"    Effects: {len(action.discrete_effects)} effects")
+
+        print(f"\n{'─' * 100}")
+        print("Interpretation:")
+        print(f"{'─' * 100}")
+        if len(conflicts) == 0:
+            print(f"  The conflict-driven search successfully completed learning.")
+            print(f"  ")
+            print(f"  Results:")
+            print(f"    • Nodes explored: {tree_log.nodes_expanded}")
+            print(f"    • Model constraints applied: {len(model_constraints)}")
+            print(f"    • Fluent patches applied: {len(fluent_patches)}")
+            print(f"    • Total cost: {len(model_constraints) + len(fluent_patches)} patches")
+            print(f"  ")
+            if len(fluent_patches) > 0:
+                print(f"  The search identified {len(fluent_patches)} fluent flip(s) needed to resolve conflicts.")
+                print(f"  These corrections fix inconsistencies in the observation data.")
+            if len(model_constraints) > 0:
+                print(f"  The search applied {len(model_constraints)} model constraint(s).")
+                print(f"  These constrain what the learner can infer from the data.")
+            if len(fluent_patches) == 0 and len(model_constraints) == 0:
+                print(f"  No patches were needed - the data is already consistent!")
+                print(f"  The learner can learn directly from the clean observations.")
+            print(f"  ")
+            print(f"  This demonstrates the algorithm's ability to systematically explore")
+            print(f"  the patch space and find minimal corrections for consistent learning.")
+        else:
+            print(f"  The search explored {tree_log.nodes_expanded} node(s) but did not find a")
+            print(f"  conflict-free model.")
+            print(f"  ")
+            print(f"  Remaining conflicts: {len(conflicts)}")
+            print(f"  Patches applied so far:")
+            print(f"    • Model constraints: {len(model_constraints)}")
+            print(f"    • Fluent patches: {len(fluent_patches)}")
+            print(f"  ")
+            print(f"  This may indicate that:")
+            print(f"    • The data contains complex inconsistencies requiring more patches")
+            print(f"    • The max_nodes limit was reached before finding a solution")
+            print(f"    • Additional search strategies or heuristics may be needed")
+
+        print(f"\n{'═' * 100}\n")
 
         self.assertIsNotNone(learned_domain)
 
