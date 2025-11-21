@@ -280,14 +280,23 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
             observations=[self.masked_observation], max_nodes=None
         )
 
+        # Extract patch diff from report
+        patch_diff = report.get("patch_diff", {})
+        model_added = patch_diff.get("model_patches_added", {})
+        model_removed = patch_diff.get("model_patches_removed", {})
+        model_changed = patch_diff.get("model_patches_changed", {})
+        fluent_added = patch_diff.get("fluent_patches_added", set())
+        fluent_removed = patch_diff.get("fluent_patches_removed", set())
+
         print(f"\n{'─' * 80}")
         print("Search Results:")
         print(f"{'─' * 80}")
         print(f"  Nodes Expanded: {tree_log.nodes_expanded}")
         print(f"  Solution Found: {len(conflicts) == 0}")
         print(f"  Final Conflicts: {len(conflicts)}")
-        print(f"  Model Constraints: {len(model_constraints)}")
-        print(f"  Fluent Patches: {len(fluent_patches)}")
+        print(f"  Solution Cost: {cost}")
+        print(f"    - Model Patches: {len(model_added)} added, {len(model_removed)} removed, {len(model_changed)} changed")
+        print(f"    - Fluent Patches: {len(fluent_added)} added, {len(fluent_removed)} removed")
 
         if len(conflicts) == 0:
             print(f"\n  ✓ Conflict-free model found!")
@@ -295,71 +304,53 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
             print(f"\n  ✗ No conflict-free model found within search limits")
 
         # Display patch diff information from report
-        if "patch_diff" in report:
-            patch_diff = report["patch_diff"]
-            print(f"\n{'─' * 80}")
-            print("Patch Differences (from initial to final state):")
-            print(f"{'─' * 80}")
-
-            # Model patches
-            model_added = patch_diff.get("model_patches_added", {})
-            model_removed = patch_diff.get("model_patches_removed", {})
-            model_changed = patch_diff.get("model_patches_changed", {})
-
-            if model_added:
-                print(f"\n  Model Patches ADDED: {len(model_added)}")
-                for (action, part, pbl), op in model_added.items():
-                    print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
-
-            if model_removed:
-                print(f"\n  Model Patches REMOVED: {len(model_removed)}")
-                for (action, part, pbl), op in model_removed.items():
-                    print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
-
-            if model_changed:
-                print(f"\n  Model Patches CHANGED: {len(model_changed)}")
-                for key, (old_op, new_op) in model_changed.items():
-                    action, part, pbl = key
-                    print(f"    • {action} {part.value} {pbl}: {old_op.value} → {new_op.value}")
-
-            # Fluent patches
-            fluent_added = patch_diff.get("fluent_patches_added", set())
-            fluent_removed = patch_diff.get("fluent_patches_removed", set())
-
-            if fluent_added:
-                print(f"\n  Fluent Patches ADDED: {len(fluent_added)}")
-                for patch in sorted(fluent_added, key=lambda p: (p.observation_index, p.component_index)):
-                    print(f"    • Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
-
-            if fluent_removed:
-                print(f"\n  Fluent Patches REMOVED: {len(fluent_removed)}")
-                for patch in sorted(fluent_removed, key=lambda p: (p.observation_index, p.component_index)):
-                    print(f"    • Un-flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
-
-            if not any([model_added, model_removed, model_changed, fluent_added, fluent_removed]):
-                print(f"\n  No patches were added, removed, or changed.")
-
-        # Show model constraints
         print(f"\n{'─' * 80}")
-        print("Model Constraints Applied:")
+        print("Patch Differences (from initial to final state):")
         print(f"{'─' * 80}")
+
+        if model_added:
+            print(f"\n  Model Patches ADDED: {len(model_added)}")
+            for (action, part, pbl), op in model_added.items():
+                print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
+
+        if model_removed:
+            print(f"\n  Model Patches REMOVED: {len(model_removed)}")
+            for (action, part, pbl), op in model_removed.items():
+                print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
+
+        if model_changed:
+            print(f"\n  Model Patches CHANGED: {len(model_changed)}")
+            for key, (old_op, new_op) in model_changed.items():
+                action, part, pbl = key
+                print(f"    • {action} {part.value} {pbl}: {old_op.value} → {new_op.value}")
+
+        if fluent_added:
+            print(f"\n  Fluent Patches ADDED: {len(fluent_added)}")
+            for patch in sorted(fluent_added, key=lambda p: (p.observation_index, p.component_index)):
+                print(f"    • Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
+
+        if fluent_removed:
+            print(f"\n  Fluent Patches REMOVED: {len(fluent_removed)}")
+            for patch in sorted(fluent_removed, key=lambda p: (p.observation_index, p.component_index)):
+                print(f"    • Un-flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
+
+        if not any([model_added, model_removed, model_changed, fluent_added, fluent_removed]):
+            print(f"\n  No patches were added, removed, or changed.")
+
+        # Show final state (all constraints and patches after search)
+        print(f"\n{'─' * 80}")
+        print("Final State - All Constraints and Patches:")
+        print(f"{'─' * 80}")
+
+        print(f"\n  Total Model Constraints in Final State: {len(model_constraints)}")
         if model_constraints:
             for (action_name, part, pbl), op in model_constraints.items():
-                print(f"  {op.value.upper()} {pbl} in {part.value} of {action_name}")
-        else:
-            print(f"  (none)")
+                print(f"    • {op.value.upper()} {pbl} in {part.value} of {action_name}")
 
-        # Show fluent patches
-        print(f"\n{'─' * 80}")
-        print("Fluent Patches Applied:")
-        print(f"{'─' * 80}")
+        print(f"\n  Total Fluent Patches in Final State: {len(fluent_patches)}")
         if fluent_patches:
-            for patch in fluent_patches:
-                print(
-                    f"  Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}"
-                )
-        else:
-            print(f"  (none)")
+            for patch in sorted(fluent_patches, key=lambda p: (p.observation_index, p.component_index)):
+                print(f"    • Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
 
         # Show final conflicts (if any)
         if conflicts:
@@ -453,6 +444,14 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
             initial_fluent_patches={fluent_patch}
         )
 
+        # Extract patch diff from report
+        patch_diff = report.get("patch_diff", {})
+        model_added = patch_diff.get("model_patches_added", {})
+        model_removed = patch_diff.get("model_patches_removed", {})
+        model_changed = patch_diff.get("model_patches_changed", {})
+        fluent_added = patch_diff.get("fluent_patches_added", set())
+        fluent_removed = patch_diff.get("fluent_patches_removed", set())
+
         # Display results
         print(f"\n{'─' * 100}")
         print("Search Results:")
@@ -460,9 +459,9 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         print(f"  Nodes Expanded: {tree_log.nodes_expanded}")
         print(f"  Solution Found: {len(conflicts) == 0}")
         print(f"  Final Conflicts: {len(conflicts)}")
-        print(f"  Total Cost: {cost} patches")
-        print(f"    - Model Constraints: {len(model_constraints)}")
-        print(f"    - Fluent Patches: {len(fluent_patches)}")
+        print(f"  Solution Cost: {cost}")
+        print(f"    - Model Patches: {len(model_added)} added, {len(model_removed)} removed, {len(model_changed)} changed")
+        print(f"    - Fluent Patches: {len(fluent_added)} added, {len(fluent_removed)} removed")
 
         if len(conflicts) == 0:
             print(f"\n  ✓ Conflict-free model found!")
@@ -472,69 +471,55 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
             print(f"    {len(conflicts)} conflicts remain")
 
         # Display patch diff information from report
-        if "patch_diff" in report:
-            patch_diff = report["patch_diff"]
-            print(f"\n{'─' * 100}")
-            print("Patch Differences (from initial to final state):")
-            print(f"{'─' * 100}")
-            print(f"  This shows what patches were discovered during the search")
+        print(f"\n{'─' * 100}")
+        print("Patch Differences (from initial to final state):")
+        print(f"{'─' * 100}")
+        print(f"  Starting with 1 fluent patch: (ontable e) at obs[0][2].next")
+        print(f"  This shows what the search discovered:")
 
-            # Model patches
-            model_added = patch_diff.get("model_patches_added", {})
-            model_removed = patch_diff.get("model_patches_removed", {})
-            model_changed = patch_diff.get("model_patches_changed", {})
+        if model_added:
+            print(f"\n  Model Patches ADDED: {len(model_added)}")
+            for (action, part, pbl), op in model_added.items():
+                print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
 
-            if model_added:
-                print(f"\n  Model Patches ADDED: {len(model_added)}")
-                for (action, part, pbl), op in model_added.items():
-                    print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
+        if model_removed:
+            print(f"\n  Model Patches REMOVED: {len(model_removed)}")
+            for (action, part, pbl), op in model_removed.items():
+                print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
 
-            if model_removed:
-                print(f"\n  Model Patches REMOVED: {len(model_removed)}")
-                for (action, part, pbl), op in model_removed.items():
-                    print(f"    • {op.value.upper()} {pbl} in {part.value} of {action}")
+        if model_changed:
+            print(f"\n  Model Patches CHANGED: {len(model_changed)}")
+            for key, (old_op, new_op) in model_changed.items():
+                action, part, pbl = key
+                print(f"    • {action} {part.value} {pbl}: {old_op.value} → {new_op.value}")
 
-            if model_changed:
-                print(f"\n  Model Patches CHANGED: {len(model_changed)}")
-                for key, (old_op, new_op) in model_changed.items():
-                    action, part, pbl = key
-                    print(f"    • {action} {part.value} {pbl}: {old_op.value} → {new_op.value}")
+        if fluent_added:
+            print(f"\n  Fluent Patches ADDED: {len(fluent_added)}")
+            for patch in sorted(fluent_added, key=lambda p: (p.observation_index, p.component_index)):
+                print(f"    • Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
 
-            # Fluent patches
-            fluent_added = patch_diff.get("fluent_patches_added", set())
-            fluent_removed = patch_diff.get("fluent_patches_removed", set())
+        if fluent_removed:
+            print(f"\n  Fluent Patches REMOVED: {len(fluent_removed)}")
+            for patch in sorted(fluent_removed, key=lambda p: (p.observation_index, p.component_index)):
+                print(f"    • Un-flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
 
-            if fluent_added:
-                print(f"\n  Fluent Patches ADDED: {len(fluent_added)}")
-                for patch in sorted(fluent_added, key=lambda p: (p.observation_index, p.component_index)):
-                    print(f"    • Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
+        if not any([model_added, model_removed, model_changed, fluent_added, fluent_removed]):
+            print(f"\n  No patches were added, removed, or changed from the initial state.")
 
-            if fluent_removed:
-                print(f"\n  Fluent Patches REMOVED: {len(fluent_removed)}")
-                for patch in sorted(fluent_removed, key=lambda p: (p.observation_index, p.component_index)):
-                    print(f"    • Un-flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
+        # Show final state (all constraints and patches after search)
+        print(f"\n{'─' * 100}")
+        print("Final State - All Constraints and Patches:")
+        print(f"{'─' * 100}")
 
-            if not any([model_added, model_removed, model_changed, fluent_added, fluent_removed]):
-                print(f"\n  No patches were added, removed, or changed from the initial state.")
-
-        # Show the solution patches
+        print(f"\n  Total Model Constraints in Final State: {len(model_constraints)}")
         if model_constraints:
-            print(f"\n{'─' * 100}")
-            print("Model Constraints Applied:")
-            print(f"{'─' * 100}")
-            print(f"  These constraints limit what the learner can infer:")
             for (action_name, part, pbl), op in model_constraints.items():
                 print(f"    • {op.value.upper()} {pbl} in {part.value} of {action_name}")
 
+        print(f"\n  Total Fluent Patches in Final State: {len(fluent_patches)}")
         if fluent_patches:
-            print(f"\n{'─' * 100}")
-            print("Fluent Patches Applied:")
-            print(f"{'─' * 100}")
-            print(f"  These flips correct noisy observations:")
             for patch in sorted(fluent_patches, key=lambda p: (p.observation_index, p.component_index)):
-                print(
-                    f"    • Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}"
-                )
+                print(f"    • Flip '{patch.fluent}' at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}")
 
         # Show remaining conflicts if any
         if conflicts:
@@ -579,32 +564,58 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         if len(conflicts) == 0:
             print(f"  The conflict-driven search successfully completed learning.")
             print(f"  ")
-            print(f"  Results:")
+            print(f"  Starting Point:")
+            print(f"    • Initial fluent patch: (ontable e) at obs[0][2].next")
+            print(f"    • This created a conflict (require_effect_vs_cannot)")
+            print(f"  ")
+            print(f"  Search Journey:")
             print(f"    • Nodes explored: {tree_log.nodes_expanded}")
-            print(f"    • Model constraints applied: {len(model_constraints)}")
-            print(f"    • Fluent patches applied: {len(fluent_patches)}")
-            print(f"    • Total cost: {len(model_constraints) + len(fluent_patches)} patches")
+            print(f"    • Solution cost: {cost}")
             print(f"  ")
-            if len(fluent_patches) > 0:
-                print(f"  The search identified {len(fluent_patches)} fluent flip(s) needed to resolve conflicts.")
-                print(f"  These corrections fix inconsistencies in the observation data.")
-            if len(model_constraints) > 0:
-                print(f"  The search applied {len(model_constraints)} model constraint(s).")
-                print(f"  These constrain what the learner can infer from the data.")
+            print(f"  What the Search Discovered:")
+            total_changes = len(model_added) + len(model_removed) + len(model_changed) + len(fluent_added) + len(fluent_removed)
+            if total_changes > 0:
+                if len(fluent_removed) > 0:
+                    print(f"    • Removed {len(fluent_removed)} fluent patch(es)")
+                    print(f"      → The initial flip was incorrect; reverting it fixes the conflict")
+                if len(fluent_added) > 0:
+                    print(f"    • Added {len(fluent_added)} new fluent patch(es)")
+                    print(f"      → Additional data corrections needed")
+                if len(model_added) > 0:
+                    print(f"    • Added {len(model_added)} model constraint(s)")
+                    print(f"      → Constraints on what can be learned")
+                if len(model_removed) > 0:
+                    print(f"    • Removed {len(model_removed)} model constraint(s)")
+                if len(model_changed) > 0:
+                    print(f"    • Changed {len(model_changed)} model constraint(s)")
+            else:
+                print(f"    • No changes from initial state")
+            print(f"  ")
+            print(f"  Final State:")
+            print(f"    • Model constraints: {len(model_constraints)}")
+            print(f"    • Fluent patches: {len(fluent_patches)}")
+            print(f"  ")
             if len(fluent_patches) == 0 and len(model_constraints) == 0:
-                print(f"  No patches were needed - the data is already consistent!")
-                print(f"  The learner can learn directly from the clean observations.")
+                print(f"  Result: The initial patch was removed, returning to clean data.")
+                print(f"  The algorithm correctly identified that the data was consistent")
+                print(f"  without the noisy flip.")
+            elif len(fluent_removed) > 0 and len(fluent_removed) == 1:
+                print(f"  Result: The search removed the problematic initial patch.")
+                print(f"  This demonstrates the algorithm can correct wrongly-applied patches.")
             print(f"  ")
-            print(f"  This demonstrates the algorithm's ability to systematically explore")
-            print(f"  the patch space and find minimal corrections for consistent learning.")
+            print(f"  This demonstrates the algorithm's ability to:")
+            print(f"    • Detect conflicts from noisy patches")
+            print(f"    • Explore the patch space systematically")
+            print(f"    • Find minimal corrections (even if that means removing patches)")
         else:
             print(f"  The search explored {tree_log.nodes_expanded} node(s) but did not find a")
             print(f"  conflict-free model.")
             print(f"  ")
             print(f"  Remaining conflicts: {len(conflicts)}")
-            print(f"  Patches applied so far:")
+            print(f"  Patches in final state:")
             print(f"    • Model constraints: {len(model_constraints)}")
             print(f"    • Fluent patches: {len(fluent_patches)}")
+            print(f"  Solution cost: {cost}")
             print(f"  ")
             print(f"  This may indicate that:")
             print(f"    • The data contains complex inconsistencies requiring more patches")

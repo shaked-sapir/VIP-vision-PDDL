@@ -61,7 +61,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
                 self.type_to_objects['block'])
         else:
             return no_uncertain_confidence_system_prompt(
-                self.type_to_objects['block'], self._generate_all_possible_predicates())
+                self.type_to_objects['block'])
 
     def _generate_all_possible_predicates(self) -> set[str]:
         """

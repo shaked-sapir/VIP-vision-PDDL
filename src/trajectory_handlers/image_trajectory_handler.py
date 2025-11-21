@@ -8,6 +8,7 @@ from typing import List
 import cv2
 import pddlgym
 from PIL import Image
+from matplotlib import pyplot as plt
 from pddlgym.core import _select_operator
 from pddlgym.structs import State, Literal
 
@@ -51,8 +52,10 @@ class ImageTrajectoryHandler(ABC):
         :return: (None)
         """
         img = self.pddl_env.render(mode='rgb_array')
+        plt.close('all')
         img_pil = Image.fromarray(img)
         img_pil.save(os.path.join(image_output_dir, f"state_{image_sequential_idx:{self.seq_idx_format}}.png"))
+
         return
 
     #  TODO: maybe use same approach (either PIL or cv2) for both create_image and load_image

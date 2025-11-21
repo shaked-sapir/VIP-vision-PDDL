@@ -1,49 +1,4 @@
-from .consts import objects_to_colors, all_colors, all_object_types
-
-no_pred_guidance_system_prompt = (
-    "You are a visual reasoning agent for a robotic planning system. "
-    "Given an image, consisted of the following objects: "
-    "1. gray-colored gripper (type=gripper), "
-    "2. brown-colored table (type=table), "
-    f"3. colored blocks: {', '.join(objects_to_colors['block'])} (type=block). "
-    "Extract grounded binary predicates in the following forms:\n"
-    "- on(x:block,y:block)\n"
-    "- ontable(x:block)\n"
-    "- handempty(gripper:gripper)\n"
-    "- handfull(gripper:gripper)\n"
-    "- holding(x:block, gripper:gripper)\n"
-    "- clear(x:block)\n\n"
-    "Only use defined objects with proper typings for grounding. Return one predicate per line."
-)
-
-
-def full_guidance_system_prompt(block_colors: list[str]) -> str:
-    return (
-        f"""You are a visual reasoning agent for a robotic planning system. 
- Given an image with the following known objects:\n
- - A grey-colored gripper (type=gripper)\n
- - A brown-colored table (type=table)\n
- - Colored blocks: {', '.join(block_colors)} (type=block).\n\n
- Your task is to extract grounded binary predicates in the EXACT forms below, using the defined objects only. 
- Each argument must include the object name and its type, separated by a colon (e.g. red:block). 
- DO NOT invent new predicates or omit typings.\n\n
- Valid predicate forms:\n
- - on(x:block,y:block)            → block x is directly on block y\n
- - ontable(x:block)               → block x is on the table\n
- - handempty(gripper:gripper)     → gripper is empty\n
- - handfull(gripper:gripper)      → gripper is not empty\n
- - holding(x:block)               → gripper holds block x\n
- - clear(x:block)                 → no block is on top of x, or gripper holds block x\n\n
- ❗IMPORTANT:\n
- - Each predicate must appear exactly as described — including typings\n
- - Do NOT use forms like 'holding(blue)' or 'on(red,blue)' — typings are REQUIRED\n
- - Return one predicate per line, nothing else\n\n
- ✅ Example output:\n
- on(red:block,blue:block)\n
- holding(red:block)\n
- ontable(blue:block)\n
- clear(green:block)
-)""")
+from .consts import all_colors, all_object_types
 
 
 def with_uncertain_confidence_system_prompt(block_colors: list[str]) -> str:
@@ -92,7 +47,7 @@ ontable(blue:block): 2
 clear(green:block): 1
 handempty(gripper:gripper): 0
 handfull(gripper:gripper): 2
-)""")
+""")
 
 # def with_uncertain_confidence_system_prompt(block_colors: list[str], groundings: set[str]) -> str:
 #     groundings_str = "\n".join(sorted(groundings))
@@ -207,12 +162,12 @@ handfull(gripper:gripper): 2
 # handfull(gripper:gripper): 2
 # )""")
 
-def no_uncertain_confidence_system_prompt(block_colors: list[str], groundings: set[str]) -> str:
+def no_uncertain_confidence_system_prompt(block_colors: list[str]) -> str:
     """
     System prompt that does NOT allow uncertain (1) option.
     Forces the model to make binary decisions: 0 or 2 only.
     """
-    groundings_str = "\n".join(sorted(groundings))
+    # groundings_str = "\n".join(sorted(groundings))
     return (
         f"""You are a visual reasoning agent for a robotic planning system.\n
 Given an image with the following known objects:
@@ -235,9 +190,6 @@ Valid predicate forms:
  - holding(x:block)               → gripper **clearly** holds block x
  - clear(x:block)    → no block is on top of x AND gripper does not hold block x
 
-
-the list of possible groundings is:
-{groundings_str}
 
 For each predicate you extract, evaluate the confidence level that predicate holds in the image.
 Use BINARY DECISION to express your confidence:

@@ -133,6 +133,7 @@ class Simulator:
         self.domain_name = domain_name
         self.experiment_dir_path = experiment_dir_path
         self.openai_apikey = openai_apikey
+        self.visual_components_model_name = visual_components_model_name
 
         # Initialize trajectory handler for blocks domain, object detection & fluent classification done with same model
         self.image_trajectory_handler: ImageTrajectoryHandler = LLMBlocksImageTrajectoryHandler(

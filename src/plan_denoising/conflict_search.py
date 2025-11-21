@@ -165,7 +165,7 @@ class ConflictDrivenPatchSearch:
             if max_nodes is not None and nodes_expanded >= max_nodes:
                 break
 
-            node = heapq.heappop(open_heap)
+            node: SearchNode = heapq.heappop(open_heap)
 
             state_key = self._encode_state(node.model_constraints, node.fluent_patches)
             if state_key in visited:
