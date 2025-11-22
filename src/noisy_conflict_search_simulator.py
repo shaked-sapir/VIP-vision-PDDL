@@ -269,70 +269,70 @@ class NoisyConflictSearchSimulator(Simulator):
 
         # Create working directory for this experiment run
         timestamp = create_experiment_timestamp()
-        # working_dir = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/noisy_conflict_experiments/noisy_conflict_cv__steps=10__model=gpt-4o__temp=0.0__22-11-2025T11:13:26")
-        working_dir = self.experiment_dir_path / f"{experiment_name}__steps={num_steps}__model={self.visual_components_model_name}__temp={self.visual_components_temperature}__{timestamp}"
-        working_dir.mkdir(parents=True, exist_ok=True)
-
-        print(f"\nWorking directory: {working_dir}")
-
-        # Step 1: Generate trajectories for all problems using LLM (sequentially)
-        print(f"\n{'='*80}")
-        print(f"Step 1: Generating Trajectories with LLM-based detection/classification (SEQUENTIAL)")
-        print(f"{'='*80}\n")
-
-        successful_problems = []
-        failed_problems = []
-
-        print(f"Processing {len(problems)} problems sequentially...")
-        trajectory_start_time = time()
-
-        # Process problems one by one
-        for i, problem_name in enumerate(problems, 1):
-            print(f"\nProcessing problem {i}/{len(problems)}: {problem_name}")
-            problem_result, success = _create_single_problem_trajectory(
-                self.domain_name,
-                problem_name,
-                num_steps,
-                working_dir,
-                i,
-                len(problems),
-                self.openai_apikey,
-                self.visual_components_model_name,
-                self.visual_components_temperature,
-                self.pddl_domain_file,
-                self.problem_dir
-            )
-
-            if success:
-                successful_problems.append(problem_name)
-            else:
-                failed_problems.append(problem_name)
-
-        trajectory_end_time = time()
-
-        # Report results
-        print(f"\n{'='*80}")
-        print(f"Trajectory Generation Complete")
-        print(f"{'='*80}")
-        print(f"✓ Successful: {len(successful_problems)}/{len(problems)}")
-        if failed_problems:
-            print(f"✗ Failed: {len(failed_problems)}/{len(problems)}")
-            print(f"  Failed problems: {', '.join(failed_problems)}")
-        print(f"Total trajectory generation time: {trajectory_end_time - trajectory_start_time:.2f} seconds")
-        print()
-
-        # Step 2: Copy domain file to working directory
-        print(f"\n{'='*80}")
-        print(f"Step 2: Preparing Experiment Files")
-        print(f"{'='*80}\n")
-
-        shutil.copy(self.pddl_domain_file, working_dir / self.pddl_domain_file.name)
-        print(f"✓ Copied domain file: {self.pddl_domain_file.name}")
-
-        # Step 3: Run cross-validation with NoisyConflictSearchExperimentRunner
-        print(f"\n{'='*80}")
-        print(f"Step 3: Running Conflict-Driven Search Cross-Validation")
-        print(f"{'='*80}\n")
+        working_dir = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/noisy_conflict_experiments/noisy_conflict_cv__steps=20__model=gpt-5-mini__temp=1.0__22-11-2025T21:08:22")
+        # working_dir = self.experiment_dir_path / f"{experiment_name}__steps={num_steps}__model={self.visual_components_model_name}__temp={self.visual_components_temperature}__{timestamp}"
+        # working_dir.mkdir(parents=True, exist_ok=True)
+        #
+        # print(f"\nWorking directory: {working_dir}")
+        #
+        # # Step 1: Generate trajectories for all problems using LLM (sequentially)
+        # print(f"\n{'='*80}")
+        # print(f"Step 1: Generating Trajectories with LLM-based detection/classification (SEQUENTIAL)")
+        # print(f"{'='*80}\n")
+        #
+        # successful_problems = []
+        # failed_problems = []
+        #
+        # print(f"Processing {len(problems)} problems sequentially...")
+        # trajectory_start_time = time()
+        #
+        # # Process problems one by one
+        # for i, problem_name in enumerate(problems, 1):
+        #     print(f"\nProcessing problem {i}/{len(problems)}: {problem_name}")
+        #     problem_result, success = _create_single_problem_trajectory(
+        #         self.domain_name,
+        #         problem_name,
+        #         num_steps,
+        #         working_dir,
+        #         i,
+        #         len(problems),
+        #         self.openai_apikey,
+        #         self.visual_components_model_name,
+        #         self.visual_components_temperature,
+        #         self.pddl_domain_file,
+        #         self.problem_dir
+        #     )
+        #
+        #     if success:
+        #         successful_problems.append(problem_name)
+        #     else:
+        #         failed_problems.append(problem_name)
+        #
+        # trajectory_end_time = time()
+        #
+        # # Report results
+        # print(f"\n{'='*80}")
+        # print(f"Trajectory Generation Complete")
+        # print(f"{'='*80}")
+        # print(f"✓ Successful: {len(successful_problems)}/{len(problems)}")
+        # if failed_problems:
+        #     print(f"✗ Failed: {len(failed_problems)}/{len(problems)}")
+        #     print(f"  Failed problems: {', '.join(failed_problems)}")
+        # print(f"Total trajectory generation time: {trajectory_end_time - trajectory_start_time:.2f} seconds")
+        # print()
+        #
+        # # Step 2: Copy domain file to working directory
+        # print(f"\n{'='*80}")
+        # print(f"Step 2: Preparing Experiment Files")
+        # print(f"{'='*80}\n")
+        #
+        # shutil.copy(self.pddl_domain_file, working_dir / self.pddl_domain_file.name)
+        # print(f"✓ Copied domain file: {self.pddl_domain_file.name}")
+        #
+        # # Step 3: Run cross-validation with NoisyConflictSearchExperimentRunner
+        # print(f"\n{'='*80}")
+        # print(f"Step 3: Running Conflict-Driven Search Cross-Validation")
+        # print(f"{'='*80}\n")
         experiment_runner = NoisyConflictSearchExperimentRunner(
             working_directory_path=working_dir,
             domain_file_name=self.pddl_domain_file.name,
@@ -416,7 +416,7 @@ if __name__ == '__main__':
 
     results_dir = simulator.run_cross_validation_with_conflict_search(
         problems=problems_to_test,
-        num_steps=25,
+        num_steps=20,
         experiment_name="noisy_conflict_cv"
     )
 

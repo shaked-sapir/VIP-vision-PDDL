@@ -407,15 +407,15 @@ class NoisyPisamLearner(PISAMLearner):
                 # Track for potential removal if we ever choose to apply pure PI-SAM
                 conditions_to_remove.append(current_precondition)
 
-        all_conflicts = patch_conflicts + data_conflicts
-
-        if all_conflicts:
-            # Record all conflicts and DO NOT remove any preconditions here.
-            # Conflict search will later:
-            #   - create a FluentLevelPatch (flip in prev_state) for data conflicts
-            #   - for patch-based conflicts: also has the (no-op) model branch
-            self.conflicts.extend(all_conflicts)
-            return
+        # all_conflicts = patch_conflicts + data_conflicts
+        #
+        # if all_conflicts:
+        #     # Record all conflicts and DO NOT remove any preconditions here.
+        #     # Conflict search will later:
+        #     #   - create a FluentLevelPatch (flip in prev_state) for data conflicts
+        #     #   - for patch-based conflicts: also has the (no-op) model branch
+        #     self.conflicts.extend(all_conflicts)
+        #     # return
 
         # No conflicts at all -> perform standard PI-SAM cannot_be_precondition removal
         for condition in conditions_to_remove:
@@ -423,6 +423,63 @@ class NoisyPisamLearner(PISAMLearner):
     # -------------------------------------------------------------------------
     # Effects: FORBID/REQUIRE vs must/cannot (including data-only [non-patched] conflicts)
     # -------------------------------------------------------------------------
+
+    def _should_negate_grounded_effect(
+            self,
+            grounded_predicate,
+            conflict_observation_index: int,
+            conflict_component_index: int,
+    ) -> bool:
+        """
+        Decide whether the grounded_fluent of a REQUIRE_EFFECT_VS_CANNOT conflict
+        should be reported as negated.
+
+        Negation is needed **only** if:
+          - There exists a fluent patch that would flip this same grounded predicate,
+          - That patch is at:
+                observation_index == conflict_observation_index
+                component_index == conflict_component_index + 1
+                state_type == "prev"
+          - And its fluent name matches grounded_predicate.untyped_representation (ignoring negation).
+
+        This corresponds exactly to the PI-SAM semantics:
+            cannot_be_effect at comp=i  ↔  negated in next state of comp=i
+            but a "prev" patch at comp=i+1 would flip it back.
+
+        Parameters
+        ----------
+        grounded_predicate : Predicate
+            The *grounded* predicate gp (not lifted) part of the conflict.
+
+        conflict_observation_index : int
+            Original conflict obs index.
+
+        conflict_component_index : int
+            Original conflict component idx (the transition where cannot_be_effect was detected).
+
+        Returns
+        -------
+        bool
+            True  -> use negated form (gp.copy(is_negated=True))
+            False -> use positive form   (gp.untyped_representation)
+        """
+
+        gp_repr = grounded_predicate.untyped_representation
+        obs_idx = conflict_observation_index
+        target_comp = conflict_component_index + 1  # The (i+1) component whose prev_state would be flipped
+
+        for patch in self.fluent_patches:
+            if (
+                    patch.observation_index == obs_idx
+                    and patch.component_index == target_comp
+                    and patch.state_type == "prev"
+                    and patch.fluent == gp_repr
+            ):
+                # Patch flips that very fluent → conflict should NOT add an extra negation
+                return False
+
+        # No patch overrides the negation → report negated form
+        return True
 
     def handle_effects(self, grounded_action: ActionCall, previous_state: State, next_state: State) -> None:
         """
@@ -525,6 +582,11 @@ class NoisyPisamLearner(PISAMLearner):
                     parameters=tuple(p for p in lifted_gp.signature.keys()),
                     is_positive=getattr(lifted_gp, "is_positive", True),
                 )
+                to_negate = self._should_negate_grounded_effect(
+                    gp,
+                    self.current_observation_index,
+                    self.current_component_index,
+                )
                 conflict = Conflict(
                     action_name=action_name,
                     pbl=pbl,
@@ -532,7 +594,8 @@ class NoisyPisamLearner(PISAMLearner):
                     observation_index=self.current_observation_index,
                     component_index=self.current_component_index,
                     # it was in cannot_be_effects => it is negated in the state => we have to report the negation form
-                    grounded_fluent=gp.copy(is_negated=True).untyped_representation,
+                    # grounded_fluent=gp.copy(is_negated=True).untyped_representation,
+                    grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
                 )
                 local_conflicts.append(conflict)
                 self.logger.warning(f"Detected data effect conflict (must vs cannot): {conflict}")
@@ -544,13 +607,18 @@ class NoisyPisamLearner(PISAMLearner):
         for gp in cannot_be_effects:
             for pbl in require_set:
                 if self._lift_and_match(grounded_action, gp, pbl):
+                    to_negate = self._should_negate_grounded_effect(
+                        gp,
+                        self.current_observation_index,
+                        self.current_component_index,
+                    )
                     conflict = Conflict(
                         action_name=action_name,
                         pbl=pbl,
                         conflict_type=ConflictType.REQUIRE_EFFECT_VS_CANNOT,
                         observation_index=self.current_observation_index,
                         component_index=self.current_component_index,
-                        grounded_fluent=gp.copy(is_negated=True).untyped_representation,
+                        grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
                     )
                     local_conflicts.append(conflict)
                     self.logger.warning(f"Detected patch-based effect conflict (REQUIRE vs cannot): {conflict}")
