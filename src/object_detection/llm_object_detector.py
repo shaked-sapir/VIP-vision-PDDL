@@ -20,9 +20,10 @@ class LLMObjectDetector(ObjectDetector, ABC):
     converts model output into a mapping of object typings to grounded object names.
     """
 
-    def __init__(self, openai_apikey: str, model: str):
+    def __init__(self, openai_apikey: str, model: str, temperature: float = 1.0):
         self.openai_client = OpenAI(api_key=openai_apikey)
         self.model = model
+        self.temperature = temperature
         self.system_prompt = self._get_system_prompt()
         self.result_regex = self._get_result_regex()
         self.llm_result_parse_func = self._parse_llm_object_detection
@@ -43,7 +44,7 @@ class LLMObjectDetector(ObjectDetector, ABC):
     def _parse_llm_object_detection(obj_detect_fact: str) -> str:
         return obj_detect_fact.replace(" ", "")  # remove spaces guardedly added by the LLM
 
-    def _detect_once(self, image_path: Union[Path, str], temperature: float = 1.0) -> set[str]:
+    def _detect_once(self, image_path: Union[Path, str], temperature: float) -> set[str]:
         base64_image: str = encode_image_to_base64(image_path)
         user_prompt = [
             {
@@ -69,7 +70,8 @@ class LLMObjectDetector(ObjectDetector, ABC):
         return set([self.llm_result_parse_func(fact) for fact in facts])
 
     def detect(self, image: Union[Path, str], *args, **kwargs) -> dict[str, List[str]]:
-        detected_objects = self._detect_once(image, *args, **kwargs)
+        print(f"Detecting objects with temperature = {self.temperature}")
+        detected_objects = self._detect_once(image, self.temperature)
         type_to_objects: Dict[str, List[str]] = defaultdict(list)
         for obj in detected_objects:
             name, type_ = obj.split(":")

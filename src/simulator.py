@@ -32,6 +32,7 @@ def _create_single_problem_trajectory(
     total_problems: int,
     openai_apikey: str,
     visual_components_model_name: str,
+    visual_components_temperature: float,
     pddl_domain_file: Path,
     problem_dir: Path
 ) -> Tuple[str, bool]:
@@ -49,6 +50,7 @@ def _create_single_problem_trajectory(
     :param total_problems: Total number of problems being processed.
     :param openai_apikey: OpenAI API key.
     :param visual_components_model_name: LLM model name.
+    :param visual_components_temperature: Temperature for LLM components.
     :param pddl_domain_file: Path to PDDL domain file.
     :param problem_dir: Directory containing problem files.
     :return: Tuple of (problem_name, success_status).
@@ -61,7 +63,12 @@ def _create_single_problem_trajectory(
 
         # Create trajectory handler for this process
         image_trajectory_handler = LLMBlocksImageTrajectoryHandler(
-            domain_name, openai_apikey, visual_components_model_name, visual_components_model_name
+            domain_name,
+            openai_apikey,
+            object_detector_model=visual_components_model_name,
+            object_detection_temperature=visual_components_temperature,
+            fluent_classifier_model=visual_components_model_name,
+            fluent_classification_temperature=visual_components_temperature
         )
 
         # Create experiment directory structure
@@ -119,6 +126,7 @@ class Simulator:
     def __init__(self, domain_name: str, openai_apikey: str,
                  pddl_domain_file: Path, pddl_problem_dir: Path,
                  visual_components_model_name: str,
+                 visual_components_temperature: float = 1.0,
                  experiment_dir_path: Path = Path("vip_experiments")):
         """
         Initialize the simulator.
@@ -134,10 +142,16 @@ class Simulator:
         self.experiment_dir_path = experiment_dir_path
         self.openai_apikey = openai_apikey
         self.visual_components_model_name = visual_components_model_name
+        self.visual_components_temperature = visual_components_temperature
 
         # Initialize trajectory handler for blocks domain, object detection & fluent classification done with same model
         self.image_trajectory_handler: ImageTrajectoryHandler = LLMBlocksImageTrajectoryHandler(
-            domain_name, openai_apikey, visual_components_model_name, visual_components_model_name
+            domain_name,
+            openai_apikey,
+            object_detector_model=visual_components_model_name,
+            object_detection_temperature=visual_components_temperature,
+            fluent_classifier_model=visual_components_model_name,
+            fluent_classification_temperature=visual_components_temperature
         )
 
         # Parse domain and set problem directory
@@ -371,6 +385,7 @@ class Simulator:
                     len(problems),
                     self.openai_apikey,
                     self.image_trajectory_handler.object_detector_model,
+                    self.image_trajectory_handler.object_detector_temperature,
                     self.pddl_domain_file,
                     self.problem_dir
                 ): problem_name
@@ -467,7 +482,8 @@ if __name__ == '__main__':
             openai_apikey=openai_apikey,
             pddl_domain_file=Path(config['domains'][domain]['domain_file']),
             pddl_problem_dir=Path(config['domains'][domain]['problems_dir']),
-            visual_components_model_name=visual_components_model_name
+            visual_components_model_name=visual_components_model_name,
+            visual_components_temperature=config['openai']['visual_components_model']['temperature']
         )
 
         simulation_start_time = time()
@@ -511,7 +527,8 @@ if __name__ == '__main__':
             openai_apikey=openai_apikey,
             pddl_domain_file=Path(config['domains'][domain]['domain_file']),
             pddl_problem_dir=Path(config['domains'][domain]['problems_dir']),
-            visual_components_model_name=visual_components_model_name
+            visual_components_model_name=visual_components_model_name,
+            visual_components_temperature=config['openai']['visual_components_model']['temperature']
         )
 
         # Run cross-validation with LLM-based procedures

@@ -1,5 +1,3 @@
-# conflict_search.py
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -32,10 +30,11 @@ Key = Tuple[str, ModelPart, ParameterBoundLiteral]   # (action_name, part, pbl)
 class SearchNode:
     """
     Internal search node.
-
     cost:
-        Simple heuristic = number of patches on this node:
-            len(model_constraints) + len(fluent_patches)
+        heuristic = A* based (patch operation cost + #conflicts from learner)
+
+    patch_operations_cost:
+        Cumulative cost of patch operations applied to reach this node.
 
     model_constraints:
         Mapping (action, part, pbl) -> PatchOperation (FORBID / REQUIRE)
@@ -43,9 +42,14 @@ class SearchNode:
     fluent_patches:
         Set of fluent-level patches (where to flip data).
     """
+    sort_key: Tuple[int, int] = field(init=False, repr=False)
     cost: int
+    patch_operations_cost: int
     model_constraints: Dict[Key, PatchOperation] = field(compare=False)
     fluent_patches: Set[FluentLevelPatch] = field(compare=False)
+
+    def __post_init__(self):
+        self.sort_key = (self.cost, self.patch_operations_cost)
 
 
 class ConflictDrivenPatchSearch:
@@ -145,6 +149,7 @@ class ConflictDrivenPatchSearch:
 
         root = SearchNode(
             cost=0,
+            patch_operations_cost=0,
             model_constraints=root_constraints,
             fluent_patches=root_fluent_patches,
         )
@@ -225,34 +230,41 @@ class ConflictDrivenPatchSearch:
             else:
                 child1_fluent_patches.remove(conflict_fluent_patch)  # flip again to avoid duplicates
 
-            child1_cost = node.cost + self.fluent_patch_cost
+            child1_patch_operations_cost = node.patch_operations_cost + self.fluent_patch_cost
+            child1_cost = child1_patch_operations_cost + len(conflicts)  # A* style cost with conflicts as heuristic
+
             child1_state = self._encode_state(child1_model_constraints, child1_fluent_patches)
             depth_tracker[child1_state] = current_depth + 1
             heapq.heappush(
                 open_heap,
                 SearchNode(
                     cost=child1_cost,
+                    patch_operations_cost=child1_patch_operations_cost,
                     model_constraints=child1_model_constraints,
                     fluent_patches=child1_fluent_patches,
                 ),
             )
 
-            # Branch 2: model-fix (drop constraint for this PBL)
-            child2_model_constraints: Dict[Key, PatchOperation] = dict(node.model_constraints)
-            child2_model_constraints = self._build_model_patch(conflict, child2_model_constraints)
-            child2_fluent_patches = set(node.fluent_patches)
+            # Branch 2: model-fix (drop constraint for this PBL) - only for effect conflicts
+            if conflict.conflict_type != ConflictType.FORBID_PRECOND_VS_IS:
+                child2_model_constraints: Dict[Key, PatchOperation] = dict(node.model_constraints)
+                child2_model_constraints = self._build_model_patch(conflict, child2_model_constraints)
+                child2_fluent_patches = set(node.fluent_patches)
 
-            child2_cost = node.cost + self.model_patch_cost
-            child2_state = self._encode_state(child2_model_constraints, child2_fluent_patches)
-            depth_tracker[child2_state] = current_depth + 1
-            heapq.heappush(
-                open_heap,
-                SearchNode(
-                    cost=child2_cost,
-                    model_constraints=child2_model_constraints,
-                    fluent_patches=child2_fluent_patches,
-                ),
-            )
+                child2_patch_operations_cost = node.patch_operations_cost + self.model_patch_cost
+                child2_cost = child2_patch_operations_cost + len(conflicts)
+
+                child2_state = self._encode_state(child2_model_constraints, child2_fluent_patches)
+                depth_tracker[child2_state] = current_depth + 1
+                heapq.heappush(
+                    open_heap,
+                    SearchNode(
+                        cost=child2_cost,
+                        patch_operations_cost=child2_patch_operations_cost,
+                        model_constraints=child2_model_constraints,
+                        fluent_patches=child2_fluent_patches,
+                    ),
+                )
 
         # No conflict-free model found within limits; return last evaluated
         last_constraints, last_fluent_patches = last_state

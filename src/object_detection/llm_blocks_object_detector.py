@@ -3,10 +3,11 @@ from src.object_detection.llm_object_detector import LLMObjectDetector
 
 
 class LLMBlocksObjectDetector(LLMObjectDetector):
-    def __init__(self, openai_apikey: str, model: str = "gpt-4o"):
+    def __init__(self, openai_apikey: str, model: str = "gpt-4o", temperature: float = 1.0):
         super().__init__(
             openai_apikey=openai_apikey,
-            model=model
+            model=model,
+            temperature=temperature
         )
 
     def _get_system_prompt(self) -> str:

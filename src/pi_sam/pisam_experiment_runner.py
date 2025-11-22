@@ -7,7 +7,7 @@ from experiments.experiments_consts import DEFAULT_SPLIT
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain, Observation
 from sam_learning.core import LearnerDomain
-from utilities import LearningAlgorithmType
+from utilities import LearningAlgorithmType, NegativePreconditionPolicy
 
 from src.pi_sam import PISAMLearner
 from src.utils.masking import load_masked_observation
@@ -22,14 +22,16 @@ class OfflinePiSamExperimentRunner(OfflineBasicExperimentRunner):
         working_directory_path: Path,
         domain_file_name: str,
         problem_prefix: str = "problem",
-        n_split: int = DEFAULT_SPLIT
+        n_split: int = DEFAULT_SPLIT,
+        negative_precondition_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard
     ):
         super().__init__(
             working_directory_path=working_directory_path,
             domain_file_name=domain_file_name,
             learning_algorithm=LearningAlgorithmType.sam_learning,
             problem_prefix=problem_prefix,
-            n_split=n_split
+            n_split=n_split,
+            negative_precondition_policy=negative_precondition_policy
         )
 
     def copy_masking_info_to_train_dir(self, train_set_dir_path: Path) -> None:

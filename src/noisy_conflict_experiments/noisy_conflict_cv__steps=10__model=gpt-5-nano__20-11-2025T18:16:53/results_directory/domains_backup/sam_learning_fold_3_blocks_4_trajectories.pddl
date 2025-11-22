@@ -1,5 +1,5 @@
 (define (domain blocks)
-(:requirements :strips :typing :equality :negative-preconditions)
+(:requirements :negative-preconditions :typing :equality :strips)
 (:types 	block robot - object
 )
 
@@ -13,8 +13,7 @@
 
 (:action pick-up
 	:parameters (?x - block ?robot - robot)
-	:precondition (and (handempty ?robot)
-	(not (handfull ?robot)))
+	:precondition (and (handempty ?robot))
 	:effect (and (handfull ?robot)
 		(holding ?x)
 		(not (clear ?x))
@@ -44,7 +43,7 @@
 
 (:action unstack
 	:parameters (?x - block ?y - block ?robot - robot)
-	:precondition (and (not (handfull ?robot))(not (= ?x ?y)))
+	:precondition (and (not (= ?x ?y)))
 	:effect (and (clear ?y)
 		(handfull ?robot)
 		(holding ?x)

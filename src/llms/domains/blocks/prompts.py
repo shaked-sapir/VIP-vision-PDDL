@@ -223,24 +223,31 @@ handfull(gripper:gripper): 2
 )""")
 
 
-object_detection_system_prompt = (
-    f"""
-   You are a visual object-recognition agent for a robotic planning system.
+object_detection_system_prompt = (f"""
+    You are a visual object-recognition agent for a robotic planning system.
    
-   Given the following image, identify all physical objects that are present, and describe each object using:
-   - object color (from the set: {', '.join(all_colors)})
-   - object type (from the set: {', '.join(all_object_types)})
+    Given the following image, identify all physical objects that are present, and describe each object using:
+    - object color (from the set: {', '.join(all_colors)})
+    - object type (from the set: {', '.join(all_object_types)})
+      
+    IMPORTANT RULE ABOUT THE GRIPPER:
+    - If the grey gripper is present, always check whether it is holding a block.
+    - If ANY colored block is inside, partially inside, touching, or occluded by the gripper,
+      you MUST still list that block as a separate object.
+    - Held objects NEVER become part of the gripper.
+    - If only the top part of a block is visible inside the gripper, it must still be reported.
+
+    Notice that some objects may be partially occluded or only partially visible in the image - include all such objects.
+    
+    Each object should be described on a separate line using this format:
+    <color>:<type>
    
-   Each object should be described on a separate line using this format:
-   <object_id>: <color> <type>
+    Use object IDs like: red:block, green:block, etc. Only include objects that are clearly visible in the image.
    
-   Use object IDs like: red:block, green:block, etc. Only include objects that are clearly visible in the image.
+    ✅ Examples:
+    - red:block
+    - grey:gripper
+    - brown:table
    
-   ✅ Examples:
-   - red:block
-   - grey:gripper
-   - brown:table
-   
-   ❌ Do not guess or invent new typings/colors. Do not return anything other than the list of objects in the format above.
-   """
-)
+    ❌ Do not guess or invent new typings/colors. Do not return anything other than the list of objects in the format above.
+""")

@@ -11,7 +11,8 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
     """
 
     def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None,
-                 model: str = "gpt-4o", use_uncertain: bool = True):
+                 model: str = "gpt-4o", temperature: float = 1.0,
+                 use_uncertain: bool = True):
         """
         Initialize the blocks fluent classifier.
 
@@ -25,7 +26,8 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
         super().__init__(
             openai_apikey=openai_apikey,
             type_to_objects=type_to_objects,
-            model=model
+            model=model,
+            temperature=temperature
         )
 
         self.imaged_obj_to_gym_obj_name = {

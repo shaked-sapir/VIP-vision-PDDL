@@ -15,10 +15,11 @@ from src.utils.visualize import encode_image_to_base64
 class LLMFluentClassifier(FluentClassifier, ABC):
     system_prompt: str
 
-    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]], model: str):
+    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]], model: str, temperature: float = 1.0):
         self.openai_client = OpenAI(api_key=openai_apikey)
         self.model = model
         self.type_to_objects = type_to_objects  # dict of type -> list of object names
+        self.temperature = temperature
 
         # Mapping from objects detected by LLM to their gym instances for predicate back-translation. define in subclass
         self.imaged_obj_to_gym_obj_name = {}
@@ -45,7 +46,7 @@ class LLMFluentClassifier(FluentClassifier, ABC):
     def _parse_llm_predicate_relevance(predicate_fact: tuple[str, int]) -> tuple[str, int]:
         return predicate_fact[0].replace(" ", ""), int(predicate_fact[1])
 
-    def extract_facts_once(self, image_path: Path | str, temperature=1.0) -> set[tuple[str, int]]:
+    def extract_facts_once(self, image_path: Path | str, temperature) -> set[tuple[str, int]]:
         base64_image: str = encode_image_to_base64(image_path)
         user_prompt = [
             {
@@ -108,10 +109,10 @@ class LLMFluentClassifier(FluentClassifier, ABC):
         raise NotImplementedError
 
     def classify(self, image_path: Path | str) -> Dict[str, PredicateTruthValue]:
-        print(f"Classifying image: {image_path.split('/')[-1]}")
+        print(f"Classifying image: {image_path.split('/')[-1]} with temperature = {self.temperature}")
         predicates_with_rel_judgement = self.simulate_relevance_judgement(
             image_path=image_path,
-            temperature=1.0
+            temperature=self.temperature
         )
 
         all_possible_predicates = self._generate_all_possible_predicates()
