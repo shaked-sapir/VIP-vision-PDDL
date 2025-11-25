@@ -1,0 +1,1382 @@
+[
+    {
+        "step": 1,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "holding(d:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "clear(a:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "stack(d:block, a:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "d",
+            "?y": "a",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "handempty(robot:robot)",
+                "on(d:block,a:block)",
+                "ontable(c:block)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 2,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "handempty(robot:robot)",
+                "on(d:block,a:block)",
+                "ontable(c:block)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "pick-up(e:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "e",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "ontable(f:block)",
+                "on(d:block,a:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "holding(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 3,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "ontable(f:block)",
+                "on(d:block,a:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "holding(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "stack(e:block, f:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "e",
+            "?y": "f",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "on(e:block,f:block)",
+                "ontable(f:block)",
+                "on(d:block,a:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 4,
+        "current_state": {
+            "literals": [
+                "on(e:block,f:block)",
+                "ontable(f:block)",
+                "on(d:block,a:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "unstack(e:block, f:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "e",
+            "?robot": "robot",
+            "?y": "f"
+        },
+        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "ontable(f:block)",
+                "on(d:block,a:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "holding(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 5,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "ontable(f:block)",
+                "on(d:block,a:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "holding(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "put-down(e:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "e",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "ontable(f:block)",
+                "on(d:block,a:block)",
+                "handempty(robot:robot)",
+                "ontable(e:block)",
+                "ontable(c:block)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 6,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "ontable(f:block)",
+                "on(d:block,a:block)",
+                "handempty(robot:robot)",
+                "ontable(e:block)",
+                "ontable(c:block)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "pick-up(f:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "f",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "holding(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 7,
+        "current_state": {
+            "literals": [
+                "holding(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "stack(f:block, e:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "f",
+            "?y": "e",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "handempty(robot:robot)",
+                "on(f:block,e:block)",
+                "ontable(c:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 8,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "handempty(robot:robot)",
+                "on(f:block,e:block)",
+                "ontable(c:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "unstack(f:block, e:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "f",
+            "?robot": "robot",
+            "?y": "e"
+        },
+        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "holding(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 9,
+        "current_state": {
+            "literals": [
+                "holding(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "stack(f:block, d:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "f",
+            "?y": "d",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "on(f:block,d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 10,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "on(f:block,d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "unstack(f:block, d:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "f",
+            "?robot": "robot",
+            "?y": "d"
+        },
+        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "holding(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 11,
+        "current_state": {
+            "literals": [
+                "holding(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "put-down(f:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "f",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "handempty(robot:robot)",
+                "ontable(f:block)",
+                "ontable(c:block)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 12,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,a:block)",
+                "ontable(e:block)",
+                "handempty(robot:robot)",
+                "ontable(f:block)",
+                "ontable(c:block)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "unstack(d:block, a:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "d",
+            "?robot": "robot",
+            "?y": "a"
+        },
+        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "holding(d:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "clear(a:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 13,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "holding(d:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "clear(a:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "stack(d:block, e:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "d",
+            "?y": "e",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,e:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "clear(a:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 14,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,e:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "clear(a:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)",
+                "on(a:block,b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "unstack(a:block, b:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "a",
+            "?robot": "robot",
+            "?y": "b"
+        },
+        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "holding(a:block)",
+                "clear(f:block)",
+                "on(d:block,e:block)",
+                "clear(b:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "on(b:block,c:block)",
+                "ontable(c:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 15,
+        "current_state": {
+            "literals": [
+                "holding(a:block)",
+                "clear(f:block)",
+                "on(d:block,e:block)",
+                "clear(b:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "clear(d:block)",
+                "handfull(robot:robot)",
+                "on(b:block,c:block)",
+                "ontable(c:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "put-down(a:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "a",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,e:block)",
+                "clear(b:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "clear(a:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "ontable(a:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 16,
+        "current_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,e:block)",
+                "clear(b:block)",
+                "ontable(e:block)",
+                "ontable(f:block)",
+                "clear(a:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "ontable(a:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "pick-up(f:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "f",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "on(d:block,e:block)",
+                "clear(b:block)",
+                "holding(f:block)",
+                "ontable(e:block)",
+                "clear(a:block)",
+                "clear(d:block)",
+                "ontable(a:block)",
+                "handfull(robot:robot)",
+                "on(b:block,c:block)",
+                "ontable(c:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 17,
+        "current_state": {
+            "literals": [
+                "on(d:block,e:block)",
+                "clear(b:block)",
+                "holding(f:block)",
+                "ontable(e:block)",
+                "clear(a:block)",
+                "clear(d:block)",
+                "ontable(a:block)",
+                "handfull(robot:robot)",
+                "on(b:block,c:block)",
+                "ontable(c:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "stack(f:block, a:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "f",
+            "?y": "a",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "on(d:block,e:block)",
+                "clear(b:block)",
+                "clear(f:block)",
+                "ontable(e:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "ontable(a:block)",
+                "on(f:block,a:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 18,
+        "current_state": {
+            "literals": [
+                "on(d:block,e:block)",
+                "clear(b:block)",
+                "clear(f:block)",
+                "ontable(e:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "ontable(a:block)",
+                "on(f:block,a:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "unstack(d:block, e:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "d",
+            "?robot": "robot",
+            "?y": "e"
+        },
+        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(b:block)",
+                "clear(f:block)",
+                "holding(d:block)",
+                "ontable(e:block)",
+                "ontable(a:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(f:block,a:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 19,
+        "current_state": {
+            "literals": [
+                "clear(b:block)",
+                "clear(f:block)",
+                "holding(d:block)",
+                "ontable(e:block)",
+                "ontable(a:block)",
+                "handfull(robot:robot)",
+                "clear(e:block)",
+                "on(f:block,a:block)",
+                "on(b:block,c:block)",
+                "ontable(c:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "stack(d:block, e:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "d",
+            "?y": "e",
+            "?robot": "robot"
+        },
+        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(b:block)",
+                "clear(f:block)",
+                "on(d:block,e:block)",
+                "ontable(e:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "ontable(a:block)",
+                "on(f:block,a:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    },
+    {
+        "step": 20,
+        "current_state": {
+            "literals": [
+                "clear(b:block)",
+                "clear(f:block)",
+                "on(d:block,e:block)",
+                "ontable(e:block)",
+                "handempty(robot:robot)",
+                "ontable(c:block)",
+                "ontable(a:block)",
+                "on(f:block,a:block)",
+                "on(b:block,c:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        },
+        "ground_action": "unstack(b:block, c:block, robot:robot)",
+        "operator_object_assignment": {
+            "?x": "b",
+            "?robot": "robot",
+            "?y": "c"
+        },
+        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?robot:robot)]",
+        "next_state": {
+            "literals": [
+                "clear(f:block)",
+                "on(d:block,e:block)",
+                "holding(b:block)",
+                "ontable(e:block)",
+                "clear(d:block)",
+                "ontable(a:block)",
+                "handfull(robot:robot)",
+                "clear(c:block)",
+                "on(f:block,a:block)",
+                "ontable(c:block)"
+            ],
+            "objects": [
+                "c:block",
+                "f:block",
+                "e:block",
+                "robot:robot",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)",
+                "on(b:block,c:block)",
+                "on(c:block,d:block)",
+                "on(d:block,e:block)",
+                "on(e:block,f:block)"
+            ]
+        }
+    }
+]

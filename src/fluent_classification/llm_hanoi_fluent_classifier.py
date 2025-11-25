@@ -16,11 +16,15 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
     Uses GPT-4 Vision to extract predicates from images of Hanoi puzzle scenarios.
     """
 
-    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o"):
+    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o",
+                 temperature: float = 1.0, use_uncertain: bool = True):
+        self.use_uncertain = use_uncertain
+
         super().__init__(
             openai_apikey=openai_apikey,
             type_to_objects=type_to_objects,
-            model=model
+            model=model,
+            temperature=temperature
         )
 
         # Mapping from LLM-detected object names to gym object names

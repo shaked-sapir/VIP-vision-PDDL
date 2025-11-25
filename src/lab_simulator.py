@@ -1,27 +1,31 @@
 """
-Lab Simulator - Multi-learner comparison framework.
+Lab Simulator - Compare PI-SAM vs Noisy Conflict Search.
 
-This module provides infrastructure for running multiple learning algorithms
-on the same cross-validation folds and comparing their performance.
+This script runs both standard PI-SAM and conflict-driven search on the same
+cross-validation folds and compares their performance.
+
+Each learner produces a complete set of experiment results (per-fold performance,
+semantic performance, validation statistics, etc.) in separate directories.
+
+Usage:
+    python src/lab_simulator.py
 """
 
 import logging
 import shutil
 import time
-from abc import ABC, abstractmethod
 from copy import deepcopy
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Type
+from typing import Dict, List, Tuple, Optional
 
-import pandas as pd
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain, Observation
 
-from experiments.basic_experiment_runner import OfflineBasicExperimentRunner
-from experiments.experiments_consts import DEFAULT_SPLIT
+from experiments.experiments_consts import DEFAULT_NUMERIC_TOLERANCE
 from sam_learning.core import LearnerDomain
+from sam_statistics.learning_statistics_manager import LearningStatisticsManager
 from sam_statistics.utils import init_semantic_performance_calculator
-from utilities import LearningAlgorithmType, NegativePreconditionPolicy
+from utilities import LearningAlgorithmType, SolverType, NegativePreconditionPolicy
 from utilities.k_fold_split import KFoldSplit
 from validators import DomainValidator
 
@@ -30,178 +34,54 @@ from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
 from src.utils.masking import load_masked_observation
 
 
-class BaseLearnerConfig(ABC):
-    """Abstract base class for learner configurations."""
-
-    def __init__(self, name: str):
-        """
-        Initialize learner config.
-
-        :param name: Unique name for this learner (used in result directories).
-        """
-        self.name = name
-
-    @abstractmethod
-    def create_and_learn(
-        self,
-        partial_domain: Domain,
-        observations: List[Observation],
-        negative_precondition_policy: NegativePreconditionPolicy,
-        logger: Optional[logging.Logger] = None
-    ) -> Tuple[LearnerDomain, Dict[str, str]]:
-        """
-        Create the learner and learn from observations.
-
-        :param partial_domain: The partial domain template.
-        :param observations: The masked observations to learn from.
-        :param negative_precondition_policy: Policy for handling negative preconditions.
-        :param logger: Optional logger.
-        :return: Tuple of (learned_domain, learning_report).
-        """
-        raise NotImplementedError
-
-
-class PISAMLearnerConfig(BaseLearnerConfig):
-    """Configuration for standard PI-SAM learner."""
-
-    def __init__(self, name: str = "pisam"):
-        super().__init__(name)
-
-    def create_and_learn(
-        self,
-        partial_domain: Domain,
-        observations: List[Observation],
-        negative_precondition_policy: NegativePreconditionPolicy,
-        logger: Optional[logging.Logger] = None
-    ) -> Tuple[LearnerDomain, Dict[str, str]]:
-        """Run PI-SAM learning."""
-        pisam_learner = PISAMLearner(
-            deepcopy(partial_domain),
-            negative_preconditions_policy=negative_precondition_policy
-        )
-        return pisam_learner.learn_action_model(observations)
-
-
-class NoisyConflictSearchLearnerConfig(BaseLearnerConfig):
-    """Configuration for Conflict-Driven Patch Search learner."""
-
-    def __init__(
-        self,
-        name: str = "noisy_conflict_search",
-        fluent_patch_cost: int = 1,
-        model_patch_cost: int = 1,
-        max_search_nodes: Optional[int] = None,
-        seed: int = 42
-    ):
-        super().__init__(name)
-        self.fluent_patch_cost = fluent_patch_cost
-        self.model_patch_cost = model_patch_cost
-        self.max_search_nodes = max_search_nodes
-        self.seed = seed
-
-    def create_and_learn(
-        self,
-        partial_domain: Domain,
-        observations: List[Observation],
-        negative_precondition_policy: NegativePreconditionPolicy,
-        logger: Optional[logging.Logger] = None
-    ) -> Tuple[LearnerDomain, Dict[str, str]]:
-        """Run Conflict-Driven Patch Search."""
-        search = ConflictDrivenPatchSearch(
-            partial_domain_template=deepcopy(partial_domain),
-            negative_preconditions_policy=negative_precondition_policy,
-            fluent_patch_cost=self.fluent_patch_cost,
-            model_patch_cost=self.model_patch_cost,
-            seed=self.seed,
-            logger=logger
-        )
-
-        learned_domain, conflicts, model_constraints, fluent_patches, cost, report = search.run(
-            observations=observations,
-            max_nodes=self.max_search_nodes
-        )
-
-        # Enrich the report with patch statistics
-        enriched_report = dict(report)
-        enriched_report["solution_found"] = str(len(conflicts) == 0)
-        enriched_report["final_conflicts"] = str(len(conflicts))
-        enriched_report["solution_cost"] = str(cost)
-        enriched_report["total_model_constraints"] = str(len(model_constraints))
-        enriched_report["total_fluent_patches"] = str(len(fluent_patches))
-
-        # Extract patch diff details
-        patch_diff = report.get("patch_diff", {})
-
-        model_added = patch_diff.get("model_patches_added", {})
-        model_removed = patch_diff.get("model_patches_removed", {})
-        model_changed = patch_diff.get("model_patches_changed", {})
-        fluent_added = patch_diff.get("fluent_patches_added", set())
-        fluent_removed = patch_diff.get("fluent_patches_removed", set())
-
-        # Flatten model patches for counting
-        model_added_count = sum(len(v) for v in model_added.values())
-        model_removed_count = sum(len(v) for v in model_removed.values())
-        model_changed_count = sum(len(v) for v in model_changed.values())
-
-        enriched_report["model_patches_added"] = str(model_added_count)
-        enriched_report["model_patches_removed"] = str(model_removed_count)
-        enriched_report["model_patches_changed"] = str(model_changed_count)
-        enriched_report["fluent_patches_added"] = str(len(fluent_added))
-        enriched_report["fluent_patches_removed"] = str(len(fluent_removed))
-
-        # Add details as semicolon-separated strings
-        enriched_report["model_patches_added_detail"] = "; ".join(
-            f"{action}: {sorted(preds)}" for action, preds in model_added.items() if preds
-        )
-        enriched_report["model_patches_removed_detail"] = "; ".join(
-            f"{action}: {sorted(preds)}" for action, preds in model_removed.items() if preds
-        )
-        enriched_report["fluent_patches_added_detail"] = "; ".join(str(p) for p in sorted(fluent_added))
-        enriched_report["fluent_patches_removed_detail"] = "; ".join(str(p) for p in sorted(fluent_removed))
-
-        return learned_domain, enriched_report
-
-
 class LabSimulatorRunner:
     """
-    Multi-learner experiment runner.
+    Compare PI-SAM vs Noisy Conflict Search on the same cross-validation folds.
 
-    Runs multiple learning algorithms on the same cross-validation folds
-    and combines results for comparison.
+    Each learner gets its own complete experiment infrastructure with:
+    - Learning statistics manager
+    - Semantic performance calculator
+    - Domain validator
+    - Full result directory structure
     """
-
-    logger: logging.Logger
-    working_directory_path: Path
-    k_fold: KFoldSplit
-    domain_file_name: str
-    learner_configs: List[BaseLearnerConfig]
-    negative_precondition_policy: NegativePreconditionPolicy
 
     def __init__(
         self,
         working_directory_path: Path,
         domain_file_name: str,
-        learner_configs: List[BaseLearnerConfig],
         problem_prefix: str = "problem",
-        n_split: int = DEFAULT_SPLIT,
-        negative_precondition_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.no_remove
+        n_split: int = 5,
+        fluent_patch_cost: int = 1,
+        model_patch_cost: int = 1,
+        max_search_nodes: Optional[int] = None,
+        seed: int = 42,
+        negative_precondition_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard
     ):
         """
         Initialize the lab simulator.
 
         :param working_directory_path: Path to the experiment directory.
         :param domain_file_name: Name of the domain file.
-        :param learner_configs: List of learner configurations to run.
         :param problem_prefix: Prefix for problem files.
         :param n_split: Number of cross-validation folds.
+        :param fluent_patch_cost: Cost for fluent patches in conflict search.
+        :param model_patch_cost: Cost for model patches in conflict search.
+        :param max_search_nodes: Max nodes for conflict search (None = unlimited).
+        :param seed: Random seed.
         :param negative_precondition_policy: Policy for negative preconditions.
         """
         self.logger = logging.getLogger(__name__)
         self.working_directory_path = working_directory_path
         self.domain_file_name = domain_file_name
         self.problem_prefix = problem_prefix
-        self.learner_configs = learner_configs
         self.negative_precondition_policy = negative_precondition_policy
+        self.n_split = n_split
+
+        # Conflict search parameters
+        self.fluent_patch_cost = fluent_patch_cost
+        self.model_patch_cost = model_patch_cost
+        self.max_search_nodes = max_search_nodes
+        self.seed = seed
 
         self.k_fold = KFoldSplit(
             working_directory_path=working_directory_path,
@@ -209,12 +89,79 @@ class LabSimulatorRunner:
             n_split=n_split
         )
 
-        # Create learner-specific result directories
-        self.learner_result_dirs: Dict[str, Path] = {}
-        for config in learner_configs:
-            learner_dir = working_directory_path / "results_directory" / config.name
-            learner_dir.mkdir(parents=True, exist_ok=True)
-            self.learner_result_dirs[config.name] = learner_dir
+        # Create ultimate results directory
+        ultimate_results_dir = working_directory_path / "ultimate_results_directory"
+        ultimate_results_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create separate result directories for each learner
+        self.pisam_results_dir = ultimate_results_dir / "pisam"
+        self.noisy_results_dir = ultimate_results_dir / "noisy_conflict_search"
+
+        self.pisam_results_dir.mkdir(exist_ok=True)
+        self.noisy_results_dir.mkdir(exist_ok=True)
+
+        # Copy domain file to each results directory (needed by semantic performance calculator)
+        domain_source = working_directory_path / domain_file_name
+        if domain_source.exists():
+            shutil.copy(domain_source, self.pisam_results_dir / domain_file_name)
+            shutil.copy(domain_source, self.noisy_results_dir / domain_file_name)
+
+        # Initialize statistics managers for PI-SAM
+        self.pisam_stats_manager = LearningStatisticsManager(
+            working_directory_path=self.pisam_results_dir,
+            domain_path=working_directory_path / domain_file_name,
+            learning_algorithm=LearningAlgorithmType.sam_learning
+        )
+
+        self.pisam_validator = DomainValidator(
+            self.pisam_results_dir,
+            LearningAlgorithmType.sam_learning,
+            working_directory_path / domain_file_name,
+            problem_prefix=problem_prefix
+        )
+
+        # Initialize statistics managers for Noisy Conflict Search
+        self.noisy_stats_manager = LearningStatisticsManager(
+            working_directory_path=self.noisy_results_dir,
+            domain_path=working_directory_path / domain_file_name,
+            learning_algorithm=LearningAlgorithmType.sam_learning
+        )
+
+        self.noisy_validator = DomainValidator(
+            self.noisy_results_dir,
+            LearningAlgorithmType.sam_learning,
+            working_directory_path / domain_file_name,
+            problem_prefix=problem_prefix
+        )
+
+        # Semantic performance calculators (initialized per fold)
+        self.pisam_semantic_calc = None
+        self.noisy_semantic_calc = None
+
+        self.logger.info(f"Lab Simulator initialized")
+        self.logger.info(f"  Working directory: {working_directory_path}")
+        self.logger.info(f"  Learners: PI-SAM, Noisy Conflict Search")
+        self.logger.info(f"  Cross-validation folds: {n_split}")
+        self.logger.info(f"  PI-SAM results: {self.pisam_results_dir}")
+        self.logger.info(f"  Noisy results: {self.noisy_results_dir}")
+
+    def _init_semantic_performance_calculators(self, test_set_dir_path: Path) -> None:
+        """Initialize semantic performance calculators for both learners."""
+        self.pisam_semantic_calc = init_semantic_performance_calculator(
+            self.pisam_results_dir,
+            self.domain_file_name,
+            learning_algorithm=LearningAlgorithmType.sam_learning,
+            problem_prefix=self.problem_prefix,
+            test_set_dir_path=test_set_dir_path
+        )
+
+        self.noisy_semantic_calc = init_semantic_performance_calculator(
+            self.noisy_results_dir,
+            self.domain_file_name,
+            learning_algorithm=LearningAlgorithmType.sam_learning,
+            problem_prefix=self.problem_prefix,
+            test_set_dir_path=test_set_dir_path
+        )
 
     def copy_masking_info_to_train_dir(self, train_set_dir_path: Path) -> None:
         """Copy masking info files from working directory to train directory."""
@@ -246,72 +193,175 @@ class LabSimulatorRunner:
 
         return masked_observations
 
-    def export_learned_domain(
-        self, learned_domain: LearnerDomain, output_dir: Path, file_name: str
-    ) -> Path:
-        """Export learned domain to a file."""
-        domain_path = output_dir / file_name
-        with open(domain_path, "wt") as domain_file:
-            domain_file.write(learned_domain.to_pddl())
-        return domain_path
-
-    def run_learner_on_fold(
+    def run_pisam_learner(
         self,
-        learner_config: BaseLearnerConfig,
-        fold_num: int,
         partial_domain: Domain,
-        masked_observations: List[Observation],
-        test_set_dir_path: Path
-    ) -> Dict[str, str]:
+        masked_observations: List[Observation]
+    ) -> Tuple[LearnerDomain, Dict[str, str]]:
         """
-        Run a single learner on a single fold.
+        Run standard PI-SAM learner.
 
-        :param learner_config: The learner configuration to use.
-        :param fold_num: The fold number.
         :param partial_domain: The partial domain template.
-        :param masked_observations: The masked observations to learn from.
-        :param test_set_dir_path: Path to the test set directory.
-        :return: Learning report dictionary.
+        :param masked_observations: The masked observations.
+        :return: (learned_domain, learning_report)
         """
-        self.logger.info(f"Running learner '{learner_config.name}' on fold {fold_num}")
-
         start_time = time.time()
-        learned_domain, learning_report = learner_config.create_and_learn(
-            partial_domain=partial_domain,
-            observations=masked_observations,
-            negative_precondition_policy=self.negative_precondition_policy,
-            logger=self.logger
+
+        pisam_learner = PISAMLearner(
+            deepcopy(partial_domain),
+            negative_preconditions_policy=self.negative_precondition_policy
         )
+
+        learned_domain, report = pisam_learner.learn_action_model(masked_observations)
+
+        learning_time = time.time() - start_time
+        report["learning_time"] = str(learning_time)
+
+        return learned_domain, report
+
+    def run_noisy_conflict_search(
+        self,
+        partial_domain: Domain,
+        masked_observations: List[Observation]
+    ) -> Tuple[LearnerDomain, Dict[str, str]]:
+        """
+        Run Conflict-Driven Patch Search.
+
+        :param partial_domain: The partial domain template.
+        :param masked_observations: The masked observations.
+        :return: (learned_domain, enriched_learning_report)
+        """
+        start_time = time.time()
+
+        search = ConflictDrivenPatchSearch(
+            partial_domain_template=deepcopy(partial_domain),
+            negative_preconditions_policy=self.negative_precondition_policy,
+            fluent_patch_cost=self.fluent_patch_cost,
+            model_patch_cost=self.model_patch_cost,
+            seed=self.seed,
+            logger=None
+        )
+
+        learned_domain, conflicts, model_constraints, fluent_patches, cost, report = search.run(
+            observations=masked_observations,
+            max_nodes=self.max_search_nodes
+        )
+
         learning_time = time.time() - start_time
 
-        # Update learning time in report
-        learning_report["learning_time"] = str(learning_time)
+        # Enrich the report with patch statistics
+        enriched_report = dict(report)
+        enriched_report["learning_time"] = str(learning_time)
+        enriched_report["solution_found"] = str(len(conflicts) == 0)
+        enriched_report["final_conflicts"] = str(len(conflicts))
+        enriched_report["solution_cost"] = str(cost)
+        enriched_report["total_model_constraints"] = str(len(model_constraints))
+        enriched_report["total_fluent_patches"] = str(len(fluent_patches))
 
-        # Export learned domain to learner-specific directory
-        learner_result_dir = self.learner_result_dirs[learner_config.name]
-        domains_backup_dir = learner_result_dir / "domains_backup"
+        # Extract patch diff details
+        patch_diff = report.get("patch_diff", {})
+
+        model_added = patch_diff.get("model_patches_added", {})
+        model_removed = patch_diff.get("model_patches_removed", {})
+        model_changed = patch_diff.get("model_patches_changed", {})
+        fluent_added = patch_diff.get("fluent_patches_added", set())
+        fluent_removed = patch_diff.get("fluent_patches_removed", set())
+
+        enriched_report["model_patches_added"] = str(len(model_added))
+        enriched_report["model_patches_removed"] = str(len(model_removed))
+        enriched_report["model_patches_changed"] = str(len(model_changed))
+        enriched_report["fluent_patches_added"] = str(len(fluent_added))
+        enriched_report["fluent_patches_removed"] = str(len(fluent_removed))
+
+        # Add details as semicolon-separated strings
+        if model_added:
+            enriched_report["model_patches_added_detail"] = "; ".join([
+                f"{op.value.upper()} {pbl} in {part.value} of {action}"
+                for (action, part, pbl), op in model_added.items()
+            ])
+
+        if model_removed:
+            enriched_report["model_patches_removed_detail"] = "; ".join([
+                f"{op.value.upper()} {pbl} in {part.value} of {action}"
+                for (action, part, pbl), op in model_removed.items()
+            ])
+
+        if fluent_added:
+            enriched_report["fluent_patches_added_detail"] = "; ".join([
+                f"{patch.fluent} at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}"
+                for patch in sorted(fluent_added, key=lambda p: (p.observation_index, p.component_index))
+            ])
+
+        if fluent_removed:
+            enriched_report["fluent_patches_removed_detail"] = "; ".join([
+                f"{patch.fluent} at obs[{patch.observation_index}][{patch.component_index}].{patch.state_type}"
+                for patch in sorted(fluent_removed, key=lambda p: (p.observation_index, p.component_index))
+            ])
+
+        return learned_domain, enriched_report
+
+    def export_learned_domain(
+        self,
+        learned_domain: LearnerDomain,
+        test_set_dir_path: Path,
+        results_dir: Path,
+        fold_number: int
+    ) -> Path:
+        """Export learned domain to test directory and backup."""
+        # Export to test directory (for validation)
+        domain_path = test_set_dir_path / self.domain_file_name
+        with open(domain_path, "wt") as domain_file:
+            domain_file.write(learned_domain.to_pddl())
+
+        # Also backup to results directory
+        domains_backup_dir = results_dir / "domains_backup"
         domains_backup_dir.mkdir(exist_ok=True)
 
-        domain_filename = f"fold_{fold_num}_{learned_domain.name}_{len(masked_observations)}_trajectories.pddl"
-        self.export_learned_domain(learned_domain, domains_backup_dir, domain_filename)
+        backup_filename = f"sam_learning_fold_{fold_number}_{learned_domain.name}.pddl"
+        backup_path = domains_backup_dir / backup_filename
+        with open(backup_path, "wt") as domain_file:
+            domain_file.write(learned_domain.to_pddl())
 
-        # Also export to test directory for validation
-        self.export_learned_domain(learned_domain, test_set_dir_path, f"{learner_config.name}_{self.domain_file_name}")
+        return domain_path
 
-        return learning_report
+    def validate_learned_domain(
+        self,
+        domain_path: Path,
+        test_set_dir_path: Path,
+        allowed_observations: List[Observation],
+        learning_time: float,
+        validator: DomainValidator
+    ) -> None:
+        """Validate the learned domain using the validator."""
+        validator.validate_domain(
+            tested_domain_file_path=domain_path,
+            test_set_directory_path=test_set_dir_path,
+            used_observations=allowed_observations,
+            tolerance=DEFAULT_NUMERIC_TOLERANCE,
+            timeout=60,
+            learning_time=learning_time,
+            solvers_portfolio=[SolverType.fast_downward]
+        )
 
     def learn_model_offline(
-        self, fold_num: int, train_set_dir_path: Path, test_set_dir_path: Path
-    ) -> Dict[str, Dict[str, str]]:
+        self,
+        fold_num: int,
+        train_set_dir_path: Path,
+        test_set_dir_path: Path
+    ) -> None:
         """
-        Run all learners on a single fold.
+        Run both learners on a single fold with full experiment infrastructure.
 
         :param fold_num: The fold number.
         :param train_set_dir_path: Path to training data.
         :param test_set_dir_path: Path to test data.
-        :return: Dictionary mapping learner names to their learning reports.
         """
-        self.logger.info(f"Starting multi-learner learning for fold {fold_num}")
+        self.logger.info(f"="*80)
+        self.logger.info(f"Processing Fold {fold_num}")
+        self.logger.info(f"="*80)
+
+        # Initialize semantic performance calculators for this fold
+        self._init_semantic_performance_calculators(test_set_dir_path)
 
         # Copy masking info to train directory
         self.copy_masking_info_to_train_dir(train_set_dir_path)
@@ -320,137 +370,207 @@ class LabSimulatorRunner:
         partial_domain_path = train_set_dir_path / self.domain_file_name
         partial_domain = DomainParser(domain_path=partial_domain_path, partial_parsing=True).parse_domain()
 
-        # Load masked observations (once, shared by all learners)
+        # Load masked observations (once, shared by both learners)
         masked_observations = self.load_masked_observations(train_set_dir_path, partial_domain)
-        self.logger.info(f"Loaded {len(masked_observations)} masked observations for fold {fold_num}")
+        self.logger.info(f"Loaded {len(masked_observations)} masked observations")
 
-        # Run each learner
-        all_reports: Dict[str, Dict[str, str]] = {}
-        for learner_config in self.learner_configs:
-            report = self.run_learner_on_fold(
-                learner_config=learner_config,
-                fold_num=fold_num,
-                partial_domain=partial_domain,
-                masked_observations=masked_observations,
-                test_set_dir_path=test_set_dir_path
-            )
-            all_reports[learner_config.name] = report
+        # ========== Run PI-SAM ==========
+        self.logger.info(f"\nRunning PI-SAM learner...")
+        pisam_domain, pisam_report = self.run_pisam_learner(partial_domain, masked_observations)
 
-        return all_reports
+        # Add to statistics
+        self.pisam_stats_manager.add_to_action_stats(
+            masked_observations,
+            pisam_domain,
+            pisam_report,
+            policy=self.negative_precondition_policy
+        )
 
-    def save_fold_reports(
-        self, fold_num: int, all_reports: Dict[str, Dict[str, str]]
-    ) -> None:
-        """Save learning reports for each learner to their result directories."""
-        for learner_name, report in all_reports.items():
-            learner_dir = self.learner_result_dirs[learner_name]
-            report_file = learner_dir / f"fold_{fold_num}_report.csv"
+        # Export domain
+        pisam_domain_path = self.export_learned_domain(
+            pisam_domain,
+            test_set_dir_path,
+            self.pisam_results_dir,
+            fold_num
+        )
 
-            # Add fold number to report
-            report_with_fold = {"fold": str(fold_num), **report}
+        # Validate domain
+        self.validate_learned_domain(
+            pisam_domain_path,
+            test_set_dir_path,
+            masked_observations,
+            float(pisam_report["learning_time"]),
+            self.pisam_validator
+        )
 
-            # Convert to DataFrame and save
-            df = pd.DataFrame([report_with_fold])
-            df.to_csv(report_file, index=False)
-            self.logger.info(f"Saved report for {learner_name} fold {fold_num} to {report_file}")
+        # Calculate semantic performance
+        self.pisam_semantic_calc.calculate_performance(
+            pisam_domain_path,
+            len(masked_observations),
+            self.negative_precondition_policy
+        )
 
-    def combine_learner_results(self) -> Path:
+        # Export per-fold statistics
+        self.pisam_stats_manager.export_action_learning_statistics(fold_number=fold_num)
+        self.pisam_semantic_calc.export_semantic_performance(fold_num + 1)
+        self.pisam_validator.write_statistics(fold_num)
+
+        self.logger.info(f"✓ PI-SAM completed in {pisam_report['learning_time']}s")
+
+        # ========== Run Noisy Conflict Search ==========
+        self.logger.info(f"\nRunning Noisy Conflict Search learner...")
+        noisy_domain, noisy_report = self.run_noisy_conflict_search(partial_domain, masked_observations)
+
+        # Add to statistics
+        self.noisy_stats_manager.add_to_action_stats(
+            masked_observations,
+            noisy_domain,
+            noisy_report,
+            policy=self.negative_precondition_policy
+        )
+
+        # Export domain
+        noisy_domain_path = self.export_learned_domain(
+            noisy_domain,
+            test_set_dir_path,
+            self.noisy_results_dir,
+            fold_num
+        )
+
+        # Validate domain
+        self.validate_learned_domain(
+            noisy_domain_path,
+            test_set_dir_path,
+            masked_observations,
+            float(noisy_report["learning_time"]),
+            self.noisy_validator
+        )
+
+        # Calculate semantic performance
+        self.noisy_semantic_calc.calculate_performance(
+            noisy_domain_path,
+            len(masked_observations),
+            self.negative_precondition_policy
+        )
+
+        # Export per-fold statistics
+        self.noisy_stats_manager.export_action_learning_statistics(fold_number=fold_num)
+        self.noisy_semantic_calc.export_semantic_performance(fold_num + 1)
+        self.noisy_validator.write_statistics(fold_num)
+
+        self.logger.info(f"✓ Noisy Conflict Search completed in {noisy_report['learning_time']}s")
+        self.logger.info(f"  Solution found: {noisy_report['solution_found']}")
+        self.logger.info(f"  Final conflicts: {noisy_report['final_conflicts']}")
+        self.logger.info(f"  Solution cost: {noisy_report['solution_cost']}")
+
+        # Clear statistics for next fold
+        self.pisam_validator.clear_statistics()
+        self.pisam_stats_manager.clear_statistics()
+        self.noisy_validator.clear_statistics()
+        self.noisy_stats_manager.clear_statistics()
+
+    def run_cross_validation(self) -> Tuple[Path, Path]:
         """
-        Combine all learners' results into a single comparison CSV.
+        Run cross-validation with both learners.
 
-        :return: Path to the combined results file.
+        :return: Tuple of (pisam_results_dir, noisy_results_dir)
         """
-        self.logger.info("Combining results from all learners")
+        self.logger.info("\n" + "="*80)
+        self.logger.info("STARTING MULTI-LEARNER CROSS-VALIDATION")
+        self.logger.info("="*80)
+        self.logger.info(f"Learners: PI-SAM vs Noisy Conflict Search")
+        self.logger.info(f"Working directory: {self.working_directory_path}")
+        self.logger.info("")
 
-        all_results = []
+        # Create results directories
+        self.pisam_stats_manager.create_results_directory()
+        self.noisy_stats_manager.create_results_directory()
 
-        for learner_config in self.learner_configs:
-            learner_dir = self.learner_result_dirs[learner_config.name]
-
-            # Find all fold reports for this learner
-            fold_reports = sorted(learner_dir.glob("fold_*_report.csv"))
-
-            for report_file in fold_reports:
-                df = pd.read_csv(report_file)
-                df["learner"] = learner_config.name
-                all_results.append(df)
-
-        if all_results:
-            combined_df = pd.concat(all_results, ignore_index=True)
-
-            # Reorder columns to have learner first
-            cols = ["learner", "fold"] + [c for c in combined_df.columns if c not in ["learner", "fold"]]
-            combined_df = combined_df[cols]
-
-            # Save combined results
-            results_dir = self.working_directory_path / "results_directory"
-            combined_file = results_dir / "combined_learner_comparison.csv"
-            combined_df.to_csv(combined_file, index=False)
-            self.logger.info(f"Combined results saved to {combined_file}")
-
-            return combined_file
-        else:
-            self.logger.warning("No results to combine")
-            return None
-
-    def run_cross_validation(self) -> Path:
-        """
-        Run cross-validation with all learners.
-
-        :return: Path to the combined results file.
-        """
-        self.logger.info(f"Starting multi-learner cross-validation with {len(self.learner_configs)} learners")
-
-        # Create results directory
-        results_dir = self.working_directory_path / "results_directory"
-        results_dir.mkdir(exist_ok=True)
-
+        # Run cross-validation
         for fold_num, (train_dir_path, test_dir_path) in enumerate(self.k_fold.create_k_fold()):
-            self.logger.info(f"Processing fold {fold_num + 1}")
+            self.learn_model_offline(fold_num, train_dir_path, test_dir_path)
 
-            # Run all learners on this fold
-            all_reports = self.learn_model_offline(fold_num, train_dir_path, test_dir_path)
+        # Write complete joint statistics for PI-SAM
+        self.logger.info("\n" + "="*80)
+        self.logger.info("Finalizing PI-SAM Results")
+        self.logger.info("="*80)
+        self.pisam_validator.write_complete_joint_statistics()
+        self.pisam_semantic_calc.export_combined_semantic_performance()
+        self.pisam_stats_manager.write_complete_joint_statistics()
 
-            # Save reports
-            self.save_fold_reports(fold_num, all_reports)
+        # Write complete joint statistics for Noisy Conflict Search
+        self.logger.info("\n" + "="*80)
+        self.logger.info("Finalizing Noisy Conflict Search Results")
+        self.logger.info("="*80)
+        self.noisy_validator.write_complete_joint_statistics()
+        self.noisy_semantic_calc.export_combined_semantic_performance()
+        self.noisy_stats_manager.write_complete_joint_statistics()
 
-            self.logger.info(f"Completed fold {fold_num + 1}")
+        self.logger.info("\n" + "="*80)
+        self.logger.info("CROSS-VALIDATION COMPLETE!")
+        self.logger.info("="*80)
+        self.logger.info(f"PI-SAM results: {self.pisam_results_dir}")
+        self.logger.info(f"Noisy Conflict Search results: {self.noisy_results_dir}")
 
-        # Combine all results
-        combined_file = self.combine_learner_results()
-
-        self.logger.info("Cross-validation completed")
-        return combined_file
+        return self.pisam_results_dir, self.noisy_results_dir
 
 
-def example_usage():
-    """Example usage of LabSimulatorRunner."""
+def main():
+    """Main function to run the lab simulator."""
     import logging
-    logging.basicConfig(level=logging.INFO)
 
-    # Define learner configurations
-    learners = [
-        PISAMLearnerConfig(name="pisam"),
-        NoisyConflictSearchLearnerConfig(
-            name="noisy_conflict",
-            fluent_patch_cost=1,
-            model_patch_cost=1,
-            max_search_nodes=100,
-            seed=42
-        ),
-    ]
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    # Configuration
+    working_dir = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/noisy_conflict_experiments/noisy_conflict_cv__steps=20__model=gpt-5-mini__temp=1.0__22-11-2025T21:08:22")
+    domain_file = "blocks.pddl"
+
+    print("\n" + "="*80)
+    print("LAB SIMULATOR - PI-SAM vs Noisy Conflict Search Comparison")
+    print("="*80)
+    print(f"Working directory: {working_dir}")
+    print(f"Domain file: {domain_file}")
+    print("="*80 + "\n")
 
     # Create and run lab simulator
     lab = LabSimulatorRunner(
-        working_directory_path=Path("path/to/experiment"),
-        domain_file_name="blocks.pddl",
-        learner_configs=learners,
-        n_split=5
+        working_directory_path=working_dir,
+        domain_file_name=domain_file,
+        problem_prefix="problem",
+        n_split=5,
+        fluent_patch_cost=1,
+        model_patch_cost=1,
+        max_search_nodes=None,  # Unlimited search
+        seed=42
     )
 
-    results_file = lab.run_cross_validation()
-    print(f"Results saved to: {results_file}")
+    pisam_dir, noisy_dir = lab.run_cross_validation()
+
+    print("\n" + "="*80)
+    print("SUCCESS!")
+    print("="*80)
+    print(f"PI-SAM results:\n  {pisam_dir}")
+    print(f"Noisy Conflict Search results:\n  {noisy_dir}")
+    print("="*80 + "\n")
+
+    # Display combined semantic performance files
+    pisam_combined = pisam_dir / "sam_learning_blocks_combined_semantic_performance.csv"
+    noisy_combined = noisy_dir / "sam_learning_blocks_combined_semantic_performance.csv"
+
+    if pisam_combined.exists():
+        print("\nPI-SAM Combined Semantic Performance:")
+        import pandas as pd
+        print(pd.read_csv(pisam_combined).to_string())
+
+    if noisy_combined.exists():
+        print("\nNoisy Conflict Search Combined Semantic Performance:")
+        import pandas as pd
+        print(pd.read_csv(noisy_combined).to_string())
 
 
 if __name__ == "__main__":
-    example_usage()
+    main()

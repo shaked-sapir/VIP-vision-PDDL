@@ -9,6 +9,7 @@ from pddl_plus_parser.models import (
     Domain, Problem
 )
 from sam_learning.learners.sam_learning import SAMLearner
+from typing import List
 from utilities import NegativePreconditionPolicy
 
 from src.action_model.gym2SAM_parser import create_observation_from_trajectory
@@ -55,7 +56,9 @@ if __name__ == "__main__":
 
             # TODO: rename the method to a more indicative name/make it return something, right now it looks a bit odd
             # TODO: consider renaming the problems to contain the .pddl suffix
-            image_trajectory_handler.image_trajectory_pipeline(problem_name=hanoi_problem_name, output_path=HANOI_OUTPUT_DIR_PATH_TEMP, num_steps=num_steps)
+            ground_actions: List[str] = image_trajectory_handler.create_trajectory_from_gym(
+                problem_name=hanoi_problem_name, images_output_path=HANOI_OUTPUT_DIR_PATH_TEMP, num_steps=num_steps)
+            image_trajectory_handler.image_trajectory_pipeline(problem_name=hanoi_problem_name, actions=ground_actions, images_path=HANOI_OUTPUT_DIR_PATH_TEMP)
             pddl_plus_hanoi_domain: Domain = DomainParser(HANOI_DOMAIN_FILE_PATH).parse_domain()
             pddl_plus_hanoi_problem: Problem = ProblemParser(Path(f"{HANOI_PROBLEM_DIR_PATH}/{hanoi_problem_name}{PDDL_FILES_SUFFIX}"),
                                                              pddl_plus_hanoi_domain).parse_problem()

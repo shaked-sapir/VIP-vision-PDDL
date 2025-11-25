@@ -269,7 +269,7 @@ class NoisyConflictSearchSimulator(Simulator):
 
         # Create working directory for this experiment run
         timestamp = create_experiment_timestamp()
-        working_dir = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/noisy_conflict_experiments/noisy_conflict_cv__steps=20__model=gpt-5-mini__temp=1.0__22-11-2025T21:08:22")
+        working_dir = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/noisy_conflict_experiments/noisy_conflict_cv__steps=20__model=gpt-4.1__temp=1.0__23-11-2025T01:35:28")
         # working_dir = self.experiment_dir_path / f"{experiment_name}__steps={num_steps}__model={self.visual_components_model_name}__temp={self.visual_components_temperature}__{timestamp}"
         # working_dir.mkdir(parents=True, exist_ok=True)
         #
