@@ -4,7 +4,7 @@ from typing import Dict, List
 # Discs will have different colors to distinguish them by size
 # Smaller discs get lighter/brighter colors
 objects_to_colors = {
-    "disc": ["red", "orange", "yellow", "green", "blue", "purple"],  # d1 (smallest) to d6 (largest)
+    "disc": ["red"],  # d1 (smallest) to d6 (largest)
     "peg": ["gray"]
 }
 

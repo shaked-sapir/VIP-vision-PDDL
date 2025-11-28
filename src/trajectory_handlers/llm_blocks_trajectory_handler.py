@@ -7,7 +7,10 @@ from src.trajectory_handlers import ImageTrajectoryHandler
 
 
 class LLMBlocksImageTrajectoryHandler(ImageTrajectoryHandler):
-
+    """
+   LLM-based trajectory handler for the Blocksworld domain.
+   Uses LLMBlocksObjectDetector and LLMBlocksFluentClassifier.
+   """
     def __init__(self,
                  domain_name,
                  openai_apikey: str,

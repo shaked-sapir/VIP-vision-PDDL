@@ -1,8 +1,5 @@
-"""
-LLM-based trajectory handler for Hanoi domain.
-
-Uses GPT-4 Vision for object detection and fluent classification.
-"""
+from pathlib import Path
+from typing import Dict, List
 
 from src.fluent_classification.llm_hanoi_fluent_classifier import LLMHanoiFluentClassifier
 from src.object_detection.llm_hanoi_object_detector import LLMHanoiObjectDetector
@@ -12,72 +9,67 @@ from src.trajectory_handlers import ImageTrajectoryHandler
 class LLMHanoiImageTrajectoryHandler(ImageTrajectoryHandler):
     """
     LLM-based trajectory handler for the Hanoi domain.
-    Uses LLMHanoiObjectDetector and LLMHanoiFluentClassifier (both GPT-4 Vision-based).
+    Uses LLMHanoiObjectDetector and LLMHanoiFluentClassifier.
     """
 
-    def __init__(self, domain_name: str, openai_apikey: str, trajectory_size_limit: int = 1000):
-        """
-        Initialize the LLM-based Hanoi trajectory handler.
+    def __init__(self,
+                 domain_name,
+                 openai_apikey: str,
+                 object_detector_model: str = "gpt-4o",
+                 object_detection_temperature: float = 1.0,
+                 fluent_classifier_model: str = "gpt-4o",
+                 fluent_classification_temperature: float = 1.0):
+        super().__init__(domain_name=domain_name)
+        self.openai_apikey = openai_apikey
+        self.object_detector_model = object_detector_model
+        self.object_detector_temperature = object_detection_temperature
+        self.fluent_classifier_model = fluent_classifier_model
+        self.fluent_classification_temperature = fluent_classification_temperature
 
-        :param domain_name: Name of the PDDL gym domain (e.g., 'PDDLEnvHanoi-v0')
-        :param openai_apikey: OpenAI API key for GPT-4 Vision
-        :param trajectory_size_limit: Maximum trajectory size
+    def init_visual_components(self, init_state_image_path: Path) -> None:
         """
-        # Initialize object detector and fluent classifier
-        object_detector = LLMHanoiObjectDetector(openai_apikey=openai_apikey)
-        fluent_classifier = LLMHanoiFluentClassifier(openai_apikey=openai_apikey)
+        In this class, this method should only be called after initializing a specific
+        blocks problem, because the object detection module depends on blocks colors which
+        are determined only at problem initialization time - and they are extracted from the initial state image.
+        """
 
-        super().__init__(
-            domain_name=domain_name,
-            trajectory_size_limit=trajectory_size_limit,
-            object_detector=object_detector,
-            fluent_classifier=fluent_classifier
+        self.object_detector = LLMHanoiObjectDetector(
+            openai_apikey=self.openai_apikey,
+            model=self.object_detector_model,
+            temperature=self.object_detector_temperature
+        )
+        detected_objects_by_type: Dict[str, List[str]] = self.object_detector.detect(str(init_state_image_path))
+
+        self.fluent_classifier = LLMHanoiFluentClassifier(
+            openai_apikey=self.openai_apikey,
+            type_to_objects=detected_objects_by_type,
+            model=self.fluent_classifier_model,
+            temperature=self.fluent_classification_temperature
         )
 
-        self.openai_apikey = openai_apikey
+        print(f"Initialized LLMHanoiImageTrajectoryHandler with detected objects: {detected_objects_by_type}")
 
-    def init_visual_components(self, init_state_image_path=None) -> None:
+    @staticmethod
+    def _rename_ground_action(action_str: str) -> str:
         """
-        Initialize the LLM-based object detector and fluent classifier for Hanoi domain.
-
-        For LLM-based Hanoi, we need to set the type_to_objects mapping for the fluent classifier.
-
-        :param init_state_image_path: Path to initial state image (used to detect objects)
+        in the pddlgym, the "hanoi" domain is typeless so we need to rename the actions to include types.
+        :param action_str: action to transform from gym format to our format
+        :return:
         """
-        if init_state_image_path is None:
-            raise ValueError("init_state_image_path is required for LLM-based Hanoi trajectory handler")
+        # split into: original_name, "(args)"
+        name_end: int = action_str.index('(')
+        args_str: str = action_str[name_end:]  # includes parentheses
 
-        # Detect objects in the initial state to determine which discs and pegs are present
-        detected_objects = self.object_detector.detect_objects(init_state_image_path)
+        # extract argument names
+        args: list[str] = args_str[1:-1].split(',')
+        names: list[str] = [a.split(':')[0].strip() for a in args]
 
-        # Extract object names by type
-        discs = []
-        pegs = []
+        # classify 2nd + 3rd args
+        c2 = "peg" if names[1].startswith("peg") else "disc"
+        c3 = "peg" if names[2].startswith("peg") else "disc"
 
-        for obj_label in detected_objects.keys():
-            obj_str = str(obj_label)
-            obj_name = obj_str.split(":")[0]  # e.g., "d1" from "d1:disc"
-            obj_type = obj_str.split(":")[1]  # e.g., "disc" from "d1:disc"
+        # new action name
+        new_name = f"move-{c2}-{c3}"
 
-            if obj_type == "disc":
-                discs.append(obj_name)
-            elif obj_type == "peg":
-                pegs.append(obj_name)
-
-        # Sort for consistency
-        discs.sort()
-        pegs.sort()
-
-        # Set type_to_objects for the fluent classifier
-        type_to_objects = {
-            "disc": discs,
-            "peg": pegs
-        }
-
-        self.fluent_classifier.set_type_to_objects(type_to_objects)
-
-        print(f"LLM-based Hanoi visual components initialized")
-        print(f"Detected discs: {discs}")
-        print(f"Detected pegs: {pegs}")
-        print(f"Object detector: LLMHanoiObjectDetector (GPT-4 Vision)")
-        print(f"Fluent classifier: LLMHanoiFluentClassifier (GPT-4 Vision)")
+        # return new name + original arguments
+        return f"{new_name}{args_str}"

@@ -74,6 +74,7 @@ def mask_state(state: State, masking_info: set[GroundedPredicate]) -> State:
         for pred in all_matching_predicates:
             if pred == masked_pred or pred.copy(is_negated=True) == masked_pred:
                 pred.is_masked = True
+                pred.is_positive = masked_pred.is_positive # ensure the sign is correct
                 break
         else:
             print(f"Warning: Masked predicate {masked_pred} not found in state.")

@@ -49,10 +49,14 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
         """Returns the system prompt for the Hanoi domain."""
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."
 
-        discs = self.type_to_objects.get('disc', ['d1', 'd2', 'd3'])
-        pegs = self.type_to_objects.get('peg', ['peg1', 'peg2', 'peg3'])
+        discs = sorted(self.type_to_objects.get('disc', ['d1', 'd2', 'd3']))
+        pegs = sorted(self.type_to_objects.get('peg', ['peg1', 'peg2', 'peg3']))
 
         return confidence_system_prompt(discs, pegs)
+
+    @staticmethod
+    def _alter_predicate_from_llm_to_problem(predicate: str) -> str:
+        return predicate.replace('_', '-')
 
     def _generate_all_possible_predicates(self) -> set[str]:
         """
@@ -71,28 +75,28 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
 
         # on(disc, disc) predicates - disc x is on disc y
         for disc1, disc2 in itertools.permutations(discs, 2):
-            predicates.add(f"on({disc1}:disc,{disc2}:disc)")
+            predicates.add(f"on-disc({disc1}:disc,{disc2}:disc)")
 
         # on(disc, peg) predicates - disc is on peg (at the bottom)
         for disc in discs:
             for peg in pegs:
-                predicates.add(f"on({disc}:disc,{peg}:peg)")
+                predicates.add(f"on-peg({disc}:disc,{peg}:peg)")
 
         # clear(disc) predicates - no disc on top
         for disc in discs:
-            predicates.add(f"clear({disc}:disc)")
+            predicates.add(f"clear-disc({disc}:disc)")
 
         # clear(peg) predicates - peg has no discs
         for peg in pegs:
-            predicates.add(f"clear({peg}:peg)")
+            predicates.add(f"clear-peg({peg}:peg)")
 
         # smaller(disc, disc) predicates - static size relationships
         for disc1, disc2 in itertools.permutations(discs, 2):
-            predicates.add(f"smaller({disc1}:disc,{disc2}:disc)")
+            predicates.add(f"smaller-disc({disc1}:disc,{disc2}:disc)")
 
         # smaller(peg, disc) predicates - pegs are larger than all discs (always true)
         for peg in pegs:
             for disc in discs:
-                predicates.add(f"smaller({peg}:peg,{disc}:disc)")
+                predicates.add(f"smaller-peg({peg}:peg,{disc}:disc)")
 
         return predicates

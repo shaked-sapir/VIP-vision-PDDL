@@ -296,133 +296,31 @@ class NoisyPisamLearner(PISAMLearner):
         # No conflicts: normal PI-SAM behavior
         super()._add_new_action_preconditions(grounded_action, previous_state)
 
-    # def _update_action_preconditions(self, grounded_action: ActionCall, previous_state: State) -> None:
-    #     """
-    #     Existing action case (PI-SAM cannot_be_precondition rule):
-    #
-    #     - If this transition violates a 'cannot be precondition' patch,
-    #       record all conflicts and DO NOT update preconditions for this
-    #       transition.
-    #
-    #     - Otherwise, delegate to the base PI-SAM implementation to apply
-    #       cannot_be_precondition logic.
-    #     """
-    #     self.logger.debug(
-    #         f"Updating preconditions of {grounded_action.name} with precondition patches."
-    #     )
-    #
-    #     conflicts = self._collect_forbidden_precondition_conflicts(
-    #         grounded_action,
-    #         previous_state,
-    #     )
-    #     if conflicts:
-    #         self.conflicts.extend(conflicts)
-    #         return
-    #
-    #     # No conflicts: normal PI-SAM update (cannot_be_precondition)
-    #     super()._update_action_preconditions(grounded_action, previous_state)
-
     def _update_action_preconditions(self, grounded_action: ActionCall, previous_state: State) -> None:
         """
-        Existing action case (PI-SAM cannot_be_precondition rule), with:
+        Existing action case (PI-SAM cannot_be_precondition rule):
 
-        1) Patch-based conflicts:
-           - PRECONDITION+FORBID patches vs preconditions implied by this transition
-             (handled via _collect_forbidden_precondition_conflicts).
+        - If this transition violates a 'cannot be precondition' patch,
+          record all conflicts and DO NOT update preconditions for this
+          transition.
 
-        2) Data-only PI-SAM conflicts:
-           - If PI-SAM would remove a precondition literal L because it is
-             neither masked nor true in the previous_state (cannot_be_precondition),
-             we treat that as a 'cannot be precondition' conflict instead of
-             silently removing it.
-
-           Semantically: prior transitions made L a precondition of this action,
-           this transition says L cannot be a precondition. We want the search
-           to decide if we should:
-             * repair the data (flip fluent in prev_state via FluentLevelPatch), or
-             * keep PI-SAM's constraints (in practice, the model-branch is a no-op
-               for data-only conflicts and gets pruned).
+        - Otherwise, delegate to the base PI-SAM implementation to apply
+          cannot_be_precondition logic.
         """
         self.logger.debug(
-            f"Updating preconditions of {grounded_action.name} with precondition patches and data-only conflicts."
+            f"Updating preconditions of {grounded_action.name} with precondition patches."
         )
 
-        action_name = grounded_action.name
-        current_action = self.partial_domain.actions[action_name]
-
-        # --- 1) Patch-based 'cannot be precondition' conflicts ---
-        patch_conflicts = self._collect_forbidden_precondition_conflicts(
+        conflicts = self._collect_forbidden_precondition_conflicts(
             grounded_action,
             previous_state,
         )
+        if conflicts:
+            self.conflicts.extend(conflicts)
+            return
 
-        # --- 2) PI-SAM cannot_be_precondition logic (data-only conflicts) ---
-        prev_unmasked = set(
-            self.matcher.get_possible_literal_matches(
-                grounded_action,
-                list(get_state_unmasked_predicates(previous_state)),
-            )
-        )
-        prev_masked = set(
-            self.matcher.get_possible_literal_matches(
-                grounded_action,
-                list(get_state_masked_predicates(previous_state)),
-            )
-        )
-
-        conditions_to_remove: List[Predicate] = []
-        data_conflicts: List[Conflict] = []
-
-        for current_precondition in current_action.preconditions.root.operands:
-            if not isinstance(current_precondition, Predicate):
-                continue
-
-            # This is exactly PI-SAM's cannot_be_precondition condition:
-            if (
-                current_precondition not in prev_masked
-                and current_precondition not in prev_unmasked
-            ):
-                # Base PI-SAM would remove this precondition.
-                # We instead create a data-only 'cannot be precondition' conflict.
-                pbl = ParameterBoundLiteral(
-                    predicate_name=current_precondition.name,
-                    parameters=tuple(p for p in current_precondition.signature.keys()),
-                    is_positive=getattr(current_precondition, "is_positive", True),
-                )
-                grounded_fluent_str = self._ground_pbl_with_action(pbl, grounded_action)
-
-                conflict = Conflict(
-                    action_name=action_name,
-                    pbl=pbl,
-                    conflict_type=ConflictType.FORBID_PRECOND_VS_IS,
-                    observation_index=self.current_observation_index,
-                    component_index=self.current_component_index,
-                    grounded_fluent=negate_str_predicate(grounded_fluent_str)
-                )
-                data_conflicts.append(conflict)
-                self.logger.warning(
-                    f"Detected data-only cannot_be_precondition conflict: {conflict}"
-                )
-
-                # Track for potential removal if we ever choose to apply pure PI-SAM
-                conditions_to_remove.append(current_precondition)
-
-        # all_conflicts = patch_conflicts + data_conflicts
-        #
-        # if all_conflicts:
-        #     # Record all conflicts and DO NOT remove any preconditions here.
-        #     # Conflict search will later:
-        #     #   - create a FluentLevelPatch (flip in prev_state) for data conflicts
-        #     #   - for patch-based conflicts: also has the (no-op) model branch
-        #     self.conflicts.extend(all_conflicts)
-        #     # return
-
-        # No conflicts at all -> perform standard PI-SAM cannot_be_precondition removal
-        for condition in conditions_to_remove:
-            current_action.preconditions.remove_condition(condition)
-    # -------------------------------------------------------------------------
-    # Effects: FORBID/REQUIRE vs must/cannot (including data-only [non-patched] conflicts)
-    # -------------------------------------------------------------------------
+        # No conflicts: normal PI-SAM update (cannot_be_precondition)
+        super()._update_action_preconditions(grounded_action, previous_state)
 
     def _should_negate_grounded_effect(
             self,

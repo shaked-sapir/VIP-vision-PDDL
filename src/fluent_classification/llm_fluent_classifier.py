@@ -108,11 +108,18 @@ class LLMFluentClassifier(FluentClassifier, ABC):
         """
         raise NotImplementedError
 
+    @staticmethod
+    def _alter_predicate_from_llm_to_problem(predicate: str) -> str:
+        return predicate  # by default, no alteration
+
     def classify(self, image_path: Path | str) -> Dict[str, PredicateTruthValue]:
         print(f"Classifying image: {image_path.split('/')[-1]} with temperature = {self.temperature}")
-        predicates_with_rel_judgement = self.simulate_relevance_judgement(
-            image_path=image_path,
-            temperature=self.temperature
+        predicates_with_rel_judgement = (
+            {
+                self._alter_predicate_from_llm_to_problem(pred): rel
+                for pred, rel
+                in self.simulate_relevance_judgement(image_path=image_path, temperature=self.temperature).items()
+            }
         )
 
         all_possible_predicates = self._generate_all_possible_predicates()

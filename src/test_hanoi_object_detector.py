@@ -22,7 +22,11 @@ def test_hanoi_detector_and_classifier(verbose: bool = False, num_images: int = 
     # Load configuration
     config = load_config()
     openai_apikey = config['openai']['api_key']
-    model_name = config['openai']['visual_components_model']['model_name']
+    domain = 'hanoi'
+    object_detection_model_name = config['domains'][domain]['object_detection']['model_name']
+    object_detection_temperature = config['domains'][domain]['object_detection']['temperature']
+    fluent_classification_model_name = config['domains'][domain]['fluent_classification']['model_name']
+    fluent_classification_temperature = config['domains'][domain]['fluent_classification']['temperature']
 
     if openai_apikey == "your-api-key-here":
         print("❌ Error: Please set your OpenAI API key in config.yaml")
@@ -32,13 +36,14 @@ def test_hanoi_detector_and_classifier(verbose: bool = False, num_images: int = 
     print("="*80)
     print("HANOI OBJECT DETECTOR & FLUENT CLASSIFIER TEST")
     print("="*80)
-    print(f"Model: {model_name}")
+    print(f"Model: {object_detection_model_name} (Object Detection), {fluent_classification_model_name} (Fluent Classification)")
     print(f"Test fluent classification: {test_fluents}")
     print()
 
     detector = LLMHanoiObjectDetector(
         openai_apikey=openai_apikey,
-        model=model_name
+        model=object_detection_model_name,
+        temperature=object_detection_temperature
     )
 
     # Find experiment images
@@ -142,7 +147,8 @@ def test_hanoi_detector_and_classifier(verbose: bool = False, num_images: int = 
                 classifier = LLMHanoiFluentClassifier(
                     openai_apikey=openai_apikey,
                     type_to_objects=sorted_type_to_objects,
-                    model=model_name
+                    model=fluent_classification_model_name,
+                    temperature=fluent_classification_temperature
                 )
 
                 # Run classification

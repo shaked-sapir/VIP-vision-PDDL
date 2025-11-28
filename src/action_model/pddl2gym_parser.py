@@ -33,7 +33,7 @@ def get_predicate_base_form(predicate_str: str) -> str:
 def pddlplus_to_gym_predicate(s: str) -> str:
     # example for formats: (on a - block b - block) -> on(a:block,b:block)
     pred = re.search(r'^\(\s*([^\s()]+)', s).group(1)
-    args = re.findall(r'([^\s()]+)\s*-\s*([^\s()]+)', s)
+    args = re.findall(r'([^\s()]+)\s+-\s+([^\s()]+)', s)
     return f"{pred}({','.join(f'{n}:{t}' for n, t in args)})"
 
 

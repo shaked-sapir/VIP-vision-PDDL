@@ -190,8 +190,10 @@ class NoisyConflictSearchSimulator(Simulator):
         openai_apikey: str,
         pddl_domain_file: Path,
         pddl_problem_dir: Path,
-        visual_components_model_name: str,
-        visual_components_temperature: float,
+        object_detection_model_name: str,
+        object_detection_temperature: float,
+        fluent_classification_model_name: str,
+        fluent_classification_temperature: float,
         experiment_dir_path: Path = Path("noisy_conflict_experiments"),
         fluent_patch_cost: int = 1,
         model_patch_cost: int = 1,
@@ -205,8 +207,10 @@ class NoisyConflictSearchSimulator(Simulator):
         :param openai_apikey: OpenAI API key for LLM-based components.
         :param pddl_domain_file: Path to the PDDL domain file.
         :param pddl_problem_dir: Directory containing PDDL problem files.
-        :param visual_components_model_name: Name of the LLM model to use.
-        :param visual_components_temperature: Temperature for LLM visual components.
+        :param object_detection_model_name: LLM model name for object detection.
+        :param object_detection_temperature: Temperature for object detection LLM.
+        :param fluent_classification_model_name: LLM model name for fluent classification.
+        :param fluent_classification_temperature: Temperature for fluent classification LLM.
         :param experiment_dir_path: Directory for experiment outputs.
         :param fluent_patch_cost: Cost of adding a fluent patch in search.
         :param model_patch_cost: Cost of adding a model constraint in search.
@@ -218,8 +222,10 @@ class NoisyConflictSearchSimulator(Simulator):
             openai_apikey=openai_apikey,
             pddl_domain_file=pddl_domain_file,
             pddl_problem_dir=pddl_problem_dir,
-            visual_components_model_name=visual_components_model_name,
-            visual_components_temperature=visual_components_temperature,
+            object_detection_model_name=object_detection_model_name,
+            object_detection_temperature=object_detection_temperature,
+            fluent_classification_model_name=fluent_classification_model_name,
+            fluent_classification_temperature=fluent_classification_temperature,
             experiment_dir_path=experiment_dir_path
         )
 
@@ -270,7 +276,7 @@ class NoisyConflictSearchSimulator(Simulator):
         # Create working directory for this experiment run
         timestamp = create_experiment_timestamp()
         working_dir = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/noisy_conflict_experiments/noisy_conflict_cv__steps=20__model=gpt-4.1__temp=1.0__23-11-2025T01:35:28")
-        # working_dir = self.experiment_dir_path / f"{experiment_name}__steps={num_steps}__model={self.visual_components_model_name}__temp={self.visual_components_temperature}__{timestamp}"
+        # working_dir = self.experiment_dir_path / f"{experiment_name}__steps={num_steps}__model={self.fluent_classification_model_name}__temp={self.fluent_classification_temperature}__{timestamp}"
         # working_dir.mkdir(parents=True, exist_ok=True)
         #
         # print(f"\nWorking directory: {working_dir}")
@@ -297,8 +303,10 @@ class NoisyConflictSearchSimulator(Simulator):
         #         i,
         #         len(problems),
         #         self.openai_apikey,
-        #         self.visual_components_model_name,
-        #         self.visual_components_temperature,
+        #         self.object_detection_model_name,
+        #         self.object_detection_temperature,
+        #         self.fluent_classification_model_name,
+        #         self.fluent_classification_temperature,
         #         self.pddl_domain_file,
         #         self.problem_dir
         #     )
@@ -370,8 +378,16 @@ if __name__ == '__main__':
 
     # Get API key from config
     openai_apikey = config['openai']['api_key']
-    visual_components_model_name = config['openai']['visual_components_model']['model_name']
-    visual_components_temperature = config['openai']['visual_components_model']['temperature']
+
+    domain = 'blocks'
+    domain_name = config['domains'][domain]['gym_domain_name']
+    pddl_domain_file = Path(config['domains'][domain]['domain_file'])
+    pddl_problem_dir = Path(config['domains'][domain]['problems_dir'])
+
+    object_detection_model_name = config['domains'][domain]['object_detection']['model_name']
+    object_detection_temperature = config['domains'][domain]['object_detection']['temperature']
+    fluent_classification_model_name = config['domains'][domain]['fluent_classification']['model_name']
+    fluent_classification_temperature = config['domains'][domain]['fluent_classification']['temperature']
 
     if openai_apikey == "your-api-key-here":
         raise ValueError(
@@ -379,20 +395,16 @@ if __name__ == '__main__':
             "Copy config.example.yaml to config.yaml and add your API key."
         )
 
-    # Configuration
-    domain = 'blocks'
-    domain_name = config['domains'][domain]['gym_domain_name']
-    pddl_domain_file = Path(config['domains'][domain]['domain_file'])
-    pddl_problem_dir = Path(config['domains'][domain]['problems_dir'])
-
     # Create noisy conflict search simulator
     simulator = NoisyConflictSearchSimulator(
         domain_name=domain_name,
         openai_apikey=openai_apikey,
         pddl_domain_file=pddl_domain_file,
         pddl_problem_dir=pddl_problem_dir,
-        visual_components_model_name=visual_components_model_name,
-        visual_components_temperature=visual_components_temperature,
+        object_detection_model_name=object_detection_model_name,
+        object_detection_temperature=object_detection_temperature,
+        fluent_classification_model_name=fluent_classification_model_name,
+        fluent_classification_temperature=fluent_classification_temperature,
         experiment_dir_path=Path("noisy_conflict_experiments"),
         fluent_patch_cost=1,
         model_patch_cost=1,

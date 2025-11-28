@@ -1,0 +1,195 @@
+{
+  "domain": "slidetile",
+  "problem": "eight01x.pddl",
+  "domain_file": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/venv11/lib/python3.11/site-packages/pddlgym/pddl/slidetile.pddl",
+  "total_states": 12,
+  "total_attempts": 254,
+  "transitions": [
+    {
+      "state_id": 0,
+      "action": null,
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({at(t2:default,x3:default,y1:default), position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), tile(t2:default), tile(t3:default), at(t5:default,x3:default,y2:default), at(t1:default,x2:default,y1:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), tile(t4:default), dec(y3:default,y2:default), dec(x3:default,x2:default), at(t3:default,x1:default,y2:default), at(t7:default,x2:default,y3:default), dec(y2:default,y1:default), at(t4:default,x2:default,y2:default), tile(t6:default), position(x2:default), position(y1:default), inc(x1:default,x2:default), blank(x1:default,y1:default), position(y3:default), at(t6:default,x1:default,y3:default), at(t8:default,x3:default,y3:default), position(x1:default), tile(t7:default), tile(t8:default), tile(t5:default), tile(t1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3
+    },
+    {
+      "state_id": 1,
+      "action": "right(t1:default)",
+      "action_predicate": "right",
+      "action_variables": [
+        "t1:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({at(t2:default,x3:default,y1:default), position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), tile(t1:default), tile(t2:default), tile(t3:default), at(t5:default,x3:default,y2:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), dec(x3:default,x2:default), at(t3:default,x1:default,y2:default), at(t7:default,x2:default,y3:default), at(t4:default,x2:default,y2:default), tile(t6:default), position(x2:default), position(y1:default), inc(x1:default,x2:default), position(y3:default), at(t6:default,x1:default,y3:default), blank(x2:default,y1:default), at(t8:default,x3:default,y3:default), position(x1:default), tile(t7:default), tile(t4:default), tile(t5:default), at(t1:default,x1:default,y1:default), tile(t8:default), dec(y2:default,y1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    },
+    {
+      "state_id": 2,
+      "action": "right(t2:default)",
+      "action_predicate": "right",
+      "action_variables": [
+        "t2:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), tile(t2:default), tile(t3:default), at(t5:default,x3:default,y2:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), tile(t4:default), dec(x3:default,x2:default), at(t3:default,x1:default,y2:default), at(t7:default,x2:default,y3:default), dec(y2:default,y1:default), at(t4:default,x2:default,y2:default), tile(t6:default), position(x2:default), position(y1:default), inc(x1:default,x2:default), position(y3:default), at(t6:default,x1:default,y3:default), blank(x3:default,y1:default), at(t8:default,x3:default,y3:default), tile(t7:default), position(x1:default), at(t2:default,x2:default,y1:default), tile(t5:default), at(t1:default,x1:default,y1:default), tile(t8:default), tile(t1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    },
+    {
+      "state_id": 3,
+      "action": "down(t5:default)",
+      "action_predicate": "down",
+      "action_variables": [
+        "t5:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), at(t5:default,x3:default,y1:default), tile(t1:default), tile(t2:default), tile(t3:default), blank(x3:default,y2:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), dec(x3:default,x2:default), at(t3:default,x1:default,y2:default), at(t7:default,x2:default,y3:default), at(t4:default,x2:default,y2:default), tile(t6:default), position(x2:default), position(y1:default), inc(x1:default,x2:default), position(y3:default), at(t6:default,x1:default,y3:default), at(t8:default,x3:default,y3:default), position(x1:default), tile(t7:default), tile(t4:default), at(t2:default,x2:default,y1:default), tile(t5:default), at(t1:default,x1:default,y1:default), tile(t8:default), dec(y2:default,y1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    },
+    {
+      "state_id": 4,
+      "action": "left(t4:default)",
+      "action_predicate": "left",
+      "action_variables": [
+        "t4:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), at(t5:default,x3:default,y1:default), blank(x2:default,y2:default), tile(t2:default), tile(t3:default), at(t4:default,x3:default,y2:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), tile(t4:default), dec(x3:default,x2:default), at(t3:default,x1:default,y2:default), at(t7:default,x2:default,y3:default), dec(y2:default,y1:default), tile(t6:default), position(x2:default), position(y1:default), inc(x1:default,x2:default), position(y3:default), at(t6:default,x1:default,y3:default), at(t8:default,x3:default,y3:default), tile(t7:default), position(x1:default), at(t2:default,x2:default,y1:default), tile(t5:default), at(t1:default,x1:default,y1:default), tile(t8:default), tile(t1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    },
+    {
+      "state_id": 5,
+      "action": "left(t3:default)",
+      "action_predicate": "left",
+      "action_variables": [
+        "t3:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({blank(x1:default,y2:default), position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), at(t5:default,x3:default,y1:default), tile(t1:default), tile(t2:default), tile(t3:default), at(t4:default,x3:default,y2:default), at(t3:default,x2:default,y2:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), dec(x3:default,x2:default), at(t7:default,x2:default,y3:default), tile(t6:default), position(x2:default), position(y1:default), inc(x1:default,x2:default), position(y3:default), at(t6:default,x1:default,y3:default), at(t8:default,x3:default,y3:default), position(x1:default), tile(t7:default), tile(t4:default), at(t2:default,x2:default,y1:default), tile(t5:default), at(t1:default,x1:default,y1:default), tile(t8:default), dec(y2:default,y1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    },
+    {
+      "state_id": 6,
+      "action": "up(t2:default)",
+      "action_predicate": "up",
+      "action_variables": [
+        "t2:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), at(t5:default,x3:default,y1:default), tile(t1:default), tile(t2:default), tile(t3:default), at(t4:default,x3:default,y2:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), dec(x3:default,x2:default), at(t7:default,x2:default,y3:default), at(t3:default,x1:default,y2:default), tile(t6:default), position(x2:default), position(y1:default), at(t2:default,x2:default,y2:default), inc(x1:default,x2:default), position(y3:default), at(t6:default,x1:default,y3:default), blank(x2:default,y1:default), at(t8:default,x3:default,y3:default), position(x1:default), tile(t7:default), tile(t4:default), tile(t5:default), at(t1:default,x1:default,y1:default), tile(t8:default), dec(y2:default,y1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    },
+    {
+      "state_id": 7,
+      "action": "left(t1:default)",
+      "action_predicate": "left",
+      "action_variables": [
+        "t1:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), at(t5:default,x3:default,y1:default), tile(t2:default), tile(t3:default), at(t4:default,x3:default,y2:default), at(t1:default,x2:default,y1:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), tile(t4:default), dec(x3:default,x2:default), at(t7:default,x2:default,y3:default), at(t3:default,x1:default,y2:default), dec(y2:default,y1:default), tile(t6:default), position(x2:default), position(y1:default), at(t2:default,x2:default,y2:default), inc(x1:default,x2:default), blank(x1:default,y1:default), position(y3:default), at(t6:default,x1:default,y3:default), at(t8:default,x3:default,y3:default), tile(t7:default), position(x1:default), tile(t5:default), tile(t8:default), tile(t1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    },
+    {
+      "state_id": 8,
+      "action": "right(t5:default)",
+      "action_predicate": "right",
+      "action_variables": [
+        "t5:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), tile(t2:default), tile(t3:default), at(t4:default,x3:default,y2:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), tile(t4:default), at(t5:default,x2:default,y1:default), dec(x3:default,x2:default), at(t7:default,x2:default,y3:default), at(t3:default,x1:default,y2:default), dec(y2:default,y1:default), tile(t6:default), position(x2:default), position(y1:default), at(t2:default,x2:default,y2:default), inc(x1:default,x2:default), position(y3:default), at(t6:default,x1:default,y3:default), blank(x3:default,y1:default), at(t8:default,x3:default,y3:default), tile(t7:default), position(x1:default), tile(t5:default), at(t1:default,x1:default,y1:default), tile(t8:default), tile(t1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    },
+    {
+      "state_id": 9,
+      "action": "down(t4:default)",
+      "action_predicate": "down",
+      "action_variables": [
+        "t4:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), tile(t1:default), tile(t2:default), tile(t3:default), blank(x3:default,y2:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), at(t5:default,x2:default,y1:default), dec(x3:default,x2:default), at(t7:default,x2:default,y3:default), at(t3:default,x1:default,y2:default), tile(t6:default), position(x2:default), position(y1:default), at(t2:default,x2:default,y2:default), inc(x1:default,x2:default), position(y3:default), at(t6:default,x1:default,y3:default), at(t4:default,x3:default,y1:default), at(t8:default,x3:default,y3:default), position(x1:default), tile(t7:default), tile(t4:default), tile(t5:default), at(t1:default,x1:default,y1:default), tile(t8:default), dec(y2:default,y1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    },
+    {
+      "state_id": 10,
+      "action": "down(t8:default)",
+      "action_predicate": "down",
+      "action_variables": [
+        "t8:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), tile(t2:default), tile(t3:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), tile(t4:default), at(t5:default,x2:default,y1:default), dec(x3:default,x2:default), at(t7:default,x2:default,y3:default), at(t3:default,x1:default,y2:default), dec(y2:default,y1:default), tile(t6:default), position(x2:default), position(y1:default), at(t2:default,x2:default,y2:default), inc(x1:default,x2:default), blank(x3:default,y3:default), position(y3:default), at(t6:default,x1:default,y3:default), at(t4:default,x3:default,y1:default), tile(t7:default), position(x1:default), at(t8:default,x3:default,y2:default), tile(t5:default), at(t1:default,x1:default,y1:default), tile(t8:default), tile(t1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    },
+    {
+      "state_id": 11,
+      "action": "left(t7:default)",
+      "action_predicate": "left",
+      "action_variables": [
+        "t7:default"
+      ],
+      "observation_sample": [
+        "AND[at(t8:default,x1:default,y1:default), at(t7:default,x2:default,y1:default), at(t6:default,x3:default,y1:default), at(t4:default,x2:default,y2:default), at(t1:default,x3:default,y2:default), at(t2:default,x1:default,y3:default), at(t5:default,x2:default,y3:default), at(t3:default,x3:default,y3:default)]",
+        "frozenset({position(x3:default), inc(y2:default,y3:default), inc(x2:default,x3:default), tile(t1:default), tile(t2:default), tile(t3:default), dec(x2:default,x1:default), position(y2:default), inc(y1:default,y2:default), dec(y3:default,y2:default), at(t7:default,x3:default,y3:default), at(t5:default,x2:default,y1:default), dec(x3:default,x2:default), at(t3:default,x1:default,y2:default), tile(t6:default), position(x2:default), position(y1:default), at(t2:default,x2:default,y2:default), blank(x2:default,y3:default), inc(x1:default,x2:default), position(y3:default), at(t6:default,x1:default,y3:default), at(t4:default,x3:default,y1:default), position(x1:default), tile(t7:default), tile(t4:default), at(t8:default,x3:default,y2:default), tile(t5:default), at(t1:default,x1:default,y1:default), tile(t8:default), dec(y2:default,y1:default)})",
+        "frozenset({t2:default, x1:default, x2:default, t5:default, t4:default, t6:default, t8:default, t1:default, t7:default, y2:default, t3:default, y1:default, x3:default, y3:default})"
+      ],
+      "total_predicates": 3,
+      "reward": 0.0,
+      "done": false
+    }
+  ]
+}

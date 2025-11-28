@@ -75,6 +75,11 @@ class ImageTrajectoryHandler(ABC):
             goal=[str(literal) for literal in obs.goal.literals]
         )
 
+    @staticmethod
+    def _rename_ground_action(ground_action: str) -> str:
+        # each child class can override this method to rename the ground action from pddlgym format to its own format
+        return ground_action
+
     def _create_trajectory_step(self, curr_obs: State, action: Literal, action_index: int,
                                 next_obs: State) -> TrajectoryStep:
         selected_operator, assignment = _select_operator(curr_obs, action, self.pddl_env.domain)
@@ -195,6 +200,8 @@ class ImageTrajectoryHandler(ABC):
                                 for pred, truth_value in current_state_predicates.items()]
             next_literals = [parse_image_predicate_to_gym(pred, truth_value)
                              for pred, truth_value in next_state_predicates.items()]
+
+            action = self._rename_ground_action(action)
 
             # Build trajectory step
             trajectory_step = {

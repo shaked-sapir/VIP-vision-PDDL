@@ -62,8 +62,8 @@ def parse_gym_to_pddl_ground_action(ground_action: str) -> str:
     return shrink_whitespaces(parsed_action)
 
 
-def build_trajectory_file(trajectory_data: List[dict], trajectory_name: str, output_path: Path) -> None:
-    output_path = os.path.join(output_path, f"{trajectory_name}.trajectory")
+def build_trajectory_file(trajectory_data: List[dict], problem_name: str, output_path: Path) -> None:
+    output_path = os.path.join(output_path, f"{problem_name}.trajectory")
 
     trajectory_lines = ["("]  # the opener of the trajectory file
 

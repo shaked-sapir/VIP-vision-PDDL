@@ -75,7 +75,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."
 
         # Extract objects by type with defaults
-        blocks = self.type_to_objects.get('block', ['red', 'cyan', 'blue', 'green'])  # Default blocks from problem1.pddl
+        blocks = self.type_to_objects.get('block', ['red', 'cyan', 'blue', 'green'])
         # Use the first robot if multiple are provided
         gripper_name = 'gripper'
 

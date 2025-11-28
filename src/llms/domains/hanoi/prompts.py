@@ -1,6 +1,3 @@
-from .consts import objects_to_colors, all_colors, all_object_types, disc_to_color
-
-
 def confidence_system_prompt(disc_names: list[str], peg_names: list[str]) -> str:
     """
     System prompt for LLM fluent classification in Hanoi domain with confidence scores.
@@ -11,22 +8,20 @@ def confidence_system_prompt(disc_names: list[str], peg_names: list[str]) -> str
                        (e.g., ['peg1', 'peg2', 'peg3']).
     :return: System prompt string.
     """
-    disc_colors = [disc_to_color.get(disc, "colored") for disc in disc_names]
-    disc_descriptions = [f"{name} ({color})" for name, color in zip(disc_names, disc_colors)]
 
-    return f"""You are a visual reasoning agent for a Towers of Hanoi robotic planning system.
+    return f"""You are a visual reasoning agent for a robotic planning system.
 
 The image contains ONLY two object types:
 - grey vertical poles = pegs
-- colored horizontal plates = discs
+- red horizontal plates = discs
 
 The known objects in this image are:
 
 - Pegs (vertical grey poles, ordered from left to right):
   {', '.join(peg_names)} (type=peg)
 
-- Discs (colored plates, ordered strictly by size):
-  {', '.join(disc_descriptions)} (type=disc)
+- Discs (red plates, ordered strictly by size):
+  {', '.join(disc_names)} (type=disc)
 
 IMPORTANT CONSTRAINTS ON OBJECTS:
 - The list of discs and pegs above is COMPLETE. Do NOT invent additional discs or pegs.
@@ -45,12 +40,12 @@ Each argument must include the object name and its type, separated by a colon
 
 Valid predicate forms:
 
-- on(x:disc,y:disc)      → disc x is directly on top of disc y
-- on(x:disc,y:peg)       → disc x is directly on peg y (and is the lowest disc on that peg)
-- clear(x:disc)          → no disc is on top of disc x
-- clear(x:peg)           → peg x has no discs on it
-- smaller(x:disc,y:disc) → disc y is smaller than disc x (STATIC, based on disc size ordering)
-- smaller(x:peg,y:disc)  → disc y is smaller than peg x (STATIC, always true for all peg–disc pairs)
+- on_disc(x:disc,y:disc)      → disc x is directly on top of disc y
+- on_peg(x:disc,y:peg)       → disc x is directly on peg y (and is the lowest disc on that peg)
+- clear_disc(x:disc)          → no disc is on top of disc x
+- clear_peg(x:peg)           → peg x has no discs on it
+- smaller_disc(x:disc,y:disc)    → disc y is smaller than disc x (STATIC, based on disc size ordering)
+- smaller_peg(x:peg,y:disc)     → disc y is smaller than peg x (STATIC, always true for all peg–disc pairs)
 
 For each predicate you output, assign a confidence score expressing how certain you are
 that the predicate holds in the image:
@@ -59,21 +54,27 @@ that the predicate holds in the image:
 - 1 → The predicate MIGHT hold, but evidence is unclear, partial, or occluded.
 - 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
 
+GOAL: Minimize use of 1. Prefer 0 or 2 whenever possible.
+
+☑️ You MUST assign a score to **every valid predicate**, including all `on_disc(...)`, `on_peg(...)`,
+ `clear_disc(...)`, `clear_peg(...)`, `smaller_disc(...)` and `smaller_peg(...)` predicates.
+ Notice that for `on_disc` and `smaller_disc` you don't have to compute pred(x,y) for x=y, only for x≠y
+
 STATIC PREDICATES (smaller):
 - The `smaller` predicates depend only on the fixed size ordering of objects:
   * For discs: if disc y appears earlier than disc x in the disc list, then y is smaller than x.
   * For pegs: every disc is smaller than every peg.
-- Therefore, all valid `smaller` predicates should ALWAYS be assigned score 2.
+- Therefore, all valid `smaller_disc`, `smaller_peg` predicates should ALWAYS be assigned score 2.
+
 
 NON-STATIC PREDICATES (on, clear):
 - Use the actual visual configuration of the discs and pegs.
-- A disc is `clear` if there is no other disc directly on top of it.
-- A peg is `clear` if there are no discs on that peg at all.
-- Use score 1 when visibility is ambiguous (e.g., occlusion), otherwise prefer 0 or 2.
+- A disc is `clear_disc` if there is no other disc directly on top of it.
+- A peg is `clear_peg` if there are no discs on that peg at all.
 
 IMPORTANT FORMAT RULES:
 - Each predicate must appear exactly in one of the valid forms above, including typings.
-- DO NOT use untyped forms like 'on(d1,peg1)'.
+- DO NOT use untyped forms like 'on_peg(d1,peg1)'.
 - DO NOT invent objects or types that were not listed.
 - Output one predicate per line, followed by a colon and the confidence score.
 
@@ -83,19 +84,19 @@ Output format:
 
 Example (for a 3-disc problem):
 
-on(d1:disc,d2:disc): 2
-on(d2:disc,d3:disc): 2
-on(d3:disc,peg1:peg): 2
-clear(d1:disc): 1
-clear(peg2:peg): 2
-clear(peg3:peg): 0
-smaller(d2:disc,d1:disc): 2
-smaller(d3:disc,d1:disc): 2
-smaller(d3:disc,d2:disc): 2
-smaller(peg1:peg,d1:disc): 2
-smaller(peg1:peg,d2:disc): 2
-smaller(peg1:peg,d3:disc): 2
-smaller(peg2:peg,d1:disc): 2
+on_disc(d1:disc,d2:disc): 2
+on_disc(d2:disc,d3:disc): 2
+on_peg(d3:disc,peg1:peg): 2
+clear_disc(d1:disc): 2
+clear_peg(peg2:peg): 2
+clear_peg(peg3:peg): 0
+smaller_disc(d2:disc,d1:disc): 2
+smaller_disc(d3:disc,d1:disc): 2
+smaller_disc(d3:disc,d2:disc): 2
+smaller_peg(peg1:peg,d1:disc): 2
+smaller_peg(peg1:peg,d2:disc): 2
+smaller_peg(peg1:peg,d3:disc): 2
+smaller_peg(peg2:peg,d1:disc): 2
 (...and so on for all valid smaller predicates)
 """
 
@@ -125,13 +126,14 @@ R2: bbox=(x3,y3,x4,y4), width=W2
 Do NOT decide disc IDs yet. Just list red regions.
 
 -------------------------------------------
-STEP 2 — MERGE REGIONS INTO DISCS
+STEP 2 — MERGE RED REGIONS INTO DISCS
 -------------------------------------------
 Some regions belong to the same physical disc.
 Using their positions and overlaps:
 
 - Merge regions that are vertically aligned and clearly part of one solid plate.
 - If two or more regions overlap strongly horizontally, treat them as a single disc.
+- notice that discs have darker border to help you distinguish them.
 
 After merging, you must end up with the actual physical discs.
 
@@ -187,40 +189,3 @@ p3:peg
 Do NOT output anything outside this final list in the <ID>:<type> format.
 """
 )
-
-
-full_guidance_system_prompt = (
-    f"""You are a visual reasoning agent for a robotic planning system.
-
-Given an image of a Towers of Hanoi puzzle with the following objects:\n
-- Gray pegs: typically 3 pegs labeled peg1, peg2, peg3 (type=peg)\n
-- Colored discs: multiple discs of different sizes and colors (type=disc)\n
-  Colors from smallest to largest: {', '.join(objects_to_colors["disc"])}\n\n
-
-Your task is to extract grounded binary predicates in the EXACT forms below, using the defined objects only.
-Each argument must include the object name and its type, separated by a colon (e.g. d1:disc, peg1:peg).
-DO NOT invent new predicates or omit typings.\n\n
-
-Valid predicate forms:\n
-- on(x:disc,y:disc)     → disc x is on top of disc y\n
-- on(x:disc,y:peg)      → disc x is on peg y (at the bottom)\n
-- clear(x:disc)         → no disc is on top of x\n
-- clear(x:peg)          → peg has no discs\n
-- smaller(x:disc,y:disc) → disc y is smaller than disc x\n
-- smaller(x:peg,y:disc)  → always true (all discs smaller than pegs)\n\n
-
-❗IMPORTANT:\n
-- Each predicate must appear exactly as described — including typings\n
-- Do NOT use forms like 'on(d1,peg1)' — typings are REQUIRED\n
-- Return one predicate per line, nothing else\n
-- Include ALL smaller(...) predicates based on actual disc sizes\n\n
-
-✅ Example output:\n
-on(d1:disc,d2:disc)\n
-on(d2:disc,peg1:peg)\n
-clear(d1:disc)\n
-clear(peg2:peg)\n
-smaller(d2:disc,d1:disc)\n
-smaller(peg1:peg,d1:disc)\n
-smaller(peg1:peg,d2:disc)
-""")

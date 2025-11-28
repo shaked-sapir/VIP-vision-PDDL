@@ -102,6 +102,30 @@ Each learner directory contains the **full experiment output structure**:
 
 ## Usage
 
+### Configuration Modes
+
+The lab simulator now supports **config-driven** operation with two modes:
+
+#### Mode 1: Use Existing Trajectories (Default)
+
+```python
+# In main():
+domain_name = 'blocks'  # or 'hanoi'
+generate_trajectories = False
+```
+
+Uses existing trajectory directory for quick testing and iteration.
+
+#### Mode 2: Generate Trajectories from Scratch
+
+```python
+# In main():
+domain_name = 'blocks'  # or 'hanoi'
+generate_trajectories = True
+```
+
+Automatically generates trajectories using LLM vision pipeline based on config.
+
 ### Running the Lab Simulator
 
 Simply run the script:
@@ -112,11 +136,16 @@ source venv11/bin/activate
 python src/lab_simulator.py
 ```
 
-The script is pre-configured to use:
-- **Working directory**: `src/noisy_conflict_experiments/noisy_conflict_cv__steps=20__model=gpt-5-mini__temp=1.0__22-11-2025T21:08:22`
-- **Domain file**: `blocks.pddl`
-- **Cross-validation**: 5 folds
-- **Conflict search**: Unlimited nodes, equal patch costs (1:1)
+### Switching Domains
+
+To switch from blocks to hanoi, just change one variable:
+
+```python
+# In main():
+domain_name = 'hanoi'  # That's it!
+```
+
+All domain-specific parameters (gym environment, object detection models, fluent classification models, paths) are automatically loaded from `config.yaml`.
 
 ### Customizing Parameters
 
@@ -139,12 +168,33 @@ lab = LabSimulatorRunner(
 
 ```python
 from pathlib import Path
-from src.lab_simulator import LabSimulatorRunner
+from src.lab_simulator import LabSimulatorRunner, create_trajectories_for_lab
+from src.utils.config import load_config
+
+# Load config
+config = load_config()
+domain_name = 'blocks'
+domain_config = config['domains'][domain_name]
+
+# Generate trajectories
+working_dir = create_trajectories_for_lab(
+    domain_name=domain_name,
+    gym_domain_name=domain_config['gym_domain_name'],
+    problems=[f"problem{i}" for i in range(10)],
+    num_steps=20,
+    openai_apikey=config['openai']['api_key'],
+    object_detection_model_name=domain_config['object_detection']['model_name'],
+    object_detection_temperature=domain_config['object_detection']['temperature'],
+    fluent_classification_model_name=domain_config['fluent_classification']['model_name'],
+    fluent_classification_temperature=domain_config['fluent_classification']['temperature'],
+    pddl_domain_file=Path(config['paths']['root']) / domain_config['domain_file'],
+    problem_dir=Path(config['paths']['root']) / domain_config['problem_dir']
+)
 
 # Create simulator
 lab = LabSimulatorRunner(
-    working_directory_path=Path("path/to/experiment"),
-    domain_file_name="blocks.pddl",
+    working_directory_path=working_dir,
+    domain_file_name=f"{domain_name}.pddl",
     n_split=5,
     fluent_patch_cost=1,
     model_patch_cost=1,
@@ -153,8 +203,98 @@ lab = LabSimulatorRunner(
 )
 
 # Run comparison
-results_file = lab.run_cross_validation()
-print(f"Results: {results_file}")
+pisam_dir, noisy_dir = lab.run_cross_validation()
+print(f"PI-SAM results: {pisam_dir}")
+print(f"Noisy results: {noisy_dir}")
+```
+
+## Configuration File
+
+The lab simulator loads domain-specific settings from `config.yaml`:
+
+```yaml
+domains:
+  blocks:
+    gym_domain_name: "PDDLEnvBlocks-v0"
+    domain_file: "src/domains/blocks/blocks.pddl"
+    problem_dir: "src/domains/blocks/problems"
+    object_detection:
+      model_name: "gpt-4o"
+      temperature: 1.0
+    fluent_classification:
+      model_name: "gpt-4o"
+      temperature: 0.0
+
+  hanoi:
+    gym_domain_name: "PDDLEnvHanoi-v0"
+    domain_file: "src/domains/hanoi/hanoi.pddl"
+    problem_dir: "src/domains/hanoi/problems"
+    object_detection:
+      model_name: "gpt-4o"
+      temperature: 1.0
+    fluent_classification:
+      model_name: "gpt-4o"
+      temperature: 0.0
+
+openai:
+  api_key: "sk-..."
+
+paths:
+  root: "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL"
+```
+
+This allows switching domains by just changing `domain_name` in the code - all paths, models, and parameters are loaded automatically.
+
+## Trajectory Generation
+
+### `create_trajectories_for_lab()` Function
+
+Generates trajectories using the appropriate trajectory handler for the domain.
+
+**Process**:
+1. Selects trajectory handler based on domain:
+   - `blocks` → `LLMBlocksImageTrajectoryHandler`
+   - `hanoi` → `LLMHanoiImageTrajectoryHandler`
+2. Generates trajectories sequentially for each problem
+3. Extracts masking info from LLM results (unknown predicates)
+4. Saves to working directory:
+   - `*.trajectory` files
+   - `*.masking_info` files
+   - `*.pddl` problem files
+   - Domain file
+
+**Parameters**:
+- `domain_name`: 'blocks' or 'hanoi'
+- `gym_domain_name`: Gym environment name
+- `problems`: List of problem names (e.g., ['problem0', 'problem1'])
+- `num_steps`: Steps per trajectory
+- `openai_apikey`: OpenAI API key
+- `object_detection_model_name`: Model for object detection
+- `object_detection_temperature`: Temperature for object detection
+- `fluent_classification_model_name`: Model for fluent classification
+- `fluent_classification_temperature`: Temperature for fluent classification
+- `pddl_domain_file`: Path to PDDL domain file
+- `problem_dir`: Directory containing problem files
+- `experiment_dir_path`: Base directory for experiments (default: "lab_experiments")
+
+**Returns**: Path to working directory with generated trajectories
+
+**Example**:
+```python
+working_dir = create_trajectories_for_lab(
+    domain_name='hanoi',
+    gym_domain_name='PDDLEnvHanoi-v0',
+    problems=['problem0', 'problem1', 'problem2'],
+    num_steps=10,
+    openai_apikey='sk-...',
+    object_detection_model_name='gpt-4o',
+    object_detection_temperature=1.0,
+    fluent_classification_model_name='gpt-4o',
+    fluent_classification_temperature=0.0,
+    pddl_domain_file=Path('src/domains/hanoi/hanoi.pddl'),
+    problem_dir=Path('src/domains/hanoi/problems')
+)
+# Returns: lab_experiments/hanoi_lab_cv__steps=10__<timestamp>/
 ```
 
 ## Output Format
@@ -217,25 +357,28 @@ print("Noisy F1:", noisy_results['f1'].mean())
 
 | Feature | Regular Simulator | Noisy Conflict Search Simulator | Lab Simulator |
 |---------|-------------------|--------------------------------|---------------|
-| **Purpose** | Generate trajectories + CV with PI-SAM | Generate trajectories + CV with conflict search | Compare learners on existing data |
-| **Trajectory Generation** | Yes | Yes | No (uses existing) |
+| **Purpose** | Generate trajectories + CV with PI-SAM | Generate trajectories + CV with conflict search | Compare learners side-by-side |
+| **Trajectory Generation** | Yes | Yes | **Yes (optional)** |
 | **Learners** | PI-SAM only | Conflict search only | Both PI-SAM + Conflict search |
-| **Input** | Problems list | Problems list | Working directory with data |
+| **Input** | Problems list | Problems list | Working directory OR config |
 | **Output** | Single learner results | Single learner results | Side-by-side comparison |
-| **Use Case** | Initial experiments | Noisy data experiments | Learner comparison |
+| **Config-Driven** | Partial | Partial | **Full config support** |
+| **Domain Switching** | Manual | Manual | **Change one variable** |
+| **Use Case** | Initial experiments | Noisy data experiments | Learner comparison + evaluation |
 
 ## When to Use Lab Simulator
 
 ✅ **Use Lab Simulator when:**
-- You already have generated trajectories with masking info
 - You want to compare PI-SAM vs Conflict Search on the same data
 - You want to analyze the differences in learning strategies
 - You want to measure the overhead of conflict resolution
+- **NEW**: You want to generate trajectories and immediately compare learners
+- **NEW**: You want config-driven experiments with easy domain switching
+- You already have generated trajectories with masking info
 
 ❌ **Don't use Lab Simulator when:**
-- You need to generate new trajectories (use regular/noisy simulators)
-- You only want to test one learner (use specific simulator)
-- You don't have masking info files (generate them first)
+- You only want to test one learner (use specific simulator for efficiency)
+- You need fine-grained control over trajectory generation per learner
 
 ## Performance Considerations
 
