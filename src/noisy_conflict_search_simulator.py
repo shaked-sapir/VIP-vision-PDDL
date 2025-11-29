@@ -6,18 +6,15 @@ during cross-validation instead of regular PI-SAM learning. It detects and resol
 conflicts in noisy observations by finding minimal patches (data flips and model constraints).
 """
 
-import shutil
+from copy import deepcopy
 from pathlib import Path
 from typing import List, Dict, Tuple
-from copy import deepcopy
 
-from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain, Observation
 from sam_learning.core import LearnerDomain
-from utilities import NegativePreconditionPolicy
 
 from src.pi_sam.pisam_experiment_runner import OfflinePiSamExperimentRunner
-from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
 from src.simulator import Simulator
 
 
@@ -259,7 +256,6 @@ class NoisyConflictSearchSimulator(Simulator):
         :param experiment_name: Name prefix for the experiment directory.
         :return: Path to experiment results directory.
         """
-        from time import time
 
         print(f"="*80)
         print(f"Running Cross-Validation with Conflict-Driven Patch Search")
@@ -270,7 +266,6 @@ class NoisyConflictSearchSimulator(Simulator):
 
         # Use the parent's trajectory generation (identical to base Simulator)
         # This returns the working directory with all trajectories and masking info
-        from src.simulator import _create_single_problem_trajectory
         from src.utils.time import create_experiment_timestamp
 
         # Create working directory for this experiment run

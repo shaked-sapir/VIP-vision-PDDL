@@ -32,7 +32,7 @@ from src.pi_sam.noisy_pisam.simpler_version.typings import (
     ModelLevelPatch,
     Conflict,
 )
-from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch, Key
+from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch, Key
 from src.utils.pddl import ground_observation_completely
 from src.utils.masking import mask_observation, load_masking_info
 

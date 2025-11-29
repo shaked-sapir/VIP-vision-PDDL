@@ -12,17 +12,15 @@ Usage:
 """
 
 import logging
-import os
 import shutil
 import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
+from experiments.experiments_consts import DEFAULT_NUMERIC_TOLERANCE
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain, Observation
-
-from experiments.experiments_consts import DEFAULT_NUMERIC_TOLERANCE
 from sam_learning.core import LearnerDomain
 from sam_statistics.learning_statistics_manager import LearningStatisticsManager
 from sam_statistics.utils import init_semantic_performance_calculator
@@ -32,7 +30,7 @@ from validators import DomainValidator
 
 from src.action_model.gym2SAM_parser import parse_grounded_predicates
 from src.pi_sam import PISAMLearner
-from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
 from src.trajectory_handlers.llm_blocks_trajectory_handler import LLMBlocksImageTrajectoryHandler
 from src.trajectory_handlers.llm_hanoi_trajectory_handler import LLMHanoiImageTrajectoryHandler
 from src.trajectory_handlers.llm_npuzzle_trajectory_handler import LLMNpuzzleImageTrajectoryHandler
@@ -700,7 +698,7 @@ def main():
     generate_trajectories = True
 
     # Experiment parameters
-    num_steps = 15
+    num_steps = 1
     n_split = 5
     fluent_patch_cost = 1
     model_patch_cost = 1
