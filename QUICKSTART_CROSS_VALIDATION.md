@@ -41,7 +41,7 @@ Open `src/simulator.py` and modify these variables (around line 397-401):
 
 ```python
 # Configuration for cross-validation experiment
-domain = 'blocks'
+domain = 'blocksworld'
 problems = ["problem1", "problem3", "problem5"]  # Add more: problem7, problem9
 num_steps = 25  # Increase for longer trajectories
 experiment_name = "llm_cv_test"  # Change experiment name
@@ -77,14 +77,14 @@ For more control, use the command-line interface:
 ```bash
 # LLM-based cross-validation
 python -m src.simulator_cli full \
-  --domain blocks \
+  --domain blocksworld \
   --problems problem1 problem3 problem5 \
   --steps 25 \
   --masking llm
 
 # Deterministic detection with percentage masking
 python -m src.simulator_cli full \
-  --domain blocks \
+  --domain blocksworld \
   --problems problem1 problem3 problem5 \
   --steps 25 \
   --masking percentage \

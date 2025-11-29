@@ -374,7 +374,7 @@ if __name__ == '__main__':
     # Get API key from config
     openai_apikey = config['openai']['api_key']
 
-    domain = 'blocks'
+    domain = 'blocksworld'
     domain_name = config['domains'][domain]['gym_domain_name']
     pddl_domain_file = Path(config['domains'][domain]['domain_file'])
     pddl_problem_dir = Path(config['domains'][domain]['problems_dir'])

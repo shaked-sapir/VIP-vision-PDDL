@@ -155,7 +155,7 @@ class Simulator:
         self.fluent_classification_model_name = fluent_classification_model_name
         self.fluent_classification_temperature = fluent_classification_temperature
 
-        # Initialize trajectory handler for blocks domain, object detection & fluent classification done with same model
+        # Initialize trajectory handler for blocksworld domain, object detection & fluent classification done with same model
         self.image_trajectory_handler: ImageTrajectoryHandler = LLMBlocksImageTrajectoryHandler(
             domain_name,
             openai_apikey,
@@ -469,7 +469,7 @@ class Simulator:
 if __name__ == '__main__':
     # Load configuration
     config = load_config()
-    domain = 'blocks'
+    domain = 'blocksworld'
 
     # Get API key from config
     openai_apikey = config['openai']['api_key']
@@ -528,7 +528,7 @@ if __name__ == '__main__':
         print("="*80 + "\n")
 
         # Configuration for cross-validation experiment
-        domain = 'blocks'
+        domain = 'blocksworld'
         domain_name = config['domains'][domain]['gym_domain_name']
         problems = [
             "problem1",

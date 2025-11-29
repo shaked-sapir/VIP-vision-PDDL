@@ -45,8 +45,8 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test fixtures that are reused across tests."""
-        # Load blocks domain
-        cls.domain_file = absulute_path_prefix / Path("src/domains/blocks/blocks.pddl")
+        # Load blocksworld domain
+        cls.domain_file = absulute_path_prefix / Path("src/domains/blocksworld/blocksworld.pddl")
         cls.domain: Domain = DomainParser(cls.domain_file, partial_parsing=True).parse_domain()
 
         # Load problem7 trajectory and masking info
@@ -403,7 +403,7 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         print(f"\n{'─' * 100}")
         print("Test Setup:")
         print(f"{'─' * 100}")
-        print(f"  Trajectory: problem7 (25 steps, blocks world domain)")
+        print(f"  Trajectory: problem7 (25 steps, blocksworld world domain)")
         print(f"  Observation: Grounded and masked")
         print(f"  Search Strategy: Conflict-driven with best-first search")
         print(f"  Cost Metric: Total number of patches (model + fluent)")

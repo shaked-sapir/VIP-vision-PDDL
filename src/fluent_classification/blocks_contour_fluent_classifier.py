@@ -18,7 +18,7 @@ class BlocksContourFluentClassifier(FluentClassifier):
     def __init__(self, object_detector: ColorObjectDetector):
         """
         Initializes the BlocksFluentClassifier with a given object detector.
-        :param object_detector: An instance of ColorObjectDetector that detects blocks, robots, and tables.
+        :param object_detector: An instance of ColorObjectDetector that detects blocksworld, robots, and tables.
         """
         self.object_detector = object_detector
 
@@ -149,7 +149,7 @@ if __name__ == "__main__":
     blocks_fluent_classifier = BlocksContourFluentClassifier(color_object_detector)
     # is_on_top tests
     assert blocks_fluent_classifier.is_on_top(detected_objects["blue:block"], detected_objects["cyan:block"])
-    assert not blocks_fluent_classifier.is_on_top(detected_objects["cyan:block"], detected_objects["blue:block"])  # extreme case: blocks are touching but the second is on the first, so the function should fail
+    assert not blocks_fluent_classifier.is_on_top(detected_objects["cyan:block"], detected_objects["blue:block"])  # extreme case: blocksworld are touching but the second is on the first, so the function should fail
     assert not blocks_fluent_classifier.is_on_top(detected_objects["red:block"], detected_objects["cyan:block"])
     assert not blocks_fluent_classifier.is_on_top(detected_objects["green:block"], detected_objects["cyan:block"])  # extreme case: the block held by the robot is never placed on top of any other block
     assert not blocks_fluent_classifier.is_on_top(detected_objects["cyan:block"], detected_objects["cyan:block"])  # extreme case: a block cannot be on top of itself

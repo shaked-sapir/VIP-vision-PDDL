@@ -36,7 +36,7 @@ def generate_blocks_training_data(
     trace_length: int = 15
 ) -> Tuple[Path, List[Path]]:
     """
-    Generate training data for blocks domain.
+    Generate training data for blocksworld domain.
 
     Args:
         output_base_dir: Base directory for all benchmark data
@@ -55,7 +55,7 @@ def generate_blocks_training_data(
     # Load configuration
     config = load_config()
     openai_apikey = config['openai']['api_key']
-    domain = 'blocks'
+    domain = 'blocksworld'
     gym_domain_name = config['domains'][domain]['gym_domain_name']
     object_detection_model = config['domains'][domain]['object_detection']['model_name']
     object_detection_temp = config['domains'][domain]['object_detection']['temperature']
@@ -63,7 +63,7 @@ def generate_blocks_training_data(
     fluent_classification_temp = config['domains'][domain]['fluent_classification']['temperature']
 
     # Setup output directories
-    blocks_data_dir = output_base_dir / "blocks" / "training"
+    blocks_data_dir = output_base_dir / "blocksworld" / "training"
     if blocks_data_dir.exists():
         shutil.rmtree(blocks_data_dir)
     blocks_data_dir.mkdir(parents=True)
@@ -206,9 +206,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--domain",
         type=str,
-        default="blocks",
-        choices=["blocks", "hanoi", "slidetile"],
-        help="Domain to generate data for (default: blocks)"
+        default="blocksworld",
+        choices=["blocksworld", "hanoi", "slidetile"],
+        help="Domain to generate data for (default: blocksworld)"
     )
     parser.add_argument(
         "--num-steps",
@@ -233,7 +233,7 @@ if __name__ == "__main__":
 
     output_dir = Path(__file__).parent / "data"
 
-    if args.domain == "blocks":
+    if args.domain == "blocksworld":
         rosame_dir, our_dirs = generate_blocks_training_data(
             output_base_dir=output_dir,
             num_steps=args.num_steps,

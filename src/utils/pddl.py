@@ -44,6 +44,8 @@ def parse_gym_to_pddl_literal(literal: str) -> str:
     """Convert 'on(a:block,b:block)' -> '(on a b)'"""
     name, args = literal.split('(')
     args = args.rstrip(')')
+    if not args:
+        return f"({name})"
     args_clean = [arg.split(':')[0] for arg in args.split(',')]
     parsed_literal = f"({name} {' '.join(args_clean)})"
     return shrink_whitespaces(parsed_literal)

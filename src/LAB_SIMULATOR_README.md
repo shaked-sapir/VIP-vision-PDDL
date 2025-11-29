@@ -110,7 +110,7 @@ The lab simulator now supports **config-driven** operation with two modes:
 
 ```python
 # In main():
-domain_name = 'blocks'  # or 'hanoi'
+domain_name = 'blocksworld'  # or 'hanoi'
 generate_trajectories = False
 ```
 
@@ -120,7 +120,7 @@ Uses existing trajectory directory for quick testing and iteration.
 
 ```python
 # In main():
-domain_name = 'blocks'  # or 'hanoi'
+domain_name = 'blocksworld'  # or 'hanoi'
 generate_trajectories = True
 ```
 
@@ -154,7 +154,7 @@ Edit the `main()` function in `lab_simulator.py`:
 ```python
 lab = LabSimulatorRunner(
     working_directory_path=Path("your/working/dir"),
-    domain_file_name="blocks.pddl",
+    domain_file_name="blocksworld.pddl",
     problem_prefix="problem",
     n_split=5,                    # Number of folds
     fluent_patch_cost=1,          # Cost of fluent patches
@@ -173,7 +173,7 @@ from src.utils.config import load_config
 
 # Load config
 config = load_config()
-domain_name = 'blocks'
+domain_name = 'blocksworld'
 domain_config = config['domains'][domain_name]
 
 # Generate trajectories
@@ -216,8 +216,8 @@ The lab simulator loads domain-specific settings from `config.yaml`:
 domains:
   blocks:
     gym_domain_name: "PDDLEnvBlocks-v0"
-    domain_file: "src/domains/blocks/blocks.pddl"
-    problem_dir: "src/domains/blocks/problems"
+    domain_file: "src/domains/blocksworld/blocksworld.pddl"
+    problem_dir: "src/domains/blocksworld/problems"
     object_detection:
       model_name: "gpt-4o"
       temperature: 1.0

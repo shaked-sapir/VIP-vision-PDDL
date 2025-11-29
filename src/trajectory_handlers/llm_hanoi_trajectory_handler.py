@@ -29,7 +29,7 @@ class LLMHanoiImageTrajectoryHandler(ImageTrajectoryHandler):
     def init_visual_components(self, init_state_image_path: Path) -> None:
         """
         In this class, this method should only be called after initializing a specific
-        blocks problem, because the object detection module depends on blocks colors which
+        blocksworld problem, because the object detection module depends on blocksworld colors which
         are determined only at problem initialization time - and they are extracted from the initial state image.
         """
 

@@ -56,7 +56,7 @@ handfull(gripper:gripper): 2
 #  Given an image with the following known objects:
 #  - A grey-colored gripper (type=gripper)
 #  - A brown-colored table (type=table)
-#  - Colored blocks: {', '.join(block_colors)} (type=block).
+#  - Colored blocksworld: {', '.join(block_colors)} (type=block).
 #
 #
 # Your task is to extract **all grounded predicates** from the image and assign a **confidence score** to each,
@@ -120,7 +120,7 @@ handfull(gripper:gripper): 2
 # Given an image with the following known objects:
 # - A grey-colored gripper (type=gripper)
 # - A brown-colored table (type=table)
-# - Colored blocks: {', '.join(block_colors)} (type=block).
+# - Colored blocksworld: {', '.join(block_colors)} (type=block).
 #
 # Your task is to extract **all grounded predicates** from the image and assign a **confidence score** to each,
 # Each predicate must be written in **exactly one of the forms listed below**, using the defined objects only.

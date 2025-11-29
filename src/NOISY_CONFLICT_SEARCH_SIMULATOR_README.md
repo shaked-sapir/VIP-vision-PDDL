@@ -68,8 +68,8 @@ from src.noisy_conflict_search_simulator import NoisyConflictSearchSimulator
 simulator = NoisyConflictSearchSimulator(
     domain_name="PDDLEnvBlocks-v0",
     openai_apikey="your-api-key",
-    pddl_domain_file=Path("src/domains/blocks/blocks.pddl"),
-    pddl_problem_dir=Path("src/domains/blocks"),
+    pddl_domain_file=Path("src/domains/blocksworld/blocksworld.pddl"),
+    pddl_problem_dir=Path("src/domains/blocksworld"),
     visual_components_model_name="gpt-4o",
     experiment_dir_path=Path("noisy_conflict_experiments"),
     fluent_patch_cost=1,

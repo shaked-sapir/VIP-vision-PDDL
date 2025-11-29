@@ -165,7 +165,7 @@ if __name__ == "__main__":
     # example_basic_comparison(
     #     openai_apikey=openai_apikey,
     #     ground_truth_path=gt_path,
-    #     images_dir=Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/llms/domains/blocks/images/"),
+    #     images_dir=Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/llms/domains/blocksworld/images/"),
     #     model="gpt-4o"
     # )
     example_full_experiment(

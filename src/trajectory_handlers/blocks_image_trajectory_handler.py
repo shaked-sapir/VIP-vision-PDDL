@@ -12,7 +12,7 @@ class BlocksImageTrajectoryHandler(ImageTrajectoryHandler):
     def init_visual_components(self) -> None:
         """
         In this class, this method should only be called after initializing a specific
-        blocks problem, because the object detection module depends on blocks colors which
+        blocksworld problem, because the object detection module depends on blocksworld colors which
         are determined only at problem initialization time by the `_block_name_to_color`
         method from gym.
         """

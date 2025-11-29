@@ -80,8 +80,8 @@ class TestSimpleNoisyPisamLearner(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test fixtures that are reused across tests."""
-        # Load blocks domain
-        cls.domain_file = absulute_path_prefix / Path("src/domains/blocks/blocks.pddl")
+        # Load blocksworld domain
+        cls.domain_file = absulute_path_prefix / Path("src/domains/blocksworld/blocksworld.pddl")
         cls.domain: Domain = DomainParser(cls.domain_file, partial_parsing=True).parse_domain()
 
         # Load problem7 trajectory and masking info

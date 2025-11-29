@@ -7,7 +7,7 @@ This version removes the handfull predicate to match ROSAME's domain definition.
 import itertools
 
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
-from benchmark.domains.blocks.prompts import with_uncertain_confidence_system_prompt, no_uncertain_confidence_system_prompt
+from benchmark.domains.blocksworld.prompts import with_uncertain_confidence_system_prompt, no_uncertain_confidence_system_prompt
 
 
 class EqualizedBlocksFluentClassifier(LLMFluentClassifier):
@@ -20,7 +20,7 @@ class EqualizedBlocksFluentClassifier(LLMFluentClassifier):
                  model: str = "gpt-4o", temperature: float = 1.0,
                  use_uncertain: bool = True):
         """
-        Initialize the equalized blocks fluent classifier.
+        Initialize the equalized blocksworld fluent classifier.
 
         :param openai_apikey: OpenAI API key
         :param type_to_objects: Mapping of object types to object names
@@ -73,10 +73,10 @@ class EqualizedBlocksFluentClassifier(LLMFluentClassifier):
 
     def _generate_all_possible_predicates(self) -> set[str]:
         """
-        Generates all possible predicates for the equalized blocks domain (NO handfull).
+        Generates all possible predicates for the equalized blocksworld domain (NO handfull).
 
         Returns:
-            Set of all possible predicate strings for the blocks domain.
+            Set of all possible predicate strings for the blocksworld domain.
         """
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."
 

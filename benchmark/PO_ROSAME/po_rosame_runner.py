@@ -1,4 +1,4 @@
-from amlgym.algorithms.rosame import Rosame_Runner
+from amlgym.algorithms.rosame.experiment_runner.rosame_runner import Rosame_Runner
 
 
 class PORosame_Runner(Rosame_Runner):

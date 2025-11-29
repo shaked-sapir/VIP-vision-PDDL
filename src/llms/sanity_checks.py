@@ -261,7 +261,7 @@ if __name__ == "__main__":
     print(f"Confidence thresholds: t_low={t_low}, t_high={t_high}")
 
 
-    # print(extract_facts_once("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/llms/domains/blocks/images/state_0000.png",
+    # print(extract_facts_once("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/llms/domains/blocksworld/images/state_0000.png",
     #                          model="gpt-4o",
     #                          system_prompt_text=full_guidance_system_prompt,
     #                          result_regex=predicate_extraction_regex,

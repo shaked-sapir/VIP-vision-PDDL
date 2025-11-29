@@ -48,7 +48,7 @@ repaired_obs, repair_op, repair_choice = repairer.repair_inconsistency(
     inconsistency,
     image1_path="state_0006.png",
     image2_path="state_0013.png",
-    domain_name="blocks"
+    domain_name="blocksworld"
 )
 ```
 
@@ -93,7 +93,7 @@ denoiser = PlanDenoiser(
     domain=domain,
     openai_apikey="your-key",
     image_directory=Path("./images"),
-    domain_name="blocks",
+    domain_name="blocksworld",
     max_iterations=50,
     max_backtracks=5
 )
@@ -208,7 +208,7 @@ denoiser = PlanDenoiser(
     domain=domain,
     openai_apikey="sk-your-openai-key",
     image_directory=Path("./images"),
-    domain_name="blocks"
+    domain_name="blocksworld"
 )
 
 # Denoise

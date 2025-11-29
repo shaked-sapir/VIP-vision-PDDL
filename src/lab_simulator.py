@@ -541,7 +541,7 @@ def create_trajectories_for_lab(
     for the given domain and saves them to a directory that can be used by
     LabSimulatorRunner.
 
-    :param domain_name: Domain identifier (e.g., 'blocks', 'hanoi')
+    :param domain_name: Domain identifier (e.g., 'blocksworld', 'hanoi')
     :param gym_domain_name: Gym environment name (e.g., 'PDDLEnvBlocks-v0')
     :param problems: List of problem names to generate trajectories for
     :param num_steps: Number of steps per trajectory
@@ -574,7 +574,7 @@ def create_trajectories_for_lab(
     domain = DomainParser(pddl_domain_file).parse_domain()
     gym_problems = problems
     # Select appropriate trajectory handler based on domain
-    if domain_name == 'blocks':
+    if domain_name == 'blocksworld':
         trajectory_handler = LLMBlocksImageTrajectoryHandler(
             gym_domain_name,
             openai_apikey,
@@ -603,7 +603,7 @@ def create_trajectories_for_lab(
         )
         gym_problems = ["eight01x", "eight01x", "eight01x", "eight01x", "eight01x"] # because of lack of problems
     else:
-        raise ValueError(f"Unsupported domain: {domain_name}. Supported domains: blocks, hanoi, n_puzzle")
+        raise ValueError(f"Unsupported domain: {domain_name}. Supported domains: blocksworld, hanoi, n_puzzle")
 
     print(f"Using trajectory handler: {trajectory_handler.__class__.__name__}\n")
 
@@ -676,7 +676,7 @@ def main():
     1. Generate trajectories from scratch using LLM vision pipeline
     2. Use existing trajectory directory
 
-    Change `domain_name` to switch between domains (blocks, hanoi).
+    Change `domain_name` to switch between domains (blocksworld, hanoi).
     Set `generate_trajectories = True` to create new trajectories.
     """
     import logging

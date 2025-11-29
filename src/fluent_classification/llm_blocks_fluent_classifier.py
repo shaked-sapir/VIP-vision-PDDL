@@ -7,14 +7,14 @@ from src.llms.domains.blocks.prompts import with_uncertain_confidence_system_pro
 class LLMBlocksFluentClassifier(LLMFluentClassifier):
     """
     LLM-based fluent classifier for the Blocks domain.
-    Uses VisionModel to extract predicates from images of blocks world scenarios.
+    Uses VisionModel to extract predicates from images of blocksworld world scenarios.
     """
 
     def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None,
                  model: str = "gpt-4o", temperature: float = 1.0,
                  use_uncertain: bool = True):
         """
-        Initialize the blocks fluent classifier.
+        Initialize the blocksworld fluent classifier.
 
         :param openai_apikey: OpenAI API key
         :param type_to_objects: Mapping of object types to object names
@@ -65,12 +65,26 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             return no_uncertain_confidence_system_prompt(
                 self.type_to_objects['block'])
 
-    def _generate_all_possible_predicates(self) -> set[str]:
+    @staticmethod
+    def _alter_predicate_from_llm_to_problem(predicate: str) -> str:
         """
-        Generates all possible predicates for the blocks domain.
+        Alters a predicate string from LLM format to problem format.
+
+        Args:
+            predicate: Predicate string in LLM format.
 
         Returns:
-            Set of all possible predicate strings for the blocks domain.
+            Predicate string in problem format.
+        """
+        # In this case, no alteration is needed; return as is
+        return predicate if "handempty" not in predicate else "handempty()"
+
+    def _generate_all_possible_predicates(self) -> set[str]:
+        """
+        Generates all possible predicates for the blocksworld domain.
+
+        Returns:
+            Set of all possible predicate strings for the blocksworld domain.
         """
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."
 

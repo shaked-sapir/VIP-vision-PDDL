@@ -1,5 +1,5 @@
 """
-Updated prompts for blocks domain without handfull predicate.
+Updated prompts for blocksworld domain without handfull predicate.
 This version is equalized with ROSAME's domain definition.
 """
 
@@ -12,7 +12,7 @@ def with_uncertain_confidence_system_prompt(block_colors: list[str]) -> str:
  Given an image with the following known objects:\n
  - A grey-colored gripper (type=gripper)
  - A brown-colored table (type=table)
- - Colored blocks: {', '.join(block_colors)} (type=block).\n
+ - Colored blocksworld: {', '.join(block_colors)} (type=block).\n
 
 Your task is to extract **all grounded predicates** from the image and assign a **confidence score** to each,
 Each predicate must be written in **exactly one of the forms listed below**, using the defined objects only.
@@ -63,7 +63,7 @@ def no_uncertain_confidence_system_prompt(block_colors: list[str]) -> str:
 Given an image with the following known objects:
 - A grey-colored gripper (type=gripper)
 - A brown-colored table (type=table)
-- Colored blocks: {', '.join(block_colors)} (type=block).
+- Colored blocksworld: {', '.join(block_colors)} (type=block).
 
 
 Your task is to extract **all grounded predicates** from the image and assign a **confidence score** to each,

@@ -212,7 +212,7 @@ def create_trajectory_handler(
     For 'percentage' or 'random' masking: Use deterministic object detector and fluent classifier.
     For 'llm' masking: Use LLM-based object detector and fluent classifier.
 
-    :param domain: Domain identifier ('blocks' or 'hanoi').
+    :param domain: Domain identifier ('blocksworld' or 'hanoi').
     :param domain_name: PDDL gym domain name (e.g., 'PDDLEnvBlocks-v0').
     :param masking_strategy: Masking strategy ('percentage', 'random', or 'llm').
     :param openai_apikey: OpenAI API key (required for LLM-based handlers).
@@ -220,7 +220,7 @@ def create_trajectory_handler(
     """
     if masking_strategy == 'llm':
         # Use LLM-based detection and classification
-        if domain == 'blocks':
+        if domain == 'blocksworld':
             print("Using LLM-based trajectory handler for Blocks")
             print("  - Object detector: LLMBlocksObjectDetector (GPT-4 Vision)")
             print("  - Fluent classifier: LLMBlocksFluentClassifier (GPT-4 Vision)")
@@ -234,7 +234,7 @@ def create_trajectory_handler(
             raise ValueError(f"Unknown domain: {domain}")
     else:
         # Use deterministic detection and classification
-        if domain == 'blocks':
+        if domain == 'blocksworld':
             print("Using deterministic trajectory handler for Blocks")
             print("  - Object detector: ColorObjectDetector (color-based)")
             print("  - Fluent classifier: BlocksContourFluentClassifier (geometric)")
@@ -474,7 +474,7 @@ def run_full_pipeline_with_cross_validation(
     3. Run PI-SAM cross-validation experiments
     4. Return results
 
-    :param domain: Domain identifier ('blocks' or 'hanoi').
+    :param domain: Domain identifier ('blocksworld' or 'hanoi').
     :param domain_name: Name of the PDDL gym domain.
     :param openai_apikey: OpenAI API key.
     :param pddl_domain_file: Path to PDDL domain file.
@@ -596,10 +596,10 @@ Examples:
   python -m src.simulator_cli simple --problem problem1 --steps 25 --masking llm
 
   # Run full cross-validation with deterministic detection and random masking
-  python -m src.simulator_cli full --domain blocks --problems problem1 problem3 problem5 --steps 50 --masking random --probability 0.3
+  python -m src.simulator_cli full --domain blocksworld --problems problem1 problem3 problem5 --steps 50 --masking random --probability 0.3
 
   # Run full cross-validation with LLM-based detection and masking
-  python -m src.simulator_cli full --domain blocks --problems problem1 problem3 --masking llm
+  python -m src.simulator_cli full --domain blocksworld --problems problem1 problem3 --masking llm
 
   # Override domain name in simple mode
   python -m src.simulator_cli simple --problem problem1 --domain-name PDDLEnvBlocks-v1 --masking llm
@@ -620,9 +620,9 @@ Examples:
     parser.add_argument(
         '--domain',
         type=str,
-        default='blocks',
-        choices=['blocks', 'hanoi'],
-        help='Domain to use (default: blocks)'
+        default='blocksworld',
+        choices=['blocksworld', 'hanoi'],
+        help='Domain to use (default: blocksworld)'
     )
 
     parser.add_argument(
