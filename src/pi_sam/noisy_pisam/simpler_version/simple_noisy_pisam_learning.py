@@ -2,7 +2,8 @@ from copy import deepcopy
 from typing import List, Set, Dict, Tuple
 
 from pddl_plus_parser.models import Domain, Observation, State, ActionCall, Predicate, GroundedPredicate, Action
-from sam_learning.core import LearnerDomain, extract_discrete_effects_partial_observability, \
+from sam_learning.core import LearnerDomain
+from sam_learning.core.matching_utils import extract_discrete_effects_partial_observability, \
     extract_not_effects_partial_observability
 from utilities import NegativePreconditionPolicy
 
@@ -17,9 +18,9 @@ from src.pi_sam.noisy_pisam.simpler_version.typings import (
     Conflict,
 )
 from src.pi_sam.pi_sam_learning import PISAMLearner
+
 from src.utils.pddl import (
-    get_state_grounded_predicates, get_state_unmasked_predicates, get_state_masked_predicates,
-)
+    get_state_grounded_predicates, )
 
 
 class NoisyPisamLearner(PISAMLearner):
@@ -520,7 +521,6 @@ class NoisyPisamLearner(PISAMLearner):
                     )
                     local_conflicts.append(conflict)
                     self.logger.warning(f"Detected patch-based effect conflict (REQUIRE vs cannot): {conflict}")
-
         # ------------------------------------------------------------------
         # Decide whether to apply PI-SAM effect update
         # ------------------------------------------------------------------

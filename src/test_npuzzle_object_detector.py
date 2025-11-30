@@ -21,7 +21,7 @@ from src.trajectory_handlers.llm_npuzzle_trajectory_handler import LLMNpuzzleIma
 from src.utils.config import load_config
 
 
-def test_npuzzle_full_pipeline(num_steps: int = 10, problem_name: str = "eight01x.pddl", verbose: bool = False):
+def test_npuzzle_full_pipeline(num_steps: int = 10, problem_name: str = "eight01x_amlgym.pddl", verbose: bool = False):
     """
     Complete test of N-Puzzle vision pipeline:
     1. Generate trajectory using LLMNpuzzleImageTrajectoryHandler
@@ -33,8 +33,9 @@ def test_npuzzle_full_pipeline(num_steps: int = 10, problem_name: str = "eight01
     # Load configuration
     config = load_config()
     openai_apikey = config['openai']['api_key']
-    domain = 'n_puzzle'
+    domain = 'npuzzle'
     gym_domain_name = config['domains'][domain]['gym_domain_name']
+    domain_file_path = Path(config['domains'][domain]['domain_file'])
     object_detection_model = config['domains'][domain]['object_detection']['model_name']
     object_detection_temp = config['domains'][domain]['object_detection']['temperature']
     fluent_classification_model = config['domains'][domain]['fluent_classification']['model_name']
@@ -70,6 +71,7 @@ def test_npuzzle_full_pipeline(num_steps: int = 10, problem_name: str = "eight01
 
     trajectory_handler = LLMNpuzzleImageTrajectoryHandler(
         domain_name=gym_domain_name,
+        pddl_domain_file=domain_file_path,
         openai_apikey=openai_apikey,
         object_detector_model=object_detection_model,
         object_detection_temperature=object_detection_temp,
@@ -221,7 +223,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--problem", "-p",
         type=str,
-        default="eight01x.pddl",
+        default="eight01x_amlgym.pddl",
         help="Problem name to use (default: npuzzle_prob_0)"
     )
 

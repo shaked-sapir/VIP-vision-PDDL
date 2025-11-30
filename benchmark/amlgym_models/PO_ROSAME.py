@@ -6,7 +6,7 @@ from amlgym.algorithms.AlgorithmAdapter import AlgorithmAdapter
 from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 from pddl_plus_parser.lisp_parsers import ProblemParser
 
-from benchmark.PO_ROSAME.po_rosame_runner import PORosame_Runner
+from benchmark.amlgym_models.po_rosame_runner import PORosame_Runner
 
 # Add project root to path for our masking utilities
 project_root = Path(__file__).parent.parent.parent
@@ -39,7 +39,7 @@ class PO_ROSAME(AlgorithmAdapter):
     @staticmethod
     def learn(domain_path: str,
               trajectory_paths: List[str],
-              use_problems: bool = True) -> str:
+              use_problems: bool = False) -> str:
         """
         Learns a PDDL action model from:
          (i)    a (possibly empty) input model which is required to specify the predicates and operators signature;
@@ -57,12 +57,12 @@ class PO_ROSAME(AlgorithmAdapter):
         :return: a string representing the learned PDDL model
         """
 
-        # Instantiate PO_ROSAME algorithm
+        # Instantiate amlgym_models algorithm
         partial_domain = DomainParser(Path(domain_path), partial_parsing=True).parse_domain()
-        rosame = PORosame_Runner(domain_path)
+        pi_rosame = PORosame_Runner(domain_path)
 
         # Parse input trajectories
-        if not use_problems:
+        if use_problems:
             # Direct parsing without problems (trajectories already have all objects)
             allowed_observations = [TrajectoryParser(partial_domain).parse_trajectory(Path(traj_path))
                                     for traj_path in trajectory_paths]
@@ -81,7 +81,7 @@ class PO_ROSAME(AlgorithmAdapter):
 
                 # Parse problem
                 problem = ProblemParser(problem_path, partial_domain).parse_problem()
-                rosame.add_problem(problem)
+                pi_rosame.add_problem(problem)
 
                 # Parse trajectory
                 observation = TrajectoryParser(partial_domain).parse_trajectory(traj_path)
@@ -94,7 +94,7 @@ class PO_ROSAME(AlgorithmAdapter):
                 masked_observation = mask_observation(grounded_observation, masking_info)
 
                 # Learn from masked observation
-                rosame.ground_new_trajectory()
-                rosame.learn_rosame(masked_observation)
+                pi_rosame.ground_new_trajectory()
+                pi_rosame.learn_rosame(masked_observation)
 
-        return rosame.rosame_to_pddl()
+        return pi_rosame.rosame_to_pddl()

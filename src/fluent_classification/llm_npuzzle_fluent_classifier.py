@@ -42,7 +42,7 @@ class LLMNpuzzleFluentClassifier(LLMFluentClassifier):
 
     def _generate_all_possible_predicates(self) -> set[str]:
         """
-        Generates all possible predicates for the n_puzzle domain.
+        Generates all possible predicates for the npuzzle domain.
 
         Returns:
             Set of all possible predicate strings for the Hanoi domain.

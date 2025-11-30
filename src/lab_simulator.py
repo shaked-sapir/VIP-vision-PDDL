@@ -592,9 +592,10 @@ def create_trajectories_for_lab(
             fluent_classifier_model=fluent_classification_model_name,
             fluent_classification_temperature=fluent_classification_temperature
         )
-    elif domain_name == 'n_puzzle':
+    elif domain_name == 'npuzzle':
         trajectory_handler = LLMNpuzzleImageTrajectoryHandler(
             gym_domain_name,
+            pddl_domain_file,
             openai_apikey,
             object_detector_model=object_detection_model_name,
             object_detection_temperature=object_detection_temperature,
@@ -603,7 +604,7 @@ def create_trajectories_for_lab(
         )
         gym_problems = ["eight01x", "eight01x", "eight01x", "eight01x", "eight01x"] # because of lack of problems
     else:
-        raise ValueError(f"Unsupported domain: {domain_name}. Supported domains: blocksworld, hanoi, n_puzzle")
+        raise ValueError(f"Unsupported domain: {domain_name}. Supported domains: blocksworld, hanoi, npuzzle")
 
     print(f"Using trajectory handler: {trajectory_handler.__class__.__name__}\n")
 
@@ -692,7 +693,7 @@ def main():
     config = load_config()
 
     # Select domain by changing this variable
-    domain_name = 'n_puzzle'  # Change to 'hanoi' for Hanoi domain
+    domain_name = 'npuzzle'  # Change to 'hanoi' for Hanoi domain
 
     # Set to True to generate trajectories from scratch
     generate_trajectories = True

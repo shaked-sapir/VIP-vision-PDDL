@@ -1,8 +1,9 @@
 import random
 from typing import Dict, List, Tuple
 
-from pddl_plus_parser.models import Domain, Observation, State, ActionCall, Predicate
-from sam_learning.core import LearnerDomain, extract_discrete_effects_partial_observability, \
+from pddl_plus_parser.models import Domain, Observation, State, ActionCall, Predicate, ObservedComponent
+from sam_learning.core import LearnerDomain
+from sam_learning.core.matching_utils import extract_discrete_effects_partial_observability, \
     extract_not_effects_partial_observability
 from sam_learning.learners import SAMLearner
 from utilities import NegativePreconditionPolicy
@@ -159,19 +160,65 @@ class PISAMLearner(SAMLearner):
         for condition in conditions_to_remove:
             current_action.preconditions.remove_condition(condition)
 
-    def learn_action_model(self, observations: List[Observation], **kwargs) -> Tuple[LearnerDomain, Dict[str, str]]:
+    def handle_single_trajectory_component(self, component: ObservedComponent) -> None:
+        """Handles a single trajectory component as a part of the learning process.
+
+        :param component: the trajectory component that is being handled at the moment.
         """
-        Learn action model from observations.
+        previous_state = component.previous_state
+        grounded_action = component.grounded_action_call
+        next_state = component.next_state
 
-        IMPORTANT: Observations should be grounded and masked BEFORE calling this method.
+        if self._verify_parameter_duplication(grounded_action):
+            self.logger.warning(
+                f"{str(grounded_action)} contains duplicated parameters! Not supported in SAM."
+                f"aborting learning from component"
+            )
+            return
 
-        Preparation steps (do these BEFORE calling this method):
-        1. Ground: ground_observation_completely(domain, obs) from utils.pddl
-        2. Generate masking: PredicateMasker.mask_observation(grounded_obs)
-        3. Apply masks: mask_observation(grounded_obs, masking_info) from utils.pddl
-        4. Then call: learner.learn_action_model([masked_obs])
+        self.triplet_snapshot.create_triplet_snapshot(
+            previous_state=previous_state.copy(), # MY CODE !! (copying the state to avoid modifying the original state by the hack)
+            next_state=next_state.copy(), # MY CODE !! (copying the state to avoid modifying the original state by the hack)
+            current_action=grounded_action,
+            observation_objects=self.current_trajectory_objects,
+        )
+        if grounded_action.name not in self.observed_actions:
+            self.add_new_action(grounded_action, previous_state, next_state)
 
-        :param observations: A list of grounded and masked observations.
-        :return: A tuple of (learned domain, learning report dictionary).
+        else:
+            self.update_action(grounded_action, previous_state, next_state)
+
+    def _remove_unobserved_actions_from_partial_domain(self):
+        """Removes the actions that were not observed from the partial domain."""
+        self.logger.debug("Removing unobserved actions from the partial domain")
+        actions_to_remove = [action for action in self.partial_domain.actions if action not in self.observed_actions]
+        for action in actions_to_remove:
+            self.partial_domain.actions.pop(action)
+
+    def learn_action_model(self, observations: List[Observation], **kwargs) -> Tuple[
+        LearnerDomain, Dict[str, str]]:  # MY CODE !! (ading the **kwargs to allow future extensions)
+        """Learn the SAFE action model from the input trajectories.
+
+        :param observations: the list of trajectories that are used to learn the safe action model.
+        :return: a domain containing the actions that were learned.
         """
-        return super().learn_action_model(observations)
+        self.logger.info("Starting to learn the action model!")
+        self.start_measure_learning_time()
+        self.deduce_initial_inequality_preconditions()
+        self._complete_possibly_missing_actions()
+        for observation in observations:
+            self.current_trajectory_objects = observation.grounded_objects
+            for component in observation.components:
+                if not component.is_successful:
+                    self.logger.warning("Skipping the transition because it was not successful.")
+                    continue
+
+                self.handle_single_trajectory_component(component)
+
+        self.construct_safe_actions()
+        self._remove_unobserved_actions_from_partial_domain()
+        self.handle_negative_preconditions_policy()
+        self.end_measure_learning_time()
+        learning_report = self._construct_learning_report()
+        return self.partial_domain, learning_report
+

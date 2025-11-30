@@ -6,10 +6,16 @@ Generates training trajectories for comparing:
 - Noisy PI-SAM (Conflict-driven patch search)
 - ROSAME
 
+Supported domains:
+- blocksworld
+- npuzzle
+
 For each domain, this generates:
-1. A 100-step visual trace (images + ground truth)
-2. Full trace for ROSAME
-3. Five 15-step non-overlapping traces for our algorithms
+1. A long visual trace (images + ground truth)
+2. Full trace for ROSAME (with LLM predictions)
+3. Multiple non-overlapping shorter traces for our algorithms (split from ROSAME trace)
+
+Key efficiency: LLM vision pipeline runs ONCE on full trace, then results are split
 """
 
 import json
@@ -26,55 +32,64 @@ sys.path.insert(0, str(project_root))
 import pddlgym
 
 from benchmark.domains.blocksworld import AmlgymLLMBlocksImageTrajectoryHandler
+from src.trajectory_handlers.llm_npuzzle_trajectory_handler import LLMNpuzzleImageTrajectoryHandler
 from src.utils.config import load_config
 from src.utils.masking import save_masking_info, load_masking_info
 from src.utils.pddl import build_trajectory_file
 
 
-def generate_blocks_training_data(
+def _generate_training_data_generic(
+    domain_display_name: str,
+    domain_config_key: str,
+    amlgym_domain_name: str,
+    trajectory_handler_class,
+    benchmark_domain_path: Path,
     output_base_dir: Path,
-    num_steps: int = 100,
-    problem_name: str = "problem1",
-    trace_length: int = 15
+    num_steps: int,
+    problem_name: str,
+    trace_length: int
 ) -> Tuple[Path, List[Path]]:
     """
-    Generate training data for blocksworld domain.
+    Generic function to generate training data for any domain.
 
     Args:
+        domain_display_name: Display name for logging (e.g., "BLOCKS", "N-PUZZLE")
+        domain_config_key: Config key for domain (e.g., "blocks", "npuzzle")
+        trajectory_handler_class: Class to instantiate for trajectory handling
+        benchmark_domain_path: Path to benchmark PDDL domain file
         output_base_dir: Base directory for all benchmark data
-        num_steps: Total number of steps to generate (default: 100)
-        problem_name: Problem name to use from PDDLGym (default: "problem1.pddl", first problem)
-        trace_length: Length of each trace for our algorithms (default: 15)
+        num_steps: Total number of steps to generate
+        problem_name: Problem name to use (without .pddl extension)
+        trace_length: Length of each trace for our algorithms
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
     """
     print("="*80)
-    print("GENERATING BLOCKS TRAINING DATA")
+    print(f"GENERATING {domain_display_name} TRAINING DATA")
     print("="*80)
     print()
 
     # Load configuration
     config = load_config()
     openai_apikey = config['openai']['api_key']
-    config_domain_name = 'blocks'
-    gym_domain_name = config['domains'][config_domain_name]['gym_domain_name']
-    object_detection_model = config['domains'][config_domain_name]['object_detection']['model_name']
-    object_detection_temp = config['domains'][config_domain_name]['object_detection']['temperature']
-    fluent_classification_model = config['domains'][config_domain_name]['fluent_classification']['model_name']
-    fluent_classification_temp = config['domains'][config_domain_name]['fluent_classification']['temperature']
-    problems_dir = Path(config['domains'][config_domain_name]['problems_dir'])
+    gym_domain_name = config['domains'][domain_config_key]['gym_domain_name']
+    object_detection_model = config['domains'][domain_config_key]['object_detection']['model_name']
+    object_detection_temp = config['domains'][domain_config_key]['object_detection']['temperature']
+    fluent_classification_model = config['domains'][domain_config_key]['fluent_classification']['model_name']
+    fluent_classification_temp = config['domains'][domain_config_key]['fluent_classification']['temperature']
+    problems_dir = Path(config['domains'][domain_config_key]['problems_dir'])
 
     # Setup output directories
-    blocks_data_dir = output_base_dir / "blocksworld" / "training"
-    if blocks_data_dir.exists():
-        shutil.rmtree(blocks_data_dir)
-    blocks_data_dir.mkdir(parents=True)
+    domain_data_dir = output_base_dir / domain_config_key / "training"
+    if domain_data_dir.exists():
+        shutil.rmtree(domain_data_dir)
+    domain_data_dir.mkdir(parents=True)
 
-    rosame_trace_dir = blocks_data_dir / "rosame_trace"
+    rosame_trace_dir = domain_data_dir / "rosame_trace"
     rosame_trace_dir.mkdir()
 
-    our_traces_base_dir = blocks_data_dir / "pi_sam_traces"
+    our_traces_base_dir = domain_data_dir / "pi_sam_traces"
     our_traces_base_dir.mkdir()
 
     # Setup trajectory handler
@@ -84,12 +99,9 @@ def generate_blocks_training_data(
     print(f"  Total steps: {num_steps}")
     print()
 
-    # Get the equalized domain file path
-    equalized_domain_path = Path(project_root) / "benchmark" / "domains" / "blocksworld" / "blocksworld.pddl"
-
-    trajectory_handler = AmlgymLLMBlocksImageTrajectoryHandler(
+    trajectory_handler = trajectory_handler_class(
         domain_name=gym_domain_name,
-        pddl_domain_file=equalized_domain_path,
+        pddl_domain_file=benchmark_domain_path,
         openai_apikey=openai_apikey,
         object_detector_model=object_detection_model,
         object_detection_temperature=object_detection_temp,
@@ -97,7 +109,7 @@ def generate_blocks_training_data(
         fluent_classification_temperature=fluent_classification_temp
     )
 
-    # Generate 100-step trajectory
+    # Generate trajectory
     print(f"Generating {num_steps}-step trajectory...")
     rosame_images_dir = rosame_trace_dir / f"{problem_name}_images"
     rosame_images_dir.mkdir()
@@ -121,7 +133,6 @@ def generate_blocks_training_data(
     print(f"Running LLM vision pipeline on {num_steps}-step trajectory...")
     print(f"  This will perform object detection once and fluent classification {num_steps + 1} times")
 
-    # Remove .pddl extension from problem_name for file naming
     imaged_trajectory = trajectory_handler.create_trajectory_and_masks(
         problem_name=problem_name,
         actions=ground_actions,
@@ -134,13 +145,15 @@ def generate_blocks_training_data(
     print()
 
     # Load the generated trajectory masking info for splitting
+    trajectory_masking_info = load_masking_info(
+        Path(rosame_images_dir) / f"{problem_name}.masking_info",
+        trajectory_handler.domain
+    )
 
-    # Reconstruct the masking info from imaged_trajectory (same logic as create_masking_info)
-    trajectory_masking_info = load_masking_info(Path(rosame_images_dir) / f"{problem_name}.masking_info", trajectory_handler.domain)
-
-    # Copy problem file to ROSAME directory for PO_ROSAME compatibility
+    # Copy problem file to ROSAME directory for amlgym_models compatibility
     problem_file_path = problems_dir / f"{problem_name}.pddl"
     shutil.copy(problem_file_path, rosame_images_dir)
+    transform_problems_pddlgym_to_amlgym(domain_config_key, rosame_images_dir)
 
     print(f"✓ Saved ROSAME trace to: {rosame_trace_dir}")
     print(f"  Images: {rosame_images_dir}")
@@ -204,9 +217,10 @@ def generate_blocks_training_data(
         # Save LLM masking info
         save_masking_info(trace_dir, trace_problem_name, trace_masking_info)
 
-        # Copy problem file to trace directory (required by PO_ROSAME)
+        # Copy problem file to trace directory (required by amlgym_models)
         trace_problem_file = trace_dir / f"{trace_problem_name}.pddl"
         shutil.copy(problem_file_path, trace_problem_file)
+        transform_problems_pddlgym_to_amlgym(domain_config_key, trace_dir)
 
         # Save metadata about which states this trace contains
         trace_metadata_file = trace_dir / "trace_metadata.json"
@@ -233,12 +247,143 @@ def generate_blocks_training_data(
     print("="*80)
     print("TRAINING DATA GENERATION COMPLETE")
     print("="*80)
-    print(f"\nData saved to: {blocks_data_dir}")
+    print(f"\nData saved to: {domain_data_dir}")
     print(f"  ROSAME trace: {rosame_trace_dir.name}")
     print(f"  Our traces: {our_traces_base_dir.name} ({len(our_trace_dirs)} traces)")
     print()
 
     return rosame_trace_dir, our_trace_dirs
+
+
+def generate_blocks_training_data(
+    output_base_dir: Path,
+    num_steps: int = 100,
+    problem_name: str = "problem1",
+    trace_length: int = 15
+) -> Tuple[Path, List[Path]]:
+    """
+    Generate training data for blocksworld domain.
+
+    Args:
+        output_base_dir: Base directory for all benchmark data
+        num_steps: Total number of steps to generate (default: 100)
+        problem_name: Problem name to use (without .pddl extension)
+        trace_length: Length of each trace for our algorithms (default: 15)
+
+    Returns:
+        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
+    """
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "blocksworld" / "blocksworld.pddl"
+
+    return _generate_training_data_generic(
+        domain_display_name="BLOCKSWORLD",
+        domain_config_key="blocks",
+        amlgym_domain_name="blocksworld",
+        trajectory_handler_class=AmlgymLLMBlocksImageTrajectoryHandler,
+        benchmark_domain_path=benchmark_domain_path,
+        output_base_dir=output_base_dir,
+        num_steps=num_steps,
+        problem_name=problem_name,
+        trace_length=trace_length
+    )
+
+
+def generate_npuzzle_training_data(
+    output_base_dir: Path,
+    num_steps: int = 100,
+    problem_name: str = "problem1",
+    trace_length: int = 15
+) -> Tuple[Path, List[Path]]:
+    """
+    Generate training data for n-puzzle domain.
+
+    Args:
+        output_base_dir: Base directory for all benchmark data
+        num_steps: Total number of steps to generate (default: 100)
+        problem_name: Problem name to use (without .pddl extension)
+        trace_length: Length of each trace for our algorithms (default: 15)
+
+    Returns:
+        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
+    """
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "npuzzle" / "npuzzle.pddl"
+
+    return _generate_training_data_generic(
+        domain_display_name="N-PUZZLE",
+        domain_config_key="npuzzle",
+        amlgym_domain_name="n_puzzle_typed",
+        trajectory_handler_class=LLMNpuzzleImageTrajectoryHandler,
+        benchmark_domain_path=benchmark_domain_path,
+        output_base_dir=output_base_dir,
+        num_steps=num_steps,
+        problem_name=problem_name,
+        trace_length=trace_length
+    )
+
+
+def transform_problems_pddlgym_to_amlgym(domain_name: str, problems_dir: Path) -> None:
+    """
+    Transform all PDDLGym problem files in the specified directory to AMLGym format.
+
+    Args:
+        domain_name: Name of the domain ('blocksworld' or 'npuzzle')
+        problems_dir: Directory containing PDDLGym problem files
+    """
+    for problem_file in problems_dir.glob("*.pddl"):
+        if domain_name == "blocks":
+            transform_blocks_problem_pddlgym_to_amlgym(problem_file)
+        elif domain_name == "npuzzle":
+            # Currently, no transformation needed for npuzzle
+            transform_npuzzle_problem_pddlgym_to_amlgym(problem_file)
+        else:
+            raise ValueError(f"Domain '{domain_name}' not supported for transformation.")
+
+
+def transform_blocks_problem_pddlgym_to_amlgym(problem_file_path: Path) -> Path:
+    """
+    Transform a Blocksworld problem file from PDDLGym format to AMLGym format.
+
+    Args:
+        problem_file_path: Path to the PDDLGym problem file
+
+    Returns:
+        Path to the transformed AMLGym problem file
+    """
+    with open(problem_file_path, 'r') as f:
+        content = f.read()
+
+    # Rename domain
+    content = content.replace('(:domain blocks)', '(:domain blocksworld)')
+
+    # Remove robot reference fro objects
+    content = content.replace('robot - robot', '')
+
+    # Remove robot references from initial state
+    content = content.replace('(handempty robot)', '(handempty)')
+
+    with open(problem_file_path, 'w') as f:
+        f.write(content)
+
+    return problem_file_path
+
+
+def transform_npuzzle_problem_pddlgym_to_amlgym(problem_file_path: Path) -> Path:
+    """
+    Transform a Npuzzle problem file from PDDLGym format to AMLGym format.
+    as we have only one problem possible here, we just copy a predefined file
+    Args:
+        problem_file_path: Path to the PDDLGym problem file
+
+    Returns:
+        Path to the transformed AMLGym problem file
+    """
+    with open(Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/domains/n_puzzle/eight01x_amlgym.pddl"), 'r') as f:
+        content = f.read()
+
+    with open(problem_file_path, 'w') as f:
+        f.write(content)
+
+    return problem_file_path
 
 
 if __name__ == "__main__":
@@ -251,19 +396,19 @@ if __name__ == "__main__":
         "--domain",
         type=str,
         default="blocksworld",
-        choices=["blocksworld", "hanoi", "slidetile"],
+        choices=["blocksworld", "npuzzle"],
         help="Domain to generate data for (default: blocksworld)"
     )
     parser.add_argument(
         "--num-steps",
         type=int,
-        default=25,
+        default=100,
         help="Total number of steps to generate (default: 100)"
     )
     parser.add_argument(
         "--trace-length",
         type=int,
-        default=5,
+        default=15,
         help="Length of each trace for our algorithms (default: 15)"
     )
     parser.add_argument(
@@ -279,6 +424,14 @@ if __name__ == "__main__":
 
     if args.domain == "blocksworld":
         rosame_dir, our_dirs = generate_blocks_training_data(
+            output_base_dir=output_dir,
+            num_steps=args.num_steps,
+            problem_name=args.problem,
+            trace_length=args.trace_length
+        )
+        print(f"Generated {len(our_dirs)} traces for our algorithms")
+    elif args.domain == "npuzzle":
+        rosame_dir, our_dirs = generate_npuzzle_training_data(
             output_base_dir=output_dir,
             num_steps=args.num_steps,
             problem_name=args.problem,
