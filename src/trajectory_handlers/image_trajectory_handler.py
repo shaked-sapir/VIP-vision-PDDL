@@ -107,7 +107,7 @@ class ImageTrajectoryHandler(ABC):
         :return: None
         """
         if not self.object_detector or not self.fluent_classifier:
-            self.init_visual_components()
+            self.init_visual_components(images_path / "state_0000.png")
 
         imaged_trajectory = self.construct_trajectory_from_images(
             images_path=images_path, ground_actions=actions)

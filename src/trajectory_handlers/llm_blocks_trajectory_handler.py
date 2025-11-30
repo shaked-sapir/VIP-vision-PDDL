@@ -47,12 +47,3 @@ class LLMBlocksImageTrajectoryHandler(ImageTrajectoryHandler):
         )
 
         print(f"Initialized LLMBlocksImageTrajectoryHandler with detected objects: {detected_objects_by_type}")
-
-    @staticmethod
-    def _rename_ground_action(action_str: str) -> str:
-        """
-        in the pddlgym, the "blocks" domain actions are with "-" instead of "_" (in amlgym format).
-        :param action_str: action to transform from gym format to our format
-        :return:
-        """
-        return action_str.replace('pick-up', 'pick_up').replace('put-down', 'put_down')

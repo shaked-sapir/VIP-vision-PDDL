@@ -1,20 +1,26 @@
+"""
+Equalized Blocks Fluent Classifier for Benchmark
+
+This version removes the handfull predicate to match ROSAME's domain definition.
+"""
+
 import itertools
 
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
-from src.llms.domains.blocks.prompts import with_uncertain_confidence_system_prompt, no_uncertain_confidence_system_prompt
+from benchmark.domains.blocksworld.prompts import with_uncertain_confidence_system_prompt, no_uncertain_confidence_system_prompt
 
 
-class LLMBlocksFluentClassifier(LLMFluentClassifier):
+class AmlgymLLMBlocksFluentClassifier(LLMFluentClassifier):
     """
-    LLM-based fluent classifier for the Blocks domain.
-    Uses VisionModel to extract predicates from images of blocksworld world scenarios.
+    LLM-based fluent classifier for the Blocks domain WITHOUT handfull predicate.
+    This version is equalized with ROSAME's domain definition.
     """
 
     def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None,
                  model: str = "gpt-4o", temperature: float = 1.0,
                  use_uncertain: bool = True):
         """
-        Initialize the blocksworld fluent classifier.
+        Initialize the equalized blocksworld fluent classifier.
 
         :param openai_apikey: OpenAI API key
         :param type_to_objects: Mapping of object types to object names
@@ -55,7 +61,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
         self.system_prompt = self._get_system_prompt()
 
     def _get_system_prompt(self) -> str:
-        """Returns the system prompt for the Blocks domain."""
+        """Returns the system prompt for the equalized Blocks domain."""
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."
 
         if self.use_uncertain:
@@ -65,9 +71,23 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             return no_uncertain_confidence_system_prompt(
                 self.type_to_objects['block'])
 
+    @staticmethod
+    def _alter_predicate_from_llm_to_problem(predicate: str) -> str:
+        """
+        Alters a predicate string from LLM format to problem format.
+
+        Args:
+            predicate: Predicate string in LLM format.
+
+        Returns:
+            Predicate string in problem format.
+        """
+        # In this case, no alteration is needed; return as is
+        return predicate if "handempty" not in predicate else "handempty()"
+
     def _generate_all_possible_predicates(self) -> set[str]:
         """
-        Generates all possible predicates for the blocksworld domain.
+        Generates all possible predicates for the equalized blocksworld domain (NO handfull).
 
         Returns:
             Set of all possible predicate strings for the blocksworld domain.
@@ -76,7 +96,6 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
 
         # Extract objects by type with defaults
         blocks = self.type_to_objects.get('block', ['red', 'cyan', 'blue', 'green'])
-        # Use the first robot if multiple are provided
         gripper_name = 'gripper'
 
         predicates = set()
@@ -94,10 +113,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             predicates.add(f"clear({block}:block)")
 
         # handempty(robot) predicate
-        predicates.add(f"handempty({gripper_name}:gripper)")
-
-        # handfull(robot) predicate
-        predicates.add(f"handfull({gripper_name}:gripper)")
+        predicates.add(f"handempty()")
 
         # holding(block) predicates
         for block in blocks:

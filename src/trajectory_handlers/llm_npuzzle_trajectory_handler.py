@@ -1,9 +1,7 @@
 from pathlib import Path
 from typing import Dict, List
 
-from src.fluent_classification.llm_hanoi_fluent_classifier import LLMHanoiFluentClassifier
 from src.fluent_classification.llm_npuzzle_fluent_classifier import LLMNpuzzleFluentClassifier
-from src.object_detection.llm_hanoi_object_detector import LLMHanoiObjectDetector
 from src.object_detection.llm_npuzzle_object_detector import LLMNpuzzleObjectDetector
 from src.trajectory_handlers import ImageTrajectoryHandler
 

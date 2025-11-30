@@ -132,9 +132,16 @@ class LLMFluentClassifier(FluentClassifier, ABC):
 
         # turn all predicates into their gym object names
         predicates_with_rel_judgement = {
-            multi_replace_predicate(p, self.imaged_obj_to_gym_obj_name): rel
-            for p, rel in predicates_with_rel_judgement.items()
-            for obj in self.imaged_obj_to_gym_obj_name.keys() if obj in p
+            **{ # predicates with arguments
+                multi_replace_predicate(p, self.imaged_obj_to_gym_obj_name): rel
+                for p, rel in predicates_with_rel_judgement.items()
+                for obj in self.imaged_obj_to_gym_obj_name.keys() if obj in p
+            },
+            **{ # argless predicates
+                p: rel
+                for p, rel in predicates_with_rel_judgement.items()
+                if all(obj not in p for obj in self.imaged_obj_to_gym_obj_name.keys())
+            }
         }
 
         # Convert relevance scores to PredicateTruthValue

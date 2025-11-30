@@ -25,14 +25,16 @@ sys.path.insert(0, str(project_root))
 
 import pddlgym
 
-from src.trajectory_handlers.llm_blocks_trajectory_handler import LLMBlocksImageTrajectoryHandler
+from benchmark.domains.blocksworld import AmlgymLLMBlocksImageTrajectoryHandler
 from src.utils.config import load_config
+from src.utils.masking import save_masking_info, load_masking_info
+from src.utils.pddl import build_trajectory_file
 
 
 def generate_blocks_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
-    problem_name: str = "problem1.pddl",
+    problem_name: str = "problem1",
     trace_length: int = 15
 ) -> Tuple[Path, List[Path]]:
     """
@@ -55,12 +57,13 @@ def generate_blocks_training_data(
     # Load configuration
     config = load_config()
     openai_apikey = config['openai']['api_key']
-    domain = 'blocksworld'
-    gym_domain_name = config['domains'][domain]['gym_domain_name']
-    object_detection_model = config['domains'][domain]['object_detection']['model_name']
-    object_detection_temp = config['domains'][domain]['object_detection']['temperature']
-    fluent_classification_model = config['domains'][domain]['fluent_classification']['model_name']
-    fluent_classification_temp = config['domains'][domain]['fluent_classification']['temperature']
+    config_domain_name = 'blocks'
+    gym_domain_name = config['domains'][config_domain_name]['gym_domain_name']
+    object_detection_model = config['domains'][config_domain_name]['object_detection']['model_name']
+    object_detection_temp = config['domains'][config_domain_name]['object_detection']['temperature']
+    fluent_classification_model = config['domains'][config_domain_name]['fluent_classification']['model_name']
+    fluent_classification_temp = config['domains'][config_domain_name]['fluent_classification']['temperature']
+    problems_dir = Path(config['domains'][config_domain_name]['problems_dir'])
 
     # Setup output directories
     blocks_data_dir = output_base_dir / "blocksworld" / "training"
@@ -71,7 +74,7 @@ def generate_blocks_training_data(
     rosame_trace_dir = blocks_data_dir / "rosame_trace"
     rosame_trace_dir.mkdir()
 
-    our_traces_base_dir = blocks_data_dir / "our_algorithms_traces"
+    our_traces_base_dir = blocks_data_dir / "pi_sam_traces"
     our_traces_base_dir.mkdir()
 
     # Setup trajectory handler
@@ -81,8 +84,12 @@ def generate_blocks_training_data(
     print(f"  Total steps: {num_steps}")
     print()
 
-    trajectory_handler = LLMBlocksImageTrajectoryHandler(
+    # Get the equalized domain file path
+    equalized_domain_path = Path(project_root) / "benchmark" / "domains" / "blocksworld" / "blocksworld.pddl"
+
+    trajectory_handler = AmlgymLLMBlocksImageTrajectoryHandler(
         domain_name=gym_domain_name,
+        pddl_domain_file=equalized_domain_path,
         openai_apikey=openai_apikey,
         object_detector_model=object_detection_model,
         object_detection_temperature=object_detection_temp,
@@ -92,7 +99,7 @@ def generate_blocks_training_data(
 
     # Generate 100-step trajectory
     print(f"Generating {num_steps}-step trajectory...")
-    rosame_images_dir = rosame_trace_dir / "images"
+    rosame_images_dir = rosame_trace_dir / f"{problem_name}_images"
     rosame_images_dir.mkdir()
 
     ground_actions = trajectory_handler.create_trajectory_from_gym(
@@ -105,33 +112,48 @@ def generate_blocks_training_data(
     print(f"  Sample actions: {ground_actions[:3]}...")
     print()
 
-    # Load ground truth trajectory
+    # Load ground truth trajectory (for comparison purposes)
     gt_trajectory_file = rosame_images_dir / f"{problem_name}_trajectory.json"
     with open(gt_trajectory_file, 'r') as f:
         gt_trajectory = json.load(f)
 
-    # Save actions list for ROSAME
-    rosame_actions_file = rosame_trace_dir / "actions.json"
-    with open(rosame_actions_file, 'w') as f:
-        json.dump({
-            "problem_name": problem_name,
-            "num_steps": len(ground_actions),
-            "actions": ground_actions
-        }, f, indent=2)
+    # Run LLM vision pipeline on full trajectory (object detection once, fluent classification per image)
+    print(f"Running LLM vision pipeline on {num_steps}-step trajectory...")
+    print(f"  This will perform object detection once and fluent classification {num_steps + 1} times")
+
+    # Remove .pddl extension from problem_name for file naming
+    imaged_trajectory = trajectory_handler.create_trajectory_and_masks(
+        problem_name=problem_name,
+        actions=ground_actions,
+        images_path=rosame_images_dir
+    )
+
+    print(f"✓ LLM vision pipeline complete")
+    print(f"  Saved trajectory: {problem_name}.trajectory")
+    print(f"  Saved masking info: {problem_name}.masking_info")
+    print()
+
+    # Load the generated trajectory masking info for splitting
+
+    # Reconstruct the masking info from imaged_trajectory (same logic as create_masking_info)
+    trajectory_masking_info = load_masking_info(Path(rosame_images_dir) / f"{problem_name}.masking_info", trajectory_handler.domain)
+
+    # Copy problem file to ROSAME directory for PO_ROSAME compatibility
+    problem_file_path = problems_dir / f"{problem_name}.pddl"
+    shutil.copy(problem_file_path, rosame_images_dir)
 
     print(f"✓ Saved ROSAME trace to: {rosame_trace_dir}")
     print(f"  Images: {rosame_images_dir}")
-    print(f"  Actions: {rosame_actions_file.name}")
     print(f"  Ground truth: {gt_trajectory_file.name}")
+    print(f"  LLM trajectory: {problem_name}.trajectory")
+    print(f"  LLM masking: {problem_name}.masking_info")
+    print(f"  Problem file: {problem_name}.pddl")
     print()
 
     # Cut into non-overlapping traces of specified length
     print(f"Cutting into {num_steps // trace_length} traces of {trace_length} steps...")
+    print(f"  Note: Splitting LLM predictions (no re-running of vision pipeline)")
     our_trace_dirs = []
-
-    # First, we need to generate the full .trajectory file for ROSAME to enable splitting
-    # We'll generate it using ground truth, then split it for our algorithm traces
-    print(f"  Note: Ground truth .trajectory files will be generated after adding LLM noise")
 
     for trace_idx in range(num_steps // trace_length):
         start_step = trace_idx * trace_length
@@ -151,8 +173,12 @@ def generate_blocks_training_data(
         # Extract actions for this trace
         trace_actions = ground_actions[start_step:end_step]
 
-        # Extract ground truth steps for this trace
+        # Extract ground truth steps for this trace (for comparison)
         trace_gt_trajectory = gt_trajectory[start_step:end_step]
+
+        # Extract LLM predictions for this trace (without re-running LLM)
+        trace_imaged_trajectory = imaged_trajectory[start_step:end_step]
+        trace_masking_info = trajectory_masking_info[start_step:end_step + 1]  # +1 because we need initial state too
 
         # Save actions
         trace_actions_file = trace_dir / "actions.json"
@@ -166,10 +192,21 @@ def generate_blocks_training_data(
                 "actions": trace_actions
             }, f, indent=2)
 
-        # Save ground truth trajectory
-        trace_gt_file = trace_dir / f"{problem_name.replace('.pddl', '')}_trace_{trace_idx}_trajectory.json"
+        # Save ground truth trajectory (for comparison)
+        trace_gt_file = trace_dir / f"{problem_name}_trace_{trace_idx}_trajectory.json"
         with open(trace_gt_file, 'w') as f:
             json.dump(trace_gt_trajectory, f, indent=2)
+
+        # Save LLM trajectory file (PDDL format)
+        trace_problem_name = f"{problem_name}_trace_{trace_idx}"
+        build_trajectory_file(trace_imaged_trajectory, trace_problem_name, trace_dir)
+
+        # Save LLM masking info
+        save_masking_info(trace_dir, trace_problem_name, trace_masking_info)
+
+        # Copy problem file to trace directory (required by PO_ROSAME)
+        trace_problem_file = trace_dir / f"{trace_problem_name}.pddl"
+        shutil.copy(problem_file_path, trace_problem_file)
 
         # Save metadata about which states this trace contains
         trace_metadata_file = trace_dir / "trace_metadata.json"
@@ -179,7 +216,14 @@ def generate_blocks_training_data(
                 "start_state": start_step,
                 "end_state": end_step,
                 "num_states": end_step - start_step + 1,
-                "note": f"Contains states {start_step}-{end_step} from the full ROSAME trace"
+                "note": f"Contains states {start_step}-{end_step} from the full ROSAME trace",
+                "files": {
+                    "trajectory": f"{trace_problem_name}.trajectory",
+                    "masking_info": f"{trace_problem_name}.masking_info",
+                    "problem": f"{trace_problem_name}.pddl",
+                    "actions": "actions.json",
+                    "ground_truth": f"{problem_name}_trace_{trace_idx}_trajectory.json"
+                }
             }, f, indent=2)
 
         our_trace_dirs.append(trace_dir)
@@ -213,20 +257,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-steps",
         type=int,
-        default=100,
+        default=25,
         help="Total number of steps to generate (default: 100)"
     )
     parser.add_argument(
         "--trace-length",
         type=int,
-        default=15,
+        default=5,
         help="Length of each trace for our algorithms (default: 15)"
     )
     parser.add_argument(
         "--problem",
         type=str,
-        default="problem1.pddl",
-        help="Problem name to use from PDDLGym (default: problem1.pddl)"
+        default="problem7",
+        help="Problem name to use from PDDLGym (default: problem1)"
     )
 
     args = parser.parse_args()
