@@ -1,5 +1,5 @@
 (define (domain blocksworld)
-(:requirements :typing :strips)
+(:requirements :strips :typing)
 (:types 	block - object
 )
 
@@ -17,13 +17,13 @@
 
 (:action put_down
 	:parameters (?x - block)
-	:precondition (and (holding ?x))
-	:effect (and (ontable ?x) (clear ?x) (handempty) (not (holding ?x))))
+	:precondition (and (ontable ?x))
+	:effect (and (handempty)))
 
 (:action stack
 	:parameters (?x - block ?y - block)
 	:precondition (and )
-	:effect (and (clear ?x) (handempty)))
+	:effect (and (handempty)))
 
 (:action unstack
 	:parameters (?x - block ?y - block)

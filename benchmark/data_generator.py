@@ -9,6 +9,8 @@ Generates training trajectories for comparing:
 Supported domains:
 - blocksworld
 - npuzzle
+- hanoi
+- hiking
 
 For each domain, this generates:
 1. A long visual trace (images + ground truth)
@@ -16,12 +18,20 @@ For each domain, this generates:
 3. Multiple non-overlapping shorter traces for our algorithms (split from ROSAME trace)
 
 Key efficiency: LLM vision pipeline runs ONCE on full trace, then results are split
+
+Output structure:
+benchmark/data/<domain>/experiment_<timestamp>__steps=<num_steps>/training/
+    ├── rosame_trace/
+    └── pi_sam_traces/
+
+Each run creates a new experiment folder, allowing multiple experiments to coexist.
 """
 
 import json
 import os
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
 
@@ -33,6 +43,8 @@ import pddlgym
 
 from benchmark.domains.blocksworld import AmlgymLLMBlocksImageTrajectoryHandler
 from src.trajectory_handlers.llm_npuzzle_trajectory_handler import LLMNpuzzleImageTrajectoryHandler
+from src.trajectory_handlers.llm_hanoi_trajectory_handler import LLMHanoiImageTrajectoryHandler
+from src.trajectory_handlers.llm_hiking_trajectory_handler import LLMHikingImageTrajectoryHandler
 from src.utils.config import load_config
 from src.utils.masking import save_masking_info, load_masking_info
 from src.utils.pddl import build_trajectory_file
@@ -65,8 +77,13 @@ def _generate_training_data_generic(
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
     """
+    # Generate experiment name first for display
+    timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
+    experiment_name = f"experiment_{timestamp}__steps={num_steps}"
+
     print("="*80)
     print(f"GENERATING {domain_display_name} TRAINING DATA")
+    print(f"Experiment: {experiment_name}")
     print("="*80)
     print()
 
@@ -80,17 +97,21 @@ def _generate_training_data_generic(
     fluent_classification_temp = config['domains'][domain_config_key]['fluent_classification']['temperature']
     problems_dir = Path(config['domains'][domain_config_key]['problems_dir'])
 
-    # Setup output directories
-    domain_data_dir = output_base_dir / domain_config_key / "training"
-    if domain_data_dir.exists():
-        shutil.rmtree(domain_data_dir)
-    domain_data_dir.mkdir(parents=True)
+    # Setup output directories with experiment timestamp (already generated above)
+    benchmark_domain_dir = output_base_dir / amlgym_domain_name
+    benchmark_domain_dir.mkdir(parents=True, exist_ok=True)
+
+    experiment_dir = output_base_dir / amlgym_domain_name / experiment_name
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+
+    domain_data_dir = experiment_dir / "training"
+    domain_data_dir.mkdir(parents=True, exist_ok=True)
 
     rosame_trace_dir = domain_data_dir / "rosame_trace"
-    rosame_trace_dir.mkdir()
+    rosame_trace_dir.mkdir(exist_ok=True)
 
     our_traces_base_dir = domain_data_dir / "pi_sam_traces"
-    our_traces_base_dir.mkdir()
+    our_traces_base_dir.mkdir(exist_ok=True)
 
     # Setup trajectory handler
     print(f"Setting up trajectory handler...")
@@ -247,7 +268,9 @@ def _generate_training_data_generic(
     print("="*80)
     print("TRAINING DATA GENERATION COMPLETE")
     print("="*80)
-    print(f"\nData saved to: {domain_data_dir}")
+    print(f"\nExperiment saved to: {experiment_dir}")
+    print(f"  Experiment name: {experiment_name}")
+    print(f"  Data directory: {domain_data_dir}")
     print(f"  ROSAME trace: {rosame_trace_dir.name}")
     print(f"  Our traces: {our_traces_base_dir.name} ({len(our_trace_dirs)} traces)")
     print()
@@ -258,7 +281,7 @@ def _generate_training_data_generic(
 def generate_blocks_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
-    problem_name: str = "problem1",
+    problem_name: str = "problem7",
     trace_length: int = 15
 ) -> Tuple[Path, List[Path]]:
     """
@@ -306,13 +329,79 @@ def generate_npuzzle_training_data(
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
     """
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "npuzzle" / "npuzzle.pddl"
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "n_puzzle" / "n_puzzle.pddl"
 
     return _generate_training_data_generic(
         domain_display_name="N-PUZZLE",
-        domain_config_key="npuzzle",
+        domain_config_key="n_puzzle",
         amlgym_domain_name="n_puzzle_typed",
         trajectory_handler_class=LLMNpuzzleImageTrajectoryHandler,
+        benchmark_domain_path=benchmark_domain_path,
+        output_base_dir=output_base_dir,
+        num_steps=num_steps,
+        problem_name=problem_name,
+        trace_length=trace_length
+    )
+
+
+def generate_hanoi_training_data(
+    output_base_dir: Path,
+    num_steps: int = 100,
+    problem_name: str = "problem0",
+    trace_length: int = 15
+) -> Tuple[Path, List[Path]]:
+    """
+    Generate training data for hanoi domain.
+
+    Args:
+        output_base_dir: Base directory for all benchmark data
+        num_steps: Total number of steps to generate (default: 100)
+        problem_name: Problem name to use (without .pddl extension)
+        trace_length: Length of each trace for our algorithms (default: 15)
+
+    Returns:
+        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
+    """
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "hanoi" / "hanoi.pddl"
+
+    return _generate_training_data_generic(
+        domain_display_name="HANOI",
+        domain_config_key="hanoi",
+        amlgym_domain_name="hanoi",
+        trajectory_handler_class=LLMHanoiImageTrajectoryHandler,
+        benchmark_domain_path=benchmark_domain_path,
+        output_base_dir=output_base_dir,
+        num_steps=num_steps,
+        problem_name=problem_name,
+        trace_length=trace_length
+    )
+
+
+def generate_hiking_training_data(
+    output_base_dir: Path,
+    num_steps: int = 100,
+    problem_name: str = "problem2",
+    trace_length: int = 15
+) -> Tuple[Path, List[Path]]:
+    """
+    Generate training data for hiking domain.
+
+    Args:
+        output_base_dir: Base directory for all benchmark data
+        num_steps: Total number of steps to generate (default: 100)
+        problem_name: Problem name to use (without .pddl extension)
+        trace_length: Length of each trace for our algorithms (default: 15)
+
+    Returns:
+        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
+    """
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "hiking" / "hiking.pddl"
+
+    return _generate_training_data_generic(
+        domain_display_name="HIKING",
+        domain_config_key="hiking",
+        amlgym_domain_name="hiking",
+        trajectory_handler_class=LLMHikingImageTrajectoryHandler,
         benchmark_domain_path=benchmark_domain_path,
         output_base_dir=output_base_dir,
         num_steps=num_steps,
@@ -332,9 +421,13 @@ def transform_problems_pddlgym_to_amlgym(domain_name: str, problems_dir: Path) -
     for problem_file in problems_dir.glob("*.pddl"):
         if domain_name == "blocks":
             transform_blocks_problem_pddlgym_to_amlgym(problem_file)
-        elif domain_name == "npuzzle":
+        elif domain_name == "n_puzzle":
             # Currently, no transformation needed for npuzzle
             transform_npuzzle_problem_pddlgym_to_amlgym(problem_file)
+        elif domain_name == "hanoi":
+            return  # No transformation needed for hanoi
+        elif domain_name == "hiking":
+            return  # No transformation needed for hiking
         else:
             raise ValueError(f"Domain '{domain_name}' not supported for transformation.")
 
@@ -360,6 +453,7 @@ def transform_blocks_problem_pddlgym_to_amlgym(problem_file_path: Path) -> Path:
 
     # Remove robot references from initial state
     content = content.replace('(handempty robot)', '(handempty)')
+    content = content.replace('(handfull robot)', '')
 
     with open(problem_file_path, 'w') as f:
         f.write(content)
@@ -395,27 +489,27 @@ if __name__ == "__main__":
     parser.add_argument(
         "--domain",
         type=str,
-        default="blocksworld",
-        choices=["blocksworld", "npuzzle"],
+        default="hiking",
+        choices=["blocksworld", "npuzzle", "hanoi", "hiking"],
         help="Domain to generate data for (default: blocksworld)"
     )
     parser.add_argument(
         "--num-steps",
         type=int,
-        default=100,
+        default=10,
         help="Total number of steps to generate (default: 100)"
     )
     parser.add_argument(
         "--trace-length",
         type=int,
-        default=15,
+        default=2,
         help="Length of each trace for our algorithms (default: 15)"
     )
     parser.add_argument(
         "--problem",
         type=str,
-        default="problem7",
-        help="Problem name to use from PDDLGym (default: problem1)"
+        default="problem2",
+        help="Problem name to use from PDDLGym (default: problem7 for blocksworld, problem0 for hanoi, problem2 for hiking)"
     )
 
     args = parser.parse_args()
@@ -432,6 +526,22 @@ if __name__ == "__main__":
         print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "npuzzle":
         rosame_dir, our_dirs = generate_npuzzle_training_data(
+            output_base_dir=output_dir,
+            num_steps=args.num_steps,
+            problem_name=args.problem,
+            trace_length=args.trace_length
+        )
+        print(f"Generated {len(our_dirs)} traces for our algorithms")
+    elif args.domain == "hanoi":
+        rosame_dir, our_dirs = generate_hanoi_training_data(
+            output_base_dir=output_dir,
+            num_steps=args.num_steps,
+            problem_name=args.problem,
+            trace_length=args.trace_length
+        )
+        print(f"Generated {len(our_dirs)} traces for our algorithms")
+    elif args.domain == "hiking":
+        rosame_dir, our_dirs = generate_hiking_training_data(
             output_base_dir=output_dir,
             num_steps=args.num_steps,
             problem_name=args.problem,

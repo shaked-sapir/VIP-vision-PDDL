@@ -21,7 +21,7 @@
    (smaller-disc d4 d2) (smaller-disc d4 d3) (smaller-disc d5 d1) (smaller-disc d5 d2)
    (smaller-disc d5 d3) (smaller-disc d5 d4)
    (clear-peg peg2) (clear-peg peg3) (clear-disc d1)
-   (on d5-peg peg1) (on-disc d4 d5) (on-disc d3 d4) (on-disc d2 d3) (on-disc d1 d2)
+   (on-peg d5 peg1) (on-disc d4 d5) (on-disc d3 d4) (on-disc d2 d3) (on-disc d1 d2)
   )
   (:goal (and (on-peg d5 peg3) (on-disc d4 d5) (on-disc d3 d4) (on-disc d2 d3) (on-disc d1 d2)))
   )

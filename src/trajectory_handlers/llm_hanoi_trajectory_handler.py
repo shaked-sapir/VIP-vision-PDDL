@@ -1,9 +1,13 @@
 from pathlib import Path
 from typing import Dict, List
 
+from pddl_plus_parser.lisp_parsers import DomainParser
+
+from src.action_model.gym2SAM_parser import parse_grounded_predicates
 from src.fluent_classification.llm_hanoi_fluent_classifier import LLMHanoiFluentClassifier
 from src.object_detection.llm_hanoi_object_detector import LLMHanoiObjectDetector
 from src.trajectory_handlers import ImageTrajectoryHandler
+from src.utils.masking import save_masking_info
 
 
 class LLMHanoiImageTrajectoryHandler(ImageTrajectoryHandler):
@@ -14,6 +18,7 @@ class LLMHanoiImageTrajectoryHandler(ImageTrajectoryHandler):
 
     def __init__(self,
                  domain_name,
+                 pddl_domain_file: Path,
                  openai_apikey: str,
                  object_detector_model: str = "gpt-4o",
                  object_detection_temperature: float = 1.0,
@@ -25,6 +30,7 @@ class LLMHanoiImageTrajectoryHandler(ImageTrajectoryHandler):
         self.object_detector_temperature = object_detection_temperature
         self.fluent_classifier_model = fluent_classifier_model
         self.fluent_classification_temperature = fluent_classification_temperature
+        self.domain = DomainParser(pddl_domain_file, partial_parsing=True).parse_domain()
 
     def init_visual_components(self, init_state_image_path: Path) -> None:
         """
@@ -69,7 +75,36 @@ class LLMHanoiImageTrajectoryHandler(ImageTrajectoryHandler):
         c3 = "peg" if names[2].startswith("peg") else "disc"
 
         # new action name
-        new_name = f"move-{c2}-{c3}"
+        new_name = f"move_{c2}_{c3}"
 
         # return new name + original arguments
         return f"{new_name}{args_str}"
+
+    def create_masking_info(self, problem_name: str, imaged_trajectory: list[dict], trajectory_path: Path) -> None:
+        trajectory_masking_info = (
+                [parse_grounded_predicates(imaged_trajectory[0]['current_state']['unknown'], self.domain)] +
+                [parse_grounded_predicates(step['next_state']['unknown'], self.domain)
+                 for step in imaged_trajectory]
+        )
+
+        # Save to working directory
+        save_masking_info(trajectory_path, problem_name, trajectory_masking_info)
+
+    def create_trajectory_and_masks(self, problem_name: str, actions: List[str], images_path: Path) -> List[dict]:
+        """
+        Creates trajectory and masking info files from images.
+
+        This method:
+        1. Initializes visual components (object detection) if not already done
+        2. Runs fluent classification on all images
+        3. Saves trajectory file (problem_name.trajectory)
+        4. Saves masking info file (problem_name.masking_info)
+
+        Returns:
+            imaged_trajectory: List of dicts containing predicted states for each step
+        """
+        imaged_trajectory = super().image_trajectory_pipeline(problem_name, actions, images_path)
+
+        self.create_masking_info(problem_name, imaged_trajectory, images_path)
+
+        return imaged_trajectory

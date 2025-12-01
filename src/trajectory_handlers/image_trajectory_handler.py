@@ -2,6 +2,7 @@ import json
 import math
 import os
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from pathlib import Path
 from typing import List
 
@@ -10,6 +11,7 @@ import pddlgym
 from PIL import Image
 from matplotlib import pyplot as plt
 from pddlgym.core import _select_operator
+from gym.envs.registration import register
 from pddlgym.structs import State, Literal
 
 from src.action_model.pddl2gym_parser import parse_image_predicate_to_gym, is_positive_gym_predicate, \
@@ -19,6 +21,8 @@ from src.object_detection.base_object_detector import ObjectDetector
 from src.typings import TrajectoryState, TrajectoryStep
 from src.utils.containers import serialize
 from src.utils.pddl import set_problem_by_name, ground_action, build_trajectory_file
+
+
 
 
 class ImageTrajectoryHandler(ABC):
@@ -53,6 +57,11 @@ class ImageTrajectoryHandler(ABC):
         """
         img = self.pddl_env.render(mode='rgb_array')
         plt.close('all')
+
+        # normalize for float renderers
+        if img.dtype != "uint8":
+            img = (img * 255).clip(0, 255).astype("uint8")
+
         img_pil = Image.fromarray(img)
         img_pil.save(os.path.join(image_output_dir, f"state_{image_sequential_idx:{self.seq_idx_format}}.png"))
 
@@ -150,15 +159,24 @@ class ImageTrajectoryHandler(ABC):
         GT_trajectory: list[TrajectoryStep] = []
         ground_actions: list[str] = []
         new_obs = obs
+        good_action = True
         self.create_image(images_output_path, 0)
 
         for i in range(1, num_steps + 1):
             obs = new_obs
 
             # Sample a random valid action (action affecting the state) from the set of valid actions
-            while new_obs == obs:
-                action = self.pddl_env.action_space.sample(obs)
-                new_obs, _, done, _, _ = self.pddl_env.step(action)
+            while new_obs == obs or not good_action:
+                try:
+                    action = self.pddl_env.action_space.sample(obs)
+                    env_temp = deepcopy(self.pddl_env)
+                    new_obs, _, done, _, _ = env_temp.step(action)
+                    _ = self.pddl_env.action_space.sample(new_obs) # will throw exception if got into invalid state
+                    good_action = True
+                    new_obs, _, done, _, _ = self.pddl_env.step(action)
+                except Exception:
+                    good_action = False
+                    continue
 
             self.create_image(images_output_path, i)
             trajectory_step: TrajectoryStep = self._create_trajectory_step(curr_obs=obs,

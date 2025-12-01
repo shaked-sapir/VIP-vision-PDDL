@@ -128,7 +128,8 @@ class LLMFluentClassifier(FluentClassifier, ABC):
 
         for p in predicates_with_rel_judgement:
             if p not in all_possible_predicates:
-                print(f"⚠️ Warning: Predicate {p} not in all possible predicates.")
+                pass
+                # print(f"⚠️ Warning: Predicate {p} not in all possible predicates.")
 
         # turn all predicates into their gym object names
         predicates_with_rel_judgement = {
