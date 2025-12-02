@@ -38,6 +38,10 @@ class LLMHikingFluentClassifier(LLMFluentClassifier):
 
         return confidence_system_prompt(locations)
 
+    def _alter_predicate_from_llm_to_problem(self, predicate: str) -> str:
+        """Alters the predicate from LLM format to the problem format."""
+        return predicate.replace("isbrown", "ishill")
+
     def _generate_all_possible_predicates(self) -> set[str]:
         """
         Generates all possible predicates for the npuzzle domain.

@@ -6,23 +6,19 @@ from copy import deepcopy
 from pathlib import Path
 from typing import List
 
-import cv2
 import pddlgym
 from PIL import Image
 from matplotlib import pyplot as plt
 from pddlgym.core import _select_operator
-from gym.envs.registration import register
 from pddlgym.structs import State, Literal
 
 from src.action_model.pddl2gym_parser import parse_image_predicate_to_gym, is_positive_gym_predicate, \
-    is_unknown_gym_predicate, get_predicate_base_form
+    is_unknown_gym_predicate
 from src.fluent_classification.base_fluent_classifier import FluentClassifier
 from src.object_detection.base_object_detector import ObjectDetector
 from src.typings import TrajectoryState, TrajectoryStep
 from src.utils.containers import serialize
 from src.utils.pddl import set_problem_by_name, ground_action, build_trajectory_file
-
-
 
 
 class ImageTrajectoryHandler(ABC):

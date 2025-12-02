@@ -1,5 +1,5 @@
 (define (domain n_puzzle_typed)
-(:requirements :negative-preconditions :equality :typing)
+(:requirements :typing :negative-preconditions :equality)
 (:types 	position tile - object
 )
 

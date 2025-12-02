@@ -1,5 +1,5 @@
 (define (domain hanoi)
-(:requirements :strips :negative-preconditions :equality)
+(:requirements :equality :negative-preconditions :strips)
 (:types 	peg disc - object
 )
 
@@ -16,12 +16,13 @@
 	:precondition (and (clear-disc ?disc)
 	(clear-disc ?to)
 	(smaller-disc ?from ?disc)
+	(smaller-disc ?from ?to)
 	(smaller-disc ?to ?disc))
 	:effect (and (clear-disc ?from)
 		(not (clear-disc ?to))
 		(not (on-disc ?disc ?from))
 		(not (on-disc ?to ?from))
-		(on-disc ?from ?to) 
+		(on-disc ?disc ?to) 
 		))
 
 (:action move_disc_peg
@@ -41,24 +42,23 @@
 	:parameters (?disc - disc ?from - peg ?to - disc)
 	:precondition (and (clear-disc ?disc)
 	(clear-disc ?to)
-	(on-peg ?disc ?from)
 	(smaller-disc ?to ?disc)
 	(smaller-peg ?from ?disc)
 	(smaller-peg ?from ?to))
 	:effect (and (clear-peg ?from)
 		(not (clear-disc ?to))
-		(not (on-peg ?disc ?from))
-		(on-disc ?disc ?to) 
+		(not (on-peg ?disc ?from)) 
 		))
 
 (:action move_peg_peg
 	:parameters (?disc - disc ?from - peg ?to - peg)
-	:precondition (and (clear-disc ?disc)
-	(clear-peg ?to)
+	:precondition (and (clear-peg ?to)
 	(smaller-peg ?from ?disc)
 	(smaller-peg ?to ?disc))
-	:effect (and (clear-peg ?from)
-		(not (clear-peg ?to)) 
+	:effect (and (clear-disc ?disc)
+		(clear-peg ?from)
+		(not (clear-peg ?to))
+		(not (on-peg ?disc ?from)) 
 		))
 
 )

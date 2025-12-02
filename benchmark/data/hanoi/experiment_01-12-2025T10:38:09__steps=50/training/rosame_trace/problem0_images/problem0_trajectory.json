@@ -1,0 +1,4002 @@
+[
+    {
+        "step": 1,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "clear(peg2:default)",
+                "on(d3:default,peg1:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 2,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, d3:default, peg3:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "d3",
+            "?to": "peg3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 3,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 4,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d3:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d3",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 5,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 6,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d3:default, d2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d3",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "on(d2:default,peg3:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 7,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "on(d2:default,peg3:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 8,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, peg3:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "peg3",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 9,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d3:default, peg3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d3",
+            "?to": "peg3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 10,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg3:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg3",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 11,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d3:default, peg3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d3",
+            "?to": "peg3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 12,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, peg2:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "peg2",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 13,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg3:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg3",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 14,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, d2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 15,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 16,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, peg3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "peg3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 17,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg3:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg3",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 18,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, d2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 19,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 20,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, peg3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "peg3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 21,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg3:default, d2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg3",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 22,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 23,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, d2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 24,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, peg3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "peg3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 25,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, d3:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "d3",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 26,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, peg2:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "peg2",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 27,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg3:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg3",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 28,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, peg3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "peg3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 29,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, d3:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "d3",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 30,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, peg2:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "peg2",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 31,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, d3:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "d3",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 32,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg3:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg3",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 33,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d3:default, peg3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d3",
+            "?to": "peg3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 34,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg3:default, d2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg3",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 35,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, peg3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "peg3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 36,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, peg2:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "peg2",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 37,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "on(d1:default,peg3:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg3:default, d2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg3",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 38,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 39,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, d2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 40,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 41,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,d3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, d3:default, peg3:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "d3",
+            "?to": "peg3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 42,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, d2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 43,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d3:default, peg1:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d3",
+            "?from": "peg1",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d3:default,peg2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "clear(peg1:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "on(d2:default,peg3:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 44,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d3:default,peg2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "clear(peg1:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "on(d2:default,peg3:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d3:default,peg2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "clear(peg1:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 45,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d3:default,peg2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "clear(peg1:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d3:default, d2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d3",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d3:default,peg2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "clear(peg1:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "on(d2:default,peg3:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 46,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d3:default,peg2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "clear(peg1:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "on(d2:default,peg3:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d3:default, peg2:default, peg1:default)",
+        "operator_object_assignment": {
+            "?disc": "d3",
+            "?from": "peg2",
+            "?to": "peg1"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "clear(peg2:default)",
+                "on(d3:default,peg1:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 47,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "clear(peg2:default)",
+                "on(d3:default,peg1:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d2:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d2:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d2",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "clear(peg2:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "on(d2:default,peg3:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 48,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "clear(peg2:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "on(d2:default,peg3:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, d3:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "d3",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 49,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "clear(d3:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "on(d2:default,peg3:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "smaller(d3:default,d1:default)",
+                "on(d1:default,peg2:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d1:default, peg2:default, d3:default)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg2",
+            "?to": "d3"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "on(d2:default,peg3:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    },
+    {
+        "step": 50,
+        "current_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(peg2:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "smaller(d3:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "on(d2:default,peg3:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        },
+        "ground_action": "move(d2:default, peg3:default, peg2:default)",
+        "operator_object_assignment": {
+            "?disc": "d2",
+            "?from": "peg3",
+            "?to": "peg2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "smaller(d2:default,d1:default)",
+                "clear(peg3:default)",
+                "smaller(peg2:default,d3:default)",
+                "smaller(peg2:default,d1:default)",
+                "smaller(peg3:default,d1:default)",
+                "smaller(peg2:default,d2:default)",
+                "smaller(peg3:default,d3:default)",
+                "on(d3:default,peg1:default)",
+                "clear(d2:default)",
+                "smaller(peg1:default,d2:default)",
+                "smaller(peg3:default,d2:default)",
+                "smaller(peg1:default,d1:default)",
+                "clear(d1:default)",
+                "smaller(peg1:default,d3:default)",
+                "on(d2:default,peg2:default)",
+                "smaller(d3:default,d2:default)",
+                "on(d1:default,d3:default)",
+                "smaller(d3:default,d1:default)"
+            ],
+            "objects": [
+                "peg3:default",
+                "peg1:default",
+                "peg2:default",
+                "d2:default",
+                "d3:default",
+                "d1:default"
+            ],
+            "goal": [
+                "on(d3:default,peg3:default)",
+                "on(d2:default,d3:default)",
+                "on(d1:default,d2:default)"
+            ]
+        }
+    }
+]
