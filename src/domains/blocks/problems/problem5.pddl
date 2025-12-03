@@ -15,7 +15,7 @@
         (on c d)
         (on d e)
         (ontable e)
-        (handempty robot)
+        (handempty)
 
         ; action literals
         ;(pickup a)

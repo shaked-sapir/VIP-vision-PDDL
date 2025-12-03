@@ -19,7 +19,6 @@
         (holding d)
         (ontable f)
         (clear f)
-        (handfull robot)
 
         ; action literals
         ;(pickup a)

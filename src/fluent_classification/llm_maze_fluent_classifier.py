@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from src.fluent_classification.base_fluent_classifier import PredicateTruthValue
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
 from src.llms.domains.maze.prompts import confidence_system_prompt
@@ -9,17 +11,16 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
     Supports constant predicates that are always true without LLM inference.
     """
 
-    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o",
-                 temperature: float = 1.0, use_uncertain: bool = True, const_predicates: set = None):
-        self.use_uncertain = use_uncertain
-        self.const_predicates = const_predicates if const_predicates is not None else set()
-
+    def __init__(self, openai_apikey: str, init_state_image_path: Path,  type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o",
+                 temperature: float = 1.0, use_uncertain: bool = True):
         super().__init__(
             openai_apikey=openai_apikey,
             type_to_objects=type_to_objects,
             model=model,
-            temperature=temperature
+            temperature=temperature,
+            init_state_image_path=init_state_image_path
         )
+        self.use_uncertain = use_uncertain
 
         # Mapping from LLM-detected object names to gym object names
         # For N-puzzle, we use tiles (t_X) and positions (p_X_Y)
@@ -28,6 +29,7 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
             "robot": "player-1",
             "doll": "doll"
         }
+        self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""
@@ -45,6 +47,13 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
         """Alters the predicate from LLM format to the problem format.
         the original domain predicates are with hypens but llm doesnt like it"""
         return predicate.replace("_", "-")
+
+    @staticmethod
+    def _get_result_regex() -> str:
+        """Returns the regex pattern to extract predicates from LLM response."""
+        # Pattern to match predicate with confidence score
+        # Examples: ('move-dir-up(loc-1-3,loc-3-2)', '2')
+        return r'([a-zA-Z0-9_-]+\([^)]*\)):\s*([0-2])'  # relevance is int 0,1,2
 
     def _generate_all_possible_predicates(self) -> set[str]:
         """
@@ -77,25 +86,10 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
         for direction in directions:
             predicates.add(f"oriented-{direction}(player-1:player)")
 
+        for location1, location2 in [(l1, l2) for l1 in locations for l2 in locations if l1 != l2]:
+            for dir in directions:
+                predicates.add(f"move-dir-{dir}({location1}:location,{location2}:location)")
+
         # move-dir predicates are added from const_predicates (not generated here)
 
         return predicates
-
-    def classify(self, image_path):
-        """
-        Override classify to include constant predicates as TRUE.
-
-        Args:
-            image_path: Path to the image to classify
-
-        Returns:
-            Dict mapping predicates to PredicateTruthValue
-        """
-        # Call parent classify to get LLM-inferred predicates
-        result = super().classify(image_path)
-
-        # Add all constant predicates as TRUE (they don't change throughout the trajectory)
-        for const_pred in self.const_predicates:
-            result[const_pred] = PredicateTruthValue.TRUE
-
-        return result

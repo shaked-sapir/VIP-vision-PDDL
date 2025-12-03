@@ -42,7 +42,8 @@ class LLMHanoiImageTrajectoryHandler(ImageTrajectoryHandler):
         self.object_detector = LLMHanoiObjectDetector(
             openai_apikey=self.openai_apikey,
             model=self.object_detector_model,
-            temperature=self.object_detector_temperature
+            temperature=self.object_detector_temperature,
+            init_state_image_path=init_state_image_path
         )
         detected_objects_by_type: Dict[str, List[str]] = self.object_detector.detect(str(init_state_image_path))
 
@@ -50,7 +51,8 @@ class LLMHanoiImageTrajectoryHandler(ImageTrajectoryHandler):
             openai_apikey=self.openai_apikey,
             type_to_objects=detected_objects_by_type,
             model=self.fluent_classifier_model,
-            temperature=self.fluent_classification_temperature
+            temperature=self.fluent_classification_temperature,
+            init_state_image_path=init_state_image_path
         )
 
         print(f"Initialized LLMHanoiImageTrajectoryHandler with detected objects: {detected_objects_by_type}")

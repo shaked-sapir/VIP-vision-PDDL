@@ -1,8 +1,9 @@
 import itertools
+import json
 import os
 import re
 from pathlib import Path
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Union
 
 from pddl_plus_parser.models import Observation, ObservedComponent, Predicate, PDDLObject, GroundedPredicate, State, \
     Domain
@@ -301,3 +302,97 @@ def ground_observation_completely(domain: Domain, observation: Observation) -> O
     """
     all_domain_grounded_predicates = get_all_possible_groundings_for_domain(domain, observation)
     return ground_all_states_in_observation(observation, all_domain_grounded_predicates)
+
+
+# ============================================================================
+# Visual Facts Utilities
+# ============================================================================
+def translate_pddlgym_state_to_image_predicates(pddlgym_state_literals: list[str],
+                                                imaged_obj_to_gym_obj_name: dict[str, str]) -> list[str]:
+    """
+    Translates predicates from PDDLGym format to image object format.
+
+    This function takes state literals from a PDDLGym trajectory (e.g., from _trajectory.json)
+    and translates the object names from gym format to image format using the reverse
+    mapping of imaged_obj_to_gym_obj_name.
+
+    Args:
+        pddlgym_state_literals: List of literal strings from PDDLGym state
+                               (e.g., ["on(a:block,b:block)", "clear(c:block)"])
+
+    Returns:
+        List of predicates with image object names
+        (e.g., ["on(red_block:block,blue_block:block)", "clear(green_block:block)"])
+
+    Example:
+        If imaged_obj_to_gym_obj_name = {"red_block": "a", "blue_block": "b"}
+        And pddlgym_state_literals = ["on(a:block,b:block)"]
+        Returns: ["on(red_block:block,blue_block:block)"]
+    """
+
+    # Create reverse mapping: gym_obj_name -> image_obj_name
+    gym_to_image = {gym: img for img, gym in imaged_obj_to_gym_obj_name.items()}
+    translated = []
+
+    for literal in pddlgym_state_literals:
+        m = re.match(r'([a-zA-Z0-9_-]+)\((.*)\)', literal)
+        if not m:
+            continue  # skip malformed literals
+
+        pred, args_str = m.groups()
+        if not args_str.strip():  # 0-arity predicate
+            translated.append(literal)
+            continue
+
+        args = []
+        for arg in map(str.strip, args_str.split(',')):
+            if ':' not in arg:
+                args.append(arg)
+                continue
+
+            name, typ = (p.strip() for p in arg.split(':', 1))
+            name = gym_to_image.get(name, name)  # replace if we have a mapping
+            args.append(f"{name}:{typ}")
+
+        translated.append(f"{pred}({','.join(args)})")
+
+    return translated
+
+
+def extract_objects_from_pddlgym_state(
+        pddlgym_state_objects: list[str],
+        imaged_obj_to_gym_obj_name: dict[str, str]
+) -> List[str]:
+    """
+    Extracts objects from a ground truth trajectory state and translates them to image object names.
+
+    This method:
+    1. Loads the ground truth trajectory JSON file
+    2. Extracts objects from the "objects" key in the specified state
+    3. Back-translates using the reverse of imaged_obj_to_gym_obj_name
+    4. Returns a list of object:type pairs
+
+    Args:
+        gt_trajectory_path: Path to the ground truth trajectory JSON file.
+                           If None, uses self.gt_json_trajectory_path
+        state_index: Index of the state to extract objects from (default: 0 for first state)
+
+    Returns:
+        List of strings in format "object_name:type"
+        (e.g., ["red_block:block", "blue_block:block", "robot:robot"])
+
+    Example:
+        If imaged_obj_to_gym_obj_name = {"red_block": "a", "blue_block": "b"}
+        And ground truth has objects = ["a:block", "b:block", "robot:robot"]
+        Returns: ["red_block:block", "blue_block:block", "robot:robot"]
+    """
+    # Use provided path or fall back to instance variable
+    gym2img = {gym: img for img, gym in imaged_obj_to_gym_obj_name.items()}
+
+    def translate(obj_str: str) -> str:
+        if ":" not in obj_str:
+            return obj_str
+        name, typ = (s.strip() for s in obj_str.split(":", 1))
+        return f"{gym2img.get(name, name)}:{typ}"
+
+    return [translate(o) for o in pddlgym_state_objects]

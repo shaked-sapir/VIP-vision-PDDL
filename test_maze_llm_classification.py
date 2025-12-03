@@ -87,11 +87,11 @@ def test_maze_llm_classification(num_images=None):
 
     # detected_objects = object_detector.detect(str(initial_image))
 
-    detected_objects = trajectory_handler.object_detector.detect(str(initial_image))
+    # detected_objects = trajectory_handler.object_detector.detect(str(initial_image))
     print("Detected objects by type:")
-    for obj_type, obj_list in detected_objects.items():
-        print(f"  {obj_type}: {obj_list}")
-    print()
+    # for obj_type, obj_list in detected_objects.items():
+    #     print(f"  {obj_type}: {obj_list}")
+    # print()
 
     # Step 2: Run fluent classification on first N images
     print("="*80)

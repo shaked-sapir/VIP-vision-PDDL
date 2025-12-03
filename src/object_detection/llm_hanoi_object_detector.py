@@ -23,12 +23,31 @@ class LLMHanoiObjectDetector(LLMObjectDetector):
     - p1 → peg1, p2 → peg2, p3 → peg3 (pegs are renamed)
     """
 
-    def __init__(self, openai_apikey: str, model: str = "gpt-4o", temperature: float = 1.0):
+    def __init__(self, openai_apikey: str, model: str, temperature: float,  init_state_image_path: Path):
         super().__init__(
             openai_apikey=openai_apikey,
             model=model,
-            temperature=temperature
+            temperature=temperature,
+            init_state_image_path=init_state_image_path
         )
+
+        self.imaged_obj_to_gym_obj_name = {
+            "d1": "d1",
+            "d2": "d2",
+            "d3": "d3",
+            "d4": "d4",
+            "d5": "d5",
+            "d6": "d6",
+            "d7": "d7",
+            "d8": "d8",
+            "d9": "d9",
+            "d10": "d10",
+            "peg1": "peg1",
+            "peg2": "peg2",
+            "peg3": "peg3"
+        }
+
+        self.fewshot_examples = [(init_state_image_path, self.extract_objects_from_gt_state())]
 
     def _get_system_prompt(self) -> str:
         """Returns the system prompt for Hanoi object detection."""

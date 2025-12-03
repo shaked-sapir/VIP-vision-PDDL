@@ -1,4 +1,5 @@
 import itertools
+from pathlib import Path
 
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
 from src.llms.domains.blocks.prompts import with_uncertain_confidence_system_prompt, no_uncertain_confidence_system_prompt
@@ -10,7 +11,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
     Uses VisionModel to extract predicates from images of blocksworld world scenarios.
     """
 
-    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None,
+    def __init__(self, openai_apikey: str, init_state_image_path: Path, type_to_objects: dict[str, list[str]] = None,
                  model: str = "gpt-4o", temperature: float = 1.0,
                  use_uncertain: bool = True):
         """
@@ -27,7 +28,8 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             openai_apikey=openai_apikey,
             type_to_objects=type_to_objects,
             model=model,
-            temperature=temperature
+            temperature=temperature,
+            init_state_image_path=init_state_image_path
         )
 
         self.imaged_obj_to_gym_obj_name = {
@@ -39,6 +41,8 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             "pink": "f",
             "gripper": "robot"
         }
+
+        self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""
@@ -64,6 +68,20 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
         else:
             return no_uncertain_confidence_system_prompt(
                 self.type_to_objects['block'])
+
+    @staticmethod
+    def _alter_predicate_from_llm_to_problem(predicate: str) -> str:
+        """
+        Alters a predicate string from LLM format to problem format.
+
+        Args:
+            predicate: Predicate string in LLM format.
+
+        Returns:
+            Predicate string in problem format.
+        """
+        # In this case, no alteration is needed; return as is
+        return predicate if "handempty" not in predicate else "handempty()"
 
     def _generate_all_possible_predicates(self) -> set[str]:
         """

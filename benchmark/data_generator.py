@@ -11,6 +11,7 @@ Supported domains:
 - npuzzle
 - hanoi
 - hiking
+- maze
 
 For each domain, this generates:
 1. A long visual trace (images + ground truth)
@@ -28,23 +29,22 @@ Each run creates a new experiment folder, allowing multiple experiments to coexi
 """
 
 import json
-import os
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
 
+
 # Add project root to Python path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import pddlgym
-
-from benchmark.domains.blocksworld import AmlgymLLMBlocksImageTrajectoryHandler
 from src.trajectory_handlers.llm_npuzzle_trajectory_handler import LLMNpuzzleImageTrajectoryHandler
 from src.trajectory_handlers.llm_hanoi_trajectory_handler import LLMHanoiImageTrajectoryHandler
 from src.trajectory_handlers.llm_hiking_trajectory_handler import LLMHikingImageTrajectoryHandler
+from src.trajectory_handlers.llm_maze_trajectory_handler import LLMMazeImageTrajectoryHandler
+from src.trajectory_handlers.llm_blocks_trajectory_handler import LLMBlocksImageTrajectoryHandler
 from src.utils.config import load_config
 from src.utils.masking import save_masking_info, load_masking_info
 from src.utils.pddl import build_trajectory_file
@@ -302,7 +302,7 @@ def generate_blocks_training_data(
         domain_display_name="BLOCKSWORLD",
         domain_config_key="blocks",
         amlgym_domain_name="blocksworld",
-        trajectory_handler_class=AmlgymLLMBlocksImageTrajectoryHandler,
+        trajectory_handler_class=LLMBlocksImageTrajectoryHandler,
         benchmark_domain_path=benchmark_domain_path,
         output_base_dir=output_base_dir,
         num_steps=num_steps,
@@ -410,6 +410,39 @@ def generate_hiking_training_data(
     )
 
 
+def generate_maze_training_data(
+    output_base_dir: Path,
+    num_steps: int = 100,
+    problem_name: str = "problem0",
+    trace_length: int = 15
+) -> Tuple[Path, List[Path]]:
+    """
+    Generate training data for maze domain.
+
+    Args:
+        output_base_dir: Base directory for all benchmark data
+        num_steps: Total number of steps to generate (default: 100)
+        problem_name: Problem name to use (without .pddl extension)
+        trace_length: Length of each trace for our algorithms (default: 15)
+
+    Returns:
+        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
+    """
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "maze" / "maze.pddl"
+
+    return _generate_training_data_generic(
+        domain_display_name="MAZE",
+        domain_config_key="maze",
+        amlgym_domain_name="maze",
+        trajectory_handler_class=LLMMazeImageTrajectoryHandler,
+        benchmark_domain_path=benchmark_domain_path,
+        output_base_dir=output_base_dir,
+        num_steps=num_steps,
+        problem_name=problem_name,
+        trace_length=trace_length
+    )
+
+
 def transform_problems_pddlgym_to_amlgym(domain_name: str, problems_dir: Path) -> None:
     """
     Transform all PDDLGym problem files in the specified directory to AMLGym format.
@@ -428,6 +461,8 @@ def transform_problems_pddlgym_to_amlgym(domain_name: str, problems_dir: Path) -
             return  # No transformation needed for hanoi
         elif domain_name == "hiking":
             return  # No transformation needed for hiking
+        elif domain_name == "maze":
+            return  # No transformation needed for maze
         else:
             raise ValueError(f"Domain '{domain_name}' not supported for transformation.")
 
@@ -489,8 +524,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--domain",
         type=str,
-        default="hiking",
-        choices=["blocksworld", "npuzzle", "hanoi", "hiking"],
+        default="maze",
+        choices=["blocksworld", "npuzzle", "hanoi", "hiking", "maze"],
         help="Domain to generate data for (default: blocksworld)"
     )
     parser.add_argument(
@@ -508,8 +543,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--problem",
         type=str,
-        default="problem2",
-        help="Problem name to use from PDDLGym (default: problem7 for blocksworld, problem0 for hanoi, problem2 for hiking)"
+        default="problem0",
+        help="Problem name to use from PDDLGym (default: problem7 for blocksworld, problem0 for hanoi/maze, problem2 for hiking)"
     )
 
     args = parser.parse_args()
@@ -542,6 +577,14 @@ if __name__ == "__main__":
         print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "hiking":
         rosame_dir, our_dirs = generate_hiking_training_data(
+            output_base_dir=output_dir,
+            num_steps=args.num_steps,
+            problem_name=args.problem,
+            trace_length=args.trace_length
+        )
+        print(f"Generated {len(our_dirs)} traces for our algorithms")
+    elif args.domain == "maze":
+        rosame_dir, our_dirs = generate_maze_training_data(
             output_base_dir=output_dir,
             num_steps=args.num_steps,
             problem_name=args.problem,

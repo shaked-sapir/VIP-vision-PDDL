@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from src.llms.domains.n_puzzle.prompts import npuzzle_object_detection_prompt
 from src.object_detection.llm_object_detector import LLMObjectDetector
 
@@ -12,12 +14,20 @@ class LLMNpuzzleObjectDetector(LLMObjectDetector):
     - p1 → peg1, p2 → peg2, p3 → peg3 (pegs are renamed)
     """
 
-    def __init__(self, openai_apikey: str, model: str = "gpt-4o", temperature: float = 1.0):
+    def __init__(self, openai_apikey: str, model: str, temperature: float, init_state_image_path: Path):
         super().__init__(
             openai_apikey=openai_apikey,
             model=model,
-            temperature=temperature
+            temperature=temperature,
+            init_state_image_path=init_state_image_path
         )
+
+        self.imaged_obj_to_gym_obj_name = {
+            **{f"t_{i}": f"t_{i}" for i in range(1, 25)},
+            **{f"p_{i}_{j}": f"p_{i}_{j}" for i in range(1, 6) for j in range(1, 6)}  # positions up to 5x5
+        }
+
+        self.fewshot_examples = [(init_state_image_path, self.extract_objects_from_gt_state())]
 
     def _get_system_prompt(self) -> str:
         """Returns the system prompt for Hanoi object detection."""

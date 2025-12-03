@@ -18,7 +18,7 @@ from src.fluent_classification.base_fluent_classifier import FluentClassifier
 from src.object_detection.base_object_detector import ObjectDetector
 from src.typings import TrajectoryState, TrajectoryStep
 from src.utils.containers import serialize
-from src.utils.pddl import set_problem_by_name, ground_action, build_trajectory_file
+from src.utils.pddl import set_problem_by_name, ground_action, build_trajectory_file, multi_replace_predicate
 
 
 class ImageTrajectoryHandler(ABC):
@@ -51,7 +51,7 @@ class ImageTrajectoryHandler(ABC):
                                      first image, 1 for the second image, etc.
         :return: (None)
         """
-        img = self.pddl_env.render(mode='rgb_array')
+        img = self.pddl_env.render() if self.domain_name == "PDDLEnvMaze-v0" else self.pddl_env.render(mode='rgb_array')
         plt.close('all')
 
         # normalize for float renderers
@@ -77,7 +77,7 @@ class ImageTrajectoryHandler(ABC):
         return TrajectoryState(
             literals=[str(literal) for literal in obs.literals],
             objects=[str(obj) for obj in obs.objects],
-            goal=[str(literal) for literal in obs.goal.literals]
+            goal=[str(literal) for literal in obs.goal.literals] if hasattr(obs.goal, "literals") else [str(obs.goal)]
         )
 
     @staticmethod
@@ -211,7 +211,9 @@ class ImageTrajectoryHandler(ABC):
 
             # Convert predicates to PDDL format for trajectory
             current_literals = [parse_image_predicate_to_gym(pred, truth_value)
-                                for pred, truth_value in current_state_predicates.items()]
+                                for pred, truth_value in current_state_predicates.items()] if i != 0 else \
+                [multi_replace_predicate(p, self.fluent_classifier.imaged_obj_to_gym_obj_name) for
+                 p in self.fluent_classifier.fewshot_examples[0][1]]
             next_literals = [parse_image_predicate_to_gym(pred, truth_value)
                              for pred, truth_value in next_state_predicates.items()]
 

@@ -1,4 +1,5 @@
 import itertools
+from pathlib import Path
 
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
 from src.llms.domains.n_puzzle.prompts import confidence_system_prompt
@@ -9,7 +10,7 @@ class LLMNpuzzleFluentClassifier(LLMFluentClassifier):
     LLM-based fluent classifier for the N-puzzle domain.
     """
 
-    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o",
+    def __init__(self, openai_apikey: str, init_state_image_path: Path, type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o",
                  temperature: float = 1.0, use_uncertain: bool = True):
         self.use_uncertain = use_uncertain
 
@@ -17,7 +18,8 @@ class LLMNpuzzleFluentClassifier(LLMFluentClassifier):
             openai_apikey=openai_apikey,
             type_to_objects=type_to_objects,
             model=model,
-            temperature=temperature
+            temperature=temperature,
+            init_state_image_path=init_state_image_path
         )
 
         # Mapping from LLM-detected object names to gym object names
@@ -26,6 +28,8 @@ class LLMNpuzzleFluentClassifier(LLMFluentClassifier):
             **{f"t_{i}": f"t_{i}" for i in range(1, 25)},
             **{f"p_{i}_{j}": f"p_{i}_{j}" for i in range(1,6) for j in range(1,6)} # positions up to 5x5
         }
+
+        self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""

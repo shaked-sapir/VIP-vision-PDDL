@@ -16,7 +16,7 @@
         (ontable a)
         (ontable b)
         (ontable d)
-        (handempty robot)
+        (handempty)
 
         ; action literals
         ;(pickup a)

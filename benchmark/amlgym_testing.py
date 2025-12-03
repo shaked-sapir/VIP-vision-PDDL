@@ -35,6 +35,9 @@ experiment_data_dirs = {
         # "experiment_01-12-2025T01:41:34__steps=10",
         # "experiment_01-12-2025T02:03:07__steps=25",
         "experiment_01-12-2025T02:03:49__steps=50",
+    ],
+    "maze": [
+        "experiment_03-12-2025T13:23:27__steps=10"
     ]
 }
 
@@ -43,22 +46,33 @@ all_results = []
 
 domain_name_mappings = {
     # 'hiking': 'hiking',
+    'maze': 'maze',
     'hanoi': 'hanoi',
     'blocksworld': 'blocksworld',
     'n_puzzle_typed': 'npuzzle',
 }
 
 not_in_amlgym_domains = {
+    'maze': {
+        "trajectory_training_problem": "problem0",
+        "domain_path": benchmark_path / 'domains' / 'maze' / 'maze.pddl',
+        "problems_paths": sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/maze/problems").glob("problem*.pddl") if "problem0" not in str(p))
+    },
     "hanoi": {
         "trajectory_training_problem": "problem0", # for documenting, not to put in the problems to be solved
         "domain_path": benchmark_path / 'domains' / 'hanoi' / 'hanoi.pddl',
-        "problems_paths": sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/hanoi/problems").glob("problem*.pddl") if "problem0" not in str(p))
+        "problems_paths": sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/hanoi/problems").glob("problem*.pddl") if "problem0" not in str(p)) +
+                            sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/hanoi/problems_test").glob("test*.pddl") if "test_problem0" not in str(p))
     },
     "hiking": {
         "trajectory_training_problem": "problem2",
         "domain_path": benchmark_path / 'domains' / 'hiking' / 'hiking.pddl',
         "problems_paths": sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/hiking/problems").glob("problem*.pddl") if "problem2" not in str(p))
-    }
+    },
+    'blocksworld': {
+        "trajectory_training_problem": "problem7",
+        "domain_path": benchmark_path / 'domains' / 'blocksworld' / 'blocksworld.pddl',
+        "problems_paths": sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/blocksworld/problems").glob("problem*.pddl") if "problem0" not in str(p))
 }
 
 for domain_name, bench_name in domain_name_mappings.items():

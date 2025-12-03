@@ -5,6 +5,7 @@ Uses GPT-4 Vision to extract and classify predicates from Hanoi puzzle images.
 """
 
 import itertools
+from pathlib import Path
 
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
 from src.llms.domains.hanoi.prompts import confidence_system_prompt
@@ -16,7 +17,7 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
     Uses GPT-4 Vision to extract predicates from images of Hanoi puzzle scenarios.
     """
 
-    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o",
+    def __init__(self, openai_apikey: str, init_state_image_path: Path, type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o",
                  temperature: float = 1.0, use_uncertain: bool = True):
         self.use_uncertain = use_uncertain
 
@@ -24,7 +25,8 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
             openai_apikey=openai_apikey,
             type_to_objects=type_to_objects,
             model=model,
-            temperature=temperature
+            temperature=temperature,
+            init_state_image_path=init_state_image_path
         )
 
         # Mapping from LLM-detected object names to gym object names
@@ -36,10 +38,16 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
             "d4": "d4",
             "d5": "d5",
             "d6": "d6",
+            "d7": "d7",
+            "d8": "d8",
+            "d9": "d9",
+            "d10": "d10",
             "peg1": "peg1",
             "peg2": "peg2",
             "peg3": "peg3"
         }
+
+        self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""
