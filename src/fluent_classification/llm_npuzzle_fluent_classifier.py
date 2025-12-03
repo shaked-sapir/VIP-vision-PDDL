@@ -1,4 +1,5 @@
 import itertools
+import re
 from pathlib import Path
 
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
@@ -29,7 +30,31 @@ class LLMNpuzzleFluentClassifier(LLMFluentClassifier):
             **{f"p_{i}_{j}": f"p_{i}_{j}" for i in range(1,6) for j in range(1,6)} # positions up to 5x5
         }
 
-        self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
+        new_preds, max_idx = [], 0
+
+        for p in self.extract_predicates_from_gt_state():
+            if p.startswith("position("):
+                for n in re.findall(r"(\d+):default", p):
+                    max_idx = max(max_idx, int(n))
+            elif p.startswith("at("):
+                t, x, y = re.findall(r"(\d+):default", p)
+                new_preds.append(f"at(t_{t}:tile,p_{x}_{y}:position)")
+            elif p.startswith("blank("):
+                x, y = re.findall(r"(\d+):default", p)
+                new_preds.append(f"empty(p_{x}_{y})")
+
+        neighbors = set()
+        for i in range(1, max_idx + 1):
+            for j in range(1, max_idx + 1):
+                for di, dj in ((1, 0), (0, 1)):  # right & down generate all undirected pairs
+                    ni, nj = i + di, j + dj
+                    if 1 <= ni <= max_idx and 1 <= nj <= max_idx:
+                        neighbors.add(f"neighbor(p_{i}_{j}:position,p_{ni}_{nj}:position)")
+                        neighbors.add(f"neighbor(p_{ni}_{nj}:position,p_{i}_{j}:position)")
+
+        new_preds.extend(sorted(neighbors))
+
+        self.fewshot_examples = [(init_state_image_path, new_preds)]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""

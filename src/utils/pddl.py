@@ -362,7 +362,7 @@ def translate_pddlgym_state_to_image_predicates(pddlgym_state_literals: list[str
 def extract_objects_from_pddlgym_state(
         pddlgym_state_objects: list[str],
         imaged_obj_to_gym_obj_name: dict[str, str]
-) -> List[str]:
+) -> Set[str]:
     """
     Extracts objects from a ground truth trajectory state and translates them to image object names.
 
@@ -395,4 +395,4 @@ def extract_objects_from_pddlgym_state(
         name, typ = (s.strip() for s in obj_str.split(":", 1))
         return f"{gym2img.get(name, name)}:{typ}"
 
-    return [translate(o) for o in pddlgym_state_objects]
+    return {translate(o) for o in pddlgym_state_objects}

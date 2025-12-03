@@ -47,7 +47,24 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
             "peg3": "peg3"
         }
 
-        self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
+        preds = self.extract_predicates_from_gt_state()
+        updated_preds = []
+        for pred in preds:
+            if "clear(peg" in pred:
+                pred = pred.replace("clear", "clear-peg")
+            elif "clear(d" in pred:
+                pred = pred.replace("clear", "clear-disc")
+            elif "smaller(peg" in pred:
+                pred = pred.replace("smaller", "smaller-peg")
+            elif "smaller(d" in pred:
+                pred = pred.replace("smaller", "smaller-disc")
+            elif "on(" in pred and "peg" in pred:
+                pred = pred.replace("on", "on-peg")
+            elif "on(" in pred and "peg" not in pred:
+                pred = pred.replace("on", "on-disc")
+            updated_preds.append(pred)
+
+        self.fewshot_examples = [(init_state_image_path, updated_preds)]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""

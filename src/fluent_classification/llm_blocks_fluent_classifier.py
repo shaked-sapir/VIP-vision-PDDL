@@ -2,7 +2,7 @@ import itertools
 from pathlib import Path
 
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
-from src.llms.domains.blocks.prompts import with_uncertain_confidence_system_prompt, no_uncertain_confidence_system_prompt
+from src.llms.domains.blocks.prompts import confidence_system_prompt
 
 
 class LLMBlocksFluentClassifier(LLMFluentClassifier):
@@ -42,7 +42,13 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             "gripper": "robot"
         }
 
-        self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
+        preds = self.extract_predicates_from_gt_state()
+        preds = [
+            ("handempty()" if "handempty" in p else p)
+            for p in preds
+            if "handfull" not in p
+        ]
+        self.fewshot_examples = [(init_state_image_path, preds)]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""
@@ -62,12 +68,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
         """Returns the system prompt for the Blocks domain."""
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."
 
-        if self.use_uncertain:
-            return with_uncertain_confidence_system_prompt(
-                self.type_to_objects['block'])
-        else:
-            return no_uncertain_confidence_system_prompt(
-                self.type_to_objects['block'])
+        return confidence_system_prompt(self.type_to_objects['block'])
 
     @staticmethod
     def _alter_predicate_from_llm_to_problem(predicate: str) -> str:
@@ -112,10 +113,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             predicates.add(f"clear({block}:block)")
 
         # handempty(robot) predicate
-        predicates.add(f"handempty({gripper_name}:gripper)")
-
-        # handfull(robot) predicate
-        predicates.add(f"handfull({gripper_name}:gripper)")
+        predicates.add(f"handempty()")
 
         # holding(block) predicates
         for block in blocks:

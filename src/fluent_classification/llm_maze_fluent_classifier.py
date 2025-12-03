@@ -46,7 +46,7 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
     def _alter_predicate_from_llm_to_problem(self, predicate: str) -> str:
         """Alters the predicate from LLM format to the problem format.
         the original domain predicates are with hypens but llm doesnt like it"""
-        return predicate.replace("_", "-")
+        return predicate.replace("_", "-").replace("robot:robot", "player-1:player")
 
     @staticmethod
     def _get_result_regex() -> str:

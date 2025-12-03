@@ -27,7 +27,17 @@ class LLMNpuzzleObjectDetector(LLMObjectDetector):
             **{f"p_{i}_{j}": f"p_{i}_{j}" for i in range(1, 6) for j in range(1, 6)}  # positions up to 5x5
         }
 
-        self.fewshot_examples = [(init_state_image_path, self.extract_objects_from_gt_state())]
+        current_objects = self.extract_objects_from_gt_state()
+        new_objects = []
+
+        grid_dim_objects = sorted(obj.split(":")[0] for obj in current_objects if obj.startswith('x'))
+        grid_dim = int(grid_dim_objects[-1][1:])
+        for i in range(1, grid_dim + 1):
+            for j in range(1, grid_dim + 1):
+                new_objects.append(f"p_{i}_{j}:position")
+        tile_objects = sorted(obj for obj in current_objects if obj.startswith('t'))
+        new_objects.extend(["t_" + obj.split(":")[0][1:] + ":tile" for obj in tile_objects])
+        self.fewshot_examples = [(init_state_image_path, new_objects)]
 
     def _get_system_prompt(self) -> str:
         """Returns the system prompt for Hanoi object detection."""

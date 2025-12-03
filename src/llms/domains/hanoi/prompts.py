@@ -18,18 +18,18 @@ The image contains ONLY two object types:
 The known objects in this image are:
 
 - Pegs (vertical grey poles, ordered from left to right):
-  {', '.join(peg_names)} (type=peg)
+  {', '.join(sorted(peg_names))} (type=peg)
 
 - Discs (red plates, ordered strictly by size):
-  {', '.join(disc_names)} (type=disc)
+  {', '.join(sorted(disc_names))} (type=disc)
 
 IMPORTANT CONSTRAINTS ON OBJECTS:
 - The list of discs and pegs above is COMPLETE. Do NOT invent additional discs or pegs.
-- Disc names encode relative size: the first disc in the list is the smallest, the last is the largest.
+- Disc names encode relative size: the smallest disc is d1, next is d2,..., and the largest is d{len(disc_names)}.
   For example, if the discs are [d1, d2, d3], then:
     size(d1) < size(d2) < size(d3).
 - Peg names are just identifiers; their left–right ordering in the image does not affect their size
-  (only discs are size-ordered).
+  (only discs are size-ordered), so peg1 is the leftmost peg, peg2 is the next peg to the right, and so on.
 - The brown base and the background are not objects and must never appear in predicates.
 
 Your task is to extract **all grounded binary predicates** from the image and assign a

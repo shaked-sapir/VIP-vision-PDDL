@@ -7,7 +7,7 @@ import pandas as pd
 from src.llms.domains.blocks.consts import objects_to_names
 from src.llms.domains.blocks.images.gt_for_testing import create_gt_for_testing
 from src.llms.domains.blocks.prompts import full_guidance_system_prompt, object_detection_system_prompt, \
-    with_uncertain_confidence_system_prompt
+    confidence_system_prompt
 from src.llms.facts_extraction import simulate_predicate_probabilities, extract_facts_once, \
     simulate_relevance_judgement, fill_missing_predicates_with_uncertainty
 from src.llms.precision_recall_calculations import evaluate_all_pr_curves
@@ -248,7 +248,7 @@ if __name__ == "__main__":
     evaluate_model_on_dataset__relevance(
         image_files=image_files[:],
         ground_truth=ground_truth,
-        system_prompt_text=with_uncertain_confidence_system_prompt(block_colors),
+        system_prompt_text=confidence_system_prompt(block_colors),
         model="gpt-4o",
         result_regex=predicate_extraction_with_relevance_regex,
         result_parse_func=parse_predicate_relevance,

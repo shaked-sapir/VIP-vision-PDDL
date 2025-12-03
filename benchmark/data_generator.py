@@ -77,16 +77,6 @@ def _generate_training_data_generic(
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
     """
-    # Generate experiment name first for display
-    timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-    experiment_name = f"experiment_{timestamp}__steps={num_steps}"
-
-    print("="*80)
-    print(f"GENERATING {domain_display_name} TRAINING DATA")
-    print(f"Experiment: {experiment_name}")
-    print("="*80)
-    print()
-
     # Load configuration
     config = load_config()
     openai_apikey = config['openai']['api_key']
@@ -96,6 +86,17 @@ def _generate_training_data_generic(
     fluent_classification_model = config['domains'][domain_config_key]['fluent_classification']['model_name']
     fluent_classification_temp = config['domains'][domain_config_key]['fluent_classification']['temperature']
     problems_dir = Path(config['domains'][domain_config_key]['problems_dir'])
+
+    # Generate experiment name first for display
+    timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
+    experiment_name = f"experiment_{timestamp}__model={fluent_classification_model}__steps={num_steps}"
+
+    print("="*80)
+    print(f"GENERATING {domain_display_name} TRAINING DATA")
+    print(f"Experiment: {experiment_name}")
+    print("="*80)
+    print()
+
 
     # Setup output directories with experiment timestamp (already generated above)
     benchmark_domain_dir = output_base_dir / amlgym_domain_name
@@ -531,20 +532,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-steps",
         type=int,
-        default=10,
+        default=5,
         help="Total number of steps to generate (default: 100)"
     )
     parser.add_argument(
         "--trace-length",
         type=int,
-        default=2,
+        default=1,
         help="Length of each trace for our algorithms (default: 15)"
     )
     parser.add_argument(
         "--problem",
         type=str,
         default="problem0",
-        help="Problem name to use from PDDLGym (default: problem7 for blocksworld, problem0 for hanoi/maze, problem2 for hiking)"
+        help="Problem name to use from PDDLGym (default: problem7 for blocksworld, eight01x for npuzzle, problem0 for hanoi/maze, problem2 for hiking)"
     )
 
     args = parser.parse_args()

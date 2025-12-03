@@ -27,7 +27,10 @@ class LLMMazeObjectDetector(LLMObjectDetector):
             "robot": "player-1",
             "doll": "doll"
         }
-        self.fewshot_examples = [(init_state_image_path, self.extract_objects_from_gt_state())]
+
+        original_objects = self.extract_objects_from_gt_state()
+        visual_objects = [p if "location" in p else "robot:robot" for p in original_objects]
+        self.fewshot_examples = [(init_state_image_path, visual_objects)]
 
 
     def _get_system_prompt(self) -> str:
@@ -39,4 +42,4 @@ class LLMMazeObjectDetector(LLMObjectDetector):
         """Returns the regex pattern to extract object detections from LLM response."""
         # Pattern to match object detection in "<name>:<type>" format
         # where name can include digits (e.g., "d1:disc", "p1:peg")
-        return r'(?:loc-\d+-\d+:location|robot:player|doll:doll)'
+        return r'(?:loc-\d+-\d+:location|robot:robot|doll:doll)'

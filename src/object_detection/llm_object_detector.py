@@ -4,7 +4,7 @@ import re
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Set
 
 from openai import OpenAI
 
@@ -157,7 +157,7 @@ class LLMObjectDetector(ObjectDetector, ABC):
         state = self.gt_json_trajectory[state_index]["current_state"]
         objects = state["objects"]
 
-        return extract_objects_from_pddlgym_state(objects, self.imaged_obj_to_gym_obj_name)
+        return list(extract_objects_from_pddlgym_state(objects, self.imaged_obj_to_gym_obj_name))
 
     def detect(self, image: Union[Path, str], examples: list[tuple[Path | str, list[str]]] = None,
                *args, **kwargs) -> dict[str, List[str]]:
