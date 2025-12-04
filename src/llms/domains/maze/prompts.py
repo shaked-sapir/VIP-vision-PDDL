@@ -55,91 +55,76 @@ KNOWN OBJECTS (complete lists, do NOT add or remove):
   and two small arms: {robot_name} (type=robot)
 - Black bear plush: {doll_name} (type=doll)
 
-IMPORTANT CONSTRAINTS ON OBJECTS:
-- Locations are named loc-I-J where I = row (top→bottom), J = column (left→right), i.e., loc-1-1 is the top-left cell,
-    loc-1-2 is the cell to its right, loc-2-1 is the cell below loc-1-1, etc.
-    can be either:
-    - EMPTY cells: white cells
-    - WALL cells: brown/olive tiles with a brick pattern. this is not an object, but a property of a location.
+-----------------------------------------------------
+VISUAL DEFINITIONS (IMPORTANT)
+-----------------------------------------------------
+- WALL cell: brown/olive tile with a brick pattern.
+- FLOOR cell: white/bright tile with no brick texture.
+- ROBOT cell: the turquoise/blue robot sprite.
+- DOLL cell: the black bear plush.
 
-Your task is to extract **all grounded binary predicates** from the image and assign a
-**confidence score** to each. Use ONLY the objects and predicate forms defined below.
+A cell is CLEAR iff it is FLOOR or contains the DOLL.
+A cell is NOT clear iff it is WALL or contains the ROBOT.
 
-Each argument must include the object name and its type, separated by a colon
-(e.g. loc-1-2:loc). Do NOT invent new predicates, objects, or types.
+=====================================================
+BLOCK 1 — PERCEPTION (MANDATORY)
+=====================================================
+For EVERY location loc-I-J output EXACTLY one line:
 
-Valid predicate forms:
+    cell(loc-I-J:location) = {{floor | wall | robot | doll}}
 
-- at(robot:robot,x:location)    → blue robot is at location x 
-- clear(x:location)        → location x is either empty (white cell) OR occupied by DOLL (NOT WALL AND NOT OCCUPIED BY ROBOT)
-- is_goal(x:location)             → the doll is at location x
-- oriented_right(robot:robot)  → robot is facing right
-- oriented_left(robot:robot)   → robot is facing left
-- oriented_up(robot:robot)    → robot is facing up
-- oriented_down(robot:robot)  → robot is facing down
-- move_dir_up(from:location,to:location) → 'to' is directly above 'from' AND "to" is no WALL cell.
-- move_dir_down(from:location,to:location) → 'to' is directly below 'from' AND "to" is no WALL cell.
-- move_dir_left(from:location,to:location) → 'to' is directly left of 'from' AND "to" is no WALL cell.
-- move_dir_right(from:location,to:location) → 'to' is directly right of 'from' AND "to" is no WALL cell.
-
-In different images, the robot may be at different locations.
-You must determine the robot's location from THIS image only,
-not by copying the locations from the examples - explicitly find its X and Y coordinates visually in the grid in THIS image.
-Notice the it is **impossible for the robot to be in a WALL cell**. the robot can **only be in EMPTY cells**.
-
-same for the black bear plush.
-
-For each predicate you output, assign a confidence score expressing how certain you are
-that the predicate holds in the image:
-
-- 2 → The predicate DEFINITELY holds, based on clear visual evidence.
-- 1 → The predicate MIGHT hold, but evidence is unclear, partial, or occluded.
-- 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
-
-GOAL: Minimize use of 1. Prefer 0 or 2 whenever possible.
-
-CRITICAL HARD REQUIREMENTS:
-1. You MUST output **exactly one** line of the form:
-       at({robot_name}:robot,loc-I-J:location): 2
-   for the unique cell where the robot is located.
-2. For all other locations y ≠ that cell, you MUST output:
-       at({robot_name}:robot,y:location): 0
-3. You MUST assign a score to **every location** for:
-   - clear(x:location)
-   - is_goal(x:location)
+Determine robot and doll positions from THIS image only.
+Robot and doll can NEVER be in wall cells.
 
 
-Only compute move_dir_*(from,to) when both from and to are clear locations
-and they are immediate neighbors in the corresponding direction, but you should 
-compute it to **all** such pairs.
+=====================================================
+BLOCK 2 — PREDICATES WITH SCORES
+=====================================================
+
+(1) Robot and goal:
+- at({robot_name}:robot, x:location): 2   iff   cell(x)=robot
+  (Do NOT output the 0-score at() lines; omitted means score 0.)
+- is_goal(x:location): 2   iff   cell(x)=doll
+
+(2) Clear:
+- clear(x:location): 2  iff cell(x)=floor or cell(x)=doll
+- clear(x:location): 0  iff cell(x)=wall or cell(x)=robot
+
+(3) Orientation (choose ONE with score 2, others 0 or omitted)
+
+(4) Directional movement:
+Let FROM = loc-I1-J1, TO = loc-I2-J2.
+
+move_dir_up(FROM,TO): 2  iff
+    I2 = I1 - 1  AND J2 = J1  AND clear(TO)=2
+
+move_dir_down(FROM,TO): 2 iff
+    I2 = I1 + 1  AND J2 = J1  AND clear(TO)=2
+
+move_dir_left(FROM,TO): 2 iff
+    I2 = I1      AND J2 = J1 - 1  AND clear(TO)=2
+
+move_dir_right(FROM,TO): 2 iff
+    I2 = I1      AND J2 = J1 + 1  AND clear(TO)=2
+
+Output these ONLY for immediate neighbors and ONLY when clear(TO)=2.
+If a predicate does not hold, you may omit it (it is treated as score 0).
 
 
-RULES:
-- Locations follow loc-I-J: I = row (top→bottom), J = column (left→right).
-- The blue robot occupies exactly one location, so exactly one at({robot_name},loc-I-J)
-  has score 2 and all others have score 0.
+-----------------------------------------------------
+CONFIDENCE SCORES
+-----------------------------------------------------
+- 2 = definitely true
+- 1 = unclear / partial visibility
+- 0 = definitely false
+Minimize use of 1.
 
-
-OUTPUT FORMAT (strict):
-- One predicate per line.
-- Format:
+-----------------------------------------------------
+OUTPUT FORMAT (STRICT)
+-----------------------------------------------------
+Output only predicates of format of BLOCK 2.
+One line per item.
+Format in BLOCK 2:
     <predicate>: <score>
-
-Valid examples:
-    at(robot:robot,loc-1-2:location): 2
-    at(robot:robot,loc-1-2:location): 2
-    clear(loc-3-4:location): 2
-    is_goal(loc-2-3:location): 0
-    is_goal(loc-2-4:location): 2
-    is_goal(loc-2-4:location): 2
-    oriented_up(robot:robot): 2
-    oriented_down(robot:robot): 2
-    oriented_right(robot:robot): 2
-    oriented_left(robot:robot): 2
-    move-dir-up(loc-2-3:location, loc-1-3:location): 2
-    move-dir-down(loc-2-3:location, loc-3-3:location): 2
-    move-dir-left(loc-2-3:location, loc-2-2:location): 2
-    move-dir-right(loc-2-3:location, loc-2-4:location): 2
-
-Output ONLY predicate lines. No explanations.
+No explanations.
 """

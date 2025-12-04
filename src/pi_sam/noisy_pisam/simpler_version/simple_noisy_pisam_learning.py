@@ -176,6 +176,57 @@ class NoisyPisamLearner(PISAMLearner):
 
         # self.logger.warning(f"Could not find fluent {fluent_str} to flip in state: [{self.current_observation_index}][{self.current_component_index}].")
         raise ValueError(f"Could not find fluent {fluent_str} to flip in state")
+
+    def _collect_frame_axiom_conflicts(
+            self,
+            grounded_action: ActionCall,
+            grounded_add_effects: List[GroundedPredicate],
+            grounded_del_effects: List[GroundedPredicate],
+    ) -> List[Conflict]:
+        """
+        Detect frame-axiom violations for a single transition.
+
+        A frame-axiom violation arises when:
+          - A grounded fluent changes truth value between prev/next
+            (i.e., it's in add or delete effects),
+          - AND **none** of its objects appear among the action's
+            grounded parameters.
+
+        Intuition:
+            an action should not "touch" world facts that do not share
+            any object with the action's parameters. If they change,
+            we treat it as noise and repair it via fluent patches.
+        """
+        action_name = grounded_action.name
+        action_objs = set(grounded_action.parameters)
+
+        local_conflicts: List[Conflict] = []
+
+        for gp in list(grounded_add_effects) + list(grounded_del_effects):
+            gp_objs = set(gp.object_mapping.values())
+            if gp_objs & action_objs:
+                # shares at least one object with the action -> legitimate effect
+                continue
+
+            # Pure frame violation: changed but unrelated
+            pbl = ParameterBoundLiteral(
+                predicate_name=gp.name,
+                parameters=tuple(),  # unused for frame conflicts
+                is_positive=gp.is_positive,
+            )
+
+            conflict = Conflict(
+                action_name=action_name,
+                pbl=pbl,
+                conflict_type=ConflictType.FRAME_AXIOM,
+                observation_index=self.current_observation_index,
+                component_index=self.current_component_index,
+                grounded_fluent=gp.untyped_representation,
+            )
+            local_conflicts.append(conflict)
+            self.logger.warning(f"Detected frame-axiom conflict: {conflict}")
+
+        return local_conflicts
     # -------------------------------------------------------------------------
     # Helper: lift and match
     # -------------------------------------------------------------------------

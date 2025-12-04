@@ -1,8 +1,11 @@
 import csv
 from pathlib import Path
 from datetime import datetime
+import random
 
 import pandas as pd
+import matplotlib.pyplot as plt
+
 from amlgym.benchmarks import *
 from amlgym.algorithms import *
 from amlgym.metrics import *
@@ -10,16 +13,22 @@ from amlgym.metrics import *
 from benchmark.amlgym_models.NOISY_PISAM import NOISY_PISAM
 from benchmark.amlgym_models.PISAM import PISAM
 from benchmark.amlgym_models.PO_ROSAME import PO_ROSAME
+from src.utils.pddl import propagate_frame_axioms_in_trajectory
+
+# =============================================================================
+# CONFIG & PATHS
+# =============================================================================
 
 benchmark_path = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark")
 
 print_metrics()
 
+# Each domain -> list of experiment directories holding trajectories
 experiment_data_dirs = {
     "blocksworld": [
         # "experiment_30-11-2025T12:47:58__steps=10",
         # "experiment_30-11-2025T13:03:16__steps=25",
-        "experiment_30-11-2025T13:03:31__steps=50"
+        "multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner"
     ],
     "n_puzzle_typed": [
         # "experiment_30-11-2025T13:17:05__steps=10",
@@ -41,231 +50,369 @@ experiment_data_dirs = {
     ]
 }
 
-# Collect all experiment results for CSV report
-all_results = []
-
+# Mapping from your internal domain labels to benchmark names
 domain_name_mappings = {
     # 'hiking': 'hiking',
-    'maze': 'maze',
-    'hanoi': 'hanoi',
+    # 'maze': 'maze',
+    # 'hanoi': 'hanoi',
     'blocksworld': 'blocksworld',
-    'n_puzzle_typed': 'npuzzle',
+    # 'n_puzzle_typed': 'npuzzle',
 }
 
+# Domains that are not directly in amlgym's registry (paths & problems)
 not_in_amlgym_domains = {
     'maze': {
         "trajectory_training_problem": "problem0",
         "domain_path": benchmark_path / 'domains' / 'maze' / 'maze.pddl',
-        "problems_paths": sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/maze/problems").glob("problem*.pddl") if "problem0" not in str(p))
+        "problems_paths": sorted(
+            str(p) for p in Path(
+                "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/maze/problems"
+            ).glob("problem*.pddl") if "problem0" not in str(p)
+        )
     },
     "hanoi": {
-        "trajectory_training_problem": "problem0", # for documenting, not to put in the problems to be solved
+        "trajectory_training_problem": "problem0",  # for documenting, not to put in the problems to be solved
         "domain_path": benchmark_path / 'domains' / 'hanoi' / 'hanoi.pddl',
-        "problems_paths": sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/hanoi/problems").glob("problem*.pddl") if "problem0" not in str(p)) +
-                            sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/hanoi/problems_test").glob("test*.pddl") if "test_problem0" not in str(p))
+        "problems_paths":
+            sorted(
+                str(p) for p in Path(
+                    "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/hanoi/problems"
+                ).glob("problem*.pddl") if "problem0" not in str(p)
+            )
+            +
+            sorted(
+                str(p) for p in Path(
+                    "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/hanoi/problems_test"
+                ).glob("test*.pddl") if "test_problem0" not in str(p)
+            )
     },
     "hiking": {
         "trajectory_training_problem": "problem2",
         "domain_path": benchmark_path / 'domains' / 'hiking' / 'hiking.pddl',
-        "problems_paths": sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/hiking/problems").glob("problem*.pddl") if "problem2" not in str(p))
+        "problems_paths": sorted(
+            str(p) for p in Path(
+                "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/hiking/problems"
+            ).glob("problem*.pddl") if "problem2" not in str(p)
+        )
     },
     'blocksworld': {
         "trajectory_training_problem": "problem7",
         "domain_path": benchmark_path / 'domains' / 'blocksworld' / 'blocksworld.pddl',
-        "problems_paths": sorted(str(p) for p in Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/domains/blocksworld/problems").glob("problem*.pddl") if "problem0" not in str(p))
+        "problems_paths": sorted(
+            str(p) for p in Path(
+                benchmark_path / 'domains' / 'blocksworld' / 'test_problems'
+            ).glob("problem*.pddl")
+        )
+    }
 }
 
+# =============================================================================
+# EXPERIMENT LOOP WITH CV & VARYING #TRAJECTORIES
+# =============================================================================
+
+all_results = []
+
+# number of CV folds
+N_FOLDS = 5
+
+# all metric keys we collect per run
+metric_cols = [
+    "precision_precs_pos",
+    "precision_precs_neg",
+    "precision_eff_pos",
+    "precision_eff_neg",
+    "precision_overall",
+    "recall_precs_pos",
+    "recall_precs_neg",
+    "recall_eff_pos",
+    "recall_eff_neg",
+    "recall_overall",
+    "problems_count",
+    "solving_ratio",
+    "false_plans_ratio",
+    "unsolvable_ratio",
+    "timed_out",
+]
+
 for domain_name, bench_name in domain_name_mappings.items():
-    # Get domain reference and problem paths for this domain
-    domain_ref_path = get_domain_path(bench_name) if domain_name not in not_in_amlgym_domains else \
-        not_in_amlgym_domains[domain_name]["domain_path"]
-    probs_paths = get_problems_path(bench_name) if domain_name not in not_in_amlgym_domains else \
-        not_in_amlgym_domains[domain_name]["problems_paths"]
+    domain_ref_path = not_in_amlgym_domains[domain_name]["domain_path"]
 
-    for dir in experiment_data_dirs[domain_name]:
+    for dir_name in experiment_data_dirs[domain_name]:
+        trajectories_dir = Path(
+            benchmark_path / 'data' / domain_name / dir_name / 'training' / 'trajectories'
+        )
+        problem_dirs = sorted([d for d in trajectories_dir.iterdir() if d.is_dir()])
+        n_problems = len(problem_dirs)
 
-        num_steps = dir.split('steps=')[1]
-        """=========================
-                PO-ROSAME TESTING
-        =========================="""
+        # Generate frame axiom trajectories for all problems
+        if trajectories_dir.exists():
+            for prob_dir in problem_dirs:
+                traj_files = list(prob_dir.glob("*.trajectory"))
+                mask_files = list(prob_dir.glob("*.masking_info"))
+
+                # Only process if we have both trajectory and masking files (and not already processed)
+                if traj_files and mask_files:
+                    traj_file = traj_files[0]
+                    # Skip if already a frame_axioms file
+                    if '_frame_axioms' not in traj_file.stem:
+                        mask_file = mask_files[0]
+                        print(f"  Generating frame axiom trajectory for {prob_dir.name}...")
+                        try:
+                            propagate_frame_axioms_in_trajectory(traj_file, mask_file, domain_ref_path)
+                        except Exception as e:
+                            print(f"    WARNING: Failed to generate frame axioms for {prob_dir.name}: {e}")
+
+        # Get all problem directories (each contains trajectory + problem files)
+
+        if n_problems < 2:
+            raise ValueError(f"Domain {domain_name} has too few problems ({n_problems}) for 80/20 CV.")
+
+        if n_problems == 0:
+            print(f"WARNING: no problem directories found for {domain_name} / {dir_name}, skipping.")
+            continue
+
+        # how many trajectories per learning run (same as number of problems since 1 traj per problem)
+        traj_settings = sorted({8})
+        # traj_settings = list(reversed(sorted({1, min(3, n_problems), min(5,int(0.8*n_problems)), int(0.8*n_problems)})))
+        # traj_settings = sorted({1, min(3, n_problems), min(5,int(0.8*n_problems)), int(0.8*n_problems)})
+
         print(f"\n{'=' * 80}")
-        print(f"PO-ROSAME - Domain: {bench_name}, Steps: {num_steps}")
+        print(f"Domain: {bench_name} | data dir: {dir_name}")
+        print(f"Total problems available: {n_problems}")
+        print(f"Problem directories: {[d.name for d in problem_dirs]}")
+        print(f"Trajectory settings to evaluate: {traj_settings}")
+        print(f"Cross-validation folds: {N_FOLDS}")
         print(f"{'=' * 80}")
 
-        po_rosame = PO_ROSAME()
+        base_indices = list(range(n_problems))
 
-        rosame_traj_paths = Path(benchmark_path / 'data' / domain_name / dir / 'training' / 'rosame_trace')
-        rosame_trajectory_paths = sorted(str(p) for p in rosame_traj_paths.glob("*/*.trajectory"))
+        for fold in range(N_FOLDS):
+            # if fold == 0:
+            #     continue # debug only
+            indices = base_indices[:]
+            random.seed(42 + fold)  # deterministic per fold
+            random.shuffle(indices)
 
-        rosame_model = po_rosame.learn(domain_ref_path, rosame_trajectory_paths)
-        print(rosame_model)
+            n_train = max(1, int(round(0.8 * n_problems)))
+            if n_train >= n_problems:
+                n_train = n_problems - 1
 
-        porosame_domain_eval_path = f'POROSAME_{domain_name}_domain_learned.pddl'
-        with open(porosame_domain_eval_path, 'w') as f:
-            f.write(rosame_model)
+            train_idx = indices[:n_train]
+            test_idx = indices[n_train:]
 
-        rosame_precision = syntactic_precision(porosame_domain_eval_path, domain_ref_path)
-        print("Precision:", rosame_precision)
+            # Get trajectory and problem paths from the selected problem directories
+            train_problem_dirs = [problem_dirs[i] for i in train_idx]
+            test_problem_dirs = [problem_dirs[i] for i in test_idx]
 
-        rosame_recall = syntactic_recall(porosame_domain_eval_path, domain_ref_path)
-        print("Recall:", rosame_recall)
+            # Extract trajectory paths for training
+            train_trajectories = []
+            for prob_dir in train_problem_dirs:
+                traj_files = list(prob_dir.glob("*_frame_axioms.trajectory"))
+                if traj_files:
+                    train_trajectories.append(str(traj_files[0]))
 
-        print(f"problem_paths: {probs_paths}")
-        rosame_problem_solving = problem_solving(porosame_domain_eval_path, domain_ref_path, probs_paths, timeout=60)
-        print("Problem Solving:", rosame_problem_solving)
+            # Extract problem paths for testing
+            test_problems = []
+            for prob_dir in test_problem_dirs:
+                pddl_files = list(prob_dir.glob("*.pddl"))
+                if pddl_files:
+                    test_problems.append(str(pddl_files[0]))
 
-        # Collect PO-ROSAME results
-        rosame_result = {
-            'domain': bench_name,
-            'algorithm': 'ROSAME',
-            'num_steps': num_steps,
-            'precision_precs_pos': rosame_precision.get('precs_pos', None) if isinstance(rosame_precision,
-                                                                                         dict) else None,
-            'precision_precs_neg': rosame_precision.get('precs_neg', None) if isinstance(rosame_precision,
-                                                                                         dict) else None,
-            'precision_eff_pos': rosame_precision.get('eff_pos', None) if isinstance(rosame_precision, dict) else None,
-            'precision_eff_neg': rosame_precision.get('eff_neg', None) if isinstance(rosame_precision, dict) else None,
-            'precision_overall': rosame_precision.get('mean', None) if isinstance(rosame_precision,
-                                                                                  dict) else rosame_precision,
-            'recall_precs_pos': rosame_recall.get('precs_pos', None) if isinstance(rosame_recall, dict) else None,
-            'recall_precs_neg': rosame_recall.get('precs_neg', None) if isinstance(rosame_recall, dict) else None,
-            'recall_eff_pos': rosame_recall.get('eff_pos', None) if isinstance(rosame_recall, dict) else None,
-            'recall_eff_neg': rosame_recall.get('eff_neg', None) if isinstance(rosame_recall, dict) else None,
-            'recall_overall': rosame_recall.get('mean', None) if isinstance(rosame_recall, dict) else rosame_recall,
-            'problems_count': len(probs_paths),
-            'solving_ratio': rosame_problem_solving.get('solving_ratio', None) if isinstance(rosame_problem_solving,
-                                                                                             dict) else None,
-            'false_plans_ratio': rosame_problem_solving.get('false_plans_ratio', None) if isinstance(
-                rosame_problem_solving, dict) else None,
-            'unsolvable_ratio': rosame_problem_solving.get('unsolvable_ratio', None) if isinstance(
-                rosame_problem_solving, dict) else None,
-            'timed_out': rosame_problem_solving.get('timed_out', None) if isinstance(rosame_problem_solving,
-                                                                                     dict) else None,
-        }
-        all_results.append(rosame_result)
+            print(f"\n--- Domain {bench_name} | dir={dir_name} | fold {fold + 1}/{N_FOLDS} ---")
+            print(f"Train problem dirs ({len(train_problem_dirs)}): {[d.name for d in train_problem_dirs]}")
+            print(f"Train trajectories ({len(train_trajectories)}): {[Path(p).parent.name for p in train_trajectories]}")
+            print(f"Test problem dirs  ({len(test_problem_dirs)}): {[d.name for d in test_problem_dirs]}")
+            print(f"Test problems  ({len(test_problems)}): {[Path(p).name for p in test_problems]}")
 
-        """=========================
-               PISAM TESTING
-               =========================="""
-        print(f"\n{'=' * 80}")
-        print(f"PISAM - Domain: {bench_name}, Steps: {num_steps}")
-        print(f"{'=' * 80}")
+            for num_trajs_used in traj_settings:
+                # Select trajectories from the training set
+                selected_trajs = train_trajectories[:num_trajs_used]
 
-        pisam = PISAM()
+                print(f"\n>>> Fold {fold + 1}, num_trajs_used={num_trajs_used}")
+                print(f"    Using {len(selected_trajs)} trajectories for learning")
+                print(f"    Selected: {[Path(p).parent.name for p in selected_trajs]}")
 
-        pisam_traces_dir_path = Path(benchmark_path / 'data' / domain_name / dir / 'training' / 'pi_sam_traces')
-        pisam_trajectory_paths = sorted(str(p) for p in pisam_traces_dir_path.glob("trace_*/*.trajectory"))
+                # # =========================
+                # # PO-ROSAME
+                # # =========================
+                # print(f"\n{'=' * 80}")
+                # print(f"PO-ROSAME - Domain: {bench_name}, Trajectories: {num_trajs_used}, Fold: {fold + 1}")
+                # print(f"{'=' * 80}")
+                #
+                # po_rosame = PO_ROSAME()
+                # rosame_model = po_rosame.learn(domain_ref_path, selected_trajs)
+                #
+                # porosame_domain_eval_path = f'POROSAME_{domain_name}_fold{fold}_trajs{num_trajs_used}.pddl'
+                # with open(porosame_domain_eval_path, 'w') as f:
+                #     f.write(rosame_model)
+                #
+                # rosame_precision = syntactic_precision(porosame_domain_eval_path, domain_ref_path)
+                # rosame_recall = syntactic_recall(porosame_domain_eval_path, domain_ref_path)
+                # rosame_problem_solving = problem_solving(
+                #     porosame_domain_eval_path, domain_ref_path, test_problems, timeout=60
+                # )
+                #
+                # rosame_result = {
+                #     'domain': bench_name,
+                #     'algorithm': 'ROSAME',
+                #     'fold': fold,
+                #     'num_trajs_used': num_trajs_used,
+                #     'problems_count': len(test_problems),
+                #     'precision_precs_pos': rosame_precision.get('precs_pos', None) if isinstance(rosame_precision, dict) else None,
+                #     'precision_precs_neg': rosame_precision.get('precs_neg', None) if isinstance(rosame_precision, dict) else None,
+                #     'precision_eff_pos': rosame_precision.get('eff_pos', None) if isinstance(rosame_precision, dict) else None,
+                #     'precision_eff_neg': rosame_precision.get('eff_neg', None) if isinstance(rosame_precision, dict) else None,
+                #     'precision_overall': rosame_precision.get('mean', None) if isinstance(rosame_precision, dict) else rosame_precision,
+                #     'recall_precs_pos': rosame_recall.get('precs_pos', None) if isinstance(rosame_recall, dict) else None,
+                #     'recall_precs_neg': rosame_recall.get('precs_neg', None) if isinstance(rosame_recall, dict) else None,
+                #     'recall_eff_pos': rosame_recall.get('eff_pos', None) if isinstance(rosame_recall, dict) else None,
+                #     'recall_eff_neg': rosame_recall.get('eff_neg', None) if isinstance(rosame_recall, dict) else None,
+                #     'recall_overall': rosame_recall.get('mean', None) if isinstance(rosame_recall, dict) else rosame_recall,
+                #     'solving_ratio': rosame_problem_solving.get('solving_ratio', None) if isinstance(rosame_problem_solving, dict) else None,
+                #     'false_plans_ratio': rosame_problem_solving.get('false_plans_ratio', None) if isinstance(rosame_problem_solving, dict) else None,
+                #     'unsolvable_ratio': rosame_problem_solving.get('unsolvable_ratio', None) if isinstance(rosame_problem_solving, dict) else None,
+                #     'timed_out': rosame_problem_solving.get('timed_out', None) if isinstance(rosame_problem_solving, dict) else None,
+                # }
+                # all_results.append(rosame_result)
+                #
+                # # =========================
+                # # PISAM
+                # # =========================
+                # print(f"\n{'=' * 80}")
+                # print(f"PISAM - Domain: {bench_name}, Trajectories: {num_trajs_used}, Fold: {fold + 1}")
+                # print(f"{'=' * 80}")
+                #
+                # pisam = PISAM()
+                # pisam_model = pisam.learn(domain_ref_path, selected_trajs)
+                #
+                # pisam_domain_eval_path = f'PISAM_{domain_name}_fold{fold}_trajs{num_trajs_used}.pddl'
+                # with open(pisam_domain_eval_path, 'w') as f:
+                #     f.write(pisam_model)
+                #
+                # pisam_precision = syntactic_precision(pisam_domain_eval_path, domain_ref_path)
+                # pisam_recall = syntactic_recall(pisam_domain_eval_path, domain_ref_path)
+                # pisam_problem_solving = problem_solving(
+                #     pisam_domain_eval_path, domain_ref_path, test_problems, timeout=60
+                # )
+                #
+                # pisam_result = {
+                #     'domain': bench_name,
+                #     'algorithm': 'PISAM',
+                #     'fold': fold,
+                #     'num_trajs_used': num_trajs_used,
+                #     'problems_count': len(test_problems),
+                #     'precision_precs_pos': pisam_precision.get('precs_pos', None) if isinstance(pisam_precision, dict) else None,
+                #     'precision_precs_neg': pisam_precision.get('precs_neg', None) if isinstance(pisam_precision, dict) else None,
+                #     'precision_eff_pos': pisam_precision.get('eff_pos', None) if isinstance(pisam_precision, dict) else None,
+                #     'precision_eff_neg': pisam_precision.get('eff_neg', None) if isinstance(pisam_precision, dict) else None,
+                #     'precision_overall': pisam_precision.get('mean', None) if isinstance(pisam_precision, dict) else pisam_precision,
+                #     'recall_precs_pos': pisam_recall.get('precs_pos', None) if isinstance(pisam_recall, dict) else None,
+                #     'recall_precs_neg': pisam_recall.get('precs_neg', None) if isinstance(pisam_recall, dict) else None,
+                #     'recall_eff_pos': pisam_recall.get('eff_pos', None) if isinstance(pisam_recall, dict) else None,
+                #     'recall_eff_neg': pisam_recall.get('eff_neg', None) if isinstance(pisam_recall, dict) else None,
+                #     'recall_overall': pisam_recall.get('mean', None) if isinstance(pisam_recall, dict) else pisam_recall,
+                #     'solving_ratio': pisam_problem_solving.get('solving_ratio', None) if isinstance(pisam_problem_solving, dict) else None,
+                #     'false_plans_ratio': pisam_problem_solving.get('false_plans_ratio', None) if isinstance(pisam_problem_solving, dict) else None,
+                #     'unsolvable_ratio': pisam_problem_solving.get('unsolvable_ratio', None) if isinstance(pisam_problem_solving, dict) else None,
+                #     'timed_out': pisam_problem_solving.get('timed_out', None) if isinstance(pisam_problem_solving, dict) else None,
+                # }
+                # all_results.append(pisam_result)
 
-        pisam_model = pisam.learn(domain_ref_path, pisam_trajectory_paths)
-        print(pisam_model)
+                # =========================
+                # NOISY_PISAM
+                # =========================
+                print(f"\n{'=' * 80}")
+                print(f"NOISY_PISAM - Domain: {bench_name}, Trajectories: {num_trajs_used}, Fold: {fold + 1}")
+                print(f"{'=' * 80}")
 
-        pisam_domain_eval_path = f'PISAM_{domain_name}_domain_learned.pddl'
-        with open(pisam_domain_eval_path, 'w') as f:
-            f.write(pisam_model)
+                noisy_pisam = NOISY_PISAM()
+                noisy_pisam_model = noisy_pisam.learn(domain_ref_path, selected_trajs)
 
-        pisam_precision = syntactic_precision(pisam_domain_eval_path, domain_ref_path)
-        print("Precision:", pisam_precision)
+                noisy_pisam_domain_eval_path = f'NOISY_PISAM_{domain_name}_fold{fold}_trajs{num_trajs_used}.pddl'
+                with open(noisy_pisam_domain_eval_path, 'w') as f:
+                    f.write(noisy_pisam_model)
 
-        pisam_recall = syntactic_recall(pisam_domain_eval_path, domain_ref_path)
-        print("Recall:", pisam_recall)
+                noisy_pisam_precision = syntactic_precision(noisy_pisam_domain_eval_path, domain_ref_path)
+                noisy_pisam_recall = syntactic_recall(noisy_pisam_domain_eval_path, domain_ref_path)
+                noisy_pisam_problem_solving = problem_solving(
+                    noisy_pisam_domain_eval_path, domain_ref_path, test_problems, timeout=60
+                )
 
-        print(f"problem_paths: {probs_paths}")
-        pisam_problem_solving = problem_solving(pisam_domain_eval_path, domain_ref_path, probs_paths, timeout=60)
-        print("Problem Solving:", pisam_problem_solving)
+                noisy_pisam_result = {
+                    'domain': bench_name,
+                    'algorithm': 'NOISY_PISAM',
+                    'fold': fold,
+                    'num_trajs_used': num_trajs_used,
+                    'problems_count': len(test_problems),
+                    'precision_precs_pos': noisy_pisam_precision.get('precs_pos', None) if isinstance(noisy_pisam_precision, dict) else None,
+                    'precision_precs_neg': noisy_pisam_precision.get('precs_neg', None) if isinstance(noisy_pisam_precision, dict) else None,
+                    'precision_eff_pos': noisy_pisam_precision.get('eff_pos', None) if isinstance(noisy_pisam_precision, dict) else None,
+                    'precision_eff_neg': noisy_pisam_precision.get('eff_neg', None) if isinstance(noisy_pisam_precision, dict) else None,
+                    'precision_overall': noisy_pisam_precision.get('mean', None) if isinstance(noisy_pisam_precision, dict) else noisy_pisam_precision,
+                    'recall_precs_pos': noisy_pisam_recall.get('precs_pos', None) if isinstance(noisy_pisam_recall, dict) else None,
+                    'recall_precs_neg': noisy_pisam_recall.get('reccs_neg', None) if isinstance(noisy_pisam_recall, dict) else None
+                    if isinstance(noisy_pisam_recall, dict) and 'reccs_neg' in noisy_pisam_recall else
+                    noisy_pisam_recall.get('recall_precs_neg', None) if isinstance(noisy_pisam_recall, dict) and 'recall_precs_neg' in noisy_pisam_recall else None,
+                    'recall_eff_pos': noisy_pisam_recall.get('eff_pos', None) if isinstance(noisy_pisam_recall, dict) else None,
+                    'recall_eff_neg': noisy_pisam_recall.get('eff_neg', None) if isinstance(noisy_pisam_recall, dict) else None,
+                    'recall_overall': noisy_pisam_recall.get('mean', None) if isinstance(noisy_pisam_recall, dict) else noisy_pisam_recall,
+                    'solving_ratio': noisy_pisam_problem_solving.get('solving_ratio', None) if isinstance(noisy_pisam_problem_solving, dict) else None,
+                    'false_plans_ratio': noisy_pisam_problem_solving.get('false_plans_ratio', None) if isinstance(noisy_pisam_problem_solving, dict) else None,
+                    'unsolvable_ratio': noisy_pisam_problem_solving.get('unsolvable_ratio', None) if isinstance(noisy_pisam_problem_solving, dict) else None,
+                    'timed_out': noisy_pisam_problem_solving.get('timed_out', None) if isinstance(noisy_pisam_problem_solving, dict) else None,
+                }
+                all_results.append(noisy_pisam_result)
 
-        # Collect PISAM results
-        pisam_result = {
-            'domain': bench_name,
-            'algorithm': 'PISAM',
-            'num_steps': num_steps,
-            'precision_precs_pos': pisam_precision.get('precs_pos', None) if isinstance(pisam_precision,
-                                                                                        dict) else None,
-            'precision_precs_neg': pisam_precision.get('precs_neg', None) if isinstance(pisam_precision,
-                                                                                        dict) else None,
-            'precision_eff_pos': pisam_precision.get('eff_pos', None) if isinstance(pisam_precision, dict) else None,
-            'precision_eff_neg': pisam_precision.get('eff_neg', None) if isinstance(pisam_precision, dict) else None,
-            'precision_overall': pisam_precision.get('mean', None) if isinstance(pisam_precision,
-                                                                                 dict) else pisam_precision,
-            'recall_precs_pos': pisam_recall.get('precs_pos', None) if isinstance(pisam_recall, dict) else None,
-            'recall_precs_neg': pisam_recall.get('precs_neg', None) if isinstance(pisam_recall, dict) else None,
-            'recall_eff_pos': pisam_recall.get('eff_pos', None) if isinstance(pisam_recall, dict) else None,
-            'recall_eff_neg': pisam_recall.get('eff_neg', None) if isinstance(pisam_recall, dict) else None,
-            'recall_overall': pisam_recall.get('mean', None) if isinstance(pisam_recall, dict) else pisam_recall,
-            'problems_count': len(probs_paths),
-            'solving_ratio': pisam_problem_solving.get('solving_ratio', None) if isinstance(pisam_problem_solving,
-                                                                                            dict) else None,
-            'false_plans_ratio': pisam_problem_solving.get('false_plans_ratio', None) if isinstance(
-                pisam_problem_solving, dict) else None,
-            'unsolvable_ratio': pisam_problem_solving.get('unsolvable_ratio', None) if isinstance(pisam_problem_solving,
-                                                                                                  dict) else None,
-            'timed_out': pisam_problem_solving.get('timed_out', None) if isinstance(pisam_problem_solving,
-                                                                                    dict) else None,
-        }
-        all_results.append(pisam_result)
+# =============================================================================
+# AGGREGATE OVER FOLDS: MEAN & STD
+# =============================================================================
 
-        """=========================
-        NOISY_PISAM TESTING
-        =========================="""
-        print(f"\n{'=' * 80}")
-        print(f"NOISY_PISAM - Domain: {bench_name}, Steps: {num_steps}")
-        print(f"{'=' * 80}")
+print("\n" + "=" * 80)
+print("AGGREGATING RESULTS OVER FOLDS (MEAN & STD)")
+print("=" * 80)
 
-        noisy_pisam = NOISY_PISAM()
+df_all = pd.DataFrame(all_results)
 
-        noisy_pisam_traces_dir_path = Path(benchmark_path / 'data' / domain_name / dir / 'training' / 'pi_sam_traces')
-        noisy_pisam_trajectory_paths = sorted(str(p) for p in noisy_pisam_traces_dir_path.glob("trace_*/*.trajectory"))
+group_cols = ["domain", "algorithm", "num_trajs_used"]
+grouped = df_all.groupby(group_cols)[metric_cols].agg(["mean", "std"]).reset_index()
 
-        noisy_pisam_model = noisy_pisam.learn(domain_ref_path, noisy_pisam_trajectory_paths)
-        print(noisy_pisam_model)
+# Flatten multiindex columns
+flat_cols = []
+for col in grouped.columns:
+    if isinstance(col, tuple):
+        base, stat = col
+        if stat == "":
+            flat_cols.append(base)
+        else:
+            flat_cols.append(f"{base}_{stat}")
+    else:
+        flat_cols.append(col)
+grouped.columns = flat_cols
 
-        noisy_pisam_domain_eval_path = f'NOISY_PISAM_{domain_name}_domain_learned.pddl'
-        with open(noisy_pisam_domain_eval_path, 'w') as f:
-            f.write(noisy_pisam_model)
+# Build df_avg with:
+#   - <metric>  = mean
+#   - <metric>_std = std
+df_avg = grouped[group_cols].copy()
+for m in metric_cols:
+    mean_col = f"{m}_mean"
+    std_col = f"{m}_std"
+    df_avg[m] = grouped[mean_col]
+    df_avg[f"{m}_std"] = grouped[std_col]
 
-        noisy_pisam_precision = syntactic_precision(noisy_pisam_domain_eval_path, domain_ref_path)
-        print("Precision:", noisy_pisam_precision)
+avg_results = df_avg.to_dict(orient="records")
 
-        noisy_pisam_recall = syntactic_recall(noisy_pisam_domain_eval_path, domain_ref_path)
-        print("Recall:", noisy_pisam_recall)
+# =============================================================================
+# BUILD EXCEL REPORT (MEANS) - ONE SHEET PER NUM_TRAJS_USED
+# =============================================================================
+def clean_excel_value(v):
+    if v is None:
+        return ""
+    if isinstance(v, float) and (pd.isna(v) or pd.isnull(v)):
+        return ""
+    if isinstance(v, float) and (v == float("inf") or v == float("-inf")):
+        return ""
+    return v
 
-        print(f"problem_paths: {probs_paths}")
-        noisy_pisam_problem_solving = problem_solving(noisy_pisam_domain_eval_path, domain_ref_path, probs_paths, timeout=60)
-        print("Problem Solving:", noisy_pisam_problem_solving)
-
-        # Collect NOISY_PISAM results
-        noisy_pisam_result = {
-            'domain': bench_name,
-            'algorithm': 'NOISY_PISAM',
-            'num_steps': num_steps,
-            'precision_precs_pos': noisy_pisam_precision.get('precs_pos', None) if isinstance(noisy_pisam_precision,
-                                                                                        dict) else None,
-            'precision_precs_neg': noisy_pisam_precision.get('precs_neg', None) if isinstance(noisy_pisam_precision,
-                                                                                        dict) else None,
-            'precision_eff_pos': noisy_pisam_precision.get('eff_pos', None) if isinstance(noisy_pisam_precision, dict) else None,
-            'precision_eff_neg': noisy_pisam_precision.get('eff_neg', None) if isinstance(noisy_pisam_precision, dict) else None,
-            'precision_overall': noisy_pisam_precision.get('mean', None) if isinstance(noisy_pisam_precision,
-                                                                                    dict) else noisy_pisam_precision,
-            'recall_precs_pos': noisy_pisam_recall.get('precs_pos', None) if isinstance(noisy_pisam_recall, dict) else None,
-            'recall_precs_neg': noisy_pisam_recall.get('precs_neg', None) if isinstance(noisy_pisam_recall, dict) else None,
-            'recall_eff_pos': noisy_pisam_recall.get('eff_pos', None) if isinstance(noisy_pisam_recall, dict) else None,
-            'recall_eff_neg': noisy_pisam_recall.get('eff_neg', None) if isinstance(noisy_pisam_recall, dict) else None,
-            'recall_overall': noisy_pisam_recall.get('mean', None) if isinstance(noisy_pisam_recall, dict) else noisy_pisam_recall,
-            'problems_count': len(probs_paths),
-            'solving_ratio': noisy_pisam_problem_solving.get('solving_ratio', None) if isinstance(noisy_pisam_problem_solving,
-                                                                                            dict) else None,
-            'false_plans_ratio': noisy_pisam_problem_solving.get('false_plans_ratio', None) if isinstance(
-                noisy_pisam_problem_solving, dict) else None,
-            'unsolvable_ratio': noisy_pisam_problem_solving.get('unsolvable_ratio', None) if isinstance(noisy_pisam_problem_solving,
-                                                                                                  dict) else None,
-            'timed_out': noisy_pisam_problem_solving.get('timed_out', None) if isinstance(noisy_pisam_problem_solving,
-                                                                                    dict) else None,
-        }
-        all_results.append(noisy_pisam_result)
-
-
-# ------------------------------------------------------------------------------------
-# Build Excel report: one sheet per num_steps, with 2 tables per sheet
-# ------------------------------------------------------------------------------------
 print("\n" + "=" * 80)
 print("GENERATING EXCEL REPORT")
 print("=" * 80)
@@ -274,7 +421,6 @@ timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
 xlsx_filename = f"benchmark_results_{timestamp}.xlsx"
 xlsx_path = benchmark_path / xlsx_filename
 
-# Metrics to organize
 precision_metrics = [
     "precision_precs_pos",
     "precision_precs_neg",
@@ -297,12 +443,10 @@ problem_metrics = [
     "timed_out",
 ]
 
-# Group results by num_steps
 from collections import defaultdict
-by_steps: dict[str, list[dict]] = defaultdict(list)
-for r in all_results:
-    by_steps[str(r["num_steps"])].append(r)
-
+by_trajs: dict[str, list[dict]] = defaultdict(list)
+for r in avg_results:
+    by_trajs[str(int(r["num_trajs_used"]))].append(r)
 
 with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
     workbook = writer.book
@@ -310,9 +454,9 @@ with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
     thick_left = workbook.add_format({"border": 1, "left": 2})
     thick_right = workbook.add_format({"border": 1, "right": 2})
 
-    for num_steps in sorted(by_steps.keys(), key=lambda x: int(x)):
-        results = by_steps[num_steps]
-        sheet_name = f"steps={num_steps}"
+    for num_trajs in sorted(by_trajs.keys(), key=lambda x: int(x)):
+        results = by_trajs[num_trajs]
+        sheet_name = f"trajs={num_trajs}"
         sheet = workbook.add_worksheet(sheet_name)
         writer.sheets[sheet_name] = sheet
 
@@ -325,7 +469,7 @@ with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
             res_map[(r["domain"], r["algorithm"])] = r
 
         # -----------------------------
-        # Helper: write syntactic P/R table
+        # Helper: write syntactic P/R table (means)
         # -----------------------------
         def write_syn_table(start_row: int) -> tuple[int, int, int]:
             """
@@ -366,7 +510,7 @@ with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
             for (t, m), (c_start, c_end) in metric_spans.items():
                 sheet.merge_range(row1, c_start, row1, c_end, m, thin_border)
 
-            # write algorithm names (unmerged)
+            # write algorithm names
             col_ptr = 1
             for t, metrics in [("Precision", precision_metrics),
                                ("Recall", recall_metrics)]:
@@ -375,22 +519,22 @@ with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
                         sheet.write(row2, col_ptr, alg, thin_border)
                         col_ptr += 1
 
-            # write data rows (no blank row)
+            # data rows
             for i, dom in enumerate(domains):
-                r = row2 + 1 + i
-                sheet.write(r, 0, dom, thin_border)
+                r_idx = row2 + 1 + i
+                sheet.write(r_idx, 0, dom, thin_border)
                 c = 1
                 for t, metrics in [("Precision", precision_metrics),
                                    ("Recall", recall_metrics)]:
                     for m in metrics:
                         for alg in algorithms:
                             val = res_map.get((dom, alg), {}).get(m, "")
-                            sheet.write(r, c, val, thin_border)
+                            sheet.write(r_idx, c, clean_excel_value(val), thin_border)
                             c += 1
 
             first_row = row0
             last_row = row2 + len(domains)
-            last_col = col - 1  # last used column
+            last_col = col - 1
 
             # thicker vertical borders between metric groups
             for (_t, _m), (start_c, end_c) in metric_spans.items():
@@ -406,14 +550,14 @@ with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
             return first_row, last_row, last_col
 
         # -----------------------------
-        # Helper: write problem-solving table
+        # Helper: write problem-solving table (means)
         # -----------------------------
         def write_prob_table(start_row: int) -> tuple[int, int, int]:
             """
             writes problem-solving table starting at start_row
             returns (first_row, last_row, last_col)
             """
-            row0 = start_row      # group row ("ProblemSolving")
+            row0 = start_row      # group row
             row1 = start_row + 1  # metric row
             row2 = start_row + 2  # algorithm row
 
@@ -424,7 +568,6 @@ with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
             col = 1
             metric_spans: dict[str, tuple[int, int]] = {}
 
-            # reserve columns and record spans
             group_name = "ProblemSolving"
             group_start = col
             for m in problem_metrics:
@@ -435,7 +578,6 @@ with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
                 metric_spans[m] = (metric_start, metric_end)
             group_end = col - 1
 
-            # merged group header across all metrics
             sheet.merge_range(row0, group_start, row0, group_end, group_name, thin_border)
 
             # merged metric headers
@@ -451,13 +593,13 @@ with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
 
             # data rows
             for i, dom in enumerate(domains):
-                r = row2 + 1 + i
-                sheet.write(r, 0, dom, thin_border)
+                r_idx = row2 + 1 + i
+                sheet.write(r_idx, 0, dom, thin_border)
                 c = 1
                 for m in problem_metrics:
                     for alg in algorithms:
                         val = res_map.get((dom, alg), {}).get(m, "")
-                        sheet.write(r, c, val, thin_border)
+                        sheet.write(r_idx, c, clean_excel_value(val), thin_border)
                         c += 1
 
             first_row = row0
@@ -480,14 +622,72 @@ with pd.ExcelWriter(xlsx_path, engine="xlsxwriter") as writer:
         # 1) syntactic P/R table at top
         syn_first, syn_last, syn_last_col = write_syn_table(start_row=0)
 
-        # 2) problem-solving table a few rows below
+        # 2) problem-solving table some rows below
         gap = 5
         prob_start = syn_last + 1 + gap
         prob_first, prob_last, prob_last_col = write_prob_table(start_row=prob_start)
 
 print(f"\n✓ Excel report saved to: {xlsx_path}")
-print(f"  Total experiments: {len(all_results)}")
-print("  Sheets (num_steps):", ", ".join(sorted(by_steps.keys(), key=lambda x: int(x))))
+print(f"  Total raw runs (all folds): {len(all_results)}")
+print("  Sheets (num_trajs_used):", ", ".join(sorted(by_trajs.keys(), key=lambda x: int(x))))
 print("\n" + "=" * 80)
 print("ALL EXPERIMENTS COMPLETED")
 print("\n" + "=" * 80)
+
+# =============================================================================
+# PLOTTING METRIC TRENDS VS #TRAJECTORIES (WITH STD ERROR BARS)
+# =============================================================================
+
+plots_output_dir = benchmark_path / "plots"
+plots_output_dir.mkdir(exist_ok=True)
+
+
+def plot_metric_trends(results, metric_key, metric_title, save_dir):
+    """
+    Creates a line plot of a given metric as a function of num_trajs_used,
+    with one line per algorithm, and error bars (std over folds).
+    """
+    df = pd.DataFrame(results)
+    df["num_trajs_used"] = df["num_trajs_used"].astype(int)
+
+    algorithms = sorted(df["algorithm"].unique())
+
+    plt.figure(figsize=(8, 5))
+
+    for algo in algorithms:
+        sub = df[df["algorithm"] == algo].sort_values("num_trajs_used")
+        y = sub[metric_key]
+        x = sub["num_trajs_used"]
+        yerr_col = f"{metric_key}_std"
+        if yerr_col in sub.columns:
+            yerr = sub[yerr_col]
+        else:
+            yerr = None
+
+        plt.errorbar(
+            x,
+            y,
+            yerr=yerr,
+            marker="o",
+            capsize=4,
+            label=algo,
+        )
+
+    plt.title(f"{metric_title} vs #training trajectories")
+    plt.xlabel("#training trajectories")
+    plt.ylabel(metric_title)
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend()
+    plt.tight_layout()
+
+    save_path = Path(save_dir) / f"{metric_key}_vs_num_trajs.png"
+    plt.savefig(save_path)
+    print(f"✓ Saved plot: {save_path}")
+    plt.close()
+
+
+plot_metric_trends(df_avg, "solving_ratio", "Solving Ratio", plots_output_dir)
+plot_metric_trends(df_avg, "false_plans_ratio", "False Plan Ratio", plots_output_dir)
+plot_metric_trends(df_avg, "unsolvable_ratio", "Unsolvable Ratio", plots_output_dir)
+
+print("✓ All metric plots generated (means with std error bars).")

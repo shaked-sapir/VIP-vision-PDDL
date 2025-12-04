@@ -173,6 +173,7 @@ class ConflictType(Enum):
     FORBID_EFFECT_VS_MUST = "forbid_effect_vs_must"
     REQUIRE_EFFECT_VS_CANNOT = "require_effect_vs_cannot"
     FORBID_PRECOND_VS_IS = "forbid_precondition_vs_is_precondition"
+    FRAME_AXIOM = "frame_axiom"
 
 
 class Conflict:

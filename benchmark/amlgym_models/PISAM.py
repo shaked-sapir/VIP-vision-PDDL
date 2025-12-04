@@ -60,7 +60,7 @@ class PISAM(AlgorithmAdapter):
                 traj_path = Path(traj_path)
 
                 problem_name = traj_path.stem
-                masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
+                masking_info_path = traj_path.parent / f"{traj_path.parent.stem}.masking_info"
 
                 if not masking_info_path.exists():
                     self.logger.warning(f"Masking info file not found for {problem_name}, skipping")

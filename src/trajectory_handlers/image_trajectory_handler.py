@@ -4,13 +4,20 @@ import os
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import pddlgym
 from PIL import Image
 from matplotlib import pyplot as plt
 from pddlgym.core import _select_operator
 from pddlgym.structs import State, Literal
+
+try:
+    from pddlgym_planners.fd import FD
+    PLANNER_AVAILABLE = True
+except ImportError:
+    PLANNER_AVAILABLE = False
+    FD = None
 
 from src.action_model.pddl2gym_parser import parse_image_predicate_to_gym, is_positive_gym_predicate, \
     is_unknown_gym_predicate
@@ -129,65 +136,145 @@ class ImageTrajectoryHandler(ABC):
         """
         pass
 
+    def _advance_to_start_index(self, start_index: int, obs: State) -> State:
+        """Advances the environment to a specific state index using random actions."""
+        if start_index <= 0:
+            return obs
+
+        print(f"  Running PDDLGym to state {start_index} (without rendering)...")
+        for i in range(start_index):
+            obs = self._sample_state_changing_action(obs)
+            if self.pddl_env._is_goal_reached(obs, {}):
+                raise ValueError(f"Goal reached at step {i}, cannot start from step {start_index}")
+        print(f"  ✓ Reached state {start_index}, starting trajectory generation")
+        return obs
+
+    def _sample_state_changing_action(self, obs: State) -> State:
+        """Samples a random action that changes the state."""
+        new_obs = obs
+        while new_obs == obs:
+            try:
+                action = self.pddl_env.action_space.sample(obs)
+                env_temp = deepcopy(self.pddl_env)
+                new_obs, _, _, _, _ = env_temp.step(action)
+                _ = self.pddl_env.action_space.sample(new_obs)  # Validate state
+                new_obs, _, _, _, _ = self.pddl_env.step(action)
+            except Exception:
+                new_obs = obs  # Retry on failure
+        return new_obs
+
+    def _generate_plan(self, obs: State, num_steps: int) -> List[Literal]:
+        """Generates a plan using FD planner."""
+        if not PLANNER_AVAILABLE:
+            raise RuntimeError("Planner mode requested but pddlgym_planners is not installed. "
+                               "Install with: pip install pddlgym_planners")
+
+        print(f"  Using FD planner to generate solution...")
+        planner = FD()
+
+        try:
+            plan = planner(self.pddl_env.domain, obs)
+            print(f"  ✓ Planner found solution with {len(plan)} actions")
+
+            if len(plan) > num_steps:
+                print(f"  ⚠️ Plan length ({len(plan)}) exceeds num_steps ({num_steps}), truncating")
+                plan = plan[:num_steps]
+
+            return plan
+        except Exception as e:
+            raise RuntimeError(f"Planner failed to find solution: {e}")
+
+    def _execute_trajectory(self, actions: List[Literal], images_output_path: Path,
+                           initial_obs: State) -> tuple[list[TrajectoryStep], list[str]]:
+        """Executes a sequence of actions and records trajectory."""
+        GT_trajectory = []
+        ground_actions = []
+        obs = initial_obs
+
+        self.create_image(images_output_path, 0)
+
+        for i, action in enumerate(actions, start=1):
+            prev_obs = obs
+            obs, _, done, _, _ = self.pddl_env.step(action)
+
+            self.create_image(images_output_path, i)
+            trajectory_step = self._create_trajectory_step(prev_obs, action, i, obs)
+            GT_trajectory.append(trajectory_step)
+            ground_actions.append(trajectory_step.ground_action)
+
+            if done:
+                print(f"  ✓ Goal reached at step {i}")
+                break
+
+        return GT_trajectory, ground_actions
+
+    def _execute_random_trajectory(self, num_steps: int, images_output_path: Path,
+                                   initial_obs: State) -> tuple[list[TrajectoryStep], list[str]]:
+        """Generates and executes a trajectory using random actions."""
+        GT_trajectory = []
+        ground_actions = []
+        obs = initial_obs
+
+        self.create_image(images_output_path, 0)
+
+        for i in range(1, num_steps + 1):
+            prev_obs = obs
+            obs = self._sample_state_changing_action(obs)
+
+            self.create_image(images_output_path, i)
+            trajectory_step = self._create_trajectory_step(prev_obs,
+                                                          self.pddl_env.action_space.sample(prev_obs),
+                                                          i, obs)
+            GT_trajectory.append(trajectory_step)
+            ground_actions.append(trajectory_step.ground_action)
+
+            if self.pddl_env._is_goal_reached(obs, {}):
+                break
+
+        return GT_trajectory, ground_actions
+
     def create_trajectory_from_gym(self, problem_name: str, images_output_path: Path,
-                                   num_steps: int = 100) -> List[str]:
-
+                                   num_steps: int = 100, start_index: int = 0,
+                                   use_planner: bool = False) -> List[str]:
         """
-        This method creates a trajectory of randomly-taken actions within a pddlgym environment, using a specific
-        problem, and does the following:
-        1. saves the trajectory of the problem to the trajectory in verbose format, to serve as GT
-        2. saves the image sequence of the trajectory to the specified directory
+        Creates a trajectory within a pddlgym environment.
 
-        :param problem_name: name of specific problem to generate trajectory for
-        :param images_output_path: the path for storing the method outcomes like trajectory images, GT_trajectory info, etc.
-        :param num_steps: number of random actions to be taken for the trajectory
-        :return: action sequence of the trajectory
+        Modes:
+            - Random actions (use_planner=False): Samples random valid actions
+            - Planner (use_planner=True): Uses FD planner for optimal solution
+
+        Args:
+            problem_name: Problem to generate trajectory for
+            images_output_path: Path for images and trajectory files
+            num_steps: Number of actions to take (or max for planner mode)
+            start_index: State index to start from (default: 0)
+            use_planner: Use FD planner if True, random actions if False
+
+        Returns:
+            List of ground action strings
         """
         if num_steps > self.trajectory_size_limit:
             raise ValueError(f"cannot have more than {self.trajectory_size_limit} steps!")
 
+        # Setup
         set_problem_by_name(self.pddl_env, problem_name)
-        obs, info = self.pddl_env.reset()
-
+        obs, _ = self.pddl_env.reset()
         os.makedirs(images_output_path, exist_ok=True)
+
+        # Advance to start index if needed
+        obs = self._advance_to_start_index(start_index, obs)
+
+        # Generate trajectory based on mode
+        if use_planner:
+            plan = self._generate_plan(obs, num_steps)
+            GT_trajectory, ground_actions = self._execute_trajectory(plan, images_output_path, obs)
+        else:
+            GT_trajectory, ground_actions = self._execute_random_trajectory(num_steps, images_output_path, obs)
+
+        # Save trajectory
         trajectory_log_file_path = os.path.join(images_output_path, f"{problem_name}_trajectory.json")
-
-        GT_trajectory: list[TrajectoryStep] = []
-        ground_actions: list[str] = []
-        new_obs = obs
-        good_action = True
-        self.create_image(images_output_path, 0)
-
-        for i in range(1, num_steps + 1):
-            obs = new_obs
-
-            # Sample a random valid action (action affecting the state) from the set of valid actions
-            while new_obs == obs or not good_action:
-                try:
-                    action = self.pddl_env.action_space.sample(obs)
-                    env_temp = deepcopy(self.pddl_env)
-                    new_obs, _, done, _, _ = env_temp.step(action)
-                    _ = self.pddl_env.action_space.sample(new_obs) # will throw exception if got into invalid state
-                    good_action = True
-                    new_obs, _, done, _, _ = self.pddl_env.step(action)
-                except Exception:
-                    good_action = False
-                    continue
-
-            self.create_image(images_output_path, i)
-            trajectory_step: TrajectoryStep = self._create_trajectory_step(curr_obs=obs,
-                                                                              action=action,
-                                                                              action_index=i,
-                                                                              next_obs=new_obs)
-            GT_trajectory.append(trajectory_step)
-            ground_actions.append(trajectory_step.ground_action)
-            if done:
-                break
-
-        GT_trajectory = serialize(GT_trajectory)
-        # Save the states and actions to the log file
-        with open(trajectory_log_file_path, 'w') as log_file:
-            json.dump(GT_trajectory, log_file, indent=4)
+        with open(trajectory_log_file_path, 'w') as f:
+            json.dump(serialize(GT_trajectory), f, indent=4)
 
         print(f"Images saved to the directory '{images_output_path}'")
         print(f"Trajectory log saved to '{trajectory_log_file_path}'")

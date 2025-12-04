@@ -73,11 +73,12 @@ class PO_ROSAME(AlgorithmAdapter):
 
                 # Derive problem path: same directory, same name but .pddl suffix
                 # e.g., trace_0/problem1.trajectory → trace_0/problem1.pddl
-                problem_path = traj_path.with_suffix('.pddl')
+                problem_path = traj_path.parent / f"{traj_path.parent.stem}.pddl"
+                # problem_path = traj_path.with_suffix('.pddl')
 
                 # Derive masking_info path: same directory, same name but .masking_info suffix
                 # e.g., trace_0/problem1.trajectory → trace_0/problem1.masking_info
-                masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
+                masking_info_path = traj_path.parent / f"{traj_path.parent.stem}.masking_info"
 
                 # Parse problem
                 problem = ProblemParser(problem_path, partial_domain).parse_problem()

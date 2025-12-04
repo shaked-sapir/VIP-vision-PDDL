@@ -1,10 +1,3 @@
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; 4 op-blocks world, equalized for benchmark (no handfull predicate)
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-; This version removes the handfull predicate to match ROSAME's domain definition.
-; The handfull predicate was redundant as it's always the opposite of handempty.
-
 (define (domain blocks)
     (:requirements :strips :typing)
     (:types block)

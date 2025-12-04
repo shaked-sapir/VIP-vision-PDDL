@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import List, Dict, Set, Union
 
+from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Observation, ObservedComponent, Predicate, PDDLObject, GroundedPredicate, State, \
     Domain
 from pddlgym.core import PDDLEnv
@@ -396,3 +397,117 @@ def extract_objects_from_pddlgym_state(
         return f"{gym2img.get(name, name)}:{typ}"
 
     return {translate(o) for o in pddlgym_state_objects}
+
+
+def propagate_frame_axioms_in_trajectory(
+    trajectory_path: Union[str, Path],
+    masking_info_path: Union[str, Path],
+    domain_path: Union[str, Path]
+) -> Path:
+    """
+    Propagate predicates that should persist according to frame axioms.
+
+    For each state transition, if a predicate:
+    - Exists in current state
+    - Doesn't exist in next state
+    - Doesn't exist in next state's masking info
+    - Has no objects involved in the action
+    Then add it to next state.
+
+    Args:
+        trajectory_path: Path to .trajectory file (e.g., problem8.trajectory)
+        masking_info_path: Path to .masking_info file (e.g., problem8.masking_info)
+        domain_path: Path to domain PDDL file
+
+    Returns:
+        Path to new .trajectory file with frame axioms propagated
+    """
+    from src.utils.masking import load_masking_info
+    from pddl_plus_parser.lisp_parsers import TrajectoryParser
+
+    trajectory_path, masking_info_path, domain_path = Path(trajectory_path), Path(masking_info_path), Path(domain_path)
+
+    # Parse files
+    domain: Domain = DomainParser(domain_path).parse_domain()
+    parser = TrajectoryParser(domain)
+    observation = parser.parse_trajectory(trajectory_path)
+    masking_info = load_masking_info(masking_info_path, domain)
+
+    def extract_objs(s: str) -> Set[str]:
+        """Extract object names from '(on a b)' -> {'a', 'b'}"""
+        return set(s.strip('()').split()[1:]) if '(' in s else set()
+
+    def pred_str(p) -> str:
+        """Convert GroundedPredicate to 'on(a:block,b:block)'"""
+        if not p.object_mapping:
+            return f"{p.name}()"
+        args = ','.join(f"{v}:{p.signature[k].name}" for k, v in p.object_mapping.items())
+        return f"{p.name}({args})"
+
+    # Apply frame axioms - start with initial state and propagate forward
+    curr = {pred_str(p) for preds in observation.components[0].previous_state.state_predicates.values()
+            for p in preds if p.is_positive}
+
+    trajectory = []
+    for i, comp in enumerate(observation.components):
+        next = {pred_str(p) for preds in comp.next_state.state_predicates.values() for p in preds if p.is_positive}
+        curr_mask = {pred_str(p) for p in masking_info[i]} if i < len(masking_info) else set()
+        next_mask = {pred_str(p) for p in masking_info[i + 1]} if i + 1 < len(masking_info) else set()
+        action_objs = extract_objs(str(comp.grounded_action_call))
+
+        # Remove predicates from next that are not in curr, not in curr_mask, and don't share objects with action
+        next -= {p for p in next if p not in curr and p not in curr_mask and
+                 extract_objs(parse_gym_to_pddl_literal(p)).isdisjoint(action_objs)}
+
+        # Propagate from curr to next
+        propagated = [p for p in curr if p not in next and p not in next_mask
+                      and ((pred_objs := extract_objs(parse_gym_to_pddl_literal(p))) != set())
+                      and pred_objs.isdisjoint(action_objs)]
+
+        trajectory.append({
+            'step': i + 1,
+            'current_state': {'literals': list(curr)},
+            'ground_action': str(comp.grounded_action_call).replace('(', '').replace(')', ''),
+            'next_state': {'literals': list(next) + propagated}
+        })
+
+        # Update curr for next iteration with propagated predicates
+        curr = next | set(propagated)
+
+    # Write output
+    problem_name = trajectory_path.stem + '_frame_axioms'
+    build_trajectory_file(trajectory, problem_name, trajectory_path.parent)
+    return trajectory_path.parent / f"{problem_name}.trajectory"
+
+
+def json_to_trajectory_file(json_trajectory_path: Union[str, Path]) -> Path:
+    """
+    Converts a _trajectory.json file to a .trajectory file in PDDL format.
+
+    Args:
+        json_trajectory_path: Path to the JSON trajectory file (e.g., problem1_trajectory.json)
+
+    Returns:
+        Path to the generated .trajectory file
+    """
+    json_trajectory_path = Path(json_trajectory_path)
+
+    # Load JSON data
+    with open(json_trajectory_path, 'r') as f:
+        trajectory_data = json.load(f)
+
+    # Extract problem name from filename (remove _trajectory.json suffix)
+    problem_name = json_trajectory_path.stem.replace('_trajectory', '')
+
+    # Build trajectory file using existing function
+    build_trajectory_file(trajectory_data, problem_name, json_trajectory_path.parent)
+
+    return json_trajectory_path.parent / f"{problem_name}.trajectory"
+
+
+if __name__ == "__main__":
+    propagate_frame_axioms_in_trajectory(
+        Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner/training/trajectories/problem8/problem8.trajectory"),
+        Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner/training/trajectories/problem8/problem8.masking_info"),
+        Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/domains/blocksworld/blocksworld.pddl")
+    )

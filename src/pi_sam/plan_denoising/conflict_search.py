@@ -393,9 +393,9 @@ class ConflictDrivenPatchSearch:
         new = copy(old)
 
         if conflict.conflict_type == ConflictType.REQUIRE_EFFECT_VS_CANNOT:
-            new[key] = PatchOperation.REQUIRE
-        elif conflict.conflict_type == ConflictType.FORBID_EFFECT_VS_MUST:
             new[key] = PatchOperation.FORBID
+        elif conflict.conflict_type == ConflictType.FORBID_EFFECT_VS_MUST:
+            new[key] = PatchOperation.REQUIRE
         else:
             # We don't introduce PRECONDITION patches here, only EFFECT ones.
             return None

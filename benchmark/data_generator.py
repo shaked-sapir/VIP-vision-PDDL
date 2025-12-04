@@ -50,6 +50,146 @@ from src.utils.masking import save_masking_info, load_masking_info
 from src.utils.pddl import build_trajectory_file
 
 
+def _generate_multi_problem_trajectories(
+    domain_display_name: str,
+    domain_config_key: str,
+    amlgym_domain_name: str,
+    trajectory_handler_class,
+    benchmark_domain_path: Path,
+    output_base_dir: Path,
+    num_steps: int,
+    start_index: int = 0,
+    use_planner: bool = False
+) -> Path:
+    """
+    Generate trajectories for all problems in the domain.
+
+    Args:
+        domain_display_name: Display name for logging (e.g., "BLOCKS", "N-PUZZLE")
+        domain_config_key: Config key for domain (e.g., "blocks", "npuzzle")
+        amlgym_domain_name: AMLGym domain name
+        trajectory_handler_class: Class to instantiate for trajectory handling
+        benchmark_domain_path: Path to benchmark PDDL domain file
+        output_base_dir: Base directory for all benchmark data
+        num_steps: Total number of steps to generate per problem
+        start_index: State index to start trajectory from (default: 0)
+        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
+
+    Returns:
+        Path to trajectories directory
+    """
+    # Load configuration
+    config = load_config()
+    openai_apikey = config['openai']['api_key']
+    gym_domain_name = config['domains'][domain_config_key]['gym_domain_name']
+    object_detection_model = config['domains'][domain_config_key]['object_detection']['model_name']
+    object_detection_temp = config['domains'][domain_config_key]['object_detection']['temperature']
+    fluent_classification_model = config['domains'][domain_config_key]['fluent_classification']['model_name']
+    fluent_classification_temp = config['domains'][domain_config_key]['fluent_classification']['temperature']
+    problems_dir = Path(config['domains'][domain_config_key]['problems_dir'])
+
+    # Generate experiment name
+    timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
+    experiment_name = f"multi_problem_{timestamp}__model={fluent_classification_model}__steps={num_steps}"
+    if start_index > 0:
+        experiment_name += f"__start={start_index}"
+    if use_planner:
+        experiment_name += "__planner"
+
+    print("="*80)
+    print(f"GENERATING {domain_display_name} MULTI-PROBLEM TRAJECTORIES")
+    print(f"Experiment: {experiment_name}")
+    print(f"Mode: {'Planner (FD)' if use_planner else 'Random actions'}")
+    if start_index > 0:
+        print(f"Starting from state index: {start_index}")
+    print("="*80)
+    print()
+
+    # Setup output directories
+    benchmark_domain_dir = output_base_dir / amlgym_domain_name
+    benchmark_domain_dir.mkdir(parents=True, exist_ok=True)
+
+    experiment_dir = output_base_dir / amlgym_domain_name / experiment_name
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+
+    domain_data_dir = experiment_dir / "training"
+    domain_data_dir.mkdir(parents=True, exist_ok=True)
+
+    trajectories_dir = domain_data_dir / "trajectories"
+    trajectories_dir.mkdir(exist_ok=True)
+
+    # Get all problem files
+    problem_files = sorted(problems_dir.glob("*.pddl"))
+    print(f"Found {len(problem_files)} problems in {problems_dir}")
+    print(f"Gym environment: {gym_domain_name}")
+    print()
+
+    # Process each problem
+    for problem_idx, problem_file in enumerate(problem_files):
+        problem_name = problem_file.stem
+        print(f"[{problem_idx + 1}/{len(problem_files)}] Processing {problem_name}...")
+
+        # Create problem directory
+        problem_dir = trajectories_dir / problem_name
+        problem_dir.mkdir(exist_ok=True)
+
+        try:
+            # Initialize a new trajectory handler for each problem
+            print(f"  Initializing trajectory handler for {problem_name}...")
+            trajectory_handler = trajectory_handler_class(
+                domain_name=gym_domain_name,
+                pddl_domain_file=benchmark_domain_path,
+                openai_apikey=openai_apikey,
+                object_detector_model=object_detection_model,
+                object_detection_temperature=object_detection_temp,
+                fluent_classifier_model=fluent_classification_model,
+                fluent_classification_temperature=fluent_classification_temp
+            )
+
+            # Generate trajectory directly in problem directory (no nested images folder)
+            ground_actions = trajectory_handler.create_trajectory_from_gym(
+                problem_name=problem_name,
+                images_output_path=problem_dir,
+                num_steps=num_steps,
+                start_index=start_index,
+                use_planner=use_planner
+            )
+
+            print(f"  ✓ Generated {len(ground_actions)} steps")
+
+            # Run LLM vision pipeline
+            print(f"  Running LLM vision pipeline...")
+            imaged_trajectory = trajectory_handler.create_trajectory_and_masks(
+                problem_name=problem_name,
+                actions=ground_actions,
+                images_path=problem_dir
+            )
+
+            # Copy problem file
+            shutil.copy(problem_file, problem_dir)
+            transform_problems_pddlgym_to_amlgym(domain_config_key, problem_dir)
+
+            print(f"  ✓ Saved to: {problem_dir.relative_to(domain_data_dir)}")
+            print()
+
+        except Exception as e:
+            print(f"  ✗ Failed: {e}")
+            print()
+            continue
+
+    print()
+    print("="*80)
+    print("MULTI-PROBLEM TRAJECTORY GENERATION COMPLETE")
+    print("="*80)
+    print(f"\nExperiment saved to: {experiment_dir}")
+    print(f"  Experiment name: {experiment_name}")
+    print(f"  Trajectories directory: {trajectories_dir}")
+    print(f"  Total problems processed: {len(list(trajectories_dir.iterdir()))}")
+    print()
+
+    return trajectories_dir
+
+
 def _generate_training_data_generic(
     domain_display_name: str,
     domain_config_key: str,
@@ -59,7 +199,9 @@ def _generate_training_data_generic(
     output_base_dir: Path,
     num_steps: int,
     problem_name: str,
-    trace_length: int
+    trace_length: int = None,
+    start_index: int = 0,
+    use_planner: bool = False
 ) -> Tuple[Path, List[Path]]:
     """
     Generic function to generate training data for any domain.
@@ -72,7 +214,9 @@ def _generate_training_data_generic(
         output_base_dir: Base directory for all benchmark data
         num_steps: Total number of steps to generate
         problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms
+        trace_length: Length of each trace for our algorithms (default: None - no splitting)
+        start_index: State index to start trajectory from (default: 0)
+        use_planner: If True, uses FD planner to generate optimal solution; if False, uses random actions (default: False)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -90,10 +234,17 @@ def _generate_training_data_generic(
     # Generate experiment name first for display
     timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
     experiment_name = f"experiment_{timestamp}__model={fluent_classification_model}__steps={num_steps}"
+    if start_index > 0:
+        experiment_name += f"__start={start_index}"
+    if use_planner:
+        experiment_name += "__planner"
 
     print("="*80)
     print(f"GENERATING {domain_display_name} TRAINING DATA")
     print(f"Experiment: {experiment_name}")
+    print(f"Mode: {'Planner (FD)' if use_planner else 'Random actions'}")
+    if start_index > 0:
+        print(f"Starting from state index: {start_index}")
     print("="*80)
     print()
 
@@ -107,12 +258,6 @@ def _generate_training_data_generic(
 
     domain_data_dir = experiment_dir / "training"
     domain_data_dir.mkdir(parents=True, exist_ok=True)
-
-    rosame_trace_dir = domain_data_dir / "rosame_trace"
-    rosame_trace_dir.mkdir(exist_ok=True)
-
-    our_traces_base_dir = domain_data_dir / "pi_sam_traces"
-    our_traces_base_dir.mkdir(exist_ok=True)
 
     # Setup trajectory handler
     print(f"Setting up trajectory handler...")
@@ -131,15 +276,17 @@ def _generate_training_data_generic(
         fluent_classification_temperature=fluent_classification_temp
     )
 
-    # Generate trajectory
+    # Generate trajectory - images go directly under training/
     print(f"Generating {num_steps}-step trajectory...")
-    rosame_images_dir = rosame_trace_dir / f"{problem_name}_images"
-    rosame_images_dir.mkdir()
+    images_dir = domain_data_dir / f"{problem_name}_images"
+    images_dir.mkdir()
 
     ground_actions = trajectory_handler.create_trajectory_from_gym(
         problem_name=problem_name,
-        images_output_path=rosame_images_dir,
-        num_steps=num_steps
+        images_output_path=images_dir,
+        num_steps=num_steps,
+        start_index=start_index,
+        use_planner=use_planner
     )
 
     print(f"✓ Generated {len(ground_actions)} steps")
@@ -147,7 +294,7 @@ def _generate_training_data_generic(
     print()
 
     # Load ground truth trajectory (for comparison purposes)
-    gt_trajectory_file = rosame_images_dir / f"{problem_name}_trajectory.json"
+    gt_trajectory_file = images_dir / f"{problem_name}_trajectory.json"
     with open(gt_trajectory_file, 'r') as f:
         gt_trajectory = json.load(f)
 
@@ -158,7 +305,7 @@ def _generate_training_data_generic(
     imaged_trajectory = trajectory_handler.create_trajectory_and_masks(
         problem_name=problem_name,
         actions=ground_actions,
-        images_path=rosame_images_dir
+        images_path=images_dir
     )
 
     print(f"✓ LLM vision pipeline complete")
@@ -166,104 +313,139 @@ def _generate_training_data_generic(
     print(f"  Saved masking info: {problem_name}.masking_info")
     print()
 
-    # Load the generated trajectory masking info for splitting
+    # Load the generated trajectory masking info
     trajectory_masking_info = load_masking_info(
-        Path(rosame_images_dir) / f"{problem_name}.masking_info",
+        Path(images_dir) / f"{problem_name}.masking_info",
         trajectory_handler.domain
     )
 
-    # Copy problem file to ROSAME directory for amlgym_models compatibility
+    # Copy problem file to images directory for amlgym_models compatibility
     problem_file_path = problems_dir / f"{problem_name}.pddl"
-    shutil.copy(problem_file_path, rosame_images_dir)
-    transform_problems_pddlgym_to_amlgym(domain_config_key, rosame_images_dir)
+    shutil.copy(problem_file_path, images_dir)
+    transform_problems_pddlgym_to_amlgym(domain_config_key, images_dir)
 
-    print(f"✓ Saved ROSAME trace to: {rosame_trace_dir}")
-    print(f"  Images: {rosame_images_dir}")
+    print(f"✓ Generated full trajectory")
+    print(f"  Images: {images_dir.name}")
     print(f"  Ground truth: {gt_trajectory_file.name}")
     print(f"  LLM trajectory: {problem_name}.trajectory")
     print(f"  LLM masking: {problem_name}.masking_info")
     print(f"  Problem file: {problem_name}.pddl")
     print()
 
-    # Cut into non-overlapping traces of specified length
-    print(f"Cutting into {num_steps // trace_length} traces of {trace_length} steps...")
-    print(f"  Note: Splitting LLM predictions (no re-running of vision pipeline)")
+    # Create ROSAME trace directory with single trace_0
+    print(f"Creating ROSAME trace directory...")
+    rosame_trace_dir = domain_data_dir / "rosame_trace"
+    rosame_trace_dir.mkdir(exist_ok=True)
+    rosame_trace_0_dir = rosame_trace_dir / "trace_0"
+    rosame_trace_0_dir.mkdir(exist_ok=True)
+
+    # Copy all files to ROSAME trace_0 (symbolic links to save space)
+    rosame_images_dir = rosame_trace_0_dir / f"{problem_name}_images"
+    shutil.copytree(images_dir, rosame_images_dir, symlinks=True)
+
+    print(f"✓ Saved ROSAME trace to: {rosame_trace_dir}")
+    print(f"  Trace: trace_0/")
+    print(f"  Images: {rosame_images_dir.relative_to(rosame_trace_dir)}")
+    print()
+
+    # Create PI-SAM traces directory
+    our_traces_base_dir = domain_data_dir / "pi_sam_traces"
+    our_traces_base_dir.mkdir(exist_ok=True)
     our_trace_dirs = []
 
-    for trace_idx in range(num_steps // trace_length):
-        start_step = trace_idx * trace_length
-        end_step = start_step + trace_length
+    if use_planner or trace_length is None:
+        # No splitting - copy full trajectory to pi_sam_traces (same as ROSAME)
+        print(f"Trace splitting disabled (use_planner={use_planner}, trace_length={trace_length})")
+        print(f"  Copying full trajectory to pi_sam_traces/trace_0")
 
-        trace_dir = our_traces_base_dir / f"trace_{trace_idx}"
-        trace_dir.mkdir()
-        trace_images_dir = trace_dir / "images"
-        trace_images_dir.mkdir()
+        pi_sam_trace_0_dir = our_traces_base_dir / "trace_0"
+        pi_sam_trace_0_dir.mkdir(exist_ok=True)
 
-        # Copy images for this trace (including initial state)
-        for step in range(start_step, end_step + 1):
-            src_image = rosame_images_dir / f"state_{step:04d}.png"
-            dst_image = trace_images_dir / f"state_{step - start_step:04d}.png"
-            shutil.copy(src_image, dst_image)
+        # Copy all files to PI-SAM trace_0 (symbolic links to save space)
+        pi_sam_images_dir = pi_sam_trace_0_dir / f"{problem_name}_images"
+        shutil.copytree(images_dir, pi_sam_images_dir, symlinks=True)
 
-        # Extract actions for this trace
-        trace_actions = ground_actions[start_step:end_step]
+        our_trace_dirs.append(pi_sam_trace_0_dir)
+        print(f"  ✓ PI-SAM trace_0/ created (full trajectory)")
+    else:
+        # Cut into non-overlapping traces of specified length
+        print(f"Cutting into {num_steps // trace_length} traces of {trace_length} steps...")
+        print(f"  Note: Splitting LLM predictions (no re-running of vision pipeline)")
 
-        # Extract ground truth steps for this trace (for comparison)
-        trace_gt_trajectory = gt_trajectory[start_step:end_step]
+        for trace_idx in range(num_steps // trace_length):
+            start_step = trace_idx * trace_length
+            end_step = start_step + trace_length
 
-        # Extract LLM predictions for this trace (without re-running LLM)
-        trace_imaged_trajectory = imaged_trajectory[start_step:end_step]
-        trace_masking_info = trajectory_masking_info[start_step:end_step + 1]  # +1 because we need initial state too
+            trace_dir = our_traces_base_dir / f"trace_{trace_idx}"
+            trace_dir.mkdir()
+            trace_images_dir = trace_dir / "images"
+            trace_images_dir.mkdir()
 
-        # Save actions
-        trace_actions_file = trace_dir / "actions.json"
-        with open(trace_actions_file, 'w') as f:
-            json.dump({
-                "problem_name": problem_name,
-                "trace_index": trace_idx,
-                "start_step": start_step,
-                "end_step": end_step,
-                "num_steps": len(trace_actions),
-                "actions": trace_actions
-            }, f, indent=2)
+            # Copy images for this trace (including initial state)
+            for step in range(start_step, end_step + 1):
+                src_image = images_dir / f"state_{step:04d}.png"
+                dst_image = trace_images_dir / f"state_{step - start_step:04d}.png"
+                shutil.copy(src_image, dst_image)
 
-        # Save ground truth trajectory (for comparison)
-        trace_gt_file = trace_dir / f"{problem_name}_trace_{trace_idx}_trajectory.json"
-        with open(trace_gt_file, 'w') as f:
-            json.dump(trace_gt_trajectory, f, indent=2)
+            # Extract actions for this trace
+            trace_actions = ground_actions[start_step:end_step]
 
-        # Save LLM trajectory file (PDDL format)
-        trace_problem_name = f"{problem_name}_trace_{trace_idx}"
-        build_trajectory_file(trace_imaged_trajectory, trace_problem_name, trace_dir)
+            # Extract ground truth steps for this trace (for comparison)
+            trace_gt_trajectory = gt_trajectory[start_step:end_step]
 
-        # Save LLM masking info
-        save_masking_info(trace_dir, trace_problem_name, trace_masking_info)
+            # Extract LLM predictions for this trace (without re-running LLM)
+            trace_imaged_trajectory = imaged_trajectory[start_step:end_step]
+            trace_masking_info = trajectory_masking_info[start_step:end_step + 1]  # +1 because we need initial state too
 
-        # Copy problem file to trace directory (required by amlgym_models)
-        trace_problem_file = trace_dir / f"{trace_problem_name}.pddl"
-        shutil.copy(problem_file_path, trace_problem_file)
-        transform_problems_pddlgym_to_amlgym(domain_config_key, trace_dir)
+            # Save actions
+            trace_actions_file = trace_dir / "actions.json"
+            with open(trace_actions_file, 'w') as f:
+                json.dump({
+                    "problem_name": problem_name,
+                    "trace_index": trace_idx,
+                    "start_step": start_step,
+                    "end_step": end_step,
+                    "num_steps": len(trace_actions),
+                    "actions": trace_actions
+                }, f, indent=2)
 
-        # Save metadata about which states this trace contains
-        trace_metadata_file = trace_dir / "trace_metadata.json"
-        with open(trace_metadata_file, 'w') as f:
-            json.dump({
-                "trace_index": trace_idx,
-                "start_state": start_step,
-                "end_state": end_step,
-                "num_states": end_step - start_step + 1,
-                "note": f"Contains states {start_step}-{end_step} from the full ROSAME trace",
-                "files": {
-                    "trajectory": f"{trace_problem_name}.trajectory",
-                    "masking_info": f"{trace_problem_name}.masking_info",
-                    "problem": f"{trace_problem_name}.pddl",
-                    "actions": "actions.json",
-                    "ground_truth": f"{problem_name}_trace_{trace_idx}_trajectory.json"
-                }
-            }, f, indent=2)
+            # Save ground truth trajectory (for comparison)
+            trace_gt_file = trace_dir / f"{problem_name}_trace_{trace_idx}_trajectory.json"
+            with open(trace_gt_file, 'w') as f:
+                json.dump(trace_gt_trajectory, f, indent=2)
 
-        our_trace_dirs.append(trace_dir)
-        print(f"  ✓ Trace {trace_idx}: states {start_step}-{end_step} → {trace_dir.name}")
+            # Save LLM trajectory file (PDDL format)
+            trace_problem_name = f"{problem_name}_trace_{trace_idx}"
+            build_trajectory_file(trace_imaged_trajectory, trace_problem_name, trace_dir)
+
+            # Save LLM masking info
+            save_masking_info(trace_dir, trace_problem_name, trace_masking_info)
+
+            # Copy problem file to trace directory (required by amlgym_models)
+            trace_problem_file = trace_dir / f"{trace_problem_name}.pddl"
+            shutil.copy(problem_file_path, trace_problem_file)
+            transform_problems_pddlgym_to_amlgym(domain_config_key, trace_dir)
+
+            # Save metadata about which states this trace contains
+            trace_metadata_file = trace_dir / "trace_metadata.json"
+            with open(trace_metadata_file, 'w') as f:
+                json.dump({
+                    "trace_index": trace_idx,
+                    "start_state": start_step,
+                    "end_state": end_step,
+                    "num_states": end_step - start_step + 1,
+                    "note": f"Contains states {start_step}-{end_step} from the full ROSAME trace",
+                    "files": {
+                        "trajectory": f"{trace_problem_name}.trajectory",
+                        "masking_info": f"{trace_problem_name}.masking_info",
+                        "problem": f"{trace_problem_name}.pddl",
+                        "actions": "actions.json",
+                        "ground_truth": f"{problem_name}_trace_{trace_idx}_trajectory.json"
+                    }
+                }, f, indent=2)
+
+            our_trace_dirs.append(trace_dir)
+            print(f"  ✓ Trace {trace_idx}: states {start_step}-{end_step} → {trace_dir.name}")
 
     print()
     print("="*80)
@@ -272,18 +454,42 @@ def _generate_training_data_generic(
     print(f"\nExperiment saved to: {experiment_dir}")
     print(f"  Experiment name: {experiment_name}")
     print(f"  Data directory: {domain_data_dir}")
-    print(f"  ROSAME trace: {rosame_trace_dir.name}")
-    print(f"  Our traces: {our_traces_base_dir.name} ({len(our_trace_dirs)} traces)")
+    print(f"  Images: {images_dir.name}")
+    print(f"  ROSAME trace: {rosame_trace_dir.name}/trace_0")
+    print(f"  PI-SAM traces: pi_sam_traces/ ({len(our_trace_dirs)} traces)")
     print()
 
     return rosame_trace_dir, our_trace_dirs
+
+
+def generate_blocks_multi_problem_trajectories(
+    output_base_dir: Path,
+    num_steps: int = 100,
+    start_index: int = 0,
+    use_planner: bool = False
+) -> Path:
+    """Generate trajectories for all blocksworld problems."""
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "blocksworld" / "blocksworld.pddl"
+    return _generate_multi_problem_trajectories(
+        domain_display_name="BLOCKSWORLD",
+        domain_config_key="blocks",
+        amlgym_domain_name="blocksworld",
+        trajectory_handler_class=LLMBlocksImageTrajectoryHandler,
+        benchmark_domain_path=benchmark_domain_path,
+        output_base_dir=output_base_dir,
+        num_steps=num_steps,
+        start_index=start_index,
+        use_planner=use_planner
+    )
 
 
 def generate_blocks_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
     problem_name: str = "problem7",
-    trace_length: int = 15
+    trace_length: int = None,
+    start_index: int = 0,
+    use_planner: bool = False
 ) -> Tuple[Path, List[Path]]:
     """
     Generate training data for blocksworld domain.
@@ -292,7 +498,9 @@ def generate_blocks_training_data(
         output_base_dir: Base directory for all benchmark data
         num_steps: Total number of steps to generate (default: 100)
         problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms (default: 15)
+        trace_length: Length of each trace for our algorithms (default: None - no splitting)
+        start_index: State index to start trajectory from (default: 0)
+        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -308,7 +516,30 @@ def generate_blocks_training_data(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         problem_name=problem_name,
-        trace_length=trace_length
+        trace_length=trace_length,
+        start_index=start_index,
+        use_planner=use_planner
+    )
+
+
+def generate_npuzzle_multi_problem_trajectories(
+    output_base_dir: Path,
+    num_steps: int = 100,
+    start_index: int = 0,
+    use_planner: bool = False
+) -> Path:
+    """Generate trajectories for all n-puzzle problems."""
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "n_puzzle" / "n_puzzle.pddl"
+    return _generate_multi_problem_trajectories(
+        domain_display_name="N-PUZZLE",
+        domain_config_key="n_puzzle",
+        amlgym_domain_name="n_puzzle_typed",
+        trajectory_handler_class=LLMNpuzzleImageTrajectoryHandler,
+        benchmark_domain_path=benchmark_domain_path,
+        output_base_dir=output_base_dir,
+        num_steps=num_steps,
+        start_index=start_index,
+        use_planner=use_planner
     )
 
 
@@ -316,7 +547,9 @@ def generate_npuzzle_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
     problem_name: str = "problem1",
-    trace_length: int = 15
+    trace_length: int = None,
+    start_index: int = 0,
+    use_planner: bool = False
 ) -> Tuple[Path, List[Path]]:
     """
     Generate training data for n-puzzle domain.
@@ -325,7 +558,9 @@ def generate_npuzzle_training_data(
         output_base_dir: Base directory for all benchmark data
         num_steps: Total number of steps to generate (default: 100)
         problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms (default: 15)
+        trace_length: Length of each trace for our algorithms (default: None - no splitting)
+        start_index: State index to start trajectory from (default: 0)
+        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -341,7 +576,30 @@ def generate_npuzzle_training_data(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         problem_name=problem_name,
-        trace_length=trace_length
+        trace_length=trace_length,
+        start_index=start_index,
+        use_planner=use_planner
+    )
+
+
+def generate_hanoi_multi_problem_trajectories(
+    output_base_dir: Path,
+    num_steps: int = 100,
+    start_index: int = 0,
+    use_planner: bool = False
+) -> Path:
+    """Generate trajectories for all hanoi problems."""
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "hanoi" / "hanoi.pddl"
+    return _generate_multi_problem_trajectories(
+        domain_display_name="HANOI",
+        domain_config_key="hanoi",
+        amlgym_domain_name="hanoi",
+        trajectory_handler_class=LLMHanoiImageTrajectoryHandler,
+        benchmark_domain_path=benchmark_domain_path,
+        output_base_dir=output_base_dir,
+        num_steps=num_steps,
+        start_index=start_index,
+        use_planner=use_planner
     )
 
 
@@ -349,7 +607,9 @@ def generate_hanoi_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
     problem_name: str = "problem0",
-    trace_length: int = 15
+    trace_length: int = None,
+    start_index: int = 0,
+    use_planner: bool = False
 ) -> Tuple[Path, List[Path]]:
     """
     Generate training data for hanoi domain.
@@ -358,7 +618,9 @@ def generate_hanoi_training_data(
         output_base_dir: Base directory for all benchmark data
         num_steps: Total number of steps to generate (default: 100)
         problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms (default: 15)
+        trace_length: Length of each trace for our algorithms (default: None - no splitting)
+        start_index: State index to start trajectory from (default: 0)
+        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -374,7 +636,30 @@ def generate_hanoi_training_data(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         problem_name=problem_name,
-        trace_length=trace_length
+        trace_length=trace_length,
+        start_index=start_index,
+        use_planner=use_planner
+    )
+
+
+def generate_hiking_multi_problem_trajectories(
+    output_base_dir: Path,
+    num_steps: int = 100,
+    start_index: int = 0,
+    use_planner: bool = False
+) -> Path:
+    """Generate trajectories for all hiking problems."""
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "hiking" / "hiking.pddl"
+    return _generate_multi_problem_trajectories(
+        domain_display_name="HIKING",
+        domain_config_key="hiking",
+        amlgym_domain_name="hiking",
+        trajectory_handler_class=LLMHikingImageTrajectoryHandler,
+        benchmark_domain_path=benchmark_domain_path,
+        output_base_dir=output_base_dir,
+        num_steps=num_steps,
+        start_index=start_index,
+        use_planner=use_planner
     )
 
 
@@ -382,7 +667,9 @@ def generate_hiking_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
     problem_name: str = "problem2",
-    trace_length: int = 15
+    trace_length: int = None,
+    start_index: int = 0,
+    use_planner: bool = False
 ) -> Tuple[Path, List[Path]]:
     """
     Generate training data for hiking domain.
@@ -391,7 +678,9 @@ def generate_hiking_training_data(
         output_base_dir: Base directory for all benchmark data
         num_steps: Total number of steps to generate (default: 100)
         problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms (default: 15)
+        trace_length: Length of each trace for our algorithms (default: None - no splitting)
+        start_index: State index to start trajectory from (default: 0)
+        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -407,7 +696,30 @@ def generate_hiking_training_data(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         problem_name=problem_name,
-        trace_length=trace_length
+        trace_length=trace_length,
+        start_index=start_index,
+        use_planner=use_planner
+    )
+
+
+def generate_maze_multi_problem_trajectories(
+    output_base_dir: Path,
+    num_steps: int = 100,
+    start_index: int = 0,
+    use_planner: bool = False
+) -> Path:
+    """Generate trajectories for all maze problems."""
+    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "maze" / "maze.pddl"
+    return _generate_multi_problem_trajectories(
+        domain_display_name="MAZE",
+        domain_config_key="maze",
+        amlgym_domain_name="maze",
+        trajectory_handler_class=LLMMazeImageTrajectoryHandler,
+        benchmark_domain_path=benchmark_domain_path,
+        output_base_dir=output_base_dir,
+        num_steps=num_steps,
+        start_index=start_index,
+        use_planner=use_planner
     )
 
 
@@ -415,7 +727,9 @@ def generate_maze_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
     problem_name: str = "problem0",
-    trace_length: int = 15
+    trace_length: int = None,
+    start_index: int = 0,
+    use_planner: bool = False
 ) -> Tuple[Path, List[Path]]:
     """
     Generate training data for maze domain.
@@ -424,7 +738,9 @@ def generate_maze_training_data(
         output_base_dir: Base directory for all benchmark data
         num_steps: Total number of steps to generate (default: 100)
         problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms (default: 15)
+        trace_length: Length of each trace for our algorithms (default: None - no splitting)
+        start_index: State index to start trajectory from (default: 0)
+        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -440,7 +756,9 @@ def generate_maze_training_data(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         problem_name=problem_name,
-        trace_length=trace_length
+        trace_length=trace_length,
+        start_index=start_index,
+        use_planner=use_planner
     )
 
 
@@ -481,15 +799,12 @@ def transform_blocks_problem_pddlgym_to_amlgym(problem_file_path: Path) -> Path:
     with open(problem_file_path, 'r') as f:
         content = f.read()
 
-    # Rename domain
-    content = content.replace('(:domain blocks)', '(:domain blocksworld)')
-
     # Remove robot reference fro objects
     content = content.replace('robot - robot', '')
 
     # Remove robot references from initial state
     content = content.replace('(handempty robot)', '(handempty)')
-    content = content.replace('(handfull robot)', '')
+    content = content.replace('(handfull robot)', '').replace('(handfull)', '')
 
     with open(problem_file_path, 'w') as f:
         f.write(content)
@@ -525,21 +840,21 @@ if __name__ == "__main__":
     parser.add_argument(
         "--domain",
         type=str,
-        default="maze",
+        default="hanoi",
         choices=["blocksworld", "npuzzle", "hanoi", "hiking", "maze"],
         help="Domain to generate data for (default: blocksworld)"
     )
     parser.add_argument(
         "--num-steps",
         type=int,
-        default=5,
+        default=100,
         help="Total number of steps to generate (default: 100)"
     )
     parser.add_argument(
         "--trace-length",
         type=int,
-        default=1,
-        help="Length of each trace for our algorithms (default: 15)"
+        default=None,
+        help="Length of each trace for our algorithms (default: None - no splitting). Only used when use_planner=False"
     )
     parser.add_argument(
         "--problem",
@@ -547,50 +862,119 @@ if __name__ == "__main__":
         default="problem0",
         help="Problem name to use from PDDLGym (default: problem7 for blocksworld, eight01x for npuzzle, problem0 for hanoi/maze, problem2 for hiking)"
     )
+    parser.add_argument(
+        "--start-index",
+        type=int,
+        default=0,
+        help="State index to start trajectory from (default: 0)"
+    )
+    parser.add_argument(
+        "--use-planner",
+        action="store_true",
+        help="Use FD planner to generate optimal solution instead of random actions (default: False)"
+    )
+    parser.add_argument(
+        "--multi-problem",
+        action="store_true",
+        help="Generate trajectories for all problems in the domain (ignores --problem and --trace-length)"
+    )
 
     args = parser.parse_args()
 
     output_dir = Path(__file__).parent / "data"
 
     if args.domain == "blocksworld":
-        rosame_dir, our_dirs = generate_blocks_training_data(
-            output_base_dir=output_dir,
-            num_steps=args.num_steps,
-            problem_name=args.problem,
-            trace_length=args.trace_length
-        )
-        print(f"Generated {len(our_dirs)} traces for our algorithms")
+        if args.multi_problem:
+            trajectories_dir = generate_blocks_multi_problem_trajectories(
+                output_base_dir=output_dir,
+                num_steps=args.num_steps,
+                start_index=args.start_index,
+                use_planner=args.use_planner
+            )
+        else:
+            rosame_dir, our_dirs = generate_blocks_training_data(
+                output_base_dir=output_dir,
+                num_steps=args.num_steps,
+                problem_name=args.problem,
+                trace_length=args.trace_length,
+                start_index=args.start_index,
+                use_planner=True
+                # use_planner=args.use_planner
+            )
+            print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "npuzzle":
-        rosame_dir, our_dirs = generate_npuzzle_training_data(
-            output_base_dir=output_dir,
-            num_steps=args.num_steps,
-            problem_name=args.problem,
-            trace_length=args.trace_length
-        )
-        print(f"Generated {len(our_dirs)} traces for our algorithms")
+        if args.multi_problem:
+            trajectories_dir = generate_npuzzle_multi_problem_trajectories(
+                output_base_dir=output_dir,
+                num_steps=args.num_steps,
+                start_index=args.start_index,
+                use_planner=args.use_planner
+            )
+        else:
+            rosame_dir, our_dirs = generate_npuzzle_training_data(
+                output_base_dir=output_dir,
+                num_steps=args.num_steps,
+                problem_name=args.problem,
+                trace_length=args.trace_length,
+                start_index=args.start_index,
+                use_planner=args.use_planner
+            )
+            print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "hanoi":
-        rosame_dir, our_dirs = generate_hanoi_training_data(
-            output_base_dir=output_dir,
-            num_steps=args.num_steps,
-            problem_name=args.problem,
-            trace_length=args.trace_length
-        )
-        print(f"Generated {len(our_dirs)} traces for our algorithms")
+        if args.multi_problem:
+            trajectories_dir = generate_hanoi_multi_problem_trajectories(
+                output_base_dir=output_dir,
+                num_steps=args.num_steps,
+                start_index=args.start_index,
+                use_planner=True
+                # use_planner=args.use_planner
+            )
+        else:
+            rosame_dir, our_dirs = generate_hanoi_training_data(
+                output_base_dir=output_dir,
+                num_steps=args.num_steps,
+                problem_name=args.problem,
+                trace_length=args.trace_length,
+                start_index=args.start_index,
+                use_planner=args.use_planner
+            )
+            print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "hiking":
-        rosame_dir, our_dirs = generate_hiking_training_data(
-            output_base_dir=output_dir,
-            num_steps=args.num_steps,
-            problem_name=args.problem,
-            trace_length=args.trace_length
-        )
-        print(f"Generated {len(our_dirs)} traces for our algorithms")
+        if args.multi_problem:
+            trajectories_dir = generate_hiking_multi_problem_trajectories(
+                output_base_dir=output_dir,
+                num_steps=args.num_steps,
+                start_index=args.start_index,
+                use_planner=args.use_planner
+            )
+        else:
+            rosame_dir, our_dirs = generate_hiking_training_data(
+                output_base_dir=output_dir,
+                num_steps=args.num_steps,
+                problem_name=args.problem,
+                trace_length=args.trace_length,
+                start_index=args.start_index,
+                use_planner=args.use_planner
+            )
+            print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "maze":
-        rosame_dir, our_dirs = generate_maze_training_data(
-            output_base_dir=output_dir,
-            num_steps=args.num_steps,
-            problem_name=args.problem,
-            trace_length=args.trace_length
-        )
-        print(f"Generated {len(our_dirs)} traces for our algorithms")
+        if args.multi_problem:
+            trajectories_dir = generate_maze_multi_problem_trajectories(
+                output_base_dir=output_dir,
+                num_steps=args.num_steps,
+                start_index=args.start_index,
+                use_planner=args.use_planner
+            )
+        else:
+            rosame_dir, our_dirs = generate_maze_training_data(
+                output_base_dir=output_dir,
+                num_steps=args.num_steps,
+                problem_name=args.problem,
+                trace_length=args.trace_length,
+                start_index=args.start_index,
+                use_planner=True
+                # use_planner=args.use_planner
+            )
+            print(f"Generated {len(our_dirs)} traces for our algorithms")
     else:
         print(f"Domain '{args.domain}' not yet implemented")
