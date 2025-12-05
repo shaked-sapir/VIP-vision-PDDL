@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Set, Tuple, List, Sequence, Optional
 from copy import deepcopy, copy
 import heapq
+import time
 
 from pddl_plus_parser.models import Domain, Observation
 from sam_learning.core import LearnerDomain
@@ -124,7 +125,9 @@ class ConflictDrivenPatchSearch:
         last_cost: int = root_node.cost
 
         nodes_expanded = 0
+        max_depth = 0
         depth_tracker: Dict[Tuple, int] = {self._encode_state(root_constraints, root_fluent_patches): 0}
+        start_time = time.time()
 
         while open_heap:
             if max_nodes is not None and nodes_expanded >= max_nodes:
@@ -140,6 +143,7 @@ class ConflictDrivenPatchSearch:
 
             nodes_expanded += 1
             current_depth = depth_tracker.get(state_key, 0)
+            max_depth = max(max_depth, current_depth)
 
             domain, conflicts, report = self._learn_with_state(
                 observations,
@@ -168,6 +172,7 @@ class ConflictDrivenPatchSearch:
 
             if not conflicts:
                 # Found conflict-free model
+                total_time = time.time() - start_time
                 patch_diff = self._compute_patch_diff(
                     initial_constraints=root_constraints,
                     final_constraints=node.model_constraints,
@@ -176,6 +181,9 @@ class ConflictDrivenPatchSearch:
                 )
                 enriched_report = dict(report)
                 enriched_report["patch_diff"] = patch_diff
+                enriched_report["nodes_expanded"] = nodes_expanded
+                enriched_report["max_depth"] = max_depth
+                enriched_report["total_time_seconds"] = total_time
 
                 patched_obs = self._apply_patches_to_observations(
                     observations,
@@ -242,6 +250,7 @@ class ConflictDrivenPatchSearch:
                     )
 
         # No conflict-free model found within limits; return last evaluated
+        total_time = time.time() - start_time
         last_constraints, last_fluent_patches = last_state
 
         patch_diff = self._compute_patch_diff(
@@ -253,6 +262,9 @@ class ConflictDrivenPatchSearch:
 
         enriched_report = dict(last_report)
         enriched_report["patch_diff"] = patch_diff
+        enriched_report["nodes_expanded"] = nodes_expanded
+        enriched_report["max_depth"] = max_depth
+        enriched_report["total_time_seconds"] = total_time
 
         patched_obs = self._apply_patches_to_observations(
             observations,

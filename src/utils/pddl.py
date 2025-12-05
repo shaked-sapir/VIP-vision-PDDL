@@ -116,11 +116,22 @@ def observation_to_trajectory_file(observation: Observation, output_path: Path) 
     :param observation: the Observation object containing components with previous/next states and actions.
     :param output_path: the directory to save the trajectory file into.
     """
+    def serialize_state_positive_only(state: State, state_type: str) -> str:
+        """Serialize a state with only positive predicates."""
+        positive_predicates = []
+        for pred_name, grounded_preds in state.state_predicates.items():
+            for grounded_pred in grounded_preds:
+                if grounded_pred.is_positive:
+                    positive_predicates.append(grounded_pred.untyped_representation)
+
+        predicates_str = ' '.join(positive_predicates)
+        return f"({state_type} {predicates_str})"
+
     trajectory_lines = ["("]  # Start of trajectory file
 
     # Step 0: Initial state from the first component's previous_state
     init_state = observation.components[0].previous_state
-    trajectory_lines.append(init_state.serialize().strip())
+    trajectory_lines.append(serialize_state_positive_only(init_state, ":init"))
 
     # Step 1+: For each component, append operator and next state
     for component in observation.components:
@@ -128,7 +139,7 @@ def observation_to_trajectory_file(observation: Observation, output_path: Path) 
         trajectory_lines.append(f"(operator: {action_str})")
 
         next_state = component.next_state
-        trajectory_lines.append(next_state.serialize().strip())
+        trajectory_lines.append(serialize_state_positive_only(next_state, ":state"))
 
     trajectory_lines.append(")")  # Close the trajectory
 

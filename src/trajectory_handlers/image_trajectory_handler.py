@@ -173,7 +173,7 @@ class ImageTrajectoryHandler(ABC):
         planner = FD()
 
         try:
-            plan = planner(self.pddl_env.domain, obs)
+            plan = planner(self.pddl_env.domain, obs, timeout=10)
             print(f"  ✓ Planner found solution with {len(plan)} actions")
 
             if len(plan) > num_steps:

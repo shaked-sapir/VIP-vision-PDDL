@@ -182,9 +182,7 @@ class NoisyPisamLearner(PISAMLearner):
             for p in state.state_predicates[base_key]:
                 if p.untyped_representation in candidates:
                     p.is_positive = not p.is_positive
-                    self.logger.debug(
-                        f"Flipped fluent {p.untyped_representation} in state."
-                    )
+                    # self.logger.debug(f"Flipped fluent {p.untyped_representation} in state.")
                     return
 
         # If we get here, neither the fluent nor its negation was found.
@@ -305,7 +303,7 @@ class NoisyPisamLearner(PISAMLearner):
             )
             local_conflicts.append(conflict)
             kind = "ADD" if frame_is_add else "DEL"
-            self.logger.warning(f"Detected frame-axiom {kind} conflict: {conflict}")
+            # self.logger.warning(f"Detected frame-axiom {kind} conflict: {conflict}")
 
         return local_conflicts
 
@@ -453,7 +451,7 @@ class NoisyPisamLearner(PISAMLearner):
                     grounded_fluent=gp.untyped_representation,
                 )
                 local_conflicts.append(conflict)
-                self.logger.warning(f"Detected data effect conflict (cannot vs must): {conflict}")
+                # self.logger.warning(f"Detected data effect conflict (cannot vs must): {conflict}")
 
         # ------------------------------------------------------------------
         # (1a) PATCH-BASED: FORBID_EFFECT_VS_MUST
@@ -471,7 +469,7 @@ class NoisyPisamLearner(PISAMLearner):
                         grounded_fluent=gp.untyped_representation
                     )
                     local_conflicts.append(conflict)
-                    self.logger.warning(f"Detected patch-based effect conflict (FORBID vs must): {conflict}")
+                    # self.logger.warning(f"Detected patch-based effect conflict (FORBID vs must): {conflict}")
 
         # --- cannot-be-effects for this transition ---
         cannot_be_effects: Set[GroundedPredicate] = extract_not_effects_partial_observability(prev_preds, next_preds)
@@ -505,7 +503,7 @@ class NoisyPisamLearner(PISAMLearner):
                     grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
                 )
                 local_conflicts.append(conflict)
-                self.logger.warning(f"Detected data effect conflict (must vs cannot): {conflict}")
+                # self.logger.warning(f"Detected data effect conflict (must vs cannot): {conflict}")
 
         # ------------------------------------------------------------------
         # (1b) PATCH-BASED: REQUIRE_EFFECT_VS_CANNOT
@@ -528,7 +526,7 @@ class NoisyPisamLearner(PISAMLearner):
                         grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
                     )
                     local_conflicts.append(conflict)
-                    self.logger.warning(f"Detected patch-based effect conflict (REQUIRE vs cannot): {conflict}")
+                    # self.logger.warning(f"Detected patch-based effect conflict (REQUIRE vs cannot): {conflict}")
         # ------------------------------------------------------------------
         # Early exit if any Effect-conflicts found
         # ------------------------------------------------------------------

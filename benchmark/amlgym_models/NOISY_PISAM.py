@@ -2,10 +2,11 @@ import shutil
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 from amlgym.algorithms.AlgorithmAdapter import AlgorithmAdapter
 from pddl_plus_parser.lisp_parsers import DomainParser
+from pddl_plus_parser.models import Observation
 from utilities import NegativePreconditionPolicy
 
 from src.pi_sam import PISAMLearner
@@ -41,7 +42,8 @@ class NOISY_PISAM(AlgorithmAdapter):
     def learn(self,
               domain_path: str,
               trajectory_paths: List[str],
-              use_problems: bool = False) -> str:
+              use_problems: bool = False,
+              with_new_traj: bool = False) -> Tuple[str, list[Observation], dict]:
         """
         Learns a PDDL action model from:
          (i)    a (possibly empty) input model which is required to specify the predicates and operators signature;
@@ -52,7 +54,7 @@ class NOISY_PISAM(AlgorithmAdapter):
         :parameter use_problems: boolean flag indicating whether to provide the set of objects
             specified in the problem from which the trajectories have been generated
 
-        :return: a string representing the learned PDDL model
+        :return: tuple of (learned_pddl_model, patched_observations, learning_report)
         """
 
         # Instantiate SAM algorithm
@@ -72,11 +74,11 @@ class NOISY_PISAM(AlgorithmAdapter):
             for traj_path in trajectory_paths:
                 traj_path = Path(traj_path)
 
-                problem_name = traj_path.stem
+                # Look for masking_info file with the same stem as the trajectory file
                 masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
 
                 if not masking_info_path.exists():
-                    self.logger.warning(f"Masking info file not found for {problem_name}, skipping")
+                    self.logger.warning(f"Masking info file not found for {traj_path.stem}, skipping")
                     continue
 
                 masked_obs = load_masked_observation(traj_path, masking_info_path, partial_domain)
@@ -89,5 +91,4 @@ class NOISY_PISAM(AlgorithmAdapter):
         )
 
         # TODO: show conflicts and patches at the end of the learning?
-        print(patched_observations)
-        return learned_model.to_pddl()
+        return learned_model.to_pddl(), patched_observations, report
