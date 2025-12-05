@@ -144,24 +144,6 @@ for domain_name, bench_name in domain_name_mappings.items():
         problem_dirs = sorted([d for d in trajectories_dir.iterdir() if d.is_dir()])
         n_problems = len(problem_dirs)
 
-        # Generate frame axiom trajectories for all problems
-        if trajectories_dir.exists():
-            for prob_dir in problem_dirs:
-                traj_files = list(prob_dir.glob("*.trajectory"))
-                mask_files = list(prob_dir.glob("*.masking_info"))
-
-                # Only process if we have both trajectory and masking files (and not already processed)
-                if traj_files and mask_files:
-                    traj_file = traj_files[0]
-                    # Skip if already a frame_axioms file
-                    if '_frame_axioms' not in traj_file.stem:
-                        mask_file = mask_files[0]
-                        print(f"  Generating frame axiom trajectory for {prob_dir.name}...")
-                        try:
-                            propagate_frame_axioms_in_trajectory(traj_file, mask_file, domain_ref_path)
-                        except Exception as e:
-                            print(f"    WARNING: Failed to generate frame axioms for {prob_dir.name}: {e}")
-
         # Get all problem directories (each contains trajectory + problem files)
 
         if n_problems < 2:
@@ -172,7 +154,7 @@ for domain_name, bench_name in domain_name_mappings.items():
             continue
 
         # how many trajectories per learning run (same as number of problems since 1 traj per problem)
-        traj_settings = sorted({8})
+        traj_settings = sorted({1})
         # traj_settings = list(reversed(sorted({1, min(3, n_problems), min(5,int(0.8*n_problems)), int(0.8*n_problems)})))
         # traj_settings = sorted({1, min(3, n_problems), min(5,int(0.8*n_problems)), int(0.8*n_problems)})
 
@@ -187,8 +169,8 @@ for domain_name, bench_name in domain_name_mappings.items():
         base_indices = list(range(n_problems))
 
         for fold in range(N_FOLDS):
-            # if fold == 0:
-            #     continue # debug only
+            if fold != 0:
+                continue # debug only
             indices = base_indices[:]
             random.seed(42 + fold)  # deterministic per fold
             random.shuffle(indices)
@@ -207,7 +189,7 @@ for domain_name, bench_name in domain_name_mappings.items():
             # Extract trajectory paths for training
             train_trajectories = []
             for prob_dir in train_problem_dirs:
-                traj_files = list(prob_dir.glob("*_frame_axioms.trajectory"))
+                traj_files = list(prob_dir.glob("*.trajectory"))
                 if traj_files:
                     train_trajectories.append(str(traj_files[0]))
 

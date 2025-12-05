@@ -60,8 +60,6 @@ class NOISY_PISAM(AlgorithmAdapter):
         conflict_search = ConflictDrivenPatchSearch(
             partial_domain_template=deepcopy(partial_domain),
             negative_preconditions_policy=self.negative_precondition_policy,
-            fluent_patch_cost=self.fluent_patch_cost,
-            model_patch_cost=self.model_patch_cost,
             seed=self.seed,
             logger=None
         )
@@ -75,7 +73,7 @@ class NOISY_PISAM(AlgorithmAdapter):
                 traj_path = Path(traj_path)
 
                 problem_name = traj_path.stem
-                masking_info_path = traj_path.parent / f"{traj_path.parent.stem}.masking_info"
+                masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
 
                 if not masking_info_path.exists():
                     self.logger.warning(f"Masking info file not found for {problem_name}, skipping")
@@ -85,10 +83,11 @@ class NOISY_PISAM(AlgorithmAdapter):
                 masked_observations.append(masked_obs)
 
         # Learn action model
-        learned_model, conflicts, model_constraints, fluent_patches, cost, report = conflict_search.run(
+        learned_model, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = conflict_search.run(
             observations=masked_observations,
             max_nodes=self.max_search_nodes
         )
 
         # TODO: show conflicts and patches at the end of the learning?
+        print(patched_observations)
         return learned_model.to_pddl()

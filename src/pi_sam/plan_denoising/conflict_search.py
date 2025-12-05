@@ -30,7 +30,8 @@ class SearchNode:
     Internal search node.
 
     cost:
-        A* cost = patch_operations_cost + heuristic (here: #conflicts).
+        cost = number of fluent patches, as we want to find action model which is consistent with
+        training data with minimal data repairs.
 
     patch_operations_cost:
         Cumulative cost of patch operations applied to reach this node.
@@ -41,15 +42,9 @@ class SearchNode:
     fluent_patches:
         Set of fluent-level patches (where to flip data).
     """
-    sort_key: Tuple[int, int] = field(init=False, repr=False)
     cost: int
-    patch_operations_cost: int
     model_constraints: Dict[Key, PatchOperation] = field(compare=False)
     fluent_patches: Set[FluentLevelPatch] = field(compare=False)
-
-    def __post_init__(self):
-        # tie-breaker: prefer lower patch_operations_cost when costs equal
-        self.sort_key = (self.cost, self.patch_operations_cost)
 
 
 class ConflictDrivenPatchSearch:
@@ -73,15 +68,11 @@ class ConflictDrivenPatchSearch:
         self,
         partial_domain_template: Domain,
         negative_preconditions_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard,
-        fluent_patch_cost: int = 1,
-        model_patch_cost: int = 1,
         seed: int = 42,
         logger: Optional[object] = None,
     ):
         self.partial_domain_template = partial_domain_template
         self.negative_preconditions_policy = negative_preconditions_policy
-        self.fluent_patch_cost = fluent_patch_cost
-        self.model_patch_cost = model_patch_cost
         self.seed = seed
         self.logger = logger
 
@@ -102,53 +93,50 @@ class ConflictDrivenPatchSearch:
         Set[FluentLevelPatch],
         int,
         Dict[str, str],
+        List[Observation]
     ]:
         """
-        Run the conflict-driven patch search on trajectories T (= observations).
-
-        A* search with:
-          - g = patch_operations_cost
-          - h = current number of conflicts
+        Run the conflict-driven search on trajectories T (= observations).
 
         :return:
             (learned_domain, conflicts, model_constraints,
-             fluent_patches, node_cost, learning_report)
+             fluent_patches, node_cost, learning_report, patched_final_observations)
         """
         root_constraints: Dict[Key, PatchOperation] = initial_model_constraints or {}
         root_fluent_patches: Set[FluentLevelPatch] = initial_fluent_patches or set()
 
-        root_state = self._encode_state(root_constraints, root_fluent_patches)
         root_node = SearchNode(
             cost=0,
-            patch_operations_cost=0,
             model_constraints=root_constraints,
             fluent_patches=root_fluent_patches,
         )
 
-        open_heap: List[Tuple[int, int, SearchNode]] = []
-        heapq.heappush(open_heap, (root_node.cost, root_node.patch_operations_cost, root_node))
-
+        open_heap: List[SearchNode] = [root_node]
         visited: Set[Tuple] = set()
-        visited.add(root_state)
 
         last_domain: Optional[LearnerDomain] = None
         last_conflicts: List[Conflict] = []
-        last_state = (root_constraints, root_fluent_patches)
+        last_state: Tuple[Dict[Key, PatchOperation], Set[FluentLevelPatch]] = (
+            root_constraints,
+            root_fluent_patches,
+        )
         last_report: Dict[str, str] = {}
-        nodes_expanded = 0
+        last_cost: int = root_node.cost
 
-        depth_tracker: Dict[Tuple, int] = {root_state: 0}
+        nodes_expanded = 0
+        depth_tracker: Dict[Tuple, int] = {self._encode_state(root_constraints, root_fluent_patches): 0}
 
         while open_heap:
             if max_nodes is not None and nodes_expanded >= max_nodes:
                 break
 
-            _, _, node = heapq.heappop(open_heap)
+            node = heapq.heappop(open_heap)
 
             state_key = self._encode_state(node.model_constraints, node.fluent_patches)
-            # state_key must be in visited because we only push unseen; but keep this for safety
-            if state_key not in visited:
-                visited.add(state_key)
+
+            if state_key in visited:
+                continue
+            visited.add(state_key)
 
             nodes_expanded += 1
             current_depth = depth_tracker.get(state_key, 0)
@@ -159,10 +147,13 @@ class ConflictDrivenPatchSearch:
                 node.fluent_patches,
             )
 
-            last_domain, last_conflicts, last_state, last_report = domain, conflicts, (
-                node.model_constraints,
-                node.fluent_patches,
-            ), report
+            last_domain, last_conflicts, last_state, last_report, last_cost = (
+                domain,
+                conflicts,
+                (node.model_constraints,node.fluent_patches),
+                report,
+                node.cost
+            )
 
             if self.logger is not None:
                 self.logger.log_node(
@@ -175,8 +166,8 @@ class ConflictDrivenPatchSearch:
                     is_solution=(len(conflicts) == 0),
                 )
 
-            # Solution: no conflicts
             if not conflicts:
+                # Found conflict-free model
                 patch_diff = self._compute_patch_diff(
                     initial_constraints=root_constraints,
                     final_constraints=node.model_constraints,
@@ -186,70 +177,69 @@ class ConflictDrivenPatchSearch:
                 enriched_report = dict(report)
                 enriched_report["patch_diff"] = patch_diff
 
-                return domain, [], node.model_constraints, node.fluent_patches, node.cost, enriched_report
+                patched_obs = self._apply_patches_to_observations(
+                    observations,
+                    node.fluent_patches,
+                )
+                return domain, [], node.model_constraints, node.fluent_patches, node.cost, enriched_report, patched_obs
 
-            # Choose which conflict to branch on
+            # Conflicts found - choose which conflict to branch on
             conflict = self._choose_conflict(conflicts)
-
-            children_generated = False
 
             # ------------------------------------------------------------------
             # Branch 1: data-fix (fluent-level patch)
             # ------------------------------------------------------------------
-            conflict_fluent_patch = self._build_fluent_patch(conflict)
-            child1_model_constraints = dict(node.model_constraints)
-            child1_fluent_patches = set(node.fluent_patches)
+            for patch in self._build_fluent_patches_for_conflict(conflict):
+                child_constraints = dict(node.model_constraints)
+                child_fluent_patches = set(node.fluent_patches)
 
-            if conflict_fluent_patch not in child1_fluent_patches:
-                child1_fluent_patches.add(conflict_fluent_patch)
-                child1_fluent_patches = self._dedup_patches(child1_fluent_patches)
+                if patch in child_fluent_patches:
+                    # Applying the same patch again would revert it (no net change),
+                    # but we want states to represent a set of patches; skip.
+                    continue
 
-                child1_patch_operations_cost = node.patch_operations_cost + self.fluent_patch_cost
-                child1_cost = child1_patch_operations_cost + len(conflicts)
+                child_fluent_patches.add(patch)
+                child_fluent_patches = self._dedup_patches(child_fluent_patches)
 
-                child1_state = self._encode_state(child1_model_constraints, child1_fluent_patches)
-                if child1_state not in visited:
-                    visited.add(child1_state)
-                    depth_tracker[child1_state] = current_depth + 1
-                    child1_node = SearchNode(
-                        cost=child1_cost,
-                        patch_operations_cost=child1_patch_operations_cost,
-                        model_constraints=child1_model_constraints,
-                        fluent_patches=child1_fluent_patches,
-                    )
-                    heapq.heappush(open_heap, (child1_node.cost, child1_node.patch_operations_cost, child1_node))
-                    children_generated = True
+                child_cost = len(child_fluent_patches)
+                child_state = self._encode_state(child_constraints, child_fluent_patches)
+
+                if child_state in visited:
+                    continue
+
+                depth_tracker[child_state] = current_depth + 1
+                heapq.heappush(
+                    open_heap,
+                    SearchNode(
+                        cost=child_cost,
+                        model_constraints=child_constraints,
+                        fluent_patches=child_fluent_patches,
+                    ),
+                )
 
             # ------------------------------------------------------------------
             # Branch 2: model-fix (add/adjust model-level patch)
             #          (Skipped for precondition-only conflicts)
             # ------------------------------------------------------------------
-            if conflict.conflict_type != ConflictType.FORBID_PRECOND_VS_IS:
-                new_constraints = self._build_model_patch(conflict, node.model_constraints)
-                if new_constraints is not None:
-                    child2_model_constraints = new_constraints
-                    child2_fluent_patches = set(node.fluent_patches)
+            if conflict.conflict_type != ConflictType.FORBID_PRECOND_VS_IS and \
+                    conflict.conflict_type != ConflictType.FRAME_AXIOM:
+                child2_constraints: Dict[Key, PatchOperation] = dict(node.model_constraints)
+                child2_constraints = self._build_model_patch(conflict, child2_constraints)
+                child2_fluent_patches = set(node.fluent_patches)
 
-                    child2_patch_operations_cost = node.patch_operations_cost + self.model_patch_cost
-                    child2_cost = child2_patch_operations_cost + len(conflicts)
+                child2_cost = len(child2_fluent_patches)
+                child2_state = self._encode_state(child2_constraints, child2_fluent_patches)
 
-                    child2_state = self._encode_state(child2_model_constraints, child2_fluent_patches)
-                    if child2_state not in visited:
-                        visited.add(child2_state)
-                        depth_tracker[child2_state] = current_depth + 1
-                        child2_node = SearchNode(
+                if child2_state not in visited:
+                    depth_tracker[child2_state] = current_depth + 1
+                    heapq.heappush(
+                        open_heap,
+                        SearchNode(
                             cost=child2_cost,
-                            patch_operations_cost=child2_patch_operations_cost,
-                            model_constraints=child2_model_constraints,
+                            model_constraints=child2_constraints,
                             fluent_patches=child2_fluent_patches,
-                        )
-                        heapq.heappush(open_heap, (child2_node.cost, child2_node.patch_operations_cost, child2_node))
-                        children_generated = True
-
-            # If we could not generate any new children from this node,
-            # and there are no more nodes in the heap, the search is stuck.
-            if not children_generated and not open_heap:
-                break
+                        ),
+                    )
 
         # No conflict-free model found within limits; return last evaluated
         last_constraints, last_fluent_patches = last_state
@@ -264,9 +254,12 @@ class ConflictDrivenPatchSearch:
         enriched_report = dict(last_report)
         enriched_report["patch_diff"] = patch_diff
 
-        # cost = patch_operations_cost + heuristic; here we reuse the last node's cost
-        last_cost = 0 if last_domain is None else root_node.cost
-        return last_domain, last_conflicts, last_constraints, last_fluent_patches, last_cost, enriched_report
+        patched_obs = self._apply_patches_to_observations(
+            observations,
+            last_fluent_patches,
+        )
+
+        return last_domain, last_conflicts, last_constraints, last_fluent_patches, last_cost, enriched_report, patched_obs
 
     # ----------------------------------------------------------------------
     # Internal helpers
@@ -279,7 +272,6 @@ class ConflictDrivenPatchSearch:
     ) -> Tuple:
         """
         Encode state into a hashable form for the visited set.
-
         We sort entries to make encoding order-invariant.
         """
         constraints_tuple = tuple(sorted(
@@ -289,12 +281,7 @@ class ConflictDrivenPatchSearch:
             )
         ))
         fluent_tuple = tuple(sorted(
-            (
-                fp.observation_index,
-                fp.component_index,
-                fp.state_type,
-                fp.fluent,
-            )
+            (fp.observation_index, fp.component_index, fp.state_type, fp.fluent)
             for fp in fluent_patches
         ))
         return constraints_tuple, fluent_tuple
@@ -302,32 +289,55 @@ class ConflictDrivenPatchSearch:
     @staticmethod
     def _choose_conflict(conflicts: List[Conflict]) -> Conflict:
         """
-        Prefer effect conflicts over precondition conflicts.
+        Prefer fixing frame-axioms before effects.
         If none, fall back to the first one.
         """
         for c in conflicts:
-            if c.conflict_type != ConflictType.FORBID_PRECOND_VS_IS:
+            # if c.conflict_type != ConflictType.FORBID_PRECOND_VS_IS:
+            if c.conflict_type == ConflictType.FRAME_AXIOM:
                 return c
         return conflicts[0]
 
     @staticmethod
-    def _build_fluent_patch(conflict: Conflict) -> FluentLevelPatch:
-        """
-        Build the FluentLevelPatch for the data-fix branch.
-
-        EFFECT conflicts:
-            flip in "next" state.
-
-        PRECONDITION conflicts:
-            flip in "prev" state.
-        """
-        state_type = "prev" if conflict.conflict_type == ConflictType.FORBID_PRECOND_VS_IS else "next"
+    def _build_fluent_patch(conflict: Conflict, state_type: str) -> FluentLevelPatch:
+        """Build a FluentLevelPatch for a given conflict and state_type ('prev'/'next')."""
         return FluentLevelPatch(
             observation_index=conflict.observation_index,
             component_index=conflict.component_index,
             state_type=state_type,
             fluent=conflict.grounded_fluent,
         )
+
+    def _build_fluent_patches_for_conflict(self, conflict: Conflict) -> List[FluentLevelPatch]:
+        """
+        Determine which fluent patches correspond to the data-fix branches
+        for a given conflict.
+
+        - FORBID_PRECOND_VS_IS:
+            * Only prev-state patches (cannot-be-precondition).
+        - FRAME_AXIOM:
+            * Normally both prev and next patches.
+            * BUT if component_index == 0, prev_state is an initial state
+              and assumed ground truth → only allow a 'next' patch.
+        - Effect conflicts (FORBID/REQUIRE vs must/cannot):
+            * Only next-state patches (effects).
+        """
+        if conflict.conflict_type == ConflictType.FORBID_PRECOND_VS_IS:
+            return [self._build_fluent_patch(conflict, "prev")]
+
+        if conflict.conflict_type == ConflictType.FRAME_AXIOM:
+            # Always allow "next" as a potential noisy side
+            patches: List[FluentLevelPatch] = [self._build_fluent_patch(conflict, "next")]
+
+            # For initial transitions (component_index == 0), prev_state is ground truth:
+            # we are NOT allowed to treat the initial prev_state as noisy.
+            if conflict.component_index > 0:
+                patches.append(self._build_fluent_patch(conflict, "prev"))
+
+            return patches
+
+        # Effect conflicts: data repair is in 'next' state
+        return [self._build_fluent_patch(conflict, "next")]
 
     @staticmethod
     def _conflict_to_key(conflict: Conflict) -> Key:
@@ -337,13 +347,9 @@ class ConflictDrivenPatchSearch:
     @staticmethod
     def _dedup_patches(patches: Set[FluentLevelPatch]) -> Set[FluentLevelPatch]:
         """
-        Cancel pairs:
-            next @ (obs=X, comp=Y, fluent=F)
-        with
-            prev @ (obs=X, comp=Y+1, fluent=F)
-
-        Both patches in such a pair are removed.
-        """
+       Remove (next at (obs,comp), prev at (obs,comp+1)) pairs with same fluent.
+       These correspond to a "flip + flip back" across adjacent transitions.
+       """
         next_p = {
             (p.observation_index, p.component_index, p.fluent): p
             for p in patches if p.state_type == "next"
@@ -370,35 +376,27 @@ class ConflictDrivenPatchSearch:
         model_patches: Dict[Key, PatchOperation],
     ) -> Optional[Dict[Key, PatchOperation]]:
         """
-        Model-fix branch:
+        Model-fix logic for effect conflicts:
 
-        Monotonic semantics:
-          - If there isn't a model patch with this (action, part, pbl):
-                * REQUIRE_EFFECT_VS_CANNOT -> add REQUIRE
-                * FORBID_EFFECT_VS_MUST    -> add FORBID
-          - If there *is* a model patch for this Key:
-                * we DO NOT toggle/remove; that would recreate an old state.
-                * return None to signify "no new state".
+        - If no existing model patch:
+            REQUIRE_EFFECT_VS_CANNOT -> REQUIRE
+            FORBID_EFFECT_VS_MUST    -> FORBID
+        - If there's an existing patch for same (action,part,pbl):
+            remove it (toggle back to unconstrained).
         """
         key: Key = self._conflict_to_key(conflict)
-
         old = model_patches
-        existing_op: Optional[PatchOperation] = old.get(key)
-
-        if existing_op is not None:
-            # Already constrained in some way; toggling/removing would
-            # just recreate a previous state, so we skip this branch.
-            return None
-
         new = copy(old)
 
-        if conflict.conflict_type == ConflictType.REQUIRE_EFFECT_VS_CANNOT:
-            new[key] = PatchOperation.FORBID
-        elif conflict.conflict_type == ConflictType.FORBID_EFFECT_VS_MUST:
-            new[key] = PatchOperation.REQUIRE
+        existing_op: Optional[PatchOperation] = old.get(key)
+
+        if existing_op is None:
+            if conflict.conflict_type == ConflictType.REQUIRE_EFFECT_VS_CANNOT:
+                new[key] = PatchOperation.FORBID
+            elif conflict.conflict_type == ConflictType.FORBID_EFFECT_VS_MUST:
+                new[key] = PatchOperation.REQUIRE
         else:
-            # We don't introduce PRECONDITION patches here, only EFFECT ones.
-            return None
+            del new[key]
 
         return new
 
@@ -437,6 +435,24 @@ class ConflictDrivenPatchSearch:
         )
 
         return learned_domain, conflicts, report
+
+    def _apply_patches_to_observations(
+            self,
+            observations: Sequence[Observation],
+            fluent_patches: Set[FluentLevelPatch],
+    ) -> List[Observation]:
+        """
+        Apply the final fluent_patches to the original observations using
+        NoisyPisamLearner's apply_fluent_patches, and return the patched copy.
+        """
+        domain_copy: Domain = deepcopy(self.partial_domain_template)
+        learner = NoisyPisamLearner(
+            partial_domain=domain_copy,
+            negative_preconditions_policy=self.negative_preconditions_policy,
+            seed=self.seed,
+        )
+        learner.set_patches(fluent_patches=fluent_patches, model_patches=set())
+        return learner.apply_fluent_patches(list(observations))
 
     @staticmethod
     def _compute_patch_diff(

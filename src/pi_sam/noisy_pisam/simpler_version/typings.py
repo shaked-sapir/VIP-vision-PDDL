@@ -1,7 +1,7 @@
 # patches_and_conflicts.py
 
 from enum import Enum
-from typing import Tuple
+from typing import Tuple, Optional
 
 from pddl_plus_parser.models import Predicate, ActionCall, GroundedPredicate
 
@@ -193,6 +193,7 @@ class Conflict:
         observation_index: int,
         component_index: int,
         grounded_fluent: str,
+        frame_is_add: Optional[bool] = None,  # only used for FRAME_AXIOM
     ):
         self.action_name = action_name
         self.pbl = pbl
@@ -201,10 +202,20 @@ class Conflict:
         self.component_index = component_index
         self.grounded_fluent = grounded_fluent
 
+        # For ConflictType.FRAME_AXIOM only:
+        #   True  -> the violation came from an ADD effect (prev->next  : ¬p → p)
+        #   False -> the violation came from a DEL effect (prev->next :  p → ¬p)
+        #   None  -> not a frame conflict.
+        self.frame_is_add = frame_is_add
+
     def __str__(self) -> str:
+        extra = ""
+        if self.conflict_type == ConflictType.FRAME_AXIOM and self.frame_is_add is not None:
+            kind = "add" if self.frame_is_add else "del"
+            extra = f", frame_change={kind}"
         return (
             f"Conflict({self.conflict_type.value}: {self.grounded_fluent} vs {self.pbl} "
-            f"in {self.action_name} at obs[{self.observation_index}][{self.component_index}])"
+            f"in {self.action_name} at obs[{self.observation_index}][{self.component_index}]{extra})"
         )
 
     def __repr__(self) -> str:

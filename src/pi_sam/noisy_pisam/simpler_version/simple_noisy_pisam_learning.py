@@ -39,6 +39,8 @@ class NoisyPisamLearner(PISAMLearner):
             * Data-only PI-SAM effect inconsistencies, using the same types:
                 - PRIOR cannot_be_effect + new must-effect -> FORBID_EFFECT_VS_MUST
                 - PRIOR must-effect + new cannot_be_effect -> REQUIRE_EFFECT_VS_CANNOT
+            * Frame axiom violations:
+                - FRAME_AXIOM: predicate changes without sharing objects with the action.
 
     If *no* patches are given, conflicts may still arise from PI-SAM itself
     whenever an effect literal is classified as both "must-be-effect" and
@@ -163,70 +165,33 @@ class NoisyPisamLearner(PISAMLearner):
         """
         Flip fluent_str in the given state.
         """
-        # Simple implementation: look for matching grounded predicate strings
+        candidates = {fluent_str, negate_str_predicate(fluent_str)}
+
         for gp in get_state_grounded_predicates(state):
-            if gp.untyped_representation == fluent_str:
-                gp_lifted_base_form = gp.lifted_untyped_representation if gp.is_positive else \
-                    negate_str_predicate(gp.lifted_untyped_representation)
-                gp_in_state = next((p for p in state.state_predicates[gp_lifted_base_form]
-                                 if p.untyped_representation == fluent_str), None)
-                gp_in_state.is_positive = not gp_in_state.is_positive
-                self.logger.debug(f"Flipped fluent {fluent_str} in state.")
-                return
-
-        # self.logger.warning(f"Could not find fluent {fluent_str} to flip in state: [{self.current_observation_index}][{self.current_component_index}].")
-        raise ValueError(f"Could not find fluent {fluent_str} to flip in state")
-
-    def _collect_frame_axiom_conflicts(
-            self,
-            grounded_action: ActionCall,
-            grounded_add_effects: List[GroundedPredicate],
-            grounded_del_effects: List[GroundedPredicate],
-    ) -> List[Conflict]:
-        """
-        Detect frame-axiom violations for a single transition.
-
-        A frame-axiom violation arises when:
-          - A grounded fluent changes truth value between prev/next
-            (i.e., it's in add or delete effects),
-          - AND **none** of its objects appear among the action's
-            grounded parameters.
-
-        Intuition:
-            an action should not "touch" world facts that do not share
-            any object with the action's parameters. If they change,
-            we treat it as noise and repair it via fluent patches.
-        """
-        action_name = grounded_action.name
-        action_objs = set(grounded_action.parameters)
-
-        local_conflicts: List[Conflict] = []
-
-        for gp in list(grounded_add_effects) + list(grounded_del_effects):
-            gp_objs = set(gp.object_mapping.values())
-            if gp_objs & action_objs:
-                # shares at least one object with the action -> legitimate effect
+            if gp.untyped_representation not in candidates:
                 continue
 
-            # Pure frame violation: changed but unrelated
-            pbl = ParameterBoundLiteral(
-                predicate_name=gp.name,
-                parameters=tuple(),  # unused for frame conflicts
-                is_positive=gp.is_positive,
+            # Figure out which lifted key this gp lives under in state.state_predicates
+            base_key = (
+                gp.lifted_untyped_representation
+                if gp.is_positive
+                else negate_str_predicate(gp.lifted_untyped_representation)
             )
 
-            conflict = Conflict(
-                action_name=action_name,
-                pbl=pbl,
-                conflict_type=ConflictType.FRAME_AXIOM,
-                observation_index=self.current_observation_index,
-                component_index=self.current_component_index,
-                grounded_fluent=gp.untyped_representation,
-            )
-            local_conflicts.append(conflict)
-            self.logger.warning(f"Detected frame-axiom conflict: {conflict}")
+            # Find the exact instance in state.state_predicates and flip it
+            for p in state.state_predicates[base_key]:
+                if p.untyped_representation in candidates:
+                    p.is_positive = not p.is_positive
+                    self.logger.debug(
+                        f"Flipped fluent {p.untyped_representation} in state."
+                    )
+                    return
 
-        return local_conflicts
+        # If we get here, neither the fluent nor its negation was found.
+        raise ValueError(
+            f"Could not find fluent {fluent_str} or its negation to flip in state"
+        )
+
     # -------------------------------------------------------------------------
     # Helper: lift and match
     # -------------------------------------------------------------------------
@@ -266,113 +231,87 @@ class NoisyPisamLearner(PISAMLearner):
         }
 
         # Ground the PBL's parameters using that mapping
-        grounded_args = []
-        for p_name in pbl.parameters:
-            grounded_args.append(signature_param_to_object[p_name])
+        grounded_args = [signature_param_to_object[p_name] for p_name in pbl.parameters]
 
         base = f"({pbl.predicate_name} {' '.join(grounded_args)})"
         return base if pbl.is_positive else f"(not {base})"
     # -------------------------------------------------------------------------
-    # Preconditions: REQUIRE vs cannot_be_precondition
+    # Preconditions handling - no conflicts possible
     # -------------------------------------------------------------------------
 
-    def _collect_forbidden_precondition_conflicts(
-            self,
-            grounded_action: ActionCall,
-            previous_state: State,
-    ) -> List[Conflict]:
-        """
-        Detect 'cannot be precondition' violations for a single transition.
-
-        A conflict arises when:
-          - There is a PRECONDITION+FORBID patch (cannot-be-precondition) for this action,
-          - AND the current transition's previous_state contains a fluent that
-            PI-SAM would treat as a candidate precondition,
-          - AND that fluent matches the forbidden PBL.
-
-        Returns ALL such conflicts for this (obs_idx, comp_idx, action).
-        """
-        action_name = grounded_action.name
-        forbidden_set = self.forbidden_preconditions.get(action_name, set())
-        if not forbidden_set:
-            return []
-
-        prev_grounded = list(get_state_grounded_predicates(previous_state))
-        prev_lifted = set(
-            self.matcher.get_possible_literal_matches(grounded_action, prev_grounded)
-        )
-
-        local_conflicts: List[Conflict] = []
-
-        for lifted in prev_lifted:
-            if not isinstance(lifted, Predicate):
-                continue
-            for pbl in forbidden_set:
-                if pbl.matches(lifted):
-                    grounded_fluent = self._ground_pbl_with_action(pbl, grounded_action)
-                    conflict = Conflict(
-                        action_name=action_name,
-                        pbl=pbl,
-                        conflict_type=ConflictType.FORBID_PRECOND_VS_IS,
-                        observation_index=self.current_observation_index,
-                        component_index=self.current_component_index,
-                        grounded_fluent=grounded_fluent,
-                    )
-                    local_conflicts.append(conflict)
-                    self.logger.warning(f"Detected forbidden-precondition conflict: {conflict}")
-
-        return local_conflicts
-
     def _add_new_action_preconditions(self, grounded_action: ActionCall, previous_state: State) -> None:
-        """
-        New action case (PI-SAM rule):
-
-        - If this transition violates a 'cannot be precondition' patch,
-          record all conflicts and DO NOT add preconditions.
-
-        - Otherwise, delegate to the base PI-SAM implementation, which:
-            * adds all candidate preconditions from previous_state.
-        """
-        self.logger.debug(
-            f"Adding preconditions of {grounded_action.name} with precondition patches."
-        )
-
-        conflicts = self._collect_forbidden_precondition_conflicts(
-            grounded_action,
-            previous_state,
-        )
-        if conflicts:
-            self.conflicts.extend(conflicts)
-            return
-
-        # No conflicts: normal PI-SAM behavior
         super()._add_new_action_preconditions(grounded_action, previous_state)
 
     def _update_action_preconditions(self, grounded_action: ActionCall, previous_state: State) -> None:
-        """
-        Existing action case (PI-SAM cannot_be_precondition rule):
-
-        - If this transition violates a 'cannot be precondition' patch,
-          record all conflicts and DO NOT update preconditions for this
-          transition.
-
-        - Otherwise, delegate to the base PI-SAM implementation to apply
-          cannot_be_precondition logic.
-        """
-        self.logger.debug(
-            f"Updating preconditions of {grounded_action.name} with precondition patches."
-        )
-
-        conflicts = self._collect_forbidden_precondition_conflicts(
-            grounded_action,
-            previous_state,
-        )
-        if conflicts:
-            self.conflicts.extend(conflicts)
-            return
-
-        # No conflicts: normal PI-SAM update (cannot_be_precondition)
         super()._update_action_preconditions(grounded_action, previous_state)
+
+    # -------------------------------------------------------------------------
+    # Frame-axiom conflicts
+    # -------------------------------------------------------------------------
+
+    def _collect_frame_axiom_conflicts(
+            self,
+            grounded_action: ActionCall,
+            grounded_add_effects: Set[GroundedPredicate],
+            grounded_del_effects: Set[GroundedPredicate],
+    ) -> List[Conflict]:
+        """
+        Detect frame-axiom violations for a single transition.
+
+        A frame-axiom violation arises when:
+          - A grounded fluent changes truth value between prev/next
+            (i.e., it's in add or delete effects),
+          - AND none of its objects appear among the action's parameters.
+
+        We encode direction via frame_is_add:
+          True  -> came from ADD effects  (¬p -> p)
+          False -> came from DEL effects  (p  -> ¬p)
+        """
+        action_name = grounded_action.name
+        action_objs = set(grounded_action.parameters)
+        local_conflicts: List[Conflict] = []
+
+        for gp, frame_is_add in (
+                [(g, False) for g in grounded_del_effects] +  # p -> ¬p
+                [(g, True) for g in grounded_add_effects]  # ¬p -> p
+        ):
+            gp_objs = set(gp.object_mapping.values())
+            # 1) Skip nullary preds: frame axiom not applicable
+            if len(gp_objs) == 0:
+                continue
+
+            # 2) If shares an object with the action → normal effect, no frame violation
+            if set(gp_objs) <= action_objs:
+                continue
+
+            pbl = ParameterBoundLiteral(
+                predicate_name=gp.name,
+                parameters=tuple(),
+                is_positive=gp.is_positive
+            )
+            to_negate = self._should_negate_grounded_effect(
+                gp,
+                self.current_observation_index,
+                self.current_component_index,
+            )
+            conflict = Conflict(
+                action_name=action_name,
+                pbl=pbl,
+                conflict_type=ConflictType.FRAME_AXIOM,
+                observation_index=self.current_observation_index,
+                component_index=self.current_component_index,
+                grounded_fluent=gp.untyped_representation,
+                frame_is_add=frame_is_add,
+            )
+            local_conflicts.append(conflict)
+            kind = "ADD" if frame_is_add else "DEL"
+            self.logger.warning(f"Detected frame-axiom {kind} conflict: {conflict}")
+
+        return local_conflicts
+
+    # -------------------------------------------------------------------------
+    # Effect handling with conflicts (patch + data-only + frame axioms)
+    # -------------------------------------------------------------------------
 
     def _should_negate_grounded_effect(
             self,
@@ -443,15 +382,19 @@ class NoisyPisamLearner(PISAMLearner):
             - REQUIRE_EFFECT_VS_CANNOT:
                   must-be-effect patch vs cannot-be-effect (cannot_be_effects).
 
-        2) PI-SAM data-only inconsistencies:
+        2) data-only inconsistencies:
 
-            - FORBID_EFFECT_VS_MUST:
+            - PISAM FORBID_EFFECT_VS_MUST:
                   PRIOR cannot_be_effect contains literal L, but this transition
                   treats L as must-be-effect (discrete_effect).
 
-            - REQUIRE_EFFECT_VS_CANNOT:
+            - PISAM REQUIRE_EFFECT_VS_CANNOT:
                   PRIOR discrete_effects contains literal L, but this transition
                   treats L as cannot-be-effect.
+
+            - FRAME_AXIOM violations:
+                    grounded effect literal changes truth value but none of its objects
+                    appear among the action's parameters.
 
         If ANY conflicts are found in this transition, we record them and
         SKIP the regular PI-SAM effect update for this transition.
@@ -469,6 +412,20 @@ class NoisyPisamLearner(PISAMLearner):
             prev_preds, next_preds
         )
         all_grounded_must = list(grounded_add_effects) + list(grounded_del_effects)
+
+        # Frame-axiom conflicts
+        local_conflicts.extend(
+            self._collect_frame_axiom_conflicts(
+                grounded_action,
+                grounded_add_effects,
+                grounded_del_effects,
+            )
+        )
+
+        # Early exit if any frame-axiom conflicts found
+        if local_conflicts:
+            self.conflicts.extend(local_conflicts)
+            return
 
         # History BEFORE this transition:
         prior_must_effects: Set[Predicate] = set(observed_action.discrete_effects)  # lifted Predicates
@@ -573,7 +530,7 @@ class NoisyPisamLearner(PISAMLearner):
                     local_conflicts.append(conflict)
                     self.logger.warning(f"Detected patch-based effect conflict (REQUIRE vs cannot): {conflict}")
         # ------------------------------------------------------------------
-        # Decide whether to apply PI-SAM effect update
+        # Early exit if any Effect-conflicts found
         # ------------------------------------------------------------------
         if local_conflicts:
             self.conflicts.extend(local_conflicts)
@@ -618,6 +575,16 @@ class NoisyPisamLearner(PISAMLearner):
                     continue
 
                 self.handle_single_trajectory_component(component)
+                # --- EARLY EXIT: stop learning at the first conflicting transition ---
+                if self.conflicts:
+                    self.logger.info(
+                        f"Stopping learning early after first conflict at "
+                        f"obs={obs_idx}, comp={comp_idx}, #conflicts={len(self.conflicts)}"
+                    )
+                    break  # break inner loop over components
+
+            if self.conflicts:
+                break  # break outer loop over observations
 
         self.construct_safe_actions()
         self._remove_unobserved_actions_from_partial_domain()
