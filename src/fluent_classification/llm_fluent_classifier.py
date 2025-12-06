@@ -38,10 +38,18 @@ class LLMFluentClassifier(FluentClassifier, ABC):
         self.gt_json_trajectory = json.loads(self.gt_json_trajectory_path.read_text())
         self.fewshot_examples = []
 
+        self.user_instruction = self._get_user_instruction()
+
     @abstractmethod
     def _get_system_prompt(self) -> str:
         """Returns the system prompt for fluent classification, depending on domain."""
         raise NotImplementedError
+
+    @classmethod
+    def _get_user_instruction(cls) -> str:
+        """Returns the user instruction for fluent classification, depending on domain."""
+        return ("Extract facts on this image, based on the example image with its extracted facts, "
+                "One predicate per line.")
 
     @staticmethod
     def _get_result_regex() -> str:
@@ -167,7 +175,7 @@ class LLMFluentClassifier(FluentClassifier, ABC):
                 },
                 {
                     "type": "text",
-                    "text": "Extract all grounded predicates for this image. One predicate per line."
+                    "text": self.user_instruction
                 }
             ]
         })

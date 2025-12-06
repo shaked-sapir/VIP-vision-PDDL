@@ -62,32 +62,46 @@ metric_cols = [
 # HELPER FUNCTIONS
 # =============================================================================
 
+def pre_generate_truncated_trajectories(problem_dirs: List[Path], domain_path: Path,
+                                       trajectory_sizes: List[int]) -> None:
+    """Pre-generate all truncated trajectories and masking files for all sizes."""
+    print(f"\nPre-generating truncated trajectories for sizes: {trajectory_sizes}")
+
+    for prob_dir in problem_dirs:
+        traj_files = [f for f in prob_dir.glob("*.trajectory")
+                     if 'truncated' not in f.stem and 'final' not in f.stem and 'frame_axioms' not in f.stem]
+
+        for traj_path in traj_files:
+            for size in trajectory_sizes:
+                truncate_trajectory(traj_path, domain_path, size)
+
+    print(f"✓ Pre-generated all truncated trajectories")
+
+
 def truncate_trajectory(traj_path: Path, domain_path: Path, max_steps: int) -> Path:
-    """Truncate trajectory to max_steps and save to a temporary file. Also truncates masking_info."""
+    """Truncate trajectory to max_steps. Skip if already exists."""
+    output_path = traj_path.parent / f"{traj_path.stem}_truncated_{max_steps}.trajectory"
+
+    # Skip if already exists
+    if output_path.exists():
+        return output_path
+
     domain = DomainParser(domain_path).parse_domain()
     parser = TrajectoryParser(domain)
     observation = parser.parse_trajectory(traj_path)
 
-    # Truncate observation components to max_steps
     if len(observation.components) > max_steps:
         observation.components = observation.components[:max_steps]
 
-    # Save truncated trajectory
-    output_path = traj_path.parent / f"{traj_path.stem}_truncated_{max_steps}.trajectory"
     observation_to_trajectory_file(observation, output_path)
 
-    # Truncate and save corresponding masking_info file
-    # Extract base problem name (remove _truncated_N, _final, _frame_axioms suffixes)
+    # Truncate and save masking_info
     problem_name = traj_path.stem.split('_truncated_')[0].split('_final')[0].split('_frame_axioms')[0]
     masking_info_path = traj_path.parent / f"{problem_name}.masking_info"
 
     if masking_info_path.exists():
         masking_info = load_masking_info(masking_info_path, domain)
-        # Truncate to max_steps + 1 (initial state + max_steps transitions)
         truncated_masking_info = masking_info[:max_steps + 1]
-
-        # Save truncated masking info with same stem as truncated trajectory
-        # e.g., problem7_truncated_3.trajectory -> problem7_truncated_3.masking_info
         save_masking_info(output_path.parent, output_path.stem, truncated_masking_info)
 
     return output_path
@@ -174,86 +188,110 @@ def format_mean_std(mean_val, std_val) -> str:
 
 
 def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_size: int,
-                    domain_ref_path: Path, testing_dir: Path, domain_name: str, bench_name: str) -> dict:
-    """Run a single fold experiment and return the result."""
-    print(f"[PID {os.getpid()}] Starting fold {fold}, traj_size={traj_size}")
-    # CV split
-    indices = list(range(n_problems))
-    random.seed(42 + fold)
-    random.shuffle(indices)
+                    domain_ref_path: Path, testing_dir: Path, domain_name: str, bench_name: str) -> List[dict]:
+    """Run a single fold experiment and return results (NOISY_PISAM and ROSAME)."""
+    print(f"[PID {os.getpid()}] Fold {fold+1}/{N_FOLDS}, size={traj_size}")
 
-    n_train = max(1, int(0.8 * n_problems))
-    if n_train >= n_problems:
-        n_train = n_problems - 1
+    fold_work_dir = testing_dir / f"work_fold{fold}_size{traj_size}"
+    fold_work_dir.mkdir(parents=True, exist_ok=True)
+    original_cwd = os.getcwd()
+    os.chdir(fold_work_dir)
 
-    train_idx = indices[:n_train]
-    test_idx = indices[n_train:]
+    try:
+        # CV split
+        indices = list(range(n_problems))
+        random.seed(42 + fold)
+        random.shuffle(indices)
+        n_train = max(1, min(int(0.8 * n_problems), n_problems - 1))
+        train_idx, test_idx = indices[:n_train], indices[n_train:]
 
-    train_problem_dirs = [problem_dirs[i] for i in train_idx]
-    test_problem_dirs = [problem_dirs[i] for i in test_idx]
+        train_problem_dirs = [problem_dirs[i] for i in train_idx]
+        test_problem_dirs = [problem_dirs[i] for i in test_idx]
 
-    # Select NUM_TRAJECTORIES random trajectories from training set
-    random.seed(42 + fold)  # Reset seed for consistent selection
-    selected_dirs = random.sample(train_problem_dirs, min(NUM_TRAJECTORIES, len(train_problem_dirs)))
+        # Select and use pre-generated truncated trajectories
+        random.seed(42 + fold)
+        selected_dirs = random.sample(train_problem_dirs, min(NUM_TRAJECTORIES, len(train_problem_dirs)))
 
-    # Get trajectory paths
-    selected_trajs = []
-    for prob_dir in selected_dirs:
-        traj_files = list(prob_dir.glob("*.trajectory"))
-        if traj_files:
-            # Filter out already truncated/processed files
-            traj_files = [f for f in traj_files if 'truncated' not in f.stem and 'final' not in f.stem and 'frame_axioms' not in f.stem]
-            if traj_files:
-                selected_trajs.append(traj_files[0])
+        truncated_trajs = []
+        for prob_dir in selected_dirs:
+            truncated_file = prob_dir / f"{prob_dir.name}_truncated_{traj_size}.trajectory"
+            if truncated_file.exists():
+                truncated_trajs.append(truncated_file)
 
-    # Truncate trajectories to traj_size
-    truncated_trajs = [truncate_trajectory(t, domain_ref_path, traj_size) for t in selected_trajs]
+        test_problem_paths = [str(list(d.glob("*.pddl"))[0]) for d in test_problem_dirs if list(d.glob("*.pddl"))]
 
-    print(f"\n--- Fold {fold + 1}/{N_FOLDS}, Traj Size {traj_size} ---")
-    print(f"Train: {len(train_problem_dirs)} problems | Test: {len(test_problem_dirs)} problems")
-    print(f"Selected {len(selected_trajs)} trajectories, truncated to {traj_size} steps")
+        # Run PISAM
+        pisam_model, final_obs, report = run_noisy_pisam_trial(
+            domain_ref_path, truncated_trajs, testing_dir, fold, traj_size)
 
-    # Run NOISY_PISAM
-    print(f"Running NOISY_PISAM...")
-    model, final_obs, report = run_noisy_pisam_trial(
-        domain_ref_path, truncated_trajs, testing_dir, fold, traj_size
-    )
+        temp_pisam_path = testing_dir / f'PISAM_{domain_name}_fold{fold}_size{traj_size}.pddl'
+        temp_pisam_path.write_text(pisam_model)
 
-    # Save model temporarily for evaluation
-    temp_model_path = f'NOISY_PISAM_{domain_name}_fold{fold}_size{traj_size}.pddl'
-    with open(temp_model_path, 'w') as f:
-        f.write(model)
+        pisam_metrics = evaluate_model(str(temp_pisam_path), domain_ref_path, test_problem_paths)
+        pisam_result = {
+            'domain': bench_name, 'algorithm': 'PISAM', 'fold': fold,
+            'traj_size': traj_size, 'problems_count': len(test_problem_paths),
+            **pisam_metrics
+        }
 
-    # Get test problem paths
-    test_problem_paths = []
-    for prob_dir in test_problem_dirs:
-        pddl_files = list(prob_dir.glob("*.pddl"))
-        if pddl_files:
-            test_problem_paths.append(str(pddl_files[0]))
+        # Run ROSAME with final observations
+        temp_rosame_dir = testing_dir / f"temp_rosame_fold{fold}_size{traj_size}"
+        temp_rosame_dir.mkdir(parents=True, exist_ok=True)
 
-    # Evaluate
-    metrics = evaluate_model(temp_model_path, domain_ref_path, test_problem_paths)
+        rosame_traj_paths = []
+        for obs, truncated_traj in zip(final_obs, truncated_trajs):
+            problem_name = truncated_traj.stem.split('_truncated_')[0]
+            masking_file = truncated_traj.parent / f"{truncated_traj.stem}.masking_info"
+            problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
 
-    result = {
-        'domain': bench_name,
-        'algorithm': 'NOISY_PISAM',
-        'fold': fold,
-        'traj_size': traj_size,
-        'problems_count': len(test_problem_paths),
-        **metrics
-    }
+            if not (masking_file.exists() and problem_file.exists()):
+                continue
 
-    # Clean up truncated files (both .trajectory and .masking_info)
-    for t in truncated_trajs:
-        if t.exists():
-            t.unlink()
-        # Also clean up corresponding masking_info file
-        masking_file = t.parent / f"{t.stem}.masking_info"
-        if masking_file.exists():
-            masking_file.unlink()
+            problem_dir = temp_rosame_dir / problem_name
+            problem_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"✓ Fold {fold + 1} completed for traj_size={traj_size}")
-    return result
+            traj_path = problem_dir / f"{problem_name}.trajectory"
+            observation_to_trajectory_file(obs, traj_path)
+            shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
+            shutil.copy(masking_file, problem_dir / f"{problem_name}.masking_info")
+            rosame_traj_paths.append(str(traj_path))
+
+        null_metrics = {k: None for k in ['precision_precs_pos', 'precision_precs_neg',
+                        'precision_eff_pos', 'precision_eff_neg', 'precision_overall',
+                        'recall_precs_pos', 'recall_precs_neg', 'recall_eff_pos',
+                        'recall_eff_neg', 'recall_overall', 'solving_ratio',
+                        'false_plans_ratio', 'unsolvable_ratio', 'timed_out']}
+
+        if rosame_traj_paths:
+            try:
+                rosame_model = PO_ROSAME().learn(str(domain_ref_path), rosame_traj_paths, use_problems=False)
+                if rosame_model and ":action" in rosame_model:
+                    temp_rosame_path = testing_dir / f'ROSAME_{domain_name}_fold{fold}_size{traj_size}.pddl'
+                    temp_rosame_path.write_text(rosame_model)
+                    rosame_metrics = evaluate_model(str(temp_rosame_path), domain_ref_path, test_problem_paths)
+                    temp_rosame_path.unlink()
+                else:
+                    raise ValueError("Invalid ROSAME model")
+            except Exception as e:
+                print(f"Warning: ROSAME failed: {e}")
+                rosame_metrics = null_metrics
+        else:
+            rosame_metrics = null_metrics
+
+        rosame_result = {
+            'domain': bench_name, 'algorithm': 'ROSAME', 'fold': fold,
+            'traj_size': traj_size, 'problems_count': len(test_problem_paths),
+            **rosame_metrics
+        }
+
+        # Cleanup
+        if temp_pisam_path.exists():
+            temp_pisam_path.unlink()
+
+        return [pisam_result, rosame_result]
+    finally:
+        # Always restore working directory
+        os.chdir(original_cwd)
 
 
 def generate_excel_report(all_results: List[dict], output_path: Path):
@@ -476,6 +514,9 @@ def main():
             print(f"CV folds: {N_FOLDS}")
             print(f"{'=' * 80}\n")
 
+            # Pre-generate all truncated trajectories before parallel execution
+            pre_generate_truncated_trajectories(problem_dirs, domain_ref_path, TRAJECTORY_SIZES)
+
             # IMPORTANT: Size first, then folds (so cheap computations finish first)
             for traj_size in TRAJECTORY_SIZES:
                 print(f"\n{'='*60}\nTRAJECTORY SIZE = {traj_size}\n{'='*60}")
@@ -496,8 +537,8 @@ def main():
                     fold_results = []
                     for future in as_completed(futures):
                         try:
-                            result = future.result()
-                            fold_results.append(result)
+                            results_list = future.result()  # Now returns list of [NOISY_PISAM, ROSAME]
+                            fold_results.extend(results_list)  # Flatten the list
                         except Exception as e:
                             print(f"ERROR in fold: {e}")
                             import traceback

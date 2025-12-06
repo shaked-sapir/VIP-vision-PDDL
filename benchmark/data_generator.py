@@ -59,7 +59,9 @@ def _generate_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int,
     start_index: int = 0,
-    use_planner: bool = False
+    use_planner: bool = False,
+    problem_start: int = None,
+    problem_end: int = None
 ) -> Path:
     """
     Generate trajectories for all problems in the domain.
@@ -74,6 +76,8 @@ def _generate_multi_problem_trajectories(
         num_steps: Total number of steps to generate per problem
         start_index: State index to start trajectory from (default: 0)
         use_planner: If True, uses FD planner; if False, uses random actions (default: False)
+        problem_start: First problem index to process (1-based, inclusive, default: None = all)
+        problem_end: Last problem index to process (1-based, inclusive, default: None = all)
 
     Returns:
         Path to trajectories directory
@@ -121,6 +125,14 @@ def _generate_multi_problem_trajectories(
     # Get all problem files
     problem_files = sorted(problems_dir.glob("*.pddl"))
     print(f"Found {len(problem_files)} problems in {problems_dir}")
+
+    # Filter by problem range if specified (1-based indexing, inclusive)
+    if problem_start is not None or problem_end is not None:
+        start_idx = problem_start if problem_start is not None else 0
+        end_idx = problem_end if problem_end is not None else len(problem_files)
+        problem_files = problem_files[start_idx:end_idx+1]
+        print(f"Filtered to problems {start_idx}-{min(end_idx, len(problem_files) + start_idx)} ({len(problem_files)} problems)")
+
     print(f"Gym environment: {gym_domain_name}")
     print()
 
@@ -466,7 +478,9 @@ def generate_blocks_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int = 100,
     start_index: int = 0,
-    use_planner: bool = False
+    use_planner: bool = False,
+    problem_start: int = None,
+    problem_end: int = None
 ) -> Path:
     """Generate trajectories for all blocksworld problems."""
     benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "blocksworld" / "blocksworld.pddl"
@@ -479,7 +493,9 @@ def generate_blocks_multi_problem_trajectories(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         start_index=start_index,
-        use_planner=use_planner
+        use_planner=use_planner,
+        problem_start=problem_start,
+        problem_end=problem_end
     )
 
 
@@ -526,7 +542,9 @@ def generate_npuzzle_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int = 100,
     start_index: int = 0,
-    use_planner: bool = False
+    use_planner: bool = False,
+    problem_start: int = None,
+    problem_end: int = None
 ) -> Path:
     """Generate trajectories for all n-puzzle problems."""
     benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "n_puzzle" / "n_puzzle.pddl"
@@ -539,7 +557,9 @@ def generate_npuzzle_multi_problem_trajectories(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         start_index=start_index,
-        use_planner=use_planner
+        use_planner=use_planner,
+        problem_start=problem_start,
+        problem_end=problem_end
     )
 
 
@@ -586,7 +606,9 @@ def generate_hanoi_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int = 100,
     start_index: int = 0,
-    use_planner: bool = False
+    use_planner: bool = False,
+    problem_start: int = None,
+    problem_end: int = None
 ) -> Path:
     """Generate trajectories for all hanoi problems."""
     benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "hanoi" / "hanoi.pddl"
@@ -599,7 +621,9 @@ def generate_hanoi_multi_problem_trajectories(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         start_index=start_index,
-        use_planner=use_planner
+        use_planner=use_planner,
+        problem_start=problem_start,
+        problem_end=problem_end
     )
 
 
@@ -646,7 +670,9 @@ def generate_hiking_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int = 100,
     start_index: int = 0,
-    use_planner: bool = False
+    use_planner: bool = False,
+    problem_start: int = None,
+    problem_end: int = None
 ) -> Path:
     """Generate trajectories for all hiking problems."""
     benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "hiking" / "hiking.pddl"
@@ -659,7 +685,9 @@ def generate_hiking_multi_problem_trajectories(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         start_index=start_index,
-        use_planner=use_planner
+        use_planner=use_planner,
+        problem_start=problem_start,
+        problem_end=problem_end
     )
 
 
@@ -706,7 +734,9 @@ def generate_maze_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int = 100,
     start_index: int = 0,
-    use_planner: bool = False
+    use_planner: bool = False,
+    problem_start: int = None,
+    problem_end: int = None
 ) -> Path:
     """Generate trajectories for all maze problems."""
     benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "maze" / "maze.pddl"
@@ -719,7 +749,9 @@ def generate_maze_multi_problem_trajectories(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         start_index=start_index,
-        use_planner=use_planner
+        use_planner=use_planner,
+        problem_start=problem_start,
+        problem_end=problem_end
     )
 
 
@@ -840,7 +872,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--domain",
         type=str,
-        default="hanoi",
+        default="maze",
         choices=["blocksworld", "npuzzle", "hanoi", "hiking", "maze"],
         help="Domain to generate data for (default: blocksworld)"
     )
@@ -878,6 +910,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Generate trajectories for all problems in the domain (ignores --problem and --trace-length)"
     )
+    parser.add_argument(
+        "--problem-start",
+        type=int,
+        default=None,
+        help="Start index for problem range (1-based, inclusive). Only used with --multi-problem. Example: --problem-start 1"
+    )
+    parser.add_argument(
+        "--problem-end",
+        type=int,
+        default=None,
+        help="End index for problem range (1-based, inclusive). Only used with --multi-problem. Example: --problem-end 10"
+    )
 
     args = parser.parse_args()
 
@@ -889,7 +933,9 @@ if __name__ == "__main__":
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
                 start_index=args.start_index,
-                use_planner=args.use_planner
+                use_planner=args.use_planner,
+                problem_start=args.problem_start,
+                problem_end=args.problem_end
             )
         else:
             rosame_dir, our_dirs = generate_blocks_training_data(
@@ -908,7 +954,9 @@ if __name__ == "__main__":
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
                 start_index=args.start_index,
-                use_planner=args.use_planner
+                use_planner=args.use_planner,
+                problem_start=args.problem_start,
+                problem_end=args.problem_end
             )
         else:
             rosame_dir, our_dirs = generate_npuzzle_training_data(
@@ -926,8 +974,10 @@ if __name__ == "__main__":
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
                 start_index=args.start_index,
-                use_planner=True
+                use_planner=True,
                 # use_planner=args.use_planner
+                problem_start=args.problem_start,
+                problem_end=args.problem_end
             )
         else:
             rosame_dir, our_dirs = generate_hanoi_training_data(
@@ -945,7 +995,9 @@ if __name__ == "__main__":
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
                 start_index=args.start_index,
-                use_planner=args.use_planner
+                use_planner=args.use_planner,
+                problem_start=args.problem_start,
+                problem_end=args.problem_end
             )
         else:
             rosame_dir, our_dirs = generate_hiking_training_data(
@@ -963,7 +1015,9 @@ if __name__ == "__main__":
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
                 start_index=args.start_index,
-                use_planner=args.use_planner
+                use_planner=True,
+                problem_start=args.problem_start,
+                problem_end=args.problem_end
             )
         else:
             rosame_dir, our_dirs = generate_maze_training_data(

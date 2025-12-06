@@ -29,7 +29,11 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
             "robot": "player-1",
             "doll": "doll"
         }
-        self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
+
+        gt_preds = self.extract_predicates_from_gt_state()
+        fewshot_preds = sorted([pred.replace("player", "robot") for pred in gt_preds])
+
+        self.fewshot_examples = [(init_state_image_path, fewshot_preds)]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""
@@ -42,6 +46,11 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
         locations = sorted(self.type_to_objects['location'])
 
         return confidence_system_prompt(locations)
+
+    @classmethod
+    def _get_user_instruction(cls) -> str:
+        base_instruction = super(LLMMazeFluentClassifier, cls)._get_user_instruction()
+        return f"{base_instruction}\nPay carefull attention to the blue robot location and to the bear location."
 
     def _alter_predicate_from_llm_to_problem(self, predicate: str) -> str:
         """Alters the predicate from LLM format to the problem format.

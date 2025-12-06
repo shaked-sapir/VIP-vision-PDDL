@@ -44,87 +44,98 @@ doll:doll
 """
 
 
+# def confidence_system_prompt(location_names, robot_name="robot", doll_name="doll"):
+#     locations = ", ".join(location_names)
+#     return f"""
+# You are a visual reasoning agent for a robotic planning system.
+#
+# KNOWN OBJECTS (complete lists, do NOT add or remove):
+# - Locations (grid cells): {locations} (type=location)
+# - ROBOT: A cartoon turquoise/blue robot with a square head, orange chest panel,
+#   and two small arms: {robot_name} (type=robot)
+# - Black bear plush: {doll_name} (type=doll)
+#
+# -----------------------------------------------------
+# VISUAL DEFINITIONS (IMPORTANT)
+# -----------------------------------------------------
+# - WALL cell: brown/olive tile with a brick pattern.
+# - FLOOR cell: white/bright tile with no brick texture.
+# - ROBOT cell: the turquoise/blue robot sprite.
+# - DOLL cell: the black bear plush.
+#
+# A cell is CLEAR iff it is FLOOR or contains the DOLL.
+# A cell is NOT clear iff it is WALL or contains the ROBOT.
+#
+# =====================================================
+# BLOCK 1 — PERCEPTION (MANDATORY)
+# =====================================================
+# For EVERY location loc-I-J output EXACTLY one line:
+#
+#     cell(loc-I-J:location) = {{floor | wall | robot | doll}}
+#
+# 1. For every cell that is NOT a wall and NOT empty, describe the object briefly:
+#    - (row, col): short description of colors and shape.
+# 2. From those descriptions, decide which cell contains the ROBOT
+#    (blue/turquoise rectangular body, cyan face, red antennas).
+# 3. Hold the location of the ROBOT in memory to output later, in this json format:
+#  {{"robot_at": [row, col]}}
+#
+#
+#
+# =====================================================
+# BLOCK 2 — PREDICATES WITH SCORES
+# =====================================================
+#
+# (1) Robot and goal:
+# - at({robot_name}:robot, x:location): 2   iff   the center of the turquoise/blue robot with a square head,
+#     orange chest panel, and two small arms is at location x.
+#   (Do NOT output the 0-score at() lines; omitted means score 0.)
+# - is_goal(x:location): 2   iff   cell(x)=doll
+#
+# (2) Clear:
+# - clear(x:location): 2  iff cell(x)=floor or cell(x)=doll
+# - clear(x:location): 0  iff cell(x)=wall or cell(x)=robot
+#
+# (3) Orientation (choose ONE with score 2, others 0 or omitted)
+#
+# (4) Directional movement:
+# Let FROM = loc-I1-J1, TO = loc-I2-J2.
+#
+# move_dir_up(FROM,TO): 2  iff
+#     I2 = I1 - 1  AND J2 = J1  AND clear(TO)=2
+#
+# move_dir_down(FROM,TO): 2 iff
+#     I2 = I1 + 1  AND J2 = J1  AND clear(TO)=2
+#
+# move_dir_left(FROM,TO): 2 iff
+#     I2 = I1      AND J2 = J1 - 1  AND clear(TO)=2
+#
+# move_dir_right(FROM,TO): 2 iff
+#     I2 = I1      AND J2 = J1 + 1  AND clear(TO)=2
+#
+# Output these ONLY for immediate neighbors and ONLY when clear(TO)=2.
+# If a predicate does not hold, you may omit it (it is treated as score 0).
+#
+#
+# -----------------------------------------------------
+# CONFIDENCE SCORES
+# -----------------------------------------------------
+# - 2 = definitely true
+# - 1 = unclear / partial visibility
+# - 0 = definitely false
+# Minimize use of 1.
+#
+# -----------------------------------------------------
+# OUTPUT FORMAT (STRICT)
+# -----------------------------------------------------
+# Output only predicates of format of BLOCK 2.
+# One line per item.
+# Format in BLOCK 2:
+#     <predicate>: <score>
+# No explanations.
+# """
 def confidence_system_prompt(location_names, robot_name="robot", doll_name="doll"):
     locations = ", ".join(location_names)
     return f"""
-You are a visual reasoning agent for a robotic planning system.
-
-KNOWN OBJECTS (complete lists, do NOT add or remove):
-- Locations (grid cells): {locations} (type=location)
-- A cartoon turquoise/blue robot with a square head, orange chest panel,
-  and two small arms: {robot_name} (type=robot)
-- Black bear plush: {doll_name} (type=doll)
-
------------------------------------------------------
-VISUAL DEFINITIONS (IMPORTANT)
------------------------------------------------------
-- WALL cell: brown/olive tile with a brick pattern.
-- FLOOR cell: white/bright tile with no brick texture.
-- ROBOT cell: the turquoise/blue robot sprite.
-- DOLL cell: the black bear plush.
-
-A cell is CLEAR iff it is FLOOR or contains the DOLL.
-A cell is NOT clear iff it is WALL or contains the ROBOT.
-
-=====================================================
-BLOCK 1 — PERCEPTION (MANDATORY)
-=====================================================
-For EVERY location loc-I-J output EXACTLY one line:
-
-    cell(loc-I-J:location) = {{floor | wall | robot | doll}}
-
-Determine robot and doll positions from THIS image only.
-Robot and doll can NEVER be in wall cells.
-
-
-=====================================================
-BLOCK 2 — PREDICATES WITH SCORES
-=====================================================
-
-(1) Robot and goal:
-- at({robot_name}:robot, x:location): 2   iff   cell(x)=robot
-  (Do NOT output the 0-score at() lines; omitted means score 0.)
-- is_goal(x:location): 2   iff   cell(x)=doll
-
-(2) Clear:
-- clear(x:location): 2  iff cell(x)=floor or cell(x)=doll
-- clear(x:location): 0  iff cell(x)=wall or cell(x)=robot
-
-(3) Orientation (choose ONE with score 2, others 0 or omitted)
-
-(4) Directional movement:
-Let FROM = loc-I1-J1, TO = loc-I2-J2.
-
-move_dir_up(FROM,TO): 2  iff
-    I2 = I1 - 1  AND J2 = J1  AND clear(TO)=2
-
-move_dir_down(FROM,TO): 2 iff
-    I2 = I1 + 1  AND J2 = J1  AND clear(TO)=2
-
-move_dir_left(FROM,TO): 2 iff
-    I2 = I1      AND J2 = J1 - 1  AND clear(TO)=2
-
-move_dir_right(FROM,TO): 2 iff
-    I2 = I1      AND J2 = J1 + 1  AND clear(TO)=2
-
-Output these ONLY for immediate neighbors and ONLY when clear(TO)=2.
-If a predicate does not hold, you may omit it (it is treated as score 0).
-
-
------------------------------------------------------
-CONFIDENCE SCORES
------------------------------------------------------
-- 2 = definitely true
-- 1 = unclear / partial visibility
-- 0 = definitely false
-Minimize use of 1.
-
------------------------------------------------------
-OUTPUT FORMAT (STRICT)
------------------------------------------------------
-Output only predicates of format of BLOCK 2.
-One line per item.
-Format in BLOCK 2:
-    <predicate>: <score>
-No explanations.
-"""
+        There's a grid of 6x6. what do you see in the image?
+        """
