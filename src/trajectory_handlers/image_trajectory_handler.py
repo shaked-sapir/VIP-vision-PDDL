@@ -11,6 +11,7 @@ from PIL import Image
 from matplotlib import pyplot as plt
 from pddlgym.core import _select_operator
 from pddlgym.structs import State, Literal
+from pddlgym_planners.ff import FF
 
 try:
     from pddlgym_planners.fd import FD
@@ -143,25 +144,27 @@ class ImageTrajectoryHandler(ABC):
 
         print(f"  Running PDDLGym to state {start_index} (without rendering)...")
         for i in range(start_index):
-            obs = self._sample_state_changing_action(obs)
-            if self.pddl_env._is_goal_reached(obs, {}):
+            obs, done, _ = self._sample_state_changing_action(obs)
+            if done:
                 raise ValueError(f"Goal reached at step {i}, cannot start from step {start_index}")
         print(f"  ✓ Reached state {start_index}, starting trajectory generation")
         return obs
 
-    def _sample_state_changing_action(self, obs: State) -> State:
-        """Samples a random action that changes the state."""
+    def _sample_state_changing_action(self, obs: State) -> tuple[State, bool, any]:
+        """Samples a random action that changes the state. Returns (new_state, done, action)."""
         new_obs = obs
+        done = False
+        action = None
         while new_obs == obs:
             try:
                 action = self.pddl_env.action_space.sample(obs)
                 env_temp = deepcopy(self.pddl_env)
                 new_obs, _, _, _, _ = env_temp.step(action)
                 _ = self.pddl_env.action_space.sample(new_obs)  # Validate state
-                new_obs, _, _, _, _ = self.pddl_env.step(action)
+                new_obs, _, done, _, _ = self.pddl_env.step(action)
             except Exception:
                 new_obs = obs  # Retry on failure
-        return new_obs
+        return new_obs, done, action
 
     def _generate_plan(self, obs: State, num_steps: int) -> List[Literal]:
         """Generates a plan using FD planner."""
@@ -169,11 +172,11 @@ class ImageTrajectoryHandler(ABC):
             raise RuntimeError("Planner mode requested but pddlgym_planners is not installed. "
                                "Install with: pip install pddlgym_planners")
 
-        print(f"  Using FD planner to generate solution...")
-        planner = FD()
+        print(f"  Using planner to generate solution...")
+        planner = FF()
 
         try:
-            plan = planner(self.pddl_env.domain, obs, timeout=10)
+            plan = planner(self.pddl_env.domain, obs, timeout=1200)
             print(f"  ✓ Planner found solution with {len(plan)} actions")
 
             if len(plan) > num_steps:
@@ -219,16 +222,15 @@ class ImageTrajectoryHandler(ABC):
 
         for i in range(1, num_steps + 1):
             prev_obs = obs
-            obs = self._sample_state_changing_action(obs)
+            obs, done, action = self._sample_state_changing_action(obs)
 
             self.create_image(images_output_path, i)
-            trajectory_step = self._create_trajectory_step(prev_obs,
-                                                          self.pddl_env.action_space.sample(prev_obs),
-                                                          i, obs)
+            trajectory_step = self._create_trajectory_step(prev_obs, action, i, obs)
             GT_trajectory.append(trajectory_step)
             ground_actions.append(trajectory_step.ground_action)
 
-            if self.pddl_env._is_goal_reached(obs, {}):
+            if done:
+                print(f"  ✓ Goal reached at step {i}")
                 break
 
         return GT_trajectory, ground_actions
@@ -288,7 +290,8 @@ class ImageTrajectoryHandler(ABC):
 
         # Process first state separately
         first_image_path = self.get_image_path_by_index(images_path, 0)
-        current_state_predicates = self.fluent_classifier.classify(first_image_path)
+        # current_state_predicates = self.fluent_classifier.classify(first_image_path)
+        current_state_predicates = {}
 
         # Process each transition
         for i, action in enumerate(ground_actions):

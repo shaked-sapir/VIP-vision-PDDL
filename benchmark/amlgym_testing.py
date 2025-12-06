@@ -1,29 +1,28 @@
-import csv
+import json
 import json
 import os
 import random
 import shutil
 from collections import defaultdict
+from concurrent.futures import as_completed, ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import List, Tuple, Dict
-from concurrent.futures import ThreadPoolExecutor, as_completed, ProcessPoolExecutor
 from threading import Lock
+from typing import List, Tuple, Dict
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
+from amlgym.algorithms import *
+from amlgym.benchmarks import *
+from amlgym.metrics import *
 from pddl_plus_parser.lisp_parsers import TrajectoryParser, DomainParser
 from pddl_plus_parser.models import Observation
-
-from amlgym.benchmarks import *
-from amlgym.algorithms import *
-from amlgym.metrics import *
 
 from benchmark.amlgym_models.NOISY_PISAM import NOISY_PISAM
 from benchmark.amlgym_models.PISAM import PISAM
 from benchmark.amlgym_models.PO_ROSAME import PO_ROSAME
-from src.utils.pddl import observation_to_trajectory_file
 from src.utils.masking import load_masking_info, save_masking_info
+from src.utils.pddl import observation_to_trajectory_file
 
 # =============================================================================
 # CONFIG & PATHS
@@ -37,15 +36,31 @@ evaluation_lock = Lock()
 
 experiment_data_dirs = {
     "blocksworld": ["multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner"],
+    "hanoi": ["multi_problem_06-12-2025T13:58:24__model=gpt-5.1__steps=100__planner"],
+    "n_puzzle_typed": ["multi_problem_06-12-2025T13:32:59__model=gpt-5.1__steps=100__planner"],
+    "maze": ["multi_problem_06-12-2025T13:08:39__model=gpt-5.1__steps=100__planner"],
 }
 
-domain_name_mappings = {'blocksworld': 'blocksworld'}
+domain_name_mappings = {
+    # 'blocksworld': 'blocksworld',
+    # 'hanoi': 'hanoi',
+    # 'n_puzzle_typed': 'npuzzle',
+    'maze': 'maze',
+}
 
-not_in_amlgym_domains = {
+domain_properties = {
     'blocksworld': {
         "domain_path": benchmark_path / 'domains' / 'blocksworld' / 'blocksworld.pddl',
-        "problems_paths": sorted(str(p) for p in (benchmark_path / 'domains' / 'blocksworld' / 'test_problems').glob("problem*.pddl"))
-    }
+    },
+    'hanoi': {
+        "domain_path": benchmark_path / 'domains' / 'hanoi' / 'hanoi.pddl',
+    },
+    'n_puzzle_typed': {
+        "domain_path": benchmark_path / 'domains' / 'n_puzzle' / 'n_puzzle.pddl',
+    },
+    'maze': {
+        "domain_path": benchmark_path / 'domains' / 'maze' / 'maze.pddl',
+    },
 }
 
 N_FOLDS = 5
@@ -82,8 +97,10 @@ def truncate_trajectory(traj_path: Path, domain_path: Path, max_steps: int) -> P
     """Truncate trajectory to max_steps. Skip if already exists."""
     output_path = traj_path.parent / f"{traj_path.stem}_truncated_{max_steps}.trajectory"
 
-    # Skip if already exists
-    if output_path.exists():
+    output_masking_path = traj_path.parent / f"{traj_path.stem}_truncated_{max_steps}.masking_info"
+
+    # Skip if both trajectory and masking_info already exist
+    if output_path.exists() and output_masking_path.exists():
         return output_path
 
     domain = DomainParser(domain_path).parse_domain()
@@ -93,16 +110,19 @@ def truncate_trajectory(traj_path: Path, domain_path: Path, max_steps: int) -> P
     if len(observation.components) > max_steps:
         observation.components = observation.components[:max_steps]
 
-    observation_to_trajectory_file(observation, output_path)
+    # Save truncated trajectory if it doesn't exist
+    if not output_path.exists():
+        observation_to_trajectory_file(observation, output_path)
 
-    # Truncate and save masking_info
-    problem_name = traj_path.stem.split('_truncated_')[0].split('_final')[0].split('_frame_axioms')[0]
-    masking_info_path = traj_path.parent / f"{problem_name}.masking_info"
+    # Truncate and save masking_info if it doesn't exist
+    if not output_masking_path.exists():
+        problem_name = traj_path.stem.split('_truncated_')[0].split('_final')[0].split('_frame_axioms')[0]
+        masking_info_path = traj_path.parent / f"{problem_name}.masking_info"
 
-    if masking_info_path.exists():
-        masking_info = load_masking_info(masking_info_path, domain)
-        truncated_masking_info = masking_info[:max_steps + 1]
-        save_masking_info(output_path.parent, output_path.stem, truncated_masking_info)
+        if masking_info_path.exists():
+            masking_info = load_masking_info(masking_info_path, domain)
+            truncated_masking_info = masking_info[:max_steps + 1]
+            save_masking_info(output_path.parent, output_path.stem, truncated_masking_info)
 
     return output_path
 
@@ -153,12 +173,45 @@ def run_noisy_pisam_trial(domain_path: Path, trajectories: List[Path], testing_d
 
 
 def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[str]) -> dict:
-    """Evaluate a learned model. Thread-safe due to AMLGym SimpleDomainReader constraints."""
-    # Use lock to prevent concurrent access to domain file (SimpleDomainReader creates _clean files)
-    with evaluation_lock:
-        precision = syntactic_precision(model_path, str(domain_ref_path))
-        recall = syntactic_recall(model_path, str(domain_ref_path))
-        problem_solving_result = problem_solving(model_path, str(domain_ref_path), test_problems, timeout=60)
+    """Evaluate a learned model. Handles AMLGym SimpleDomainReader race conditions."""
+    # NOTE: evaluation_lock is a threading lock, but we use ProcessPoolExecutor,
+    # so it doesn't prevent race conditions across processes.
+
+    import time
+    import random
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            # Add small random delay to reduce collision probability
+            if attempt > 0:
+                time.sleep(random.uniform(0.1, 0.5))
+
+            # Run all evaluations together - if any fail, retry all
+            precision = syntactic_precision(model_path, str(domain_ref_path))
+            recall = syntactic_recall(model_path, str(domain_ref_path))
+            problem_solving_result = problem_solving(model_path, str(domain_ref_path), test_problems, timeout=60)
+
+            # Success - break out of retry loop
+            break
+
+        except (FileNotFoundError, ValueError, IndexError) as e:
+            # Race condition with SimpleDomainReader
+            if attempt < max_retries - 1:
+                # Clean up potentially corrupted _clean file
+                clean_file = f"{domain_ref_path}_clean"
+                try:
+                    if Path(clean_file).exists():
+                        Path(clean_file).unlink()
+                except:
+                    pass
+                continue
+            else:
+                # Final attempt failed - return null metrics
+                print(f"Warning: Evaluation failed after {max_retries} attempts: {e}")
+                precision = None
+                recall = None
+                problem_solving_result = None
 
     return {
         'precision_precs_pos': precision.get('precs_pos') if isinstance(precision, dict) else None,
@@ -182,14 +235,24 @@ def format_mean_std(mean_val, std_val) -> str:
     """Format value as mean±std."""
     if mean_val is None or pd.isna(mean_val):
         return ""
+
+    # Handle non-numeric values
+    if isinstance(mean_val, str):
+        return mean_val
+
     if std_val is None or pd.isna(std_val):
         return f"{mean_val:.3f}"
+
+    # Handle non-numeric std_val
+    if isinstance(std_val, str):
+        return f"{mean_val:.3f}"
+
     return f"{mean_val:.3f}±{std_val:.3f}"
 
 
 def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_size: int,
-                    domain_ref_path: Path, testing_dir: Path, domain_name: str, bench_name: str) -> List[dict]:
-    """Run a single fold experiment and return results (NOISY_PISAM and ROSAME)."""
+                    domain_ref_path: Path, testing_dir: Path, bench_name: str) -> List[dict]:
+    """Run a single fold experiment and return 4 results: unclean PISAM, unclean ROSAME, cleaned PISAM, cleaned ROSAME."""
     print(f"[PID {os.getpid()}] Fold {fold+1}/{N_FOLDS}, size={traj_size}")
 
     fold_work_dir = testing_dir / f"work_fold{fold}_size{traj_size}"
@@ -220,17 +283,96 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
 
         test_problem_paths = [str(list(d.glob("*.pddl"))[0]) for d in test_problem_dirs if list(d.glob("*.pddl"))]
 
-        # Run PISAM
+        null_metrics = {k: None for k in ['precision_precs_pos', 'precision_precs_neg',
+                        'precision_eff_pos', 'precision_eff_neg', 'precision_overall',
+                        'recall_precs_pos', 'recall_precs_neg', 'recall_eff_pos',
+                        'recall_eff_neg', 'recall_overall', 'solving_ratio',
+                        'false_plans_ratio', 'unsolvable_ratio', 'timed_out']}
+
+        # ========================================================================
+        # PHASE 1: UNCLEAN (learning on original truncated trajectories)
+        # ========================================================================
+        print(f"  Phase 1: Learning on unclean trajectories...")
+
+        # Run base PISAM (no denoising) on truncated trajectories
+        pisam_unclean = PISAM()
+        pisam_unclean_model = pisam_unclean.learn(str(domain_ref_path), [str(t) for t in truncated_trajs])
+
+        temp_pisam_unclean_path = testing_dir / f'PISAM_unclean_{bench_name}_fold{fold}_size{traj_size}.pddl'
+        temp_pisam_unclean_path.write_text(pisam_unclean_model)
+
+        pisam_unclean_metrics = evaluate_model(str(temp_pisam_unclean_path), domain_ref_path, test_problem_paths)
+        unclean_pisam_result = {
+            'domain': bench_name, 'algorithm': 'PISAM', 'fold': fold,
+            'traj_size': traj_size, 'problems_count': len(test_problem_paths),
+            '_internal_phase': 'unclean',
+            **pisam_unclean_metrics
+        }
+        temp_pisam_unclean_path.unlink()
+
+        # Run ROSAME on original truncated trajectories
+        temp_rosame_unclean_dir = testing_dir / f"temp_rosame_unclean_fold{fold}_size{traj_size}"
+        temp_rosame_unclean_dir.mkdir(parents=True, exist_ok=True)
+
+        rosame_unclean_traj_paths = []
+        for truncated_traj in truncated_trajs:
+            problem_name = truncated_traj.stem.split('_truncated_')[0]
+            masking_file = truncated_traj.parent / f"{truncated_traj.stem}.masking_info"
+            problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
+
+            if not (masking_file.exists() and problem_file.exists()):
+                continue
+
+            problem_dir = temp_rosame_unclean_dir / problem_name
+            problem_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy the truncated trajectory itself
+            traj_path = problem_dir / f"{problem_name}.trajectory"
+            shutil.copy(truncated_traj, traj_path)
+            shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
+            shutil.copy(masking_file, problem_dir / f"{problem_name}.masking_info")
+            rosame_unclean_traj_paths.append(str(traj_path))
+
+        if rosame_unclean_traj_paths:
+            try:
+                rosame_unclean_model = PO_ROSAME().learn(str(domain_ref_path), rosame_unclean_traj_paths, use_problems=False)
+                if rosame_unclean_model and ":action" in rosame_unclean_model:
+                    temp_rosame_unclean_path = testing_dir / f'ROSAME_unclean_{bench_name}_fold{fold}_size{traj_size}.pddl'
+                    temp_rosame_unclean_path.write_text(rosame_unclean_model)
+                    rosame_unclean_metrics = evaluate_model(str(temp_rosame_unclean_path), domain_ref_path, test_problem_paths)
+                    temp_rosame_unclean_path.unlink()
+                else:
+                    raise ValueError("Invalid ROSAME model")
+            except Exception as e:
+                print(f"  Warning: ROSAME (unclean) failed: {e}")
+                rosame_unclean_metrics = null_metrics
+        else:
+            rosame_unclean_metrics = null_metrics
+
+        unclean_rosame_result = {
+            'domain': bench_name, 'algorithm': 'ROSAME', 'fold': fold,
+            'traj_size': traj_size, 'problems_count': len(test_problem_paths),
+            '_internal_phase': 'unclean',
+            **rosame_unclean_metrics
+        }
+
+        # ========================================================================
+        # PHASE 2: CLEANED (learning on NOISY_PISAM denoised trajectories)
+        # ========================================================================
+        print(f"  Phase 2: Learning on cleaned trajectories...")
+
+        # Run NOISY_PISAM
         pisam_model, final_obs, report = run_noisy_pisam_trial(
             domain_ref_path, truncated_trajs, testing_dir, fold, traj_size)
 
-        temp_pisam_path = testing_dir / f'PISAM_{domain_name}_fold{fold}_size{traj_size}.pddl'
+        temp_pisam_path = testing_dir / f'PISAM_{bench_name}_fold{fold}_size{traj_size}.pddl'
         temp_pisam_path.write_text(pisam_model)
 
         pisam_metrics = evaluate_model(str(temp_pisam_path), domain_ref_path, test_problem_paths)
-        pisam_result = {
+        cleaned_pisam_result = {
             'domain': bench_name, 'algorithm': 'PISAM', 'fold': fold,
             'traj_size': traj_size, 'problems_count': len(test_problem_paths),
+            '_internal_phase': 'cleaned',
             **pisam_metrics
         }
 
@@ -247,40 +389,54 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
             if not (masking_file.exists() and problem_file.exists()):
                 continue
 
+            # Load original masking info and adjust to final observation length
+            domain = DomainParser(domain_ref_path).parse_domain()
+            original_masking_info = load_masking_info(masking_file, domain)
+
+            # Final observation may have different length than truncated trajectory
+            final_obs_length = len(obs.components)
+
+            # Adjust masking info to match final observation length
+            if len(original_masking_info) - 1 > final_obs_length:
+                # Truncate if final obs is shorter
+                adjusted_masking_info = original_masking_info[:final_obs_length + 1]
+            elif len(original_masking_info) - 1 < final_obs_length:
+                # Extend with last masking state if final obs is longer
+                adjusted_masking_info = original_masking_info + [original_masking_info[-1]] * (final_obs_length - (len(original_masking_info) - 1))
+            else:
+                adjusted_masking_info = original_masking_info
+
             problem_dir = temp_rosame_dir / problem_name
             problem_dir.mkdir(parents=True, exist_ok=True)
 
             traj_path = problem_dir / f"{problem_name}.trajectory"
             observation_to_trajectory_file(obs, traj_path)
             shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
-            shutil.copy(masking_file, problem_dir / f"{problem_name}.masking_info")
-            rosame_traj_paths.append(str(traj_path))
 
-        null_metrics = {k: None for k in ['precision_precs_pos', 'precision_precs_neg',
-                        'precision_eff_pos', 'precision_eff_neg', 'precision_overall',
-                        'recall_precs_pos', 'recall_precs_neg', 'recall_eff_pos',
-                        'recall_eff_neg', 'recall_overall', 'solving_ratio',
-                        'false_plans_ratio', 'unsolvable_ratio', 'timed_out']}
+            # Save adjusted masking info
+            save_masking_info(problem_dir, problem_name, adjusted_masking_info)
+            rosame_traj_paths.append(str(traj_path))
 
         if rosame_traj_paths:
             try:
                 rosame_model = PO_ROSAME().learn(str(domain_ref_path), rosame_traj_paths, use_problems=False)
                 if rosame_model and ":action" in rosame_model:
-                    temp_rosame_path = testing_dir / f'ROSAME_{domain_name}_fold{fold}_size{traj_size}.pddl'
+                    temp_rosame_path = testing_dir / f'ROSAME_{bench_name}_fold{fold}_size{traj_size}.pddl'
                     temp_rosame_path.write_text(rosame_model)
                     rosame_metrics = evaluate_model(str(temp_rosame_path), domain_ref_path, test_problem_paths)
                     temp_rosame_path.unlink()
                 else:
                     raise ValueError("Invalid ROSAME model")
             except Exception as e:
-                print(f"Warning: ROSAME failed: {e}")
+                print(f"  Warning: ROSAME (cleaned) failed: {e}")
                 rosame_metrics = null_metrics
         else:
             rosame_metrics = null_metrics
 
-        rosame_result = {
+        cleaned_rosame_result = {
             'domain': bench_name, 'algorithm': 'ROSAME', 'fold': fold,
             'traj_size': traj_size, 'problems_count': len(test_problem_paths),
+            '_internal_phase': 'cleaned',
             **rosame_metrics
         }
 
@@ -288,15 +444,15 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
         if temp_pisam_path.exists():
             temp_pisam_path.unlink()
 
-        return [pisam_result, rosame_result]
+        return [unclean_pisam_result, unclean_rosame_result, cleaned_pisam_result, cleaned_rosame_result]
     finally:
         # Always restore working directory
         os.chdir(original_cwd)
 
 
-def generate_excel_report(all_results: List[dict], output_path: Path):
-    """Generate Excel report with aggregated results."""
-    if not all_results:
+def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dict], output_path: Path):
+    """Generate Excel report with aggregated results for both unclean and cleaned trajectories."""
+    if not unclean_results and not cleaned_results:
         return
 
     # Define metric groups for Excel table structure
@@ -304,28 +460,59 @@ def generate_excel_report(all_results: List[dict], output_path: Path):
     recall_metrics = ["recall_precs_pos", "recall_precs_neg", "recall_eff_pos", "recall_eff_neg", "recall_overall"]
     problem_metrics = ["problems_count", "solving_ratio", "false_plans_ratio", "unsolvable_ratio", "timed_out"]
 
-    df_all = pd.DataFrame(all_results)
-    grouped = df_all.groupby(["domain", "algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
+    # Process both result sets and combine with phase labels
+    all_results_with_phase = []
 
-    # Flatten columns
-    flat_cols = []
-    for col in grouped.columns:
-        if isinstance(col, tuple):
-            base, stat = col
-            flat_cols.append(base if stat == "" else f"{base}_{stat}")
-        else:
-            flat_cols.append(col)
-    grouped.columns = flat_cols
+    if unclean_results:
+        df_unclean = pd.DataFrame(unclean_results)
+        grouped_unclean = df_unclean.groupby(["domain", "algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
 
-    df_avg = grouped[["domain", "algorithm", "traj_size"]].copy()
-    for m in metric_cols:
-        df_avg[m] = grouped[f"{m}_mean"]
-        df_avg[f"{m}_std"] = grouped[f"{m}_std"]
+        flat_cols = []
+        for col in grouped_unclean.columns:
+            if isinstance(col, tuple):
+                base, stat = col
+                flat_cols.append(base if stat == "" else f"{base}_{stat}")
+            else:
+                flat_cols.append(col)
+        grouped_unclean.columns = flat_cols
 
-    # Group by trajectory size
-    by_size = defaultdict(list)
+        df_avg_unclean = grouped_unclean[["domain", "algorithm", "traj_size"]].copy()
+        for m in metric_cols:
+            df_avg_unclean[m] = grouped_unclean[f"{m}_mean"]
+            df_avg_unclean[f"{m}_std"] = grouped_unclean[f"{m}_std"]
+        df_avg_unclean["_phase"] = "unclean"
+
+        all_results_with_phase.append(df_avg_unclean)
+
+    if cleaned_results:
+        df_cleaned = pd.DataFrame(cleaned_results)
+        grouped_cleaned = df_cleaned.groupby(["domain", "algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
+
+        flat_cols = []
+        for col in grouped_cleaned.columns:
+            if isinstance(col, tuple):
+                base, stat = col
+                flat_cols.append(base if stat == "" else f"{base}_{stat}")
+            else:
+                flat_cols.append(col)
+        grouped_cleaned.columns = flat_cols
+
+        df_avg_cleaned = grouped_cleaned[["domain", "algorithm", "traj_size"]].copy()
+        for m in metric_cols:
+            df_avg_cleaned[m] = grouped_cleaned[f"{m}_mean"]
+            df_avg_cleaned[f"{m}_std"] = grouped_cleaned[f"{m}_std"]
+        df_avg_cleaned["_phase"] = "cleaned"
+
+        all_results_with_phase.append(df_avg_cleaned)
+
+    df_avg = pd.concat(all_results_with_phase, ignore_index=True)
+
+    # Group by (trajectory size, phase)
+    by_size_phase = defaultdict(list)
     for _, row in df_avg.iterrows():
-        by_size[str(int(row["traj_size"]))].append(row.to_dict())
+        phase = row["_phase"]
+        size_key = f"{int(row['traj_size'])}__{'unclean' if phase == 'unclean' else ''}"
+        by_size_phase[size_key].append(row.to_dict())
 
     def clean_excel_value(v):
         if v is None or pd.isna(v):
@@ -340,9 +527,21 @@ def generate_excel_report(all_results: List[dict], output_path: Path):
         thick_left = workbook.add_format({"border": 1, "left": 2})
         thick_right = workbook.add_format({"border": 1, "right": 2})
 
-        for traj_size in sorted(by_size.keys(), key=lambda x: int(x)):
-            results = by_size[traj_size]
-            sheet_name = f"size={traj_size}"
+        # Sort sheet names: size=1__unclean, size=1, size=3__unclean, size=3, ...
+        def sort_key(key):
+            parts = key.split('__')
+            size = int(parts[0])
+            phase = 0 if len(parts) > 1 and parts[1] == 'unclean' else 1
+            return (size, phase)
+
+        for size_phase_key in sorted(by_size_phase.keys(), key=sort_key):
+            results = by_size_phase[size_phase_key]
+            # Sheet name: "size=1__unclean" or "size=1" (for cleaned)
+            if size_phase_key.endswith('__unclean'):
+                sheet_name = f"size={size_phase_key}"
+            else:
+                sheet_name = f"size={size_phase_key.split('__')[0]}"  # Remove trailing "__"
+
             sheet = workbook.add_worksheet(sheet_name)
             writer.sheets[sheet_name] = sheet
 
@@ -485,15 +684,104 @@ def generate_excel_report(all_results: List[dict], output_path: Path):
             prob_first, prob_last, prob_last_col = write_prob_table(start_row=prob_start)
 
 
+def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plots_dir: Path):
+    """Generate 6 plots comparing unclean vs cleaned trajectories."""
+    plots_dir.mkdir(exist_ok=True)
+
+    def plot_metric_vs_size(df, metric_key, metric_title, save_path, phase_label):
+        """Plot metric vs trajectory size with error bars."""
+        if df.empty:
+            return
+
+        plt.figure(figsize=(8, 5))
+
+        algorithms = sorted(df["algorithm"].unique())
+        for algo in algorithms:
+            sub = df[df["algorithm"] == algo].sort_values("traj_size")
+            x = sub["traj_size"]
+            y = sub[metric_key]
+            yerr = sub[f"{metric_key}_std"] if f"{metric_key}_std" in sub.columns else None
+
+            plt.errorbar(x, y, yerr=yerr, marker="o", capsize=4, label=algo)
+
+        plt.title(f"{metric_title} vs Trajectory Size ({phase_label})")
+        plt.xlabel("Trajectory Size (steps)")
+        plt.ylabel(metric_title)
+
+        # Set x-axis ticks: bins of 5 (0, 5, 10, ..., 30)
+        plt.xticks([0, 5, 10, 15, 20, 25, 30])
+
+        # Set y-axis ticks: bins of 0.1 (0, 0.1, ..., 1.0)
+        plt.yticks([0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+
+        plt.grid(True, linestyle="--", alpha=0.5)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(save_path)
+        plt.close()
+
+    # Process unclean results
+    if unclean_results:
+        df_unclean = pd.DataFrame(unclean_results)
+        grouped_unclean = df_unclean.groupby(["domain", "algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
+
+        flat_cols = []
+        for col in grouped_unclean.columns:
+            if isinstance(col, tuple):
+                base, stat = col
+                flat_cols.append(base if stat == "" else f"{base}_{stat}")
+            else:
+                flat_cols.append(col)
+        grouped_unclean.columns = flat_cols
+
+        df_avg_unclean = grouped_unclean[["domain", "algorithm", "traj_size"]].copy()
+        for m in metric_cols:
+            df_avg_unclean[m] = grouped_unclean[f"{m}_mean"]
+            df_avg_unclean[f"{m}_std"] = grouped_unclean[f"{m}_std"]
+
+        plot_metric_vs_size(df_avg_unclean, "solving_ratio", "Solving Ratio",
+                           plots_dir / "solving_ratio_vs_traj_size_unclean.png", "Unclean")
+        plot_metric_vs_size(df_avg_unclean, "false_plans_ratio", "False Plan Ratio",
+                           plots_dir / "false_plans_ratio_vs_traj_size_unclean.png", "Unclean")
+        plot_metric_vs_size(df_avg_unclean, "unsolvable_ratio", "Unsolvable Ratio",
+                           plots_dir / "unsolvable_ratio_vs_traj_size_unclean.png", "Unclean")
+
+    # Process cleaned results
+    if cleaned_results:
+        df_cleaned = pd.DataFrame(cleaned_results)
+        grouped_cleaned = df_cleaned.groupby(["domain", "algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
+
+        flat_cols = []
+        for col in grouped_cleaned.columns:
+            if isinstance(col, tuple):
+                base, stat = col
+                flat_cols.append(base if stat == "" else f"{base}_{stat}")
+            else:
+                flat_cols.append(col)
+        grouped_cleaned.columns = flat_cols
+
+        df_avg_cleaned = grouped_cleaned[["domain", "algorithm", "traj_size"]].copy()
+        for m in metric_cols:
+            df_avg_cleaned[m] = grouped_cleaned[f"{m}_mean"]
+            df_avg_cleaned[f"{m}_std"] = grouped_cleaned[f"{m}_std"]
+
+        plot_metric_vs_size(df_avg_cleaned, "solving_ratio", "Solving Ratio",
+                           plots_dir / "solving_ratio_vs_traj_size.png", "Cleaned")
+        plot_metric_vs_size(df_avg_cleaned, "false_plans_ratio", "False Plan Ratio",
+                           plots_dir / "false_plans_ratio_vs_traj_size.png", "Cleaned")
+        plot_metric_vs_size(df_avg_cleaned, "unsolvable_ratio", "Unsolvable Ratio",
+                           plots_dir / "unsolvable_ratio_vs_traj_size.png", "Cleaned")
+
+
 # =============================================================================
 # MAIN EXPERIMENT LOOP
 # =============================================================================
 def main():
-    all_results = []
+    unclean_results = []
+    cleaned_results = []
 
     for domain_name, bench_name in domain_name_mappings.items():
-        domain_ref_path = not_in_amlgym_domains[domain_name]["domain_path"]
-        test_problems = not_in_amlgym_domains[domain_name]["problems_paths"]
+        domain_ref_path = domain_properties[domain_name]["domain_path"]
 
         for dir_name in experiment_data_dirs[domain_name]:
             data_dir = benchmark_path / 'data' / domain_name / dir_name
@@ -505,7 +793,7 @@ def main():
             n_problems = len(problem_dirs)
 
             if n_problems < 2:
-                raise ValueError(f"Domain {domain_name} has too few problems ({n_problems}) for 80/20 CV.")
+                raise ValueError(f"Domain {bench_name} has too few problems ({n_problems}) for 80/20 CV.")
 
             print(f"\n{'=' * 80}")
             print(f"Domain: {bench_name} | data dir: {dir_name}")
@@ -529,30 +817,37 @@ def main():
                         future = executor.submit(
                             run_single_fold,
                             fold, problem_dirs, n_problems, traj_size,
-                            domain_ref_path, testing_dir, domain_name, bench_name
+                            domain_ref_path, testing_dir, bench_name
                         )
                         futures.append(future)
 
                     # Wait for all folds to complete and collect results
-                    fold_results = []
                     for future in as_completed(futures):
                         try:
-                            results_list = future.result()  # Now returns list of [NOISY_PISAM, ROSAME]
-                            fold_results.extend(results_list)  # Flatten the list
+                            results_list = future.result()  # Returns 4 results: [unclean_pisam, unclean_rosame, cleaned_pisam, cleaned_rosame]
+
+                            # Separate by phase and remove internal marker
+                            for result in results_list:
+                                phase = result.pop('_internal_phase')
+                                if phase == 'unclean':
+                                    unclean_results.append(result)
+                                else:  # phase == 'cleaned'
+                                    cleaned_results.append(result)
                         except Exception as e:
                             print(f"ERROR in fold: {e}")
                             import traceback
                             traceback.print_exc()
 
-                # Add all results from this trajectory size
-                all_results.extend(fold_results)
+                # Write TWO separate CSV files after all folds complete
+                csv_unclean = benchmark_path / f"results_{bench_name}_unclean.csv"
+                csv_cleaned = benchmark_path / f"results_{bench_name}.csv"
 
-                # Write results to CSV after all folds complete
-                csv_path = benchmark_path / f"results_{domain_name}.csv"
-                df_results = pd.DataFrame(all_results)
-                df_results.to_csv(csv_path, index=False)
+                pd.DataFrame(unclean_results).to_csv(csv_unclean, index=False)
+                pd.DataFrame(cleaned_results).to_csv(csv_cleaned, index=False)
+
                 print(f"\n✓ All folds for traj_size={traj_size} completed")
-                print(f"✓ Results written to {csv_path}")
+                print(f"✓ Unclean results written to {csv_unclean}")
+                print(f"✓ Cleaned results written to {csv_cleaned}")
 
                 # Generate Excel report after each trajectory size completes
                 print(f"\n{'='*60}")
@@ -561,79 +856,28 @@ def main():
 
                 timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
                 xlsx_path = benchmark_path / f"benchmark_results_{timestamp}.xlsx"
-                generate_excel_report(all_results, xlsx_path)
+                generate_excel_report(unclean_results, cleaned_results, xlsx_path)
                 print(f"✓ Excel report saved to: {xlsx_path}")
-                print(f"  Sheets completed so far: {sorted(set(r['traj_size'] for r in all_results))}")
+                completed_sizes = sorted(set(r['traj_size'] for r in unclean_results))
+                print(f"  Sheets completed so far: {[f'{s}__unclean' for s in completed_sizes] + [str(s) for s in completed_sizes]}")
+
+                # Generate plots after each trajectory size
+                plots_dir = data_dir / "plots"
+                generate_plots(unclean_results, cleaned_results, plots_dir)
+                print(f"✓ Plots updated with results up to size={traj_size}")
 
     # =============================================================================
-    # GENERATE FINAL PLOTS
+    # FINAL SUMMARY
     # =============================================================================
-
-    print("\n" + "=" * 80)
-    print("GENERATING FINAL PLOTS")
-    print("=" * 80)
-
-    # Aggregate for plotting
-    df_all = pd.DataFrame(all_results)
-    grouped = df_all.groupby(["domain", "algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
-
-    flat_cols = []
-    for col in grouped.columns:
-        if isinstance(col, tuple):
-            base, stat = col
-            flat_cols.append(base if stat == "" else f"{base}_{stat}")
-        else:
-            flat_cols.append(col)
-    grouped.columns = flat_cols
-
-    df_avg = grouped[["domain", "algorithm", "traj_size"]].copy()
-    for m in metric_cols:
-        df_avg[m] = grouped[f"{m}_mean"]
-        df_avg[f"{m}_std"] = grouped[f"{m}_std"]
-
-    # =============================================================================
-    # PLOTTING
-    # =============================================================================
-
-    print("\n" + "=" * 80)
-    print("GENERATING PLOTS")
-    print("=" * 80)
-
-    plots_dir = benchmark_path / "plots"
-    plots_dir.mkdir(exist_ok=True)
-
-    def plot_metric_vs_size(df, metric_key, metric_title, save_dir):
-        """Plot metric vs trajectory size with error bars."""
-        plt.figure(figsize=(8, 5))
-
-        algorithms = sorted(df["algorithm"].unique())
-        for algo in algorithms:
-            sub = df[df["algorithm"] == algo].sort_values("traj_size")
-            x = sub["traj_size"]
-            y = sub[metric_key]
-            yerr = sub[f"{metric_key}_std"] if f"{metric_key}_std" in sub.columns else None
-
-            plt.errorbar(x, y, yerr=yerr, marker="o", capsize=4, label=algo)
-
-        plt.title(f"{metric_title} vs Trajectory Size")
-        plt.xlabel("Trajectory Size (steps)")
-        plt.ylabel(metric_title)
-        plt.grid(True, linestyle="--", alpha=0.5)
-        plt.legend()
-        plt.tight_layout()
-
-        save_path = Path(save_dir) / f"{metric_key}_vs_traj_size.png"
-        plt.savefig(save_path)
-        print(f"✓ Saved plot: {save_path}")
-        plt.close()
-
-    plot_metric_vs_size(df_avg, "solving_ratio", "Solving Ratio", plots_dir)
-    plot_metric_vs_size(df_avg, "false_plans_ratio", "False Plan Ratio", plots_dir)
-    plot_metric_vs_size(df_avg, "unsolvable_ratio", "Unsolvable Ratio", plots_dir)
 
     print("\n" + "=" * 80)
     print("ALL EXPERIMENTS COMPLETED")
     print("=" * 80)
+    print(f"\nTotal unclean results: {len(unclean_results)}")
+    print(f"Total cleaned results: {len(cleaned_results)}")
+    print(f"\nFinal plots saved to: {data_dir / 'plots'}")
+    print(f"Final Excel report: {xlsx_path}")
+    print(f"CSV files: {csv_unclean}, {csv_cleaned}")
 
 if __name__ == "__main__":
     main()

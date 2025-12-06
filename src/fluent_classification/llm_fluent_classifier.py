@@ -184,7 +184,7 @@ class LLMFluentClassifier(FluentClassifier, ABC):
         response = self.openai_client.chat.completions.create(
             model=self.model,
             temperature=temperature,
-            messages=messages,
+            messages=messages
         )
 
         text = response.choices[0].message.content.strip()

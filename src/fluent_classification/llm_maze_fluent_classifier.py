@@ -31,7 +31,7 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
         }
 
         gt_preds = self.extract_predicates_from_gt_state()
-        fewshot_preds = sorted([pred.replace("player", "robot") for pred in gt_preds])
+        fewshot_preds = sorted([f"{pred}: 2".replace("player", "robot") for pred in gt_preds])
 
         self.fewshot_examples = [(init_state_image_path, fewshot_preds)]
 

@@ -62,7 +62,7 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
                 pred = pred.replace("on", "on-peg")
             elif "on(" in pred and "peg" not in pred:
                 pred = pred.replace("on", "on-disc")
-            updated_preds.append(pred)
+            updated_preds.append(f"{pred}: 2")
 
         self.fewshot_examples = [(init_state_image_path, updated_preds)]
 

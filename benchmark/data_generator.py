@@ -872,7 +872,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--domain",
         type=str,
-        default="maze",
+        default="npuzzle",
         choices=["blocksworld", "npuzzle", "hanoi", "hiking", "maze"],
         help="Domain to generate data for (default: blocksworld)"
     )
@@ -891,7 +891,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--problem",
         type=str,
-        default="problem0",
+        default="problem4",
         help="Problem name to use from PDDLGym (default: problem7 for blocksworld, eight01x for npuzzle, problem0 for hanoi/maze, problem2 for hiking)"
     )
     parser.add_argument(
@@ -965,7 +965,7 @@ if __name__ == "__main__":
                 problem_name=args.problem,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
-                use_planner=args.use_planner
+                use_planner=True
             )
             print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "hanoi":
@@ -986,7 +986,7 @@ if __name__ == "__main__":
                 problem_name=args.problem,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
-                use_planner=args.use_planner
+                use_planner=True
             )
             print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "hiking":
