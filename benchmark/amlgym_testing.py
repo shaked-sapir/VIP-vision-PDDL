@@ -42,10 +42,10 @@ experiment_data_dirs = {
 }
 
 domain_name_mappings = {
-    # 'blocksworld': 'blocksworld',
+    'blocksworld': 'blocksworld',
     # 'hanoi': 'hanoi',
     # 'n_puzzle_typed': 'npuzzle',
-    'maze': 'maze',
+    # 'maze': 'maze',
 }
 
 domain_properties = {

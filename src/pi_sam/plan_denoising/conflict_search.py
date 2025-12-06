@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, Set, Tuple, List, Sequence, Optional
 from copy import deepcopy, copy
@@ -17,12 +18,21 @@ from src.pi_sam.noisy_pisam.simpler_version.typings import (
     ModelLevelPatch,
     ModelPart,
     PatchOperation,
-    ParameterBoundLiteral,
+    ParameterBoundLiteral, ConflictPriority,
 )
 from src.pi_sam.noisy_pisam.simpler_version.simple_noisy_pisam_learning import NoisyPisamLearner
 
 
 Key = Tuple[str, ModelPart, ParameterBoundLiteral]   # (action_name, part, pbl)
+
+
+class DefaultSearchLogger(logging.Logger):
+    """A logger that also implements log_node(), used when user does not supply a logger."""
+
+    def log_node(self, **kwargs):
+        # Very basic structured debug log
+        msg = "NODE | " + ", ".join(f"{k}={v}" for k, v in kwargs.items())
+        self.debug(msg)
 
 
 @dataclass(order=True)
@@ -44,6 +54,7 @@ class SearchNode:
         Set of fluent-level patches (where to flip data).
     """
     cost: int
+    depth: int
     model_constraints: Dict[Key, PatchOperation] = field(compare=False)
     fluent_patches: Set[FluentLevelPatch] = field(compare=False)
 
@@ -75,6 +86,17 @@ class ConflictDrivenPatchSearch:
         self.partial_domain_template = partial_domain_template
         self.negative_preconditions_policy = negative_preconditions_policy
         self.seed = seed
+        if logger is None:
+            # Create default structured logger
+            logger = DefaultSearchLogger(f"{__name__}.ConflictDrivenPatchSearch")
+            if not logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter("[%(asctime)s] %(levelname)s - %(message)s")
+                handler.setFormatter(formatter)
+                logger.addHandler(handler)
+
+            logger.setLevel(logging.DEBUG)  # ensure node logs are printed
+
         self.logger = logger
 
     # ----------------------------------------------------------------------
@@ -87,6 +109,7 @@ class ConflictDrivenPatchSearch:
         max_nodes: Optional[int] = None,
         initial_model_constraints: Optional[Dict[Key, PatchOperation]] = None,
         initial_fluent_patches: Optional[Set[FluentLevelPatch]] = None,
+        timeout_seconds: int = 300,
     ) -> Tuple[
         LearnerDomain,
         List[Conflict],
@@ -97,17 +120,45 @@ class ConflictDrivenPatchSearch:
         List[Observation]
     ]:
         """
-        Run the conflict-driven search on trajectories T (= observations).
+        Run the conflict-driven patch search on trajectories T (= observations).
+
+        Strategy:
+          - Uniform-cost search on (#fluent patches).
+          - Node ordering = (fluent_patch_count, depth).
+          - Optional limits:
+              * max_nodes      – max expanded nodes
+              * timeout_seconds – max wall-clock time (default: 5 minutes)
+
+        :param observations:
+            Grounded & masked observations (trajectories).
+
+        :param max_nodes:
+            Optional limit on number of expanded nodes.
+
+        :param initial_model_constraints:
+            Optional initial model constraints to start from.
+
+        :param initial_fluent_patches:
+            Optional initial fluent-level patches to start from.
+
+        :param timeout_seconds:
+            Maximum allowed wall-clock time in seconds for the whole run.
+            Default is 300 seconds (5 minutes).
 
         :return:
-            (learned_domain, conflicts, model_constraints,
-             fluent_patches, node_cost, learning_report, patched_final_observations)
+            (learned_domain,
+             conflicts,
+             model_constraints,
+             fluent_patches,
+             best_fluent_patch_count,
+             learning_report_with_patch_diff)
         """
         root_constraints: Dict[Key, PatchOperation] = initial_model_constraints or {}
         root_fluent_patches: Set[FluentLevelPatch] = initial_fluent_patches or set()
 
         root_node = SearchNode(
             cost=0,
+            depth=0,
             model_constraints=root_constraints,
             fluent_patches=root_fluent_patches,
         )
@@ -131,9 +182,20 @@ class ConflictDrivenPatchSearch:
 
         while open_heap:
             if max_nodes is not None and nodes_expanded >= max_nodes:
+                terminated_by = "max_nodes_exceeded"
+                if self.logger is not None:
+                    self.logger.info(f"Stopping search: reached max_nodes={max_nodes}")
                 break
 
-            node = heapq.heappop(open_heap)
+            if timeout_seconds is not None and (time.time() - start_time) >= timeout_seconds:
+                terminated_by = "timeout_exceeded"
+                if self.logger is not None:
+                    self.logger.info(
+                        f"Stopping search: timeout of {timeout_seconds:.1f}s exceeded"
+                    )
+                break
+
+            node: SearchNode = heapq.heappop(open_heap)
 
             state_key = self._encode_state(node.model_constraints, node.fluent_patches)
 
@@ -159,16 +221,16 @@ class ConflictDrivenPatchSearch:
                 node.cost
             )
 
-            if self.logger is not None:
-                self.logger.log_node(
-                    node_id=nodes_expanded,
-                    depth=current_depth,
-                    cost=node.cost,
-                    model_constraints=node.model_constraints,
-                    fluent_patches=node.fluent_patches,
-                    conflicts=conflicts,
-                    is_solution=(len(conflicts) == 0),
-                )
+            # if hasattr(self.logger, "log_node"):
+            #     self.logger.log_node(
+            #         node_id=nodes_expanded,
+            #         depth=current_depth,
+            #         cost=node.cost,
+            #         model_constraints=node.model_constraints,
+            #         fluent_patches=node.fluent_patches,
+            #         conflicts=conflicts,
+            #         is_solution=(len(conflicts) == 0),
+            #     )
 
             if not conflicts:
                 # Found conflict-free model
@@ -183,6 +245,7 @@ class ConflictDrivenPatchSearch:
                 enriched_report["patch_diff"] = patch_diff
                 enriched_report["nodes_expanded"] = nodes_expanded
                 enriched_report["max_depth"] = max_depth
+                enriched_report["terminated_by"] = "solution_found"
                 enriched_report["total_time_seconds"] = total_time
 
                 patched_obs = self._apply_patches_to_observations(
@@ -192,58 +255,54 @@ class ConflictDrivenPatchSearch:
                 return domain, [], node.model_constraints, node.fluent_patches, node.cost, enriched_report, patched_obs
 
             # Conflicts found - choose which conflict to branch on
-            conflict = self._choose_conflict(conflicts)
+            # --- GROUP conflicts and pick best group according to priority ---
+            conflict_groups = self._group_conflicts(conflicts)
+            group = self._choose_conflict_group(conflict_groups)
 
             # ------------------------------------------------------------------
-            # Branch 1: data-fix (fluent-level patch)
+            # Branch 1: DATA-FIX (fluent patches for all conflicts in the group)
             # ------------------------------------------------------------------
-            for patch in self._build_fluent_patches_for_conflict(conflict):
-                child_constraints = dict(node.model_constraints)
-                child_fluent_patches = set(node.fluent_patches)
+            child1_constraints = dict(node.model_constraints)
+            child1_fluent_patches = set(node.fluent_patches)
 
-                if patch in child_fluent_patches:
-                    # Applying the same patch again would revert it (no net change),
-                    # but we want states to represent a set of patches; skip.
-                    continue
+            new_patches = [self._build_fluent_patch(c) for c in group]
+            changed = False
+            for fp in new_patches:
+                if fp not in child1_fluent_patches:
+                    child1_fluent_patches.add(fp)
+                    changed = True
 
-                child_fluent_patches.add(patch)
-                child_fluent_patches = self._dedup_patches(child_fluent_patches)
+            if changed:
+                child1_fluent_patches = self._dedup_patches(child1_fluent_patches)
+                child1_fluent_count = len(child1_fluent_patches)
 
-                child_cost = len(child_fluent_patches)
-                child_state = self._encode_state(child_constraints, child_fluent_patches)
-
-                if child_state in visited:
-                    continue
-
-                depth_tracker[child_state] = current_depth + 1
                 heapq.heappush(
                     open_heap,
                     SearchNode(
-                        cost=child_cost,
-                        model_constraints=child_constraints,
-                        fluent_patches=child_fluent_patches,
+                        cost=child1_fluent_count,
+                        depth=node.depth + 1,
+                        model_constraints=child1_constraints,
+                        fluent_patches=child1_fluent_patches,
                     ),
                 )
 
             # ------------------------------------------------------------------
-            # Branch 2: model-fix (add/adjust model-level patch)
-            #          (Skipped for precondition-only conflicts)
+            # Branch 2: model-fix (add/adjust model-level effect patch)
             # ------------------------------------------------------------------
-            if conflict.conflict_type != ConflictType.FORBID_PRECOND_VS_IS and \
-                    conflict.conflict_type != ConflictType.FRAME_AXIOM:
+            rep_conflict = group[0]
+            if rep_conflict.conflict_type not in {ConflictType.FRAME_AXIOM}:
                 child2_constraints: Dict[Key, PatchOperation] = dict(node.model_constraints)
-                child2_constraints = self._build_model_patch(conflict, child2_constraints)
+                child2_constraints = self._build_model_patch(rep_conflict, child2_constraints)
                 child2_fluent_patches = set(node.fluent_patches)
+                child2_fluent_count = len(child2_fluent_patches)
 
-                child2_cost = len(child2_fluent_patches)
-                child2_state = self._encode_state(child2_constraints, child2_fluent_patches)
-
-                if child2_state not in visited:
-                    depth_tracker[child2_state] = current_depth + 1
+                # If model_constraints actually changed, push new node
+                if child2_constraints != node.model_constraints:
                     heapq.heappush(
                         open_heap,
                         SearchNode(
-                            cost=child2_cost,
+                            cost=child2_fluent_count,
+                            depth=node.depth + 1,
                             model_constraints=child2_constraints,
                             fluent_patches=child2_fluent_patches,
                         ),
@@ -264,6 +323,7 @@ class ConflictDrivenPatchSearch:
         enriched_report["patch_diff"] = patch_diff
         enriched_report["nodes_expanded"] = nodes_expanded
         enriched_report["max_depth"] = max_depth
+        enriched_report["terminated_by"] = terminated_by
         enriched_report["total_time_seconds"] = total_time
 
         patched_obs = self._apply_patches_to_observations(
@@ -274,7 +334,7 @@ class ConflictDrivenPatchSearch:
         return last_domain, last_conflicts, last_constraints, last_fluent_patches, last_cost, enriched_report, patched_obs
 
     # ----------------------------------------------------------------------
-    # Internal helpers
+    # Internal helpers: encoding + priorities + grouping
     # ----------------------------------------------------------------------
 
     @staticmethod
@@ -299,57 +359,106 @@ class ConflictDrivenPatchSearch:
         return constraints_tuple, fluent_tuple
 
     @staticmethod
-    def _choose_conflict(conflicts: List[Conflict]) -> Conflict:
+    def _conflict_priority(conflict: Conflict) -> ConflictPriority:
         """
-        Prefer fixing frame-axioms before effects.
-        If none, fall back to the first one.
+        Map a Conflict to its high-level priority class.
+
+        Current policy:
+          EFFECT (FORBID/REQUIRE)   >   FRAME_AXIOM   >   OTHER
         """
+        if conflict.conflict_type in {
+            ConflictType.FORBID_EFFECT_VS_MUST,
+            ConflictType.REQUIRE_EFFECT_VS_CANNOT,
+        }:
+            return ConflictPriority.EFFECT
+        if conflict.conflict_type == ConflictType.FRAME_AXIOM:
+            return ConflictPriority.FRAME_AXIOM
+        return ConflictPriority.OTHER
+
+    def _group_key(
+            self,
+            conflict: Conflict,
+    ) -> Tuple[ConflictPriority, str, ModelPart, ParameterBoundLiteral, ConflictType]:
+        """
+        Group key: conflicts share a group if they correspond to the same
+        (priority, action, model-part, PBL, conflict-type).
+        """
+        part = ModelPart.EFFECT
+        if conflict.conflict_type == ConflictType.FRAME_AXIOM:
+            part = ModelPart.OTHER
+
+        return (
+            self._conflict_priority(conflict),
+            conflict.action_name,
+            part,
+            conflict.pbl,
+            conflict.conflict_type,
+        )
+
+    def _group_conflicts(self, conflicts: List[Conflict]) -> List[List[Conflict]]:
+        """
+        Group conflicts by (priority, action, part, pbl, type).
+
+        Each group generates:
+          - One data-branch: multiple FluentLevelPatch (one per conflict).
+          - At most one model-branch (for effect conflicts only).
+        """
+        groups: Dict[Tuple, List[Conflict]] = {}
         for c in conflicts:
-            # if c.conflict_type != ConflictType.FORBID_PRECOND_VS_IS:
-            if c.conflict_type == ConflictType.FRAME_AXIOM:
-                return c
-        return conflicts[0]
+            k = self._group_key(c)
+            groups.setdefault(k, []).append(c)
+        return list(groups.values())
+
+    def _choose_conflict_group(self, groups: List[List[Conflict]]) -> List[Conflict]:
+        """
+        Choose the best group:
+
+          1) Prefer groups whose conflicts have EFFECT priority over FRAME_AXIOM.
+          2) Within the same priority, prefer the earliest (obs_idx, comp_idx).
+          3) If still tied, just pick the first.
+
+        Returns the chosen group (list[Conflict]).
+        """
+
+        def group_score(g: List[Conflict]) -> Tuple[int, int, int]:
+            rep = min(
+                g,
+                key=lambda c: (
+                    int(self._conflict_priority(c)),
+                    c.observation_index,
+                    c.component_index,
+                ),
+            )
+            prio = int(self._conflict_priority(rep))
+            return prio, rep.observation_index, rep.component_index
+
+        return min(groups, key=group_score)
+
+    # ----------------------------------------------------------------------
+    # Fluent patches & model patches
+    # ----------------------------------------------------------------------
 
     @staticmethod
-    def _build_fluent_patch(conflict: Conflict, state_type: str) -> FluentLevelPatch:
-        """Build a FluentLevelPatch for a given conflict and state_type ('prev'/'next')."""
+    def _build_fluent_patch(conflict: Conflict) -> FluentLevelPatch:
+        """
+        Build the FluentLevelPatch for a single conflict.
+
+        EFFECT conflicts:
+            flip in "next" state.
+        FRAME_AXIOM conflicts:
+            also handled as "next" (direction encoded in grounded_fluent itself).
+        """
+        if conflict.conflict_type == ConflictType.FORBID_PRECOND_VS_IS:
+            state_type = "prev"
+        else:
+            state_type = "next"
+
         return FluentLevelPatch(
             observation_index=conflict.observation_index,
             component_index=conflict.component_index,
             state_type=state_type,
             fluent=conflict.grounded_fluent,
         )
-
-    def _build_fluent_patches_for_conflict(self, conflict: Conflict) -> List[FluentLevelPatch]:
-        """
-        Determine which fluent patches correspond to the data-fix branches
-        for a given conflict.
-
-        - FORBID_PRECOND_VS_IS:
-            * Only prev-state patches (cannot-be-precondition).
-        - FRAME_AXIOM:
-            * Normally both prev and next patches.
-            * BUT if component_index == 0, prev_state is an initial state
-              and assumed ground truth → only allow a 'next' patch.
-        - Effect conflicts (FORBID/REQUIRE vs must/cannot):
-            * Only next-state patches (effects).
-        """
-        if conflict.conflict_type == ConflictType.FORBID_PRECOND_VS_IS:
-            return [self._build_fluent_patch(conflict, "prev")]
-
-        if conflict.conflict_type == ConflictType.FRAME_AXIOM:
-            # Always allow "next" as a potential noisy side
-            patches: List[FluentLevelPatch] = [self._build_fluent_patch(conflict, "next")]
-
-            # For initial transitions (component_index == 0), prev_state is ground truth:
-            # we are NOT allowed to treat the initial prev_state as noisy.
-            if conflict.component_index > 0:
-                patches.append(self._build_fluent_patch(conflict, "prev"))
-
-            return patches
-
-        # Effect conflicts: data repair is in 'next' state
-        return [self._build_fluent_patch(conflict, "next")]
 
     @staticmethod
     def _conflict_to_key(conflict: Conflict) -> Key:

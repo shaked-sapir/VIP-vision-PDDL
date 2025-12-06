@@ -1,6 +1,6 @@
 # patches_and_conflicts.py
 
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import Tuple, Optional
 
 from pddl_plus_parser.models import Predicate, ActionCall, GroundedPredicate
@@ -16,6 +16,7 @@ class ModelPart(Enum):
     """Which part of the model a patch refers to."""
     PRECONDITION = "pre"
     EFFECT = "eff"
+    OTHER = "other"  # this will be used for conflict grouping
 
 
 class ParameterBoundLiteral:
@@ -174,6 +175,13 @@ class ConflictType(Enum):
     REQUIRE_EFFECT_VS_CANNOT = "require_effect_vs_cannot"
     FORBID_PRECOND_VS_IS = "forbid_precondition_vs_is_precondition"
     FRAME_AXIOM = "frame_axiom"
+
+
+class ConflictPriority(IntEnum):
+    """Smaller = higher priority."""
+    EFFECT = 0        # FORBID/REQUIRE effect conflicts
+    FRAME_AXIOM = 1   # Frame-axiom conflicts
+    OTHER = 2         # Any future types
 
 
 class Conflict:
