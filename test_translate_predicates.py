@@ -15,7 +15,7 @@ def test_translate_predicates():
     """Test the translation function with blocksworld example."""
 
     # Example trajectory file
-    trajectory_file = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/experiment_02-12-2025T11:45:40__steps=500/training/rosame_trace/problem7_images/problem7_trajectory.json")
+    trajectory_file = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/experiment_02-12-2025T11:45:40__steps=500/training/rosame_trace/problem7/problem7_trajectory.json")
 
     if not trajectory_file.exists():
         print(f"Trajectory file not found: {trajectory_file}")

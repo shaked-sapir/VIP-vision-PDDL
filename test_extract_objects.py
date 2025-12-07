@@ -14,7 +14,7 @@ def test_extract_objects():
     """Test the object extraction function with blocksworld example."""
 
     # Example trajectory file
-    trajectory_file = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/experiment_02-12-2025T11:45:40__steps=500/training/rosame_trace/problem7_images/problem7_trajectory.json")
+    trajectory_file = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/experiment_02-12-2025T11:45:40__steps=500/training/rosame_trace/problem7/problem7_trajectory.json")
     init_image = trajectory_file.parent / "state_0000.png"
 
     if not trajectory_file.exists():

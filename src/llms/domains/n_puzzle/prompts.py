@@ -82,10 +82,8 @@ For each predicate you output, assign a confidence score expressing how certain 
 that the predicate holds in the image:
 
 - 2 → The predicate DEFINITELY holds, based on clear visual evidence.
-- 1 → The predicate MIGHT hold, but evidence is unclear, partial, or occluded.
 - 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
 
-GOAL: Minimize use of 1. Prefer 0 or 2 whenever possible.
 
 ☑️ You MUST assign a score to **every valid predicate**, including all `at(...)` and `neighbor(...)` predicates.
 Notice that you don't have to compute neighbor(x,y) for x=y, only for x≠y.

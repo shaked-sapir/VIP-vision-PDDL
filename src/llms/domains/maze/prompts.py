@@ -125,10 +125,8 @@ If a predicate does not hold, you may omit it (it is treated as score 0).
 CONFIDENCE SCORES
 -----------------------------------------------------
 - 2 → The predicate DEFINITELY holds, based on clear visual evidence.
-- 1 → The predicate MIGHT hold, but evidence is unclear, partial, or occluded.
 - 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
 
-GOAL: Minimize use of 1. Prefer 0 or 2 whenever possible.
 
 -----------------------------------------------------
 OUTPUT FORMAT (STRICT)

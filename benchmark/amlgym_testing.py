@@ -34,18 +34,25 @@ print_metrics()
 # Global lock for thread-safe evaluation (AMLGym SimpleDomainReader is not thread-safe)
 evaluation_lock = Lock()
 
-experiment_data_dirs = {
+experiment_data_dirs_PO = {
     "blocksworld": ["multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner"],
     "hanoi": ["multi_problem_06-12-2025T13:58:24__model=gpt-5.1__steps=100__planner"],
     "n_puzzle_typed": ["multi_problem_06-12-2025T13:32:59__model=gpt-5.1__steps=100__planner"],
-    "maze": ["multi_problem_06-12-2025T13:08:39__model=gpt-5.1__steps=100__planner"],
+    "maze": ["experiment_07-12-2025T16:16:54__model=gpt-5.1__steps=100__planner"]
+}
+
+experiment_data_dirs_FO = {
+    "blocksworld": ["multi_problem_07-12-2025T17:27:33__model=gpt-5.1__steps=100__planner__NO_MASK"],
+    "hanoi": ["multi_problem_07-12-2025T17:30:57__model=gpt-5.1__steps=100__planner__NO_MASK"],
+    "n_puzzle_typed": ["multi_problem_06-12-2025T13:32:59__model=gpt-5.1__steps=100__planner"],
+    "maze": ["multi_problem_07-12-2025T17:37:10__model=gpt-5.1__steps=100__planner__NO_MASK"]
 }
 
 domain_name_mappings = {
-    'blocksworld': 'blocksworld',
+    # 'blocksworld': 'blocksworld',
     # 'hanoi': 'hanoi',
     # 'n_puzzle_typed': 'npuzzle',
-    # 'maze': 'maze',
+    'maze': 'maze',
 }
 
 domain_properties = {
@@ -64,9 +71,9 @@ domain_properties = {
 }
 
 N_FOLDS = 5
-TRAJECTORY_SIZES = [1, 3, 5, 7, 10]
-# TRAJECTORY_SIZES = [1, 3, 5, 7, 10, 20, 30]
-# TRAJECTORY_SIZES    = [5]
+# TRAJECTORY_SIZES = [1, 3, 5, 7, 10]
+TRAJECTORY_SIZES = [1, 3, 5, 7, 10, 20, 30]
+# TRAJECTORY_SIZES    = [3]
 NUM_TRAJECTORIES = 5  # Always use 5 trajectories
 
 metric_cols = [
@@ -813,7 +820,7 @@ def main():
     for domain_name, bench_name in domain_name_mappings.items():
         domain_ref_path = domain_properties[domain_name]["domain_path"]
 
-        for dir_name in experiment_data_dirs[domain_name]:
+        for dir_name in experiment_data_dirs_PO[domain_name]:
             data_dir = benchmark_path / 'data' / domain_name / dir_name
             trajectories_dir = data_dir / 'training' / 'trajectories'
             testing_dir = data_dir / 'testing'
