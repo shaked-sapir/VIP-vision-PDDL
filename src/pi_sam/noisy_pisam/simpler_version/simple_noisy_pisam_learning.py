@@ -420,10 +420,10 @@ class NoisyPisamLearner(PISAMLearner):
             )
         )
 
-        # Early exit if any frame-axiom conflicts found
-        if local_conflicts:
-            self.conflicts.extend(local_conflicts)
-            return
+        # # Early exit if any frame-axiom conflicts found
+        # if local_conflicts:
+        #     self.conflicts.extend(local_conflicts)
+        #     return
 
         # History BEFORE this transition:
         prior_must_effects: Set[Predicate] = set(observed_action.discrete_effects)  # lifted Predicates
@@ -574,15 +574,15 @@ class NoisyPisamLearner(PISAMLearner):
 
                 self.handle_single_trajectory_component(component)
                 # --- EARLY EXIT: stop learning at the first conflicting transition ---
-                if self.conflicts:
-                    self.logger.info(
-                        f"Stopping learning early after first conflict at "
-                        f"obs={obs_idx}, comp={comp_idx}, #conflicts={len(self.conflicts)}"
-                    )
-                    break  # break inner loop over components
-
-            if self.conflicts:
-                break  # break outer loop over observations
+            #     if self.conflicts:
+            #         self.logger.info(
+            #             f"Stopping learning early after first conflict at "
+            #             f"obs={obs_idx}, comp={comp_idx}, #conflicts={len(self.conflicts)}"
+            #         )
+            #         break  # break inner loop over components
+            #
+            # if self.conflicts:
+            #     break  # break outer loop over observations
 
         self.construct_safe_actions()
         self._remove_unobserved_actions_from_partial_domain()

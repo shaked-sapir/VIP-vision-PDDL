@@ -275,6 +275,7 @@ class ConflictDrivenPatchSearch:
             if changed:
                 child1_fluent_patches = self._dedup_patches(child1_fluent_patches)
                 child1_fluent_count = len(child1_fluent_patches)
+                depth_tracker[self._encode_state(child1_constraints, child1_fluent_patches)] = current_depth + 1
 
                 heapq.heappush(
                     open_heap,
@@ -298,6 +299,8 @@ class ConflictDrivenPatchSearch:
 
                 # If model_constraints actually changed, push new node
                 if child2_constraints != node.model_constraints:
+                    depth_tracker[self._encode_state(child2_constraints, child2_fluent_patches)] = current_depth + 1
+
                     heapq.heappush(
                         open_heap,
                         SearchNode(

@@ -173,10 +173,10 @@ class ImageTrajectoryHandler(ABC):
                                "Install with: pip install pddlgym_planners")
 
         print(f"  Using planner to generate solution...")
-        planner = FF()
+        planner = FD()
 
         try:
-            plan = planner(self.pddl_env.domain, obs, timeout=1200)
+            plan = planner(self.pddl_env.domain, obs, timeout=7200)
             print(f"  ✓ Planner found solution with {len(plan)} actions")
 
             if len(plan) > num_steps:
