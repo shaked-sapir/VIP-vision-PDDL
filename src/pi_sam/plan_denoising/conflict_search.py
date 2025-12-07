@@ -54,6 +54,7 @@ class SearchNode:
         Set of fluent-level patches (where to flip data).
     """
     cost: int
+    conflicts_count: int           # secondary: #conflicts in this node
     depth: int
     model_constraints: Dict[Key, PatchOperation] = field(compare=False)
     fluent_patches: Set[FluentLevelPatch] = field(compare=False)
@@ -158,6 +159,7 @@ class ConflictDrivenPatchSearch:
 
         root_node = SearchNode(
             cost=0,
+            conflicts_count=0,
             depth=0,
             model_constraints=root_constraints,
             fluent_patches=root_fluent_patches,
@@ -179,7 +181,7 @@ class ConflictDrivenPatchSearch:
         max_depth = 0
         depth_tracker: Dict[Tuple, int] = {self._encode_state(root_constraints, root_fluent_patches): 0}
         start_time = time.time()
-
+        terminated_by = ""
         while open_heap:
             if max_nodes is not None and nodes_expanded >= max_nodes:
                 terminated_by = "max_nodes_exceeded"
@@ -281,6 +283,7 @@ class ConflictDrivenPatchSearch:
                     open_heap,
                     SearchNode(
                         cost=child1_fluent_count,
+                        conflicts_count=len(group),
                         depth=node.depth + 1,
                         model_constraints=child1_constraints,
                         fluent_patches=child1_fluent_patches,
@@ -305,6 +308,7 @@ class ConflictDrivenPatchSearch:
                         open_heap,
                         SearchNode(
                             cost=child2_fluent_count,
+                            conflicts_count=len(group),
                             depth=node.depth + 1,
                             model_constraints=child2_constraints,
                             fluent_patches=child2_fluent_patches,
@@ -326,7 +330,7 @@ class ConflictDrivenPatchSearch:
         enriched_report["patch_diff"] = patch_diff
         enriched_report["nodes_expanded"] = nodes_expanded
         enriched_report["max_depth"] = max_depth
-        enriched_report["terminated_by"] = terminated_by
+        enriched_report["v"] = terminated_by
         enriched_report["total_time_seconds"] = total_time
 
         patched_obs = self._apply_patches_to_observations(

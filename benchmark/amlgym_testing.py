@@ -64,7 +64,9 @@ domain_properties = {
 }
 
 N_FOLDS = 5
-TRAJECTORY_SIZES = [1, 3, 5, 7, 10, 20, 30]
+TRAJECTORY_SIZES = [1, 3, 5, 7, 10]
+# TRAJECTORY_SIZES = [1, 3, 5, 7, 10, 20, 30]
+# TRAJECTORY_SIZES    = [5]
 NUM_TRAJECTORIES = 5  # Always use 5 trajectories
 
 metric_cols = [
@@ -98,10 +100,6 @@ def truncate_trajectory(traj_path: Path, domain_path: Path, max_steps: int) -> P
     output_path = traj_path.parent / f"{traj_path.stem}_truncated_{max_steps}.trajectory"
 
     output_masking_path = traj_path.parent / f"{traj_path.stem}_truncated_{max_steps}.masking_info"
-
-    # Skip if both trajectory and masking_info already exist
-    if output_path.exists() and output_masking_path.exists():
-        return output_path
 
     domain = DomainParser(domain_path).parse_domain()
     parser = TrajectoryParser(domain)
@@ -692,10 +690,10 @@ def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dic
 
 
 def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plots_dir: Path):
-    """Generate 6 plots comparing unclean vs cleaned trajectories."""
+    """Generate plots per domain comparing unclean vs cleaned trajectories."""
     plots_dir.mkdir(exist_ok=True)
 
-    def plot_metric_vs_size(df, metric_key, metric_title, save_path, phase_label):
+    def plot_metric_vs_size(df, metric_key, metric_title, save_path, phase_label, domain_label):
         """Plot metric vs trajectory size with error bars."""
         if df.empty:
             return
@@ -711,7 +709,7 @@ def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plo
 
             plt.errorbar(x, y, yerr=yerr, marker="o", capsize=4, label=algo)
 
-        plt.title(f"{metric_title} vs Trajectory Size ({phase_label})")
+        plt.title(f"{metric_title} vs Trajectory Size ({phase_label} - {domain_label})")
         plt.xlabel("Trajectory Size (steps)")
         plt.ylabel(metric_title)
 
@@ -727,57 +725,78 @@ def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plo
         plt.savefig(save_path)
         plt.close()
 
-    # Process unclean results
+    # Get all unique domains
+    all_domains = set()
     if unclean_results:
-        df_unclean = pd.DataFrame(unclean_results)
-        grouped_unclean = df_unclean.groupby(["domain", "algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
-
-        flat_cols = []
-        for col in grouped_unclean.columns:
-            if isinstance(col, tuple):
-                base, stat = col
-                flat_cols.append(base if stat == "" else f"{base}_{stat}")
-            else:
-                flat_cols.append(col)
-        grouped_unclean.columns = flat_cols
-
-        df_avg_unclean = grouped_unclean[["domain", "algorithm", "traj_size"]].copy()
-        for m in metric_cols:
-            df_avg_unclean[m] = grouped_unclean[f"{m}_mean"]
-            df_avg_unclean[f"{m}_std"] = grouped_unclean[f"{m}_std"]
-
-        plot_metric_vs_size(df_avg_unclean, "solving_ratio", "Solving Ratio",
-                           plots_dir / "solving_ratio_vs_traj_size_unclean.png", "Unclean")
-        plot_metric_vs_size(df_avg_unclean, "false_plans_ratio", "False Plan Ratio",
-                           plots_dir / "false_plans_ratio_vs_traj_size_unclean.png", "Unclean")
-        plot_metric_vs_size(df_avg_unclean, "unsolvable_ratio", "Unsolvable Ratio",
-                           plots_dir / "unsolvable_ratio_vs_traj_size_unclean.png", "Unclean")
-
-    # Process cleaned results
+        all_domains.update(r['domain'] for r in unclean_results)
     if cleaned_results:
-        df_cleaned = pd.DataFrame(cleaned_results)
-        grouped_cleaned = df_cleaned.groupby(["domain", "algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
+        all_domains.update(r['domain'] for r in cleaned_results)
 
-        flat_cols = []
-        for col in grouped_cleaned.columns:
-            if isinstance(col, tuple):
-                base, stat = col
-                flat_cols.append(base if stat == "" else f"{base}_{stat}")
-            else:
-                flat_cols.append(col)
-        grouped_cleaned.columns = flat_cols
+    # Generate plots for each domain
+    for domain in sorted(all_domains):
+        domain_upper = domain.upper()
 
-        df_avg_cleaned = grouped_cleaned[["domain", "algorithm", "traj_size"]].copy()
-        for m in metric_cols:
-            df_avg_cleaned[m] = grouped_cleaned[f"{m}_mean"]
-            df_avg_cleaned[f"{m}_std"] = grouped_cleaned[f"{m}_std"]
+        # Process unclean results for this domain
+        if unclean_results:
+            domain_unclean = [r for r in unclean_results if r['domain'] == domain]
+            if domain_unclean:
+                df_unclean = pd.DataFrame(domain_unclean)
+                grouped_unclean = df_unclean.groupby(["algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
 
-        plot_metric_vs_size(df_avg_cleaned, "solving_ratio", "Solving Ratio",
-                           plots_dir / "solving_ratio_vs_traj_size.png", "Cleaned")
-        plot_metric_vs_size(df_avg_cleaned, "false_plans_ratio", "False Plan Ratio",
-                           plots_dir / "false_plans_ratio_vs_traj_size.png", "Cleaned")
-        plot_metric_vs_size(df_avg_cleaned, "unsolvable_ratio", "Unsolvable Ratio",
-                           plots_dir / "unsolvable_ratio_vs_traj_size.png", "Cleaned")
+                flat_cols = []
+                for col in grouped_unclean.columns:
+                    if isinstance(col, tuple):
+                        base, stat = col
+                        flat_cols.append(base if stat == "" else f"{base}_{stat}")
+                    else:
+                        flat_cols.append(col)
+                grouped_unclean.columns = flat_cols
+
+                df_avg_unclean = grouped_unclean[["algorithm", "traj_size"]].copy()
+                for m in metric_cols:
+                    df_avg_unclean[m] = grouped_unclean[f"{m}_mean"]
+                    df_avg_unclean[f"{m}_std"] = grouped_unclean[f"{m}_std"]
+
+                plot_metric_vs_size(df_avg_unclean, "solving_ratio", "Solving Ratio",
+                                   plots_dir / f"solving_ratio_vs_traj_size__unclean_({domain_upper}).png",
+                                   "Unclean", domain_upper)
+                plot_metric_vs_size(df_avg_unclean, "false_plans_ratio", "False Plan Ratio",
+                                   plots_dir / f"false_plans_ratio_vs_traj_size__unclean_({domain_upper}).png",
+                                   "Unclean", domain_upper)
+                plot_metric_vs_size(df_avg_unclean, "unsolvable_ratio", "Unsolvable Ratio",
+                                   plots_dir / f"unsolvable_ratio_vs_traj_size__unclean_({domain_upper}).png",
+                                   "Unclean", domain_upper)
+
+        # Process cleaned results for this domain
+        if cleaned_results:
+            domain_cleaned = [r for r in cleaned_results if r['domain'] == domain]
+            if domain_cleaned:
+                df_cleaned = pd.DataFrame(domain_cleaned)
+                grouped_cleaned = df_cleaned.groupby(["algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
+
+                flat_cols = []
+                for col in grouped_cleaned.columns:
+                    if isinstance(col, tuple):
+                        base, stat = col
+                        flat_cols.append(base if stat == "" else f"{base}_{stat}")
+                    else:
+                        flat_cols.append(col)
+                grouped_cleaned.columns = flat_cols
+
+                df_avg_cleaned = grouped_cleaned[["algorithm", "traj_size"]].copy()
+                for m in metric_cols:
+                    df_avg_cleaned[m] = grouped_cleaned[f"{m}_mean"]
+                    df_avg_cleaned[f"{m}_std"] = grouped_cleaned[f"{m}_std"]
+
+                plot_metric_vs_size(df_avg_cleaned, "solving_ratio", "Solving Ratio",
+                                   plots_dir / f"solving_ratio_vs_traj_size_({domain_upper}).png",
+                                   "Cleaned", domain_upper)
+                plot_metric_vs_size(df_avg_cleaned, "false_plans_ratio", "False Plan Ratio",
+                                   plots_dir / f"false_plans_ratio_vs_traj_size_({domain_upper}).png",
+                                   "Cleaned", domain_upper)
+                plot_metric_vs_size(df_avg_cleaned, "unsolvable_ratio", "Unsolvable Ratio",
+                                   plots_dir / f"unsolvable_ratio_vs_traj_size_({domain_upper}).png",
+                                   "Cleaned", domain_upper)
 
 
 # =============================================================================
