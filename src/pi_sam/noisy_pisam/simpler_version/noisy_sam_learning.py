@@ -164,6 +164,10 @@ class NoisySAMLearner(SAMLearner):
     def _flip_fluent_in_state(self, state: State, fluent_str: str) -> None:
         """
         Flip fluent_str in the given state.
+
+        If the fluent or its negation exists in the state, flip its sign.
+        If neither exists, it means the fluent is implicitly negated (closed world assumption),
+        so we create a new GroundedPredicate and add it as a positive literal.
         """
         candidates = {fluent_str, negate_str_predicate(fluent_str)}
 
@@ -185,10 +189,46 @@ class NoisySAMLearner(SAMLearner):
                     # self.logger.debug(f"Flipped fluent {p.untyped_representation} in state.")
                     return
 
-        # If we get here, neither the fluent nor its negation was found.
-        raise ValueError(
-            f"Could not find fluent {fluent_str} or its negation to flip in state"
+        # If we get here, fluent_str was not found (neither positive nor negative form)
+        # This means it's implicitly negated (closed world), so we add it as positive
+
+        # Parse fluent_str to extract predicate name and objects
+        # fluent_str is in format "(on a b)"
+        parts = fluent_str.strip()[1:-1].split() if "not" not in fluent_str else fluent_str.strip()[6:-2].split()
+        pred_name = parts[0]
+        obj_names = parts[1:]
+
+        # Get the predicate definition from domain
+        if pred_name not in self.partial_domain.predicates:
+            raise ValueError(f"Predicate {pred_name} not found in domain")
+
+        domain_predicate = self.partial_domain.predicates[pred_name]
+
+        # Create object_mapping: param_name -> object_name
+        param_names = list(domain_predicate.signature.keys())
+        if len(param_names) != len(obj_names):
+            raise ValueError(
+                f"Parameter count mismatch for {fluent_str}: "
+                f"expected {len(param_names)} parameters but got {len(obj_names)}"
+            )
+
+        object_mapping = dict(zip(param_names, obj_names))
+
+        # Create the new GroundedPredicate as positive (flipping from implicit negation)
+        new_gp = GroundedPredicate(
+            name=pred_name,
+            signature=domain_predicate.signature,
+            object_mapping=object_mapping,
+            is_positive=True,
+            is_masked=False
         )
+
+        # Add to the correct key in state.state_predicates
+        # The key is the lifted_untyped_representation (for positive literals)
+        base_key = new_gp.lifted_untyped_representation
+
+        state.state_predicates.setdefault(base_key, set()).add(new_gp)
+        # self.logger.debug(f"Created and added new positive fluent {fluent_str} to state.")
 
     # -------------------------------------------------------------------------
     # Helper: lift and match
@@ -619,6 +659,41 @@ class NoisySAMLearner(SAMLearner):
         report = self._construct_learning_report()
 
         return self.partial_domain, report
+
+    def add_new_action(self, grounded_action: ActionCall, previous_state: State, next_state: State) -> None:
+        """Create a new action in the domain.
+
+        :param grounded_action: the grounded action that was executed according to the trajectory.
+        :param previous_state: the state that the action was executed on.
+        :param next_state: the state that was created after executing the action on the previous
+        """
+        self.logger.info(f"Adding the action {str(grounded_action)} to the domain.")
+        # adding the preconditions each predicate is grounded in this stage.
+        observed_action = self.partial_domain.actions[grounded_action.name]
+        self.observed_actions.append(observed_action.name)
+        self._add_new_action_preconditions(grounded_action)
+        self.handle_effects(grounded_action, previous_state, next_state)
+        self.logger.debug(f"Finished adding the action {grounded_action.name}.")
+
+    def update_action(self, grounded_action: ActionCall, previous_state: State, next_state: State) -> None:
+        """updates an existing action in the domain based on a transition.
+
+        :param grounded_action: the grounded action that was executed according to the trajectory.
+        :param previous_state: the state that the action was executed on.
+        :param next_state: the state that was created after executing the action on the previous
+            state.
+        """
+        self.logger.debug(f"updating action {str(grounded_action)}.")
+        self._update_action_preconditions(grounded_action)
+        self.handle_effects(grounded_action, previous_state, next_state)
+        self.logger.debug(f"finished updating action {str(grounded_action)}.")
+
+    def _remove_unobserved_actions_from_partial_domain(self):
+        """Removes the actions that were not observed from the partial domain."""
+        self.logger.debug("Removing unobserved actions from the partial domain")
+        actions_to_remove = [action for action in self.partial_domain.actions if action not in self.observed_actions]
+        for action in actions_to_remove:
+            self.partial_domain.actions.pop(action)
 
     def learn_action_model_with_conflicts(
         self,

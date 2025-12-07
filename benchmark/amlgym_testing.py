@@ -1,4 +1,4 @@
-import json
+import argparse
 import json
 import os
 import random
@@ -19,8 +19,11 @@ from pddl_plus_parser.lisp_parsers import TrajectoryParser, DomainParser
 from pddl_plus_parser.models import Observation
 
 from benchmark.amlgym_models.NOISY_PISAM import NOISY_PISAM
+from benchmark.amlgym_models.NOISY_SAM import NOISY_SAM
 from benchmark.amlgym_models.PISAM import PISAM
 from benchmark.amlgym_models.PO_ROSAME import PO_ROSAME
+from benchmark.amlgym_models.ROSAME import ROSAME
+from benchmark.amlgym_models.SAM import SAM
 from src.utils.masking import load_masking_info, save_masking_info
 from src.utils.pddl import observation_to_trajectory_file
 
@@ -34,14 +37,14 @@ print_metrics()
 # Global lock for thread-safe evaluation (AMLGym SimpleDomainReader is not thread-safe)
 evaluation_lock = Lock()
 
-experiment_data_dirs_PO = {
+experiment_data_dirs_masked = {
     "blocksworld": ["multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner"],
     "hanoi": ["multi_problem_06-12-2025T13:58:24__model=gpt-5.1__steps=100__planner"],
     "n_puzzle_typed": ["multi_problem_06-12-2025T13:32:59__model=gpt-5.1__steps=100__planner"],
     "maze": ["experiment_07-12-2025T16:16:54__model=gpt-5.1__steps=100__planner"]
 }
 
-experiment_data_dirs_FO = {
+experiment_data_dirs_fullyobs = {
     "blocksworld": ["multi_problem_07-12-2025T17:27:33__model=gpt-5.1__steps=100__planner__NO_MASK"],
     "hanoi": ["multi_problem_07-12-2025T17:30:57__model=gpt-5.1__steps=100__planner__NO_MASK"],
     "n_puzzle_typed": ["multi_problem_06-12-2025T13:32:59__model=gpt-5.1__steps=100__planner"],
@@ -49,9 +52,9 @@ experiment_data_dirs_FO = {
 }
 
 domain_name_mappings = {
-    # 'blocksworld': 'blocksworld',
-    # 'hanoi': 'hanoi',
-    # 'n_puzzle_typed': 'npuzzle',
+    'n_puzzle_typed': 'npuzzle',
+    'blocksworld': 'blocksworld',
+    'hanoi': 'hanoi',
     'maze': 'maze',
 }
 
@@ -71,8 +74,8 @@ domain_properties = {
 }
 
 N_FOLDS = 5
-# TRAJECTORY_SIZES = [1, 3, 5, 7, 10]
-TRAJECTORY_SIZES = [1, 3, 5, 7, 10, 20, 30]
+TRAJECTORY_SIZES = [1, 3, 5, 7, 10]
+# TRAJECTORY_SIZES = [1, 3, 5, 7, 10, 20, 30]
 # TRAJECTORY_SIZES    = [3]
 NUM_TRAJECTORIES = 5  # Always use 5 trajectories
 
@@ -177,6 +180,35 @@ def run_noisy_pisam_trial(domain_path: Path, trajectories: List[Path], testing_d
     return model, final_obs, report
 
 
+def run_noisy_sam_trial(domain_path: Path, trajectories: List[Path], testing_dir: Path,
+                        fold: int, traj_size: int) -> Tuple[str, List[Observation], dict]:
+    """Run NOISY_SAM and save results."""
+    noisy_sam = NOISY_SAM()
+    model, final_obs, report = noisy_sam.learn(str(domain_path), [str(t) for t in trajectories])
+
+    # Create output directory
+    timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
+    output_dir = testing_dir / f"{timestamp}__fold={fold}__traj-size={traj_size}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create trajectory mapping (final_observation_X -> original trajectory name)
+    trajectory_mapping = {}
+    for i, (obs, traj_path) in enumerate(zip(final_obs, trajectories)):
+        obs_path = output_dir / f"final_observation_{i}.trajectory"
+        observation_to_trajectory_file(obs, obs_path)
+        # Store original trajectory name (without path)
+        trajectory_mapping[f"final_observation_{i}"] = traj_path.name
+
+    # Save learning metrics with trajectory mapping
+    save_learning_metrics(output_dir, report, trajectory_mapping)
+
+    # Save learned model
+    with open(output_dir / "learned_model.pddl", 'w') as f:
+        f.write(model)
+
+    return model, final_obs, report
+
+
 def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[str]) -> dict:
     """Evaluate a learned model. Handles AMLGym SimpleDomainReader race conditions."""
     # NOTE: evaluation_lock is a threading lock, but we use ProcessPoolExecutor,
@@ -256,9 +288,17 @@ def format_mean_std(mean_val, std_val) -> str:
 
 
 def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_size: int,
-                    domain_ref_path: Path, testing_dir: Path, bench_name: str) -> List[dict]:
-    """Run a single fold experiment and return 4 results: unclean PISAM, unclean ROSAME, cleaned PISAM, cleaned ROSAME."""
-    print(f"[PID {os.getpid()}] Fold {fold+1}/{N_FOLDS}, size={traj_size}")
+                    domain_ref_path: Path, testing_dir: Path, bench_name: str, mode: str = 'masked') -> List[dict]:
+    """
+    Run a single fold experiment and return 4 results.
+
+    Args:
+        mode: Either 'masked' (PISAM/PO_ROSAME with masking) or 'fullyobs' (SAM/ROSAME without masking)
+
+    Returns:
+        List of 4 dicts with results for: unclean SAM/PISAM, unclean ROSAME, cleaned SAM/PISAM, cleaned ROSAME
+    """
+    print(f"[PID {os.getpid()}] Fold {fold+1}/{N_FOLDS}, size={traj_size}, mode={mode}")
 
     fold_work_dir = testing_dir / f"work_fold{fold}_size{traj_size}"
     fold_work_dir.mkdir(parents=True, exist_ok=True)
@@ -299,22 +339,59 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
         # ========================================================================
         print(f"  Phase 1: Learning on unclean trajectories...")
 
-        # Run base PISAM (no denoising) on truncated trajectories
-        pisam_unclean = PISAM()
-        pisam_unclean_model = pisam_unclean.learn(str(domain_ref_path), [str(t) for t in truncated_trajs])
+        # Choose algorithms based on mode
+        if mode == 'masked':
+            # Run base PISAM (no denoising) on truncated trajectories - PISAM handles trajectories directly
+            sam_unclean = PISAM()
+            sam_unclean_model = sam_unclean.learn(str(domain_ref_path), [str(t) for t in truncated_trajs])
+            algo_name = 'PISAM'
+        else:  # fullyobs
+            # For SAM, we need to create problem files alongside trajectories
+            temp_sam_unclean_dir = testing_dir / f"temp_sam_unclean_fold{fold}_size{traj_size}"
+            temp_sam_unclean_dir.mkdir(parents=True, exist_ok=True)
 
-        temp_pisam_unclean_path = testing_dir / f'PISAM_unclean_{bench_name}_fold{fold}_size{traj_size}.pddl'
-        temp_pisam_unclean_path.write_text(pisam_unclean_model)
+            print(f"  DEBUG SAM unclean: Number of truncated_trajs={len(truncated_trajs)}")
+            sam_unclean_traj_paths = []
+            for truncated_traj in truncated_trajs:
+                problem_name = truncated_traj.stem.split('_truncated_')[0]
+                problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
 
-        pisam_unclean_metrics = evaluate_model(str(temp_pisam_unclean_path), domain_ref_path, test_problem_paths)
-        unclean_pisam_result = {
-            'domain': bench_name, 'algorithm': 'PISAM', 'fold': fold,
+                print(f"  DEBUG SAM unclean: truncated_traj={truncated_traj}")
+                print(f"  DEBUG SAM unclean: problem_file={problem_file}, exists={problem_file.exists()}")
+
+                if not problem_file.exists():
+                    print(f"  DEBUG SAM unclean: SKIPPING - problem file not found")
+                    continue
+
+                problem_dir = temp_sam_unclean_dir / problem_name
+                problem_dir.mkdir(parents=True, exist_ok=True)
+
+                # Copy trajectory and problem file
+                traj_path = problem_dir / f"{problem_name}.trajectory"
+                shutil.copy(truncated_traj, traj_path)
+                shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
+                sam_unclean_traj_paths.append(str(traj_path))
+                print(f"  DEBUG SAM unclean: Successfully copied to {traj_path}")
+
+            print(f"  DEBUG SAM unclean: Final count={len(sam_unclean_traj_paths)} trajectories")
+            print(f"  DEBUG SAM unclean: Calling SAM.learn with {len(sam_unclean_traj_paths)} trajectories")
+            sam_unclean = SAM()
+            sam_unclean_model = sam_unclean.learn(str(domain_ref_path), sam_unclean_traj_paths, use_problems=False)
+            algo_name = 'SAM'
+            print(f"  DEBUG SAM unclean: SAM.learn completed, model length={len(sam_unclean_model)}")
+
+        temp_sam_unclean_path = testing_dir / f'{algo_name}_unclean_{bench_name}_fold{fold}_size{traj_size}.pddl'
+        temp_sam_unclean_path.write_text(sam_unclean_model)
+
+        sam_unclean_metrics = evaluate_model(str(temp_sam_unclean_path), domain_ref_path, test_problem_paths)
+        unclean_sam_result = {
+            'domain': bench_name, 'algorithm': algo_name, 'fold': fold,
             'traj_size': traj_size, 'problems_count': len(test_problem_paths),
             '_internal_phase': 'unclean',
             'fold_data_creation_timedout': 0,
-            **pisam_unclean_metrics
+            **sam_unclean_metrics
         }
-        temp_pisam_unclean_path.unlink()
+        temp_sam_unclean_path.unlink()
 
         # Run ROSAME on original truncated trajectories
         temp_rosame_unclean_dir = testing_dir / f"temp_rosame_unclean_fold{fold}_size{traj_size}"
@@ -323,10 +400,9 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
         rosame_unclean_traj_paths = []
         for truncated_traj in truncated_trajs:
             problem_name = truncated_traj.stem.split('_truncated_')[0]
-            masking_file = truncated_traj.parent / f"{truncated_traj.stem}.masking_info"
             problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
 
-            if not (masking_file.exists() and problem_file.exists()):
+            if not problem_file.exists():
                 continue
 
             problem_dir = temp_rosame_unclean_dir / problem_name
@@ -336,12 +412,24 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
             traj_path = problem_dir / f"{problem_name}.trajectory"
             shutil.copy(truncated_traj, traj_path)
             shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
-            shutil.copy(masking_file, problem_dir / f"{problem_name}.masking_info")
+
+            # For masked mode, also copy masking_info
+            if mode == 'masked':
+                masking_file = truncated_traj.parent / f"{truncated_traj.stem}.masking_info"
+                if masking_file.exists():
+                    shutil.copy(masking_file, problem_dir / f"{problem_name}.masking_info")
+                else:
+                    continue  # Skip if masking file missing in masked mode
+
             rosame_unclean_traj_paths.append(str(traj_path))
 
         if rosame_unclean_traj_paths:
             try:
-                rosame_unclean_model = PO_ROSAME().learn(str(domain_ref_path), rosame_unclean_traj_paths, use_problems=False)
+                if mode == 'masked':
+                    rosame_unclean_model = PO_ROSAME().learn(str(domain_ref_path), rosame_unclean_traj_paths, use_problems=False)
+                else:  # fullyobs
+                    rosame_unclean_model = ROSAME().learn(str(domain_ref_path), rosame_unclean_traj_paths, use_problems=False)
+
                 if rosame_unclean_model and ":action" in rosame_unclean_model:
                     temp_rosame_unclean_path = testing_dir / f'ROSAME_unclean_{bench_name}_fold{fold}_size{traj_size}.pddl'
                     temp_rosame_unclean_path.write_text(rosame_unclean_model)
@@ -364,27 +452,54 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
         }
 
         # ========================================================================
-        # PHASE 2: CLEANED (learning on NOISY_PISAM denoised trajectories)
+        # PHASE 2: CLEANED (learning on denoised trajectories)
         # ========================================================================
         print(f"  Phase 2: Learning on cleaned trajectories...")
 
-        # Run NOISY_PISAM
-        pisam_model, final_obs, report = run_noisy_pisam_trial(
-            domain_ref_path, truncated_trajs, testing_dir, fold, traj_size)
+        # Run NOISY_PISAM or NOISY_SAM based on mode
+        if mode == 'masked':
+            sam_model, final_obs, report = run_noisy_pisam_trial(
+                domain_ref_path, truncated_trajs, testing_dir, fold, traj_size)
+            algo_name = 'PISAM'
+        else:  # fullyobs
+            # For NOISY_SAM, we need to create problem files alongside trajectories
+            temp_noisy_sam_dir = testing_dir / f"temp_noisy_sam_fold{fold}_size{traj_size}"
+            temp_noisy_sam_dir.mkdir(parents=True, exist_ok=True)
+
+            noisy_sam_traj_paths = []
+            for truncated_traj in truncated_trajs:
+                problem_name = truncated_traj.stem.split('_truncated_')[0]
+                problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
+
+                if not problem_file.exists():
+                    continue
+
+                problem_dir = temp_noisy_sam_dir / problem_name
+                problem_dir.mkdir(parents=True, exist_ok=True)
+
+                # Copy trajectory and problem file
+                traj_path = problem_dir / f"{problem_name}.trajectory"
+                shutil.copy(truncated_traj, traj_path)
+                shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
+                noisy_sam_traj_paths.append(traj_path)
+
+            sam_model, final_obs, report = run_noisy_sam_trial(
+                domain_ref_path, noisy_sam_traj_paths, testing_dir, fold, traj_size)
+            algo_name = 'SAM'
 
         # Determine if fold data creation timed out
         fold_timedout = 0 if report.get('terminated_by') == 'solution_found' else 1
 
-        temp_pisam_path = testing_dir / f'PISAM_{bench_name}_fold{fold}_size{traj_size}.pddl'
-        temp_pisam_path.write_text(pisam_model)
+        temp_sam_path = testing_dir / f'{algo_name}_{bench_name}_fold{fold}_size{traj_size}.pddl'
+        temp_sam_path.write_text(sam_model)
 
-        pisam_metrics = evaluate_model(str(temp_pisam_path), domain_ref_path, test_problem_paths)
-        cleaned_pisam_result = {
-            'domain': bench_name, 'algorithm': 'PISAM', 'fold': fold,
+        sam_metrics = evaluate_model(str(temp_sam_path), domain_ref_path, test_problem_paths)
+        cleaned_sam_result = {
+            'domain': bench_name, 'algorithm': algo_name, 'fold': fold,
             'traj_size': traj_size, 'problems_count': len(test_problem_paths),
             '_internal_phase': 'cleaned',
             'fold_data_creation_timedout': fold_timedout,
-            **pisam_metrics
+            **sam_metrics
         }
 
         # Run ROSAME with final observations
@@ -394,28 +509,10 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
         rosame_traj_paths = []
         for obs, truncated_traj in zip(final_obs, truncated_trajs):
             problem_name = truncated_traj.stem.split('_truncated_')[0]
-            masking_file = truncated_traj.parent / f"{truncated_traj.stem}.masking_info"
             problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
 
-            if not (masking_file.exists() and problem_file.exists()):
+            if not problem_file.exists():
                 continue
-
-            # Load original masking info and adjust to final observation length
-            domain = DomainParser(domain_ref_path).parse_domain()
-            original_masking_info = load_masking_info(masking_file, domain)
-
-            # Final observation may have different length than truncated trajectory
-            final_obs_length = len(obs.components)
-
-            # Adjust masking info to match final observation length
-            if len(original_masking_info) - 1 > final_obs_length:
-                # Truncate if final obs is shorter
-                adjusted_masking_info = original_masking_info[:final_obs_length + 1]
-            elif len(original_masking_info) - 1 < final_obs_length:
-                # Extend with last masking state if final obs is longer
-                adjusted_masking_info = original_masking_info + [original_masking_info[-1]] * (final_obs_length - (len(original_masking_info) - 1))
-            else:
-                adjusted_masking_info = original_masking_info
 
             problem_dir = temp_rosame_dir / problem_name
             problem_dir.mkdir(parents=True, exist_ok=True)
@@ -424,13 +521,41 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
             observation_to_trajectory_file(obs, traj_path)
             shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
 
-            # Save adjusted masking info
-            save_masking_info(problem_dir, problem_name, adjusted_masking_info)
+            # Handle masking info only in masked mode
+            if mode == 'masked':
+                masking_file = truncated_traj.parent / f"{truncated_traj.stem}.masking_info"
+                if not masking_file.exists():
+                    continue
+
+                # Load original masking info and adjust to final observation length
+                domain = DomainParser(domain_ref_path).parse_domain()
+                original_masking_info = load_masking_info(masking_file, domain)
+
+                # Final observation may have different length than truncated trajectory
+                final_obs_length = len(obs.components)
+
+                # Adjust masking info to match final observation length
+                if len(original_masking_info) - 1 > final_obs_length:
+                    # Truncate if final obs is shorter
+                    adjusted_masking_info = original_masking_info[:final_obs_length + 1]
+                elif len(original_masking_info) - 1 < final_obs_length:
+                    # Extend with last masking state if final obs is longer
+                    adjusted_masking_info = original_masking_info + [original_masking_info[-1]] * (final_obs_length - (len(original_masking_info) - 1))
+                else:
+                    adjusted_masking_info = original_masking_info
+
+                # Save adjusted masking info
+                save_masking_info(problem_dir, problem_name, adjusted_masking_info)
+
             rosame_traj_paths.append(str(traj_path))
 
         if rosame_traj_paths:
             try:
-                rosame_model = PO_ROSAME().learn(str(domain_ref_path), rosame_traj_paths, use_problems=False)
+                if mode == 'masked':
+                    rosame_model = PO_ROSAME().learn(str(domain_ref_path), rosame_traj_paths, use_problems=False)
+                else:  # fullyobs
+                    rosame_model = ROSAME().learn(str(domain_ref_path), rosame_traj_paths, use_problems=False)
+
                 if rosame_model and ":action" in rosame_model:
                     temp_rosame_path = testing_dir / f'ROSAME_{bench_name}_fold{fold}_size{traj_size}.pddl'
                     temp_rosame_path.write_text(rosame_model)
@@ -453,10 +578,10 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
         }
 
         # Cleanup
-        if temp_pisam_path.exists():
-            temp_pisam_path.unlink()
+        if temp_sam_path.exists():
+            temp_sam_path.unlink()
 
-        return [unclean_pisam_result, unclean_rosame_result, cleaned_pisam_result, cleaned_rosame_result]
+        return [unclean_sam_result, unclean_rosame_result, cleaned_sam_result, cleaned_rosame_result]
     finally:
         # Always restore working directory
         os.chdir(original_cwd)
@@ -809,7 +934,14 @@ def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plo
 # =============================================================================
 # MAIN EXPERIMENT LOOP
 # =============================================================================
-def main():
+def main(selected_domains: List[str] = None, mode: str = 'masked'):
+    """
+    Run benchmark experiments.
+
+    Args:
+        selected_domains: List of domain names to run, or None for all domains in domain_name_mappings
+        mode: Either 'masked' or 'fullyobs'
+    """
     unclean_results = []
     cleaned_results = []
 
@@ -817,10 +949,24 @@ def main():
     evaluation_results_dir = benchmark_path / 'data' / 'evaluation_results'
     evaluation_results_dir.mkdir(parents=True, exist_ok=True)
 
-    for domain_name, bench_name in domain_name_mappings.items():
+    # Select appropriate experiment data directories based on mode
+    experiment_data_dirs = experiment_data_dirs_masked if mode == 'masked' else experiment_data_dirs_fullyobs
+
+    # Filter domains if specific domains are requested
+    if selected_domains:
+        domains_to_run = {k: v for k, v in domain_name_mappings.items() if k in selected_domains}
+    else:
+        domains_to_run = domain_name_mappings
+
+    print(f"\n{'='*80}")
+    print(f"RUNNING BENCHMARK IN {mode.upper()} MODE")
+    print(f"Domains: {list(domains_to_run.keys())}")
+    print(f"{'='*80}\n")
+
+    for domain_name, bench_name in domains_to_run.items():
         domain_ref_path = domain_properties[domain_name]["domain_path"]
 
-        for dir_name in experiment_data_dirs_PO[domain_name]:
+        for dir_name in experiment_data_dirs[domain_name]:
             data_dir = benchmark_path / 'data' / domain_name / dir_name
             trajectories_dir = data_dir / 'training' / 'trajectories'
             testing_dir = data_dir / 'testing'
@@ -854,7 +1000,7 @@ def main():
                         future = executor.submit(
                             run_single_fold,
                             fold, problem_dirs, n_problems, traj_size,
-                            domain_ref_path, testing_dir, bench_name
+                            domain_ref_path, testing_dir, bench_name, mode
                         )
                         futures.append(future)
 
@@ -936,4 +1082,23 @@ def main():
     print(f"  - All-domains combined CSV: {csv_all_combined}")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Run PDDL action model learning benchmark')
+    parser.add_argument('--domain', type=str, default='all',
+                       help='Domain to run (blocksworld, hanoi, n_puzzle_typed, maze, or "all" for all domains)')
+    parser.add_argument('--mode', type=str, default='fullyobs', choices=['masked', 'fullyobs'],
+                       help='Mode to run: "masked" (PISAM/PO_ROSAME) or "fullyobs" (SAM/ROSAME)')
+
+    args = parser.parse_args()
+
+    # Determine which domains to run
+    if args.domain == 'all':
+        selected_domains = None  # Run all domains in domain_name_mappings
+    else:
+        # Validate domain name
+        if args.domain not in domain_properties:
+            print(f"Error: Unknown domain '{args.domain}'")
+            print(f"Available domains: {list(domain_properties.keys())}")
+            exit(1)
+        selected_domains = [args.domain]
+
+    main(selected_domains=selected_domains, mode=args.mode)

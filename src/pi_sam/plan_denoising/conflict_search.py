@@ -110,7 +110,7 @@ class ConflictDrivenPatchSearch:
         max_nodes: Optional[int] = None,
         initial_model_constraints: Optional[Dict[Key, PatchOperation]] = None,
         initial_fluent_patches: Optional[Set[FluentLevelPatch]] = None,
-        timeout_seconds: int = 300,
+        timeout_seconds: int = 900,
     ) -> Tuple[
         LearnerDomain,
         List[Conflict],

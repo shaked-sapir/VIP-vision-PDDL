@@ -1,4 +1,3 @@
-import shutil
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,12 +6,9 @@ from typing import List, Tuple
 from amlgym.algorithms.AlgorithmAdapter import AlgorithmAdapter
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 from pddl_plus_parser.models import Observation
-from sam_learning.learners import SAMLearner
 from utilities import NegativePreconditionPolicy
 
-from src.pi_sam import PISAMLearner
-from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
-from src.utils.masking import load_masked_observation
+from src.pi_sam.plan_denoising.conflict_search_regular_sam import ConflictDrivenPatchSearch
 
 
 @dataclass
@@ -32,6 +28,13 @@ class NOISY_SAM(AlgorithmAdapter):
             print(model)
 
     """
+    negative_precondition_policy = NegativePreconditionPolicy.hard
+
+    # Conflict search parameters
+    fluent_patch_cost = 1
+    model_patch_cost = 1
+    max_search_nodes = None
+    seed = 42
 
     def learn(self,
               domain_path: str,
