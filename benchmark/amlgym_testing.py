@@ -306,6 +306,7 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
             'domain': bench_name, 'algorithm': 'PISAM', 'fold': fold,
             'traj_size': traj_size, 'problems_count': len(test_problem_paths),
             '_internal_phase': 'unclean',
+            'fold_data_creation_timedout': 0,
             **pisam_unclean_metrics
         }
         temp_pisam_unclean_path.unlink()
@@ -353,6 +354,7 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
             'domain': bench_name, 'algorithm': 'ROSAME', 'fold': fold,
             'traj_size': traj_size, 'problems_count': len(test_problem_paths),
             '_internal_phase': 'unclean',
+            'fold_data_creation_timedout': 0,
             **rosame_unclean_metrics
         }
 
@@ -365,6 +367,9 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
         pisam_model, final_obs, report = run_noisy_pisam_trial(
             domain_ref_path, truncated_trajs, testing_dir, fold, traj_size)
 
+        # Determine if fold data creation timed out
+        fold_timedout = 0 if report.get('terminated_by') == 'solution_found' else 1
+
         temp_pisam_path = testing_dir / f'PISAM_{bench_name}_fold{fold}_size{traj_size}.pddl'
         temp_pisam_path.write_text(pisam_model)
 
@@ -373,6 +378,7 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
             'domain': bench_name, 'algorithm': 'PISAM', 'fold': fold,
             'traj_size': traj_size, 'problems_count': len(test_problem_paths),
             '_internal_phase': 'cleaned',
+            'fold_data_creation_timedout': fold_timedout,
             **pisam_metrics
         }
 
@@ -437,6 +443,7 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
             'domain': bench_name, 'algorithm': 'ROSAME', 'fold': fold,
             'traj_size': traj_size, 'problems_count': len(test_problem_paths),
             '_internal_phase': 'cleaned',
+            'fold_data_creation_timedout': fold_timedout,
             **rosame_metrics
         }
 
@@ -780,6 +787,10 @@ def main():
     unclean_results = []
     cleaned_results = []
 
+    # Create evaluation results directory
+    evaluation_results_dir = benchmark_path / 'data' / 'evaluation_results'
+    evaluation_results_dir.mkdir(parents=True, exist_ok=True)
+
     for domain_name, bench_name in domain_name_mappings.items():
         domain_ref_path = domain_properties[domain_name]["domain_path"]
 
@@ -839,15 +850,25 @@ def main():
                             traceback.print_exc()
 
                 # Write TWO separate CSV files after all folds complete
-                csv_unclean = benchmark_path / f"results_{bench_name}_unclean.csv"
-                csv_cleaned = benchmark_path / f"results_{bench_name}.csv"
+                csv_unclean = evaluation_results_dir / f"results_{bench_name}_unclean.csv"
+                csv_cleaned = evaluation_results_dir / f"results_{bench_name}.csv"
 
                 pd.DataFrame(unclean_results).to_csv(csv_unclean, index=False)
                 pd.DataFrame(cleaned_results).to_csv(csv_cleaned, index=False)
 
+                # Create combined CSV (unclean + cleaned with phase column)
+                csv_combined = evaluation_results_dir / f"results_{bench_name}_combined.csv"
+
+                # Filter results for this domain and add phase column
+                domain_unclean = [dict(r, phase='unclean') for r in unclean_results if r['domain'] == bench_name]
+                domain_cleaned = [dict(r, phase='cleaned') for r in cleaned_results if r['domain'] == bench_name]
+                combined_data = domain_unclean + domain_cleaned
+                pd.DataFrame(combined_data).to_csv(csv_combined, index=False)
+
                 print(f"\n✓ All folds for traj_size={traj_size} completed")
                 print(f"✓ Unclean results written to {csv_unclean}")
                 print(f"✓ Cleaned results written to {csv_cleaned}")
+                print(f"✓ Combined results written to {csv_combined}")
 
                 # Generate Excel report after each trajectory size completes
                 print(f"\n{'='*60}")
@@ -855,14 +876,14 @@ def main():
                 print(f"{'='*60}")
 
                 timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-                xlsx_path = benchmark_path / f"benchmark_results_{timestamp}.xlsx"
+                xlsx_path = evaluation_results_dir / f"benchmark_results_{timestamp}.xlsx"
                 generate_excel_report(unclean_results, cleaned_results, xlsx_path)
                 print(f"✓ Excel report saved to: {xlsx_path}")
                 completed_sizes = sorted(set(r['traj_size'] for r in unclean_results))
                 print(f"  Sheets completed so far: {[f'{s}__unclean' for s in completed_sizes] + [str(s) for s in completed_sizes]}")
 
                 # Generate plots after each trajectory size
-                plots_dir = data_dir / "plots"
+                plots_dir = evaluation_results_dir / "plots"
                 generate_plots(unclean_results, cleaned_results, plots_dir)
                 print(f"✓ Plots updated with results up to size={traj_size}")
 
@@ -870,14 +891,23 @@ def main():
     # FINAL SUMMARY
     # =============================================================================
 
+    # Create all-domains combined CSV file
+    csv_all_combined = evaluation_results_dir / "results_all_domains_combined.csv"
+    all_unclean = [dict(r, phase='unclean') for r in unclean_results]
+    all_cleaned = [dict(r, phase='cleaned') for r in cleaned_results]
+    all_combined_data = all_unclean + all_cleaned
+    pd.DataFrame(all_combined_data).to_csv(csv_all_combined, index=False)
+
     print("\n" + "=" * 80)
     print("ALL EXPERIMENTS COMPLETED")
     print("=" * 80)
     print(f"\nTotal unclean results: {len(unclean_results)}")
     print(f"Total cleaned results: {len(cleaned_results)}")
-    print(f"\nFinal plots saved to: {data_dir / 'plots'}")
-    print(f"Final Excel report: {xlsx_path}")
-    print(f"CSV files: {csv_unclean}, {csv_cleaned}")
+    print(f"\nAll evaluation results saved to: {evaluation_results_dir}")
+    print(f"  - Plots: {evaluation_results_dir / 'plots'}")
+    print(f"  - Excel report: {xlsx_path}")
+    print(f"  - Per-domain CSVs: {csv_unclean}, {csv_cleaned}, {csv_combined}")
+    print(f"  - All-domains combined CSV: {csv_all_combined}")
 
 if __name__ == "__main__":
     main()
