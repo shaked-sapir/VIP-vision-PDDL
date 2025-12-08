@@ -466,14 +466,14 @@ def propagate_frame_axioms_in_trajectory(
         next_mask = {pred_str(p) for p in masking_info[i + 1]} if i + 1 < len(masking_info) else set()
         action_objs = extract_objs(str(comp.grounded_action_call))
 
-        # Remove predicates from next that are not in curr, not in curr_mask, and don't share objects with action
+        # Remove predicates from next that are not in curr, not in curr_mask, and not involving action objects
         next -= {p for p in next if p not in curr and p not in curr_mask and
-                 extract_objs(parse_gym_to_pddl_literal(p)).isdisjoint(action_objs)}
+                 not extract_objs(parse_gym_to_pddl_literal(p)) <= action_objs}
 
         # Propagate from curr to next
         propagated = [p for p in curr if p not in next and p not in next_mask
-                      and ((pred_objs := extract_objs(parse_gym_to_pddl_literal(p))) != set())
-                      and pred_objs.isdisjoint(action_objs)]
+                      and ((pred_objs := extract_objs(parse_gym_to_pddl_literal(p))) != set()
+                      and not pred_objs <= action_objs)]
 
         trajectory.append({
             'step': i + 1,
@@ -517,8 +517,11 @@ def json_to_trajectory_file(json_trajectory_path: Union[str, Path]) -> Path:
 
 
 if __name__ == "__main__":
+    path_to_change = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner/training/trajectories/problem9/problem9"
+    domain_path = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/domains/blocksworld/blocksworld.pddl")
+
     propagate_frame_axioms_in_trajectory(
-        Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner/training/trajectories/problem7/problem7.trajectory"),
-        Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner/training/trajectories/problem7/problem7.masking_info"),
-        Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/domains/blocksworld/blocksworld.pddl")
+        Path(f"{path_to_change}.trajectory"),
+        Path(f"{path_to_change}.masking_info"),
+        domain_path
     )

@@ -25,7 +25,7 @@ from benchmark.amlgym_models.PO_ROSAME import PO_ROSAME
 from benchmark.amlgym_models.ROSAME import ROSAME
 from benchmark.amlgym_models.SAM import SAM
 from src.utils.masking import load_masking_info, save_masking_info
-from src.utils.pddl import observation_to_trajectory_file
+from src.utils.pddl import observation_to_trajectory_file, propagate_frame_axioms_in_trajectory
 
 # =============================================================================
 # CONFIG & PATHS
@@ -329,6 +329,57 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
             truncated_file = prob_dir / f"{prob_dir.name}_truncated_{traj_size}.trajectory"
             if truncated_file.exists():
                 truncated_trajs.append(truncated_file)
+
+        # ========================================================================
+        # Apply frame axiom propagation to training trajectories
+        # ========================================================================
+        print(f"  Applying frame axiom propagation to {len(truncated_trajs)} trajectories...")
+        temp_frame_axioms_dir = testing_dir / f"temp_frame_axioms_fold{fold}_size{traj_size}"
+        temp_frame_axioms_dir.mkdir(parents=True, exist_ok=True)
+
+        frame_propagated_trajs = []
+        for truncated_traj in truncated_trajs:
+            # Find masking_info file
+            masking_info_path = truncated_traj.with_suffix('.masking_info')
+
+            if not masking_info_path.exists():
+                print(f"  Warning: masking_info not found for {truncated_traj.name}, skipping frame axiom propagation")
+                # Still use the original trajectory if masking_info doesn't exist
+                frame_propagated_trajs.append(truncated_traj)
+                continue
+
+            try:
+                # Apply frame axiom propagation (creates file in original directory)
+                propagated_traj_path = propagate_frame_axioms_in_trajectory(
+                    truncated_traj, masking_info_path, domain_ref_path
+                )
+
+                # Move the propagated trajectory to temp directory
+                problem_name = truncated_traj.stem.split('_truncated_')[0]
+                new_traj_name = f"{problem_name}_truncated_{traj_size}.trajectory"
+                dest_traj_path = temp_frame_axioms_dir / new_traj_name
+                shutil.move(str(propagated_traj_path), str(dest_traj_path))
+
+                # Copy masking_info to temp directory
+                dest_masking_path = temp_frame_axioms_dir / f"{problem_name}_truncated_{traj_size}.masking_info"
+                shutil.copy(masking_info_path, dest_masking_path)
+
+                # Copy problem file to temp directory (needed for SAM in fullyobs mode)
+                problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
+                if problem_file.exists():
+                    dest_problem_path = temp_frame_axioms_dir / f"{problem_name}.pddl"
+                    shutil.copy(problem_file, dest_problem_path)
+
+                frame_propagated_trajs.append(dest_traj_path)
+
+            except Exception as e:
+                print(f"  Warning: Failed to propagate frame axioms for {truncated_traj.name}: {e}")
+                # Fall back to original trajectory if propagation fails
+                frame_propagated_trajs.append(truncated_traj)
+
+        # Update truncated_trajs to use frame-propagated versions
+        truncated_trajs = frame_propagated_trajs
+        print(f"  ✓ Frame axiom propagation complete, using {len(truncated_trajs)} trajectories")
 
         test_problem_paths = [str(list(d.glob("*.pddl"))[0]) for d in test_problem_dirs if list(d.glob("*.pddl"))]
 
@@ -1089,7 +1140,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run PDDL action model learning benchmark')
     parser.add_argument('--domain', type=str, default='all',
                        help='Domain to run (blocksworld, hanoi, n_puzzle_typed, maze, or "all" for all domains)')
-    parser.add_argument('--mode', type=str, default='fullyobs', choices=['masked', 'fullyobs'],
+    parser.add_argument('--mode', type=str, default='masked', choices=['masked', 'fullyobs'],
                        help='Mode to run: "masked" (PISAM/PO_ROSAME) or "fullyobs" (SAM/ROSAME)')
 
     args = parser.parse_args()
