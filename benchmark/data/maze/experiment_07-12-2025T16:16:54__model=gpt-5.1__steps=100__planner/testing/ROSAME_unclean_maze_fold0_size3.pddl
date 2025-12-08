@@ -18,8 +18,8 @@
 
 (:action move-up
 	:parameters (?p - player ?from - location ?to - location)
-	:precondition (and (move-dir-up ?from ?to) (move-dir-down ?to ?from) (clear ?from) (clear ?to) (oriented-left ?p) (oriented-right ?p))
-	:effect (and (oriented-down ?p) (not (move-dir-up ?from ?to))  (not (move-dir-down ?to ?from))  (not (clear ?from))  (not (oriented-left ?p))  (not (oriented-right ?p))))
+	:precondition (and (move-dir-up ?from ?to) (move-dir-down ?to ?from) (clear ?from) (clear ?to) (oriented-left ?p))
+	:effect (and (oriented-down ?p) (not (move-dir-up ?from ?to))  (not (move-dir-down ?to ?from))  (not (clear ?from))  (not (oriented-left ?p))))
 
 (:action move-down
 	:parameters (?p - player ?from - location ?to - location)
@@ -28,12 +28,12 @@
 
 (:action move-left
 	:parameters (?p - player ?from - location ?to - location)
-	:precondition (and )
-	:effect (and (move-dir-up ?from ?to) (move-dir-up ?to ?from) (move-dir-down ?from ?to) (move-dir-down ?to ?from) (move-dir-left ?from ?to) (move-dir-left ?to ?from) (move-dir-right ?from ?to) (move-dir-right ?to ?from) (clear ?from) (clear ?to) (at ?p ?from) (at ?p ?to) (oriented-up ?p) (oriented-down ?p) (oriented-left ?p) (oriented-right ?p) (is-goal ?from) (is-goal ?to)))
+	:precondition (and (move-dir-up ?from ?to) (move-dir-up ?to ?from) (move-dir-down ?from ?to) (move-dir-down ?to ?from) (move-dir-left ?from ?to) (move-dir-left ?to ?from) (move-dir-right ?from ?to) (move-dir-right ?to ?from) (clear ?from) (clear ?to) (at ?p ?from) (at ?p ?to) (oriented-up ?p) (oriented-down ?p) (oriented-left ?p) (oriented-right ?p) (is-goal ?from) (is-goal ?to))
+	:effect (and  (not (move-dir-up ?from ?to))  (not (move-dir-up ?to ?from))  (not (move-dir-down ?from ?to))  (not (move-dir-down ?to ?from))  (not (move-dir-left ?from ?to))  (not (move-dir-left ?to ?from))  (not (move-dir-right ?from ?to))  (not (move-dir-right ?to ?from))  (not (clear ?from))  (not (clear ?to))  (not (at ?p ?from))  (not (at ?p ?to))  (not (oriented-up ?p))  (not (oriented-down ?p))  (not (oriented-left ?p))  (not (oriented-right ?p))  (not (is-goal ?from))  (not (is-goal ?to))))
 
 (:action move-right
 	:parameters (?p - player ?from - location ?to - location)
-	:precondition (and (move-dir-left ?to ?from) (move-dir-right ?from ?to) (clear ?to) (at ?p ?from) (oriented-down ?p))
-	:effect (and (move-dir-up ?from ?to) (move-dir-up ?to ?from) (move-dir-down ?from ?to) (move-dir-down ?to ?from) (move-dir-left ?from ?to) (move-dir-right ?to ?from) (clear ?from) (at ?p ?to) (oriented-up ?p) (oriented-left ?p) (oriented-right ?p) (is-goal ?from) (is-goal ?to) (not (oriented-down ?p))))
+	:precondition (and (clear ?to) (at ?p ?from) (oriented-down ?p))
+	:effect (and (move-dir-up ?from ?to) (move-dir-up ?to ?from) (move-dir-down ?from ?to) (move-dir-down ?to ?from) (move-dir-left ?from ?to) (move-dir-left ?to ?from) (move-dir-right ?from ?to) (move-dir-right ?to ?from) (clear ?from) (at ?p ?to) (oriented-up ?p) (oriented-left ?p) (oriented-right ?p) (is-goal ?from) (is-goal ?to) (not (oriented-down ?p))))
 
 )

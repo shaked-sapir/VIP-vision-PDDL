@@ -54,7 +54,6 @@ class SearchNode:
         Set of fluent-level patches (where to flip data).
     """
     cost: int
-    conflicts_count: int           # secondary: #conflicts in this node
     depth: int
     model_constraints: Dict[Key, PatchOperation] = field(compare=False)
     fluent_patches: Set[FluentLevelPatch] = field(compare=False)
@@ -83,10 +82,13 @@ class ConflictDrivenPatchSearch:
         negative_preconditions_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard,
         seed: int = 42,
         logger: Optional[object] = None,
+        search_mode: str = "anytime_dfs",  # or "ucs"
     ):
         self.partial_domain_template = partial_domain_template
         self.negative_preconditions_policy = negative_preconditions_policy
         self.seed = seed
+        self.search_mode = search_mode
+
         if logger is None:
             # Create default structured logger
             logger = DefaultSearchLogger(f"{__name__}.ConflictDrivenPatchSearch")
@@ -110,7 +112,7 @@ class ConflictDrivenPatchSearch:
         max_nodes: Optional[int] = None,
         initial_model_constraints: Optional[Dict[Key, PatchOperation]] = None,
         initial_fluent_patches: Optional[Set[FluentLevelPatch]] = None,
-        timeout_seconds: int = 900,
+        timeout_seconds: int = 300,
     ) -> Tuple[
         LearnerDomain,
         List[Conflict],
@@ -118,48 +120,58 @@ class ConflictDrivenPatchSearch:
         Set[FluentLevelPatch],
         int,
         Dict[str, str],
-        List[Observation]
+        List[Observation],
     ]:
         """
         Run the conflict-driven patch search on trajectories T (= observations).
 
-        Strategy:
-          - Uniform-cost search on (#fluent patches).
-          - Node ordering = (fluent_patch_count, depth).
-          - Optional limits:
-              * max_nodes      – max expanded nodes
-              * timeout_seconds – max wall-clock time (default: 5 minutes)
+        :param search_mode:
+            "ucs"         -> uniform-cost search (globally minimal #fluent patches).
+            "anytime_dfs" -> depth-first anytime (fast first solution, improves until stop).
 
-        :param observations:
-            Grounded & masked observations (trajectories).
-
-        :param max_nodes:
-            Optional limit on number of expanded nodes.
-
-        :param initial_model_constraints:
-            Optional initial model constraints to start from.
-
-        :param initial_fluent_patches:
-            Optional initial fluent-level patches to start from.
-
-        :param timeout_seconds:
-            Maximum allowed wall-clock time in seconds for the whole run.
-            Default is 300 seconds (5 minutes).
-
-        :return:
+        Returns:
             (learned_domain,
              conflicts,
              model_constraints,
              fluent_patches,
-             best_fluent_patch_count,
-             learning_report_with_patch_diff)
+             patch_count,
+             learning_report_with_patch_diff,
+             patched_observations)
         """
+        if self.search_mode == "ucs":
+            return self._run_uniform_cost(
+                observations,
+                max_nodes=max_nodes,
+                initial_model_constraints=initial_model_constraints,
+                initial_fluent_patches=initial_fluent_patches,
+                timeout_seconds=timeout_seconds,
+            )
+        else:
+            return self._run_anytime_dfs(
+                observations,
+                max_nodes=max_nodes,
+                initial_model_constraints=initial_model_constraints,
+                initial_fluent_patches=initial_fluent_patches,
+                timeout_seconds=timeout_seconds,
+            )
+
+    # ----------------------------------------------------------------------
+    # Uniform-cost search (globally minimal #fluent patches)
+    # ----------------------------------------------------------------------
+
+    def _run_uniform_cost(
+        self,
+        observations: Sequence[Observation],
+        max_nodes: Optional[int],
+        initial_model_constraints: Optional[Dict[Key, PatchOperation]],
+        initial_fluent_patches: Optional[Set[FluentLevelPatch]],
+        timeout_seconds: int,
+    ):
         root_constraints: Dict[Key, PatchOperation] = initial_model_constraints or {}
         root_fluent_patches: Set[FluentLevelPatch] = initial_fluent_patches or set()
 
         root_node = SearchNode(
-            cost=0,
-            conflicts_count=0,
+            cost=len(root_fluent_patches),
             depth=0,
             model_constraints=root_constraints,
             fluent_patches=root_fluent_patches,
@@ -170,44 +182,37 @@ class ConflictDrivenPatchSearch:
 
         last_domain: Optional[LearnerDomain] = None
         last_conflicts: List[Conflict] = []
-        last_state: Tuple[Dict[Key, PatchOperation], Set[FluentLevelPatch]] = (
-            root_constraints,
-            root_fluent_patches,
-        )
+        last_state = (root_constraints, root_fluent_patches)
         last_report: Dict[str, str] = {}
         last_cost: int = root_node.cost
 
         nodes_expanded = 0
         max_depth = 0
-        depth_tracker: Dict[Tuple, int] = {self._encode_state(root_constraints, root_fluent_patches): 0}
         start_time = time.time()
-        terminated_by = ""
+        terminated_by = "exhausted"
+
         while open_heap:
             if max_nodes is not None and nodes_expanded >= max_nodes:
                 terminated_by = "max_nodes_exceeded"
-                if self.logger is not None:
-                    self.logger.info(f"Stopping search: reached max_nodes={max_nodes}")
+                self.logger.info(f"Stopping search (UCS): reached max_nodes={max_nodes}")
                 break
 
             if timeout_seconds is not None and (time.time() - start_time) >= timeout_seconds:
                 terminated_by = "timeout_exceeded"
-                if self.logger is not None:
-                    self.logger.info(
-                        f"Stopping search: timeout of {timeout_seconds:.1f}s exceeded"
-                    )
+                self.logger.info(
+                    f"Stopping search (UCS): timeout of {timeout_seconds:.1f}s exceeded"
+                )
                 break
 
             node: SearchNode = heapq.heappop(open_heap)
 
             state_key = self._encode_state(node.model_constraints, node.fluent_patches)
-
             if state_key in visited:
                 continue
             visited.add(state_key)
 
             nodes_expanded += 1
-            current_depth = depth_tracker.get(state_key, 0)
-            max_depth = max(max_depth, current_depth)
+            max_depth = max(max_depth, node.depth)
 
             domain, conflicts, report = self._learn_with_state(
                 observations,
@@ -218,15 +223,15 @@ class ConflictDrivenPatchSearch:
             last_domain, last_conflicts, last_state, last_report, last_cost = (
                 domain,
                 conflicts,
-                (node.model_constraints,node.fluent_patches),
+                (node.model_constraints, node.fluent_patches),
                 report,
-                node.cost
+                node.cost,
             )
 
             # if hasattr(self.logger, "log_node"):
             #     self.logger.log_node(
             #         node_id=nodes_expanded,
-            #         depth=current_depth,
+            #         depth=node.depth,
             #         cost=node.cost,
             #         model_constraints=node.model_constraints,
             #         fluent_patches=node.fluent_patches,
@@ -234,8 +239,8 @@ class ConflictDrivenPatchSearch:
             #         is_solution=(len(conflicts) == 0),
             #     )
 
+            # First conflict-free node popped from UCS heap = minimal #fluent patches
             if not conflicts:
-                # Found conflict-free model
                 total_time = time.time() - start_time
                 patch_diff = self._compute_patch_diff(
                     initial_constraints=root_constraints,
@@ -244,78 +249,74 @@ class ConflictDrivenPatchSearch:
                     final_fluent_patches=node.fluent_patches,
                 )
                 enriched_report = dict(report)
-                enriched_report["patch_diff"] = patch_diff
-                enriched_report["nodes_expanded"] = nodes_expanded
-                enriched_report["max_depth"] = max_depth
-                enriched_report["terminated_by"] = "solution_found"
-                enriched_report["total_time_seconds"] = total_time
+                enriched_report.update(
+                    dict(
+                        patch_diff=patch_diff,
+                        nodes_expanded=nodes_expanded,
+                        max_depth=max_depth,
+                        terminated_by="solution_found_ucs",
+                        total_time_seconds=total_time,
+                    )
+                )
 
                 patched_obs = self._apply_patches_to_observations(
                     observations,
                     node.fluent_patches,
                 )
-                return domain, [], node.model_constraints, node.fluent_patches, node.cost, enriched_report, patched_obs
+                return (
+                    domain,
+                    [],
+                    node.model_constraints,
+                    node.fluent_patches,
+                    node.cost,
+                    enriched_report,
+                    patched_obs,
+                )
 
-            # Conflicts found - choose which conflict to branch on
-            # --- GROUP conflicts and pick best group according to priority ---
+            # --- Conflicts: group + choose group ---
             conflict_groups = self._group_conflicts(conflicts)
             group = self._choose_conflict_group(conflict_groups)
 
-            # ------------------------------------------------------------------
             # Branch 1: DATA-FIX (fluent patches for all conflicts in the group)
-            # ------------------------------------------------------------------
             child1_constraints = dict(node.model_constraints)
             child1_fluent_patches = set(node.fluent_patches)
-
-            new_patches = [self._build_fluent_patch(c) for c in group]
             changed = False
-            for fp in new_patches:
+
+            for c in group:
+                fp = self._build_fluent_patch(c)
                 if fp not in child1_fluent_patches:
                     child1_fluent_patches.add(fp)
                     changed = True
 
             if changed:
                 child1_fluent_patches = self._dedup_patches(child1_fluent_patches)
-                child1_fluent_count = len(child1_fluent_patches)
-                depth_tracker[self._encode_state(child1_constraints, child1_fluent_patches)] = current_depth + 1
-
                 heapq.heappush(
                     open_heap,
                     SearchNode(
-                        cost=child1_fluent_count,
-                        conflicts_count=len(group),
+                        cost=len(child1_fluent_patches),
                         depth=node.depth + 1,
                         model_constraints=child1_constraints,
                         fluent_patches=child1_fluent_patches,
                     ),
                 )
 
-            # ------------------------------------------------------------------
-            # Branch 2: model-fix (add/adjust model-level effect patch)
-            # ------------------------------------------------------------------
+            # Branch 2: MODEL-FIX (only for effect conflicts)
             rep_conflict = group[0]
             if rep_conflict.conflict_type not in {ConflictType.FRAME_AXIOM}:
-                child2_constraints: Dict[Key, PatchOperation] = dict(node.model_constraints)
-                child2_constraints = self._build_model_patch(rep_conflict, child2_constraints)
-                child2_fluent_patches = set(node.fluent_patches)
-                child2_fluent_count = len(child2_fluent_patches)
-
-                # If model_constraints actually changed, push new node
-                if child2_constraints != node.model_constraints:
-                    depth_tracker[self._encode_state(child2_constraints, child2_fluent_patches)] = current_depth + 1
-
+                new_constraints = self._build_model_patch(rep_conflict, dict(node.model_constraints))
+                if new_constraints != node.model_constraints:
+                    child2_fluent_patches = set(node.fluent_patches)
                     heapq.heappush(
                         open_heap,
                         SearchNode(
-                            cost=child2_fluent_count,
-                            conflicts_count=len(group),
+                            cost=len(child2_fluent_patches),
                             depth=node.depth + 1,
-                            model_constraints=child2_constraints,
+                            model_constraints=new_constraints,
                             fluent_patches=child2_fluent_patches,
                         ),
                     )
 
-        # No conflict-free model found within limits; return last evaluated
+        # No conflict-free model found; return last evaluated node
         total_time = time.time() - start_time
         last_constraints, last_fluent_patches = last_state
 
@@ -325,20 +326,244 @@ class ConflictDrivenPatchSearch:
             initial_fluent_patches=root_fluent_patches,
             final_fluent_patches=last_fluent_patches,
         )
-
         enriched_report = dict(last_report)
-        enriched_report["patch_diff"] = patch_diff
-        enriched_report["nodes_expanded"] = nodes_expanded
-        enriched_report["max_depth"] = max_depth
-        enriched_report["v"] = terminated_by
-        enriched_report["total_time_seconds"] = total_time
+        enriched_report.update(
+            dict(
+                patch_diff=patch_diff,
+                nodes_expanded=nodes_expanded,
+                max_depth=max_depth,
+                terminated_by=terminated_by,
+                total_time_seconds=total_time,
+            )
+        )
 
         patched_obs = self._apply_patches_to_observations(
             observations,
             last_fluent_patches,
         )
 
-        return last_domain, last_conflicts, last_constraints, last_fluent_patches, last_cost, enriched_report, patched_obs
+        return (
+            last_domain,
+            last_conflicts,
+            last_constraints,
+            last_fluent_patches,
+            last_cost,
+            enriched_report,
+            patched_obs,
+        )
+
+    # ----------------------------------------------------------------------
+    # Anytime DFS (fast first solution, then improves)
+    # ----------------------------------------------------------------------
+
+    def _run_anytime_dfs(
+        self,
+        observations: Sequence[Observation],
+        max_nodes: Optional[int],
+        initial_model_constraints: Optional[Dict[Key, PatchOperation]],
+        initial_fluent_patches: Optional[Set[FluentLevelPatch]],
+        timeout_seconds: int,
+    ):
+        root_constraints: Dict[Key, PatchOperation] = initial_model_constraints or {}
+        root_fluent_patches: Set[FluentLevelPatch] = initial_fluent_patches or set()
+
+        root_node = SearchNode(
+            cost=len(root_fluent_patches),
+            depth=0,
+            model_constraints=root_constraints,
+            fluent_patches=root_fluent_patches,
+        )
+
+        open_stack: List[SearchNode] = [root_node]
+        visited: Set[Tuple] = set()
+
+        nodes_expanded = 0
+        max_depth = 0
+        start_time = time.time()
+        terminated_by = "exhausted"
+
+        # fallback if no solution found
+        last_domain: Optional[LearnerDomain] = None
+        last_conflicts: List[Conflict] = []
+        last_state = (root_constraints, root_fluent_patches)
+        last_report: Dict[str, str] = {}
+        last_cost: int = len(root_fluent_patches)
+
+        # best-so-far solution (anytime)
+        best_domain: Optional[LearnerDomain] = None
+        best_constraints: Dict[Key, PatchOperation] = {}
+        best_fluent_patches: Set[FluentLevelPatch] = set()
+        best_report: Dict[str, str] = {}
+        best_patch_count: int = float("inf")
+
+        # count how many conflict-free models we encountered
+        conflict_free_count: int = 0
+
+        while open_stack:
+            if max_nodes is not None and nodes_expanded >= max_nodes:
+                terminated_by = "max_nodes_exceeded"
+                self.logger.info(f"Stopping search (DFS): reached max_nodes={max_nodes}")
+                break
+
+            if timeout_seconds is not None and (time.time() - start_time) >= timeout_seconds:
+                terminated_by = "timeout_exceeded"
+                self.logger.info(
+                    f"Stopping search (DFS): timeout of {timeout_seconds:.1f}s exceeded"
+                )
+                break
+
+            node: SearchNode = open_stack.pop()
+            state_key = self._encode_state(node.model_constraints, node.fluent_patches)
+            if state_key in visited:
+                continue
+            visited.add(state_key)
+
+            nodes_expanded += 1
+            max_depth = max(max_depth, node.depth)
+            current_patch_count = len(node.fluent_patches)
+            node.cost = current_patch_count
+
+            # simple branch-and-bound on patch count
+            if best_domain is not None and current_patch_count >= best_patch_count:
+                continue
+
+            domain, conflicts, report = self._learn_with_state(
+                observations,
+                node.model_constraints,
+                node.fluent_patches,
+            )
+
+            last_domain, last_conflicts, last_state, last_report, last_cost = (
+                domain,
+                conflicts,
+                (node.model_constraints, node.fluent_patches),
+                report,
+                current_patch_count,
+            )
+
+            # if hasattr(self.logger, "log_node"):
+            #     self.logger.log_node(
+            #         node_id=nodes_expanded,
+            #         depth=node.depth,
+            #         cost=current_patch_count,
+            #         model_constraints=node.model_constraints,
+            #         fluent_patches=node.fluent_patches,
+            #         conflicts=conflicts,
+            #         is_solution=(len(conflicts) == 0),
+            #     )
+
+            # conflict-free model → update best-so-far and continue
+            if not conflicts:
+                conflict_free_count += 1
+                if current_patch_count < best_patch_count:
+                    best_domain = domain
+                    best_constraints = node.model_constraints
+                    best_fluent_patches = node.fluent_patches
+                    best_report = report
+                    best_patch_count = current_patch_count
+                    self.logger.info(
+                        f"New best solution: patches={best_patch_count}, "
+                        f"nodes_expanded={nodes_expanded}, depth={node.depth}"
+                    )
+                continue  # do not branch further from this solution node
+
+            # --- Conflicts: group + choose group ---
+            conflict_groups = self._group_conflicts(conflicts)
+            group = self._choose_conflict_group(conflict_groups)
+
+            children: List[SearchNode] = []
+
+            # Child A: DATA-FIX
+            child1_constraints = dict(node.model_constraints)
+            child1_fluent_patches = set(node.fluent_patches)
+            changed = False
+            for c in group:
+                fp = self._build_fluent_patch(c)
+                if fp not in child1_fluent_patches:
+                    child1_fluent_patches.add(fp)
+                    changed = True
+
+            if changed:
+                child1_fluent_patches = self._dedup_patches(child1_fluent_patches)
+                children.append(
+                    SearchNode(
+                        cost=len(child1_fluent_patches),
+                        depth=node.depth + 1,
+                        model_constraints=child1_constraints,
+                        fluent_patches=child1_fluent_patches,
+                    )
+                )
+
+            # Child B: MODEL-FIX (if not frame-axiom)
+            rep_conflict = group[0]
+            if rep_conflict.conflict_type not in {ConflictType.FRAME_AXIOM}:
+                new_constraints = self._build_model_patch(rep_conflict, dict(node.model_constraints))
+                if new_constraints != node.model_constraints:
+                    child2_fluent_patches = set(node.fluent_patches)
+                    children.append(
+                        SearchNode(
+                            cost=len(child2_fluent_patches),
+                            depth=node.depth + 1,
+                            model_constraints=new_constraints,
+                            fluent_patches=child2_fluent_patches,
+                        )
+                    )
+
+            # push children in order: last pushed is explored first
+            # we want model-fix (no new patches) first → append it last above
+            for child in children:
+                open_stack.append(child)
+
+        total_time = time.time() - start_time
+
+        if best_domain is not None:
+            constraints = best_constraints
+            fluent_patches = best_fluent_patches
+            patch_count = best_patch_count
+            base_report = best_report
+            final_domain = best_domain
+            final_conflicts: List[Conflict] = []
+        else:
+            constraints, fluent_patches = last_state
+            patch_count = last_cost
+            base_report = last_report
+            final_domain = last_domain
+            final_conflicts = last_conflicts
+
+        patch_diff = self._compute_patch_diff(
+            initial_constraints=root_constraints,
+            final_constraints=constraints,
+            initial_fluent_patches=root_fluent_patches,
+            final_fluent_patches=fluent_patches,
+        )
+        enriched_report = dict(base_report)
+        enriched_report.update(
+            dict(
+                patch_diff=patch_diff,
+                nodes_expanded=nodes_expanded,
+                max_depth=max_depth,
+                terminated_by=terminated_by,
+                total_time_seconds=total_time,
+                best_patch_count=(best_patch_count if best_domain is not None else None),
+                conflict_free_model_count=conflict_free_count
+
+            )
+        )
+
+        patched_obs = self._apply_patches_to_observations(
+            observations,
+            fluent_patches,
+        )
+
+        return (
+            final_domain,
+            final_conflicts,
+            constraints,
+            fluent_patches,
+            patch_count,
+            enriched_report,
+            patched_obs,
+        )
 
     # ----------------------------------------------------------------------
     # Internal helpers: encoding + priorities + grouping

@@ -1,5 +1,5 @@
 (define (domain maze)
-(:requirements :strips :typing)
+(:requirements :typing :strips)
 (:types 	player location - object
 )
 
@@ -24,7 +24,7 @@
 (:action move-down
 	:parameters (?p - player ?from - location ?to - location)
 	:precondition (and )
-	:effect (and (move-dir-down ?to ?from) (move-dir-left ?from ?to) (move-dir-left ?to ?from) (move-dir-right ?to ?from) (clear ?to) (is-goal ?from)))
+	:effect (and (move-dir-up ?from ?to) (move-dir-up ?to ?from) (move-dir-down ?from ?to) (move-dir-down ?to ?from) (move-dir-left ?from ?to) (move-dir-left ?to ?from) (move-dir-right ?from ?to) (move-dir-right ?to ?from) (clear ?from) (clear ?to) (at ?p ?from) (at ?p ?to) (oriented-up ?p) (oriented-down ?p) (oriented-left ?p) (oriented-right ?p) (is-goal ?from) (is-goal ?to)))
 
 (:action move-left
 	:parameters (?p - player ?from - location ?to - location)
@@ -33,7 +33,7 @@
 
 (:action move-right
 	:parameters (?p - player ?from - location ?to - location)
-	:precondition (and (move-dir-left ?to ?from) (move-dir-right ?from ?to) (clear ?to) (at ?p ?from) (oriented-up ?p))
-	:effect (and (clear ?from) (at ?p ?to) (oriented-left ?p) (not (at ?p ?from))  (not (oriented-up ?p))))
+	:precondition (and (move-dir-down ?to ?from) (move-dir-left ?to ?from) (move-dir-right ?from ?to) (clear ?to) (at ?p ?from) (oriented-up ?p) (oriented-right ?p) (is-goal ?to))
+	:effect (and (move-dir-up ?from ?to) (move-dir-up ?to ?from) (move-dir-down ?from ?to) (move-dir-left ?from ?to) (move-dir-right ?to ?from) (clear ?from) (at ?p ?to) (oriented-down ?p) (oriented-left ?p) (is-goal ?from) (not (move-dir-down ?to ?from))  (not (at ?p ?from))  (not (oriented-up ?p))  (not (oriented-right ?p))  (not (is-goal ?to))))
 
 )

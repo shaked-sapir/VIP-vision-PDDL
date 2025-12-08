@@ -135,12 +135,14 @@ def truncate_trajectory(traj_path: Path, domain_path: Path, max_steps: int) -> P
     return output_path
 
 
-def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Dict[str, str] = None):
+def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Dict[str, str] = None) -> dict:
     """Save learning metrics to JSON file."""
     metrics = {
         "learning_time_seconds": report.get("total_time_seconds", None),
         "max_depth": report.get("max_depth", None),
         "nodes_expanded": report.get("nodes_expanded", None),
+        "terminated_by": report.get("terminated_by", None),
+        "conflict_free_model_count": report.get("conflict_free_model_count", None),
     }
 
     # Add trajectory mapping if provided
@@ -149,6 +151,8 @@ def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Di
 
     with open(output_dir / "learning_metrics.json", 'w') as f:
         json.dump(metrics, f, indent=2)
+
+    return metrics
 
 
 def run_noisy_pisam_trial(domain_path: Path, trajectories: List[Path], testing_dir: Path,
