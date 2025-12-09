@@ -82,7 +82,7 @@ class ConflictDrivenPatchSearch:
         negative_preconditions_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard,
         seed: int = 42,
         logger: Optional[object] = None,
-        search_mode: str = "ucs",  # or "ucs"
+        search_mode: str = "ucs",  # "anytime_dfs" or "ucs"
     ):
         self.partial_domain_template = partial_domain_template
         self.negative_preconditions_policy = negative_preconditions_policy
@@ -112,7 +112,7 @@ class ConflictDrivenPatchSearch:
         max_nodes: Optional[int] = None,
         initial_model_constraints: Optional[Dict[Key, PatchOperation]] = None,
         initial_fluent_patches: Optional[Set[FluentLevelPatch]] = None,
-        timeout_seconds: int = 300,
+        timeout_seconds: int = 900,
     ) -> Tuple[
         LearnerDomain,
         List[Conflict],

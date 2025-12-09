@@ -118,6 +118,7 @@ def confidence_system_prompt(block_colors: list[str]) -> str:
     that the predicate holds in the image:
     
     - 2 → The predicate DEFINITELY holds, based on clear visual evidence.
+    - 1 → The predicate MIGHT hold, but evidence is unclear, partial, or occluded.
     - 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
     
     ☑️ You MUST assign a score to **every valid predicate**, including all `on(...)` predicates.

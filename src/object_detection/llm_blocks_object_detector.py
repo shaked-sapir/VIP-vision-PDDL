@@ -5,9 +5,9 @@ from src.object_detection.llm_object_detector import LLMObjectDetector
 
 
 class LLMBlocksObjectDetector(LLMObjectDetector):
-    def __init__(self, openai_apikey: str, model: str = "gpt-4o", temperature: float = 1.0, init_state_image_path: Path = None):
+    def __init__(self, api_key: str, model: str = "gpt-4o", temperature: float = 1.0, init_state_image_path: Path = None):
         super().__init__(
-            openai_apikey=openai_apikey,
+            api_key=api_key,
             model=model,
             temperature=temperature,
             init_state_image_path=init_state_image_path

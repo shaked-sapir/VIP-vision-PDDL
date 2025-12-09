@@ -1,9 +1,0 @@
-(
-(:init (on-disc d1 d2) (smaller-peg peg3 d2) (smaller-peg peg2 d1) (smaller-peg peg1 d1) (smaller-peg peg3 d1) (smaller-peg peg2 d2) (smaller-peg peg1 d2) (smaller-disc d2 d1) (clear-peg peg3) (clear-peg peg2) (clear-disc d1) (on-peg d2 peg1))
-(operator: (move_disc_peg d1 d2 peg2))
-(:state (smaller-peg peg3 d2) (smaller-peg peg2 d1) (smaller-peg peg1 d1) (smaller-peg peg3 d1) (smaller-peg peg2 d2) (smaller-peg peg1 d2) (clear-disc d2) (clear-disc d1) (smaller-disc d1 d2) (smaller-disc d2 d1) (clear-peg peg3) (on-peg d2 peg1) (on-peg d1 peg2) (on-peg d2 peg2) (on-disc d1 d2))
-(operator: (move_peg_peg d2 peg1 peg3))
-(:state (smaller-peg peg3 d2) (smaller-peg peg2 d1) (smaller-peg peg1 d1) (smaller-peg peg3 d1) (smaller-peg peg2 d2) (smaller-peg peg1 d2) (clear-disc d2) (clear-disc d1) (smaller-disc d1 d2) (smaller-disc d2 d1) (clear-peg peg1) (on-peg d1 peg2) (on-peg d2 peg3) (on-peg d2 peg2) (on-disc d1 d2))
-(operator: (move_peg_disc d1 peg2 d2))
-(:state (on-disc d1 d2) (on-disc d2 d1) (smaller-peg peg3 d2) (smaller-peg peg2 d1) (smaller-peg peg1 d1) (smaller-peg peg3 d1) (smaller-peg peg2 d2) (smaller-peg peg1 d2) (smaller-disc d1 d2) (smaller-disc d2 d1) (clear-peg peg1) (clear-peg peg3) (clear-peg peg2) (on-peg d2 peg1) (on-peg d2 peg3) (on-peg d1 peg1) (on-peg d1 peg3) (on-peg d2 peg2) (on-peg d1 peg2) (clear-disc d2) (clear-disc d1))
-)

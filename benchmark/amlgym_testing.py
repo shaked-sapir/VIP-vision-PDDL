@@ -74,7 +74,8 @@ domain_properties = {
 }
 
 N_FOLDS = 5
-TRAJECTORY_SIZES = [1, 3, 5, 7, 10]
+TRAJECTORY_SIZES = [1, 3, 5, 7, 10, 15, 20]
+# TRAJECTORY_SIZES = [1, 3, 5, 7, 10]
 # TRAJECTORY_SIZES = [1, 3, 5, 7, 10, 20, 30]
 # TRAJECTORY_SIZES    = [3]
 NUM_TRAJECTORIES = 5  # Always use 5 trajectories
@@ -354,6 +355,12 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
                     truncated_traj, masking_info_path, domain_ref_path
                 )
 
+                # Check if the file was actually created
+                if not propagated_traj_path.exists():
+                    print(f"  Warning: Frame axiom propagation did not create output file for {truncated_traj.name}")
+                    frame_propagated_trajs.append(truncated_traj)
+                    continue
+
                 # Move the propagated trajectory to temp directory
                 problem_name = truncated_traj.stem.split('_truncated_')[0]
                 new_traj_name = f"{problem_name}_truncated_{traj_size}.trajectory"
@@ -373,7 +380,9 @@ def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_s
                 frame_propagated_trajs.append(dest_traj_path)
 
             except Exception as e:
+                import traceback
                 print(f"  Warning: Failed to propagate frame axioms for {truncated_traj.name}: {e}")
+                print(f"  Traceback: {traceback.format_exc()}")
                 # Fall back to original trajectory if propagation fails
                 frame_propagated_trajs.append(truncated_traj)
 

@@ -1,7 +1,10 @@
 from pathlib import Path
 
 from src.fluent_classification.base_fluent_classifier import PredicateTruthValue
+from src.fluent_classification.gemini_image_llm_backend import GeminiImageLLMBackend
+from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
+from src.fluent_classification.openai_image_llm_backend import OpenAIImageLLMBackend
 from src.llms.domains.maze.prompts import confidence_system_prompt
 
 
@@ -11,12 +14,19 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
     Supports constant predicates that are always true without LLM inference.
     """
 
-    def __init__(self, openai_apikey: str, init_state_image_path: Path,  type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o",
-                 temperature: float = 1.0, use_uncertain: bool = True):
+    def __init__(
+            self,
+            llm_backend: ImageLLMBackend,
+            init_state_image_path: Path,
+            type_to_objects: dict[str, list[str]] = None,
+            temperature: float = 1.0,
+            use_uncertain: bool = True
+    ):
+        self.use_uncertain = use_uncertain
+
         super().__init__(
-            openai_apikey=openai_apikey,
+            llm_backend=llm_backend,
             type_to_objects=type_to_objects,
-            model=model,
             temperature=temperature,
             init_state_image_path=init_state_image_path
         )
@@ -102,3 +112,40 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
         # move-dir predicates are added from const_predicates (not generated here)
 
         return predicates
+
+
+if __name__ == "__main__":
+    type_to_objects = {
+            "location":[f"loc_{i}_{j}" for i in range(1,10) for j in range(1,10)],
+            "robot": ["robot"],
+            "doll": ["doll"]
+        }
+    init_image = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/maze/experiment_07-12-2025T16:16:54__model=gpt-5.1__steps=100__planner/training/trajectories/problem1/state_0000.png")
+
+    openai_backend = OpenAIImageLLMBackend(
+        api_key="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",  # Replace with your actual OpenAI API key,
+        model="gpt-5.1",
+    )
+    hanoi_openai = LLMMazeFluentClassifier(
+        llm_backend=openai_backend,
+        init_state_image_path=init_image,
+        type_to_objects=type_to_objects,
+        temperature=0.0,
+    )
+
+    # Gemini version
+    gemini_backend = GeminiImageLLMBackend(
+        api_key="AIzaSyANQZLrjfLEQqp5gC-Ip7-sLwbP9OR46xs",
+        model="gemini-2.5-flash",
+    )
+    hanoi_gemini = LLMMazeFluentClassifier(
+        llm_backend=gemini_backend,
+        init_state_image_path=init_image,
+        type_to_objects=type_to_objects,
+        temperature=0.0,
+    )
+
+    # Both expose the same API:
+    preds_gemini = hanoi_gemini.classify(init_image.parent / "state_0010.png")
+    preds_openai = hanoi_openai.classify(init_image.parent / "state_0010.png")
+    print("done")

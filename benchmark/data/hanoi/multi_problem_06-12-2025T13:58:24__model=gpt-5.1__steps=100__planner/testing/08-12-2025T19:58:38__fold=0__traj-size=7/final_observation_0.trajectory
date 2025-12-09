@@ -1,0 +1,5 @@
+(
+(:init (clear-disc d1) (clear-disc d2) (smaller-peg peg2 d2) (smaller-peg peg1 d1) (smaller-peg peg1 d2) (smaller-peg peg2 d1) (on-peg d1 peg1) (on-peg d2 peg2) (smaller-disc d2 d1))
+(operator: (move_peg_disc d1 peg1 d2))
+(:state (on-disc d1 d2) (on-disc d2 d1) (smaller-peg peg2 d2) (smaller-peg peg1 d1) (smaller-peg peg1 d2) (smaller-peg peg2 d1) (on-peg d2 peg1) (on-peg d1 peg1) (on-peg d1 peg2) (on-peg d2 peg2) (smaller-disc d2 d1) (smaller-disc d1 d2) (clear-disc d1) (clear-disc d2) (clear-peg peg2) (clear-peg peg1))
+)

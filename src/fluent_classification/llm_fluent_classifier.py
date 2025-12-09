@@ -1,26 +1,28 @@
-import base64
 import json
 import re
 from abc import abstractmethod, ABC
-from collections import Counter
 from pathlib import Path
-from typing import Dict, Union
-
-from openai import OpenAI
+from typing import Dict, Callable
 
 from src.fluent_classification.base_fluent_classifier import FluentClassifier, PredicateTruthValue
+from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.utils.pddl import multi_replace_predicate, translate_pddlgym_state_to_image_predicates
-from src.utils.visualize import encode_image_to_base64
 
 
 class LLMFluentClassifier(FluentClassifier, ABC):
     system_prompt: str
+    result_regex: str
+    llm_result_parse_func: Callable
 
-    def __init__(self, openai_apikey: str, type_to_objects: dict[str, list[str]], model: str, temperature: float,
-                 init_state_image_path: Path):
-        self.openai_client = OpenAI(api_key=openai_apikey)
-        self.model = model
-        self.type_to_objects = type_to_objects  # dict of type -> list of object names
+    def __init__(
+            self,
+            llm_backend: ImageLLMBackend,
+            type_to_objects: dict[str, list[str]],
+            temperature: float,
+            init_state_image_path: Path
+    ):
+        self.backend = llm_backend
+        self.type_to_objects = type_to_objects
         self.temperature = temperature
 
         # Mapping from objects detected by LLM to their gym instances for predicate back-translation. define in subclass
@@ -98,110 +100,23 @@ class LLMFluentClassifier(FluentClassifier, ABC):
     def extract_facts_once(
             self,
             image_path: Path | str,
-            temperature: float,
             examples: list[tuple[Path | str, list[str]]]
     ) -> set[tuple[str, int]]:
-        """
-        This method performs a single extraction of predicates with relevance scores from the given image.
-        - Zero-shot:
-            Call without examples (default).
-        - One-shot:
-            Call with a single (example_image_path, example_facts_text) pair.
-        - Few-shot:
-            Call with multiple (example_image_path, example_facts_text) pairs.
 
-        Parameters
-        ----------
-        image_path : Path | str
-            The target image we want to extract predicates from.
-        temperature : float
-            Sampling temperature for the model.
-        examples : Optional[Iterable[Tuple[Path | str, str]]]
-            Iterable of (example_image_path, example_facts_text) pairs.
-            Each `example_facts_text` should be a multi-line string with
-            one predicate per line, in the same format you expect from the model.
-
-        Returns
-        -------
-        set[tuple[str, int]]
-            Parsed facts as returned by `self.llm_result_parse_func`.
-        """
-        messages = [
-            {
-                "role": "system",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": self.system_prompt,
-                        "cache_control": {"type": "ephemeral"}
-                    }
-                ],
-            }
-        ]
-
-        # Add all provided examples directly (one-shot or few-shot)
-        if examples:
-            for example_img, example_facts in examples:
-                example_b64 = encode_image_to_base64(example_img)
-                messages.append({
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{example_b64}"}
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                "Example image. According to the predicate definitions in the system "
-                                "prompt, these are the correct grounded predicates for this image."
-                            )
-                        }
-                    ]
-                })
-                messages.append({
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": '\n'.join(example_facts)}]
-                })
-
-        # Target example
-        target_img_b64 = encode_image_to_base64(image_path)
-        messages.append({
-            "role": "user",
-            "content": [
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{target_img_b64}"}
-                },
-                {
-                    "type": "text",
-                    "text": self.user_instruction
-                }
-            ]
-        })
-
-        # Run model
-        response = self.openai_client.chat.completions.create(
-            model=self.model,
-            temperature=temperature,
-            messages=messages
+        text = self.backend.generate_text(
+            system_prompt=self.system_prompt,
+            user_instruction=self.user_instruction,
+            image_path=image_path,
+            temperature=self.temperature,
+            examples=examples,
         )
 
-        text = response.choices[0].message.content.strip()
         facts = re.findall(self.result_regex, text)
         return {self.llm_result_parse_func(f) for f in facts}
 
-    def simulate_predicate_probabilities(self, image_path: Path, temperature: float, trials: int = 10
-                                         ) -> dict[str, float]:
-        predicate_counts = Counter()
-        for _ in range(trials):
-            predicates = self.extract_facts_once(image_path, temperature)
-            predicate_counts.update(predicates)
-        return {p: predicate_counts[p] / trials for p in predicate_counts}
-
-    def simulate_relevance_judgement(self, image_path: Path | str, temperature: float,
+    def simulate_relevance_judgement(self, image_path: Path | str,
                                      examples: list[tuple[Path | str, list[str]]]) -> Dict[str, int]:
-        predicates = self.extract_facts_once(image_path, temperature, examples)
+        predicates = self.extract_facts_once(image_path, examples)
         return {p: rel for p, rel in predicates}
 
     def extract_predicates_from_gt_state(self, state_index: int = 0) -> list[str]:
@@ -235,13 +150,13 @@ class LLMFluentClassifier(FluentClassifier, ABC):
 
     def classify(self, image_path: Path | str,
                  examples: list[tuple[Path | str, list[str]]] = None) -> Dict[str, PredicateTruthValue]:
-        print(f"Classifying image: {image_path.split('/')[-1]} with temperature = {self.temperature}")
+        print(f"Classifying image: {str(image_path).split('/')[-1]} with temperature = {self.temperature}")
         examples = examples if examples is not None else self.fewshot_examples
         predicates_with_rel_judgement = (
             {
                 self._alter_predicate_from_llm_to_problem(pred): rel
                 for pred, rel
-                in self.simulate_relevance_judgement(image_path, self.temperature, examples).items()
+                in self.simulate_relevance_judgement(image_path, examples).items()
             }
         )
 

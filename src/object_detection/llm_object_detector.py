@@ -22,8 +22,8 @@ class LLMObjectDetector(ObjectDetector, ABC):
     converts model output into a mapping of object typings to grounded object names.
     """
 
-    def __init__(self, openai_apikey: str, model: str, temperature: float, init_state_image_path: Path):
-        self.openai_client = OpenAI(api_key=openai_apikey)
+    def __init__(self, api_key: str, model: str, temperature: float, init_state_image_path: Path):
+        self.openai_client = OpenAI(api_key=api_key)
         self.model = model
         self.temperature = temperature
         self.system_prompt = self._get_system_prompt()

@@ -5,6 +5,7 @@ from pddl_plus_parser.lisp_parsers import DomainParser
 
 from src.action_model.gym2SAM_parser import parse_grounded_predicates
 from src.fluent_classification.llm_blocks_fluent_classifier import LLMBlocksFluentClassifier
+from src.fluent_classification.image_llm_backend_factory import ImageLLMBackendFactory
 from src.object_detection.llm_blocks_object_detector import LLMBlocksObjectDetector
 from src.trajectory_handlers import ImageTrajectoryHandler
 from src.utils.masking import save_masking_info
@@ -18,13 +19,15 @@ class LLMBlocksImageTrajectoryHandler(ImageTrajectoryHandler):
     def __init__(self,
                  domain_name,
                  pddl_domain_file: Path,
-                 openai_apikey: str,
+                 api_key: str,
+                 vendor: str = "openai",
                  object_detector_model: str = "gpt-4o",
                  object_detection_temperature: float = 1.0,
                  fluent_classifier_model: str = "gpt-4o",
                  fluent_classification_temperature: float = 1.0):
         super().__init__(domain_name=domain_name)
-        self.openai_apikey = openai_apikey
+        self.api_key = api_key
+        self.vendor = vendor
         self.object_detector_model = object_detector_model
         self.object_detector_temperature = object_detection_temperature
         self.fluent_classifier_model = fluent_classifier_model
@@ -40,20 +43,26 @@ class LLMBlocksImageTrajectoryHandler(ImageTrajectoryHandler):
         """
 
         self.object_detector = LLMBlocksObjectDetector(
-            openai_apikey=self.openai_apikey,
+            api_key=self.api_key,
             model=self.object_detector_model,
             temperature=self.object_detector_temperature,
             init_state_image_path=init_state_image_path
         )
         detected_objects_by_type: Dict[str, List[str]] = self.object_detector.detect(str(init_state_image_path))
 
-        self.fluent_classifier = LLMBlocksFluentClassifier(
-            openai_apikey=self.openai_apikey,
-            type_to_objects=detected_objects_by_type,
+        # Create the appropriate LLM backend using factory
+        llm_backend = ImageLLMBackendFactory.create(
+            vendor=self.vendor,
+            api_key=self.api_key,
             model=self.fluent_classifier_model,
+            temperature=self.fluent_classification_temperature
+        )
+
+        self.fluent_classifier = LLMBlocksFluentClassifier(
+            llm_backend=llm_backend,
+            type_to_objects=detected_objects_by_type,
             temperature=self.fluent_classification_temperature,
             init_state_image_path=init_state_image_path
-
         )
 
         print(f"Initialized LLMBlocksImageTrajectoryHandler with detected objects: {detected_objects_by_type}")

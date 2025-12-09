@@ -58,6 +58,7 @@ def _generate_multi_problem_trajectories(
     benchmark_domain_path: Path,
     output_base_dir: Path,
     num_steps: int,
+    vendor: str = "openai",
     start_index: int = 0,
     use_planner: bool = False,
     problem_start: int = None,
@@ -84,7 +85,7 @@ def _generate_multi_problem_trajectories(
     """
     # Load configuration
     config = load_config()
-    openai_apikey = config['openai']['api_key']
+    api_key = config[vendor]['api_key']
     gym_domain_name = config['domains'][domain_config_key]['gym_domain_name']
     object_detection_model = config['domains'][domain_config_key]['object_detection']['model_name']
     object_detection_temp = config['domains'][domain_config_key]['object_detection']['temperature']
@@ -151,7 +152,8 @@ def _generate_multi_problem_trajectories(
             trajectory_handler = trajectory_handler_class(
                 domain_name=gym_domain_name,
                 pddl_domain_file=benchmark_domain_path,
-                openai_apikey=openai_apikey,
+                api_key=api_key,
+                vendor=vendor,
                 object_detector_model=object_detection_model,
                 object_detection_temperature=object_detection_temp,
                 fluent_classifier_model=fluent_classification_model,
@@ -211,6 +213,7 @@ def _generate_training_data_generic(
     output_base_dir: Path,
     num_steps: int,
     problem_name: str,
+    vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
     use_planner: bool = False
@@ -235,7 +238,7 @@ def _generate_training_data_generic(
     """
     # Load configuration
     config = load_config()
-    openai_apikey = config['openai']['api_key']
+    api_key = config[vendor]['api_key']
     gym_domain_name = config['domains'][domain_config_key]['gym_domain_name']
     object_detection_model = config['domains'][domain_config_key]['object_detection']['model_name']
     object_detection_temp = config['domains'][domain_config_key]['object_detection']['temperature']
@@ -281,7 +284,8 @@ def _generate_training_data_generic(
     trajectory_handler = trajectory_handler_class(
         domain_name=gym_domain_name,
         pddl_domain_file=benchmark_domain_path,
-        openai_apikey=openai_apikey,
+        api_key=api_key,
+        vendor=vendor,
         object_detector_model=object_detection_model,
         object_detection_temperature=object_detection_temp,
         fluent_classifier_model=fluent_classification_model,
@@ -477,6 +481,7 @@ def _generate_training_data_generic(
 def generate_blocks_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int = 100,
+    vendor: str = "openai",
     start_index: int = 0,
     use_planner: bool = False,
     problem_start: int = None,
@@ -492,6 +497,7 @@ def generate_blocks_multi_problem_trajectories(
         benchmark_domain_path=benchmark_domain_path,
         output_base_dir=output_base_dir,
         num_steps=num_steps,
+        vendor=vendor,
         start_index=start_index,
         use_planner=use_planner,
         problem_start=problem_start,
@@ -503,6 +509,7 @@ def generate_blocks_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
     problem_name: str = "problem7",
+    vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
     use_planner: bool = False
@@ -514,6 +521,7 @@ def generate_blocks_training_data(
         output_base_dir: Base directory for all benchmark data
         num_steps: Total number of steps to generate (default: 100)
         problem_name: Problem name to use (without .pddl extension)
+        vendor: LLM vendor to use (default: openai)
         trace_length: Length of each trace for our algorithms (default: None - no splitting)
         start_index: State index to start trajectory from (default: 0)
         use_planner: If True, uses FD planner; if False, uses random actions (default: False)
@@ -532,6 +540,7 @@ def generate_blocks_training_data(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         problem_name=problem_name,
+        vendor=vendor,
         trace_length=trace_length,
         start_index=start_index,
         use_planner=use_planner
@@ -541,6 +550,7 @@ def generate_blocks_training_data(
 def generate_npuzzle_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int = 100,
+    vendor: str = "openai",
     start_index: int = 0,
     use_planner: bool = False,
     problem_start: int = None,
@@ -556,6 +566,7 @@ def generate_npuzzle_multi_problem_trajectories(
         benchmark_domain_path=benchmark_domain_path,
         output_base_dir=output_base_dir,
         num_steps=num_steps,
+        vendor=vendor,
         start_index=start_index,
         use_planner=use_planner,
         problem_start=problem_start,
@@ -567,6 +578,7 @@ def generate_npuzzle_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
     problem_name: str = "problem1",
+    vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
     use_planner: bool = False
@@ -596,6 +608,7 @@ def generate_npuzzle_training_data(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         problem_name=problem_name,
+        vendor=vendor,
         trace_length=trace_length,
         start_index=start_index,
         use_planner=use_planner
@@ -605,6 +618,7 @@ def generate_npuzzle_training_data(
 def generate_hanoi_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int = 100,
+    vendor: str = "openai",
     start_index: int = 0,
     use_planner: bool = False,
     problem_start: int = None,
@@ -620,6 +634,7 @@ def generate_hanoi_multi_problem_trajectories(
         benchmark_domain_path=benchmark_domain_path,
         output_base_dir=output_base_dir,
         num_steps=num_steps,
+        vendor=vendor,
         start_index=start_index,
         use_planner=use_planner,
         problem_start=problem_start,
@@ -631,6 +646,7 @@ def generate_hanoi_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
     problem_name: str = "problem0",
+    vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
     use_planner: bool = False
@@ -660,6 +676,7 @@ def generate_hanoi_training_data(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         problem_name=problem_name,
+        vendor=vendor,
         trace_length=trace_length,
         start_index=start_index,
         use_planner=use_planner
@@ -669,6 +686,7 @@ def generate_hanoi_training_data(
 def generate_hiking_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int = 100,
+    vendor: str = "openai",
     start_index: int = 0,
     use_planner: bool = False,
     problem_start: int = None,
@@ -684,6 +702,7 @@ def generate_hiking_multi_problem_trajectories(
         benchmark_domain_path=benchmark_domain_path,
         output_base_dir=output_base_dir,
         num_steps=num_steps,
+        vendor=vendor,
         start_index=start_index,
         use_planner=use_planner,
         problem_start=problem_start,
@@ -695,6 +714,7 @@ def generate_hiking_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
     problem_name: str = "problem2",
+    vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
     use_planner: bool = False
@@ -724,6 +744,7 @@ def generate_hiking_training_data(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         problem_name=problem_name,
+        vendor=vendor,
         trace_length=trace_length,
         start_index=start_index,
         use_planner=use_planner
@@ -733,6 +754,7 @@ def generate_hiking_training_data(
 def generate_maze_multi_problem_trajectories(
     output_base_dir: Path,
     num_steps: int = 100,
+    vendor: str = "openai",
     start_index: int = 0,
     use_planner: bool = False,
     problem_start: int = None,
@@ -748,6 +770,7 @@ def generate_maze_multi_problem_trajectories(
         benchmark_domain_path=benchmark_domain_path,
         output_base_dir=output_base_dir,
         num_steps=num_steps,
+        vendor=vendor,
         start_index=start_index,
         use_planner=use_planner,
         problem_start=problem_start,
@@ -759,6 +782,7 @@ def generate_maze_training_data(
     output_base_dir: Path,
     num_steps: int = 100,
     problem_name: str = "problem0",
+    vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
     use_planner: bool = False
@@ -788,6 +812,7 @@ def generate_maze_training_data(
         output_base_dir=output_base_dir,
         num_steps=num_steps,
         problem_name=problem_name,
+        vendor=vendor,
         trace_length=trace_length,
         start_index=start_index,
         use_planner=use_planner
@@ -922,6 +947,13 @@ if __name__ == "__main__":
         default=None,
         help="End index for problem range (1-based, inclusive). Only used with --multi-problem. Example: --problem-end 10"
     )
+    parser.add_argument(
+        "--vendor",
+        type=str,
+        default="openai",
+        choices=["openai", "google"],
+        help="LLM vendor to use for vision pipeline (default: openai)"
+    )
 
     args = parser.parse_args()
 
@@ -932,6 +964,7 @@ if __name__ == "__main__":
             trajectories_dir = generate_blocks_multi_problem_trajectories(
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
+                vendor=args.vendor,
                 start_index=args.start_index,
                 use_planner=args.use_planner,
                 problem_start=args.problem_start,
@@ -942,6 +975,7 @@ if __name__ == "__main__":
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
                 problem_name=args.problem,
+                vendor=args.vendor,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
                 use_planner=True
@@ -953,6 +987,7 @@ if __name__ == "__main__":
             trajectories_dir = generate_npuzzle_multi_problem_trajectories(
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
+                vendor=args.vendor,
                 start_index=args.start_index,
                 use_planner=args.use_planner,
                 problem_start=args.problem_start,
@@ -963,6 +998,7 @@ if __name__ == "__main__":
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
                 problem_name=args.problem,
+                vendor=args.vendor,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
                 use_planner=True
@@ -973,6 +1009,7 @@ if __name__ == "__main__":
             trajectories_dir = generate_hanoi_multi_problem_trajectories(
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
+                vendor=args.vendor,
                 start_index=args.start_index,
                 use_planner=True,
                 # use_planner=args.use_planner
@@ -984,6 +1021,7 @@ if __name__ == "__main__":
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
                 problem_name=args.problem,
+                vendor=args.vendor,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
                 use_planner=True
@@ -994,6 +1032,7 @@ if __name__ == "__main__":
             trajectories_dir = generate_hiking_multi_problem_trajectories(
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
+                vendor=args.vendor,
                 start_index=args.start_index,
                 use_planner=args.use_planner,
                 problem_start=args.problem_start,
@@ -1004,6 +1043,7 @@ if __name__ == "__main__":
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
                 problem_name=args.problem,
+                vendor=args.vendor,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
                 use_planner=args.use_planner
@@ -1014,6 +1054,7 @@ if __name__ == "__main__":
             trajectories_dir = generate_maze_multi_problem_trajectories(
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
+                vendor=args.vendor,
                 start_index=args.start_index,
                 use_planner=True,
                 problem_start=args.problem_start,
@@ -1024,6 +1065,7 @@ if __name__ == "__main__":
                 output_base_dir=output_dir,
                 num_steps=args.num_steps,
                 problem_name=args.problem,
+                vendor=args.vendor,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
                 use_planner=True

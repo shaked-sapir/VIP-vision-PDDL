@@ -1,0 +1,9 @@
+(
+(:init (on b c) (on c d) (on a b) (on d e) (ontable e) (clear a) (handempty ))
+(operator: (unstack a b))
+(:state (on b c) (on c d) (on d e) (clear b) (ontable e) (holding a))
+(operator: (put_down a))
+(:state (on b c) (on c d) (on d e) (clear b) (clear a) (ontable e) (ontable a) (handempty ))
+(operator: (unstack b c))
+(:state (ontable e) (ontable a) (clear a) (clear c) (holding b) (on c d) (on d e))
+)

@@ -31,3 +31,8 @@ def group_objects_by_key(objects: List[Any], key: str) -> Dict[str, List[Any]]:
 def shrink_whitespaces(s: str) -> str:
     """Shrink all multiple spaces into a single space"""
     return re.sub(r'\s+', ' ', s).strip()
+
+
+def sort_objects_numerically(obj_names: list[str]) -> list[str]:
+    """Sort object names like 'd1', 'd2', ..., 'd10' in natural numerical order."""
+    return sorted(obj_names, key=lambda x: int(re.search(r'\d+$', x).group()))

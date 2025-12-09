@@ -93,7 +93,7 @@ BLOCK 2 — PREDICATES WITH SCORES
 - at({robot_name}:robot, x:location): 2   iff   the center of the turquoise/blue robot with a square head,
     orange chest panel, and two small arms is at location x.
   (Do NOT output the 0-score at() lines; omitted means score 0.)
-- is_goal(x:location): 2   iff   cell(x)=doll
+- is_goal(x:location): 2   iff   doll ∈ cell(x)
 
 (2) Clear:
 - clear(x:location): 2  iff cell(x)=floor [completely white] or cell(x)=doll 
@@ -125,6 +125,7 @@ If a predicate does not hold, you may omit it (it is treated as score 0).
 CONFIDENCE SCORES
 -----------------------------------------------------
 - 2 → The predicate DEFINITELY holds, based on clear visual evidence.
+- 1 → The predicate MIGHT hold, but evidence is unclear, partial, or occluded.
 - 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
 
 
@@ -137,8 +138,3 @@ Format in BLOCK 2:
     <predicate>: <score>
 No explanations.
 """
-# def confidence_system_prompt(location_names, robot_name="robot", doll_name="doll"):
-#     locations = ", ".join(location_names)
-#     return f"""
-#         There's a grid of 6x6. what do you see in the image?
-#         """

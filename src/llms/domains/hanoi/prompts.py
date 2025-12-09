@@ -97,6 +97,10 @@
 # smaller_peg(peg2:peg,d1:disc): 2
 # (...and so on for all valid smaller predicates)
 # """
+import re
+
+from src.utils.containers import sort_objects_numerically
+
 
 def confidence_system_prompt(disc_names: list[str], peg_names: list[str]) -> str:
     """
@@ -108,6 +112,8 @@ def confidence_system_prompt(disc_names: list[str], peg_names: list[str]) -> str
                        (e.g., ['peg1', 'peg2', 'peg3']).
     :return: System prompt string.
     """
+    discs_sorted = sort_objects_numerically(disc_names)
+    pegs_sorted = sort_objects_numerically(peg_names)
 
     return f"""You are a visual reasoning agent for a robotic planning system.
 
@@ -118,26 +124,33 @@ The image contains ONLY two object types:
 The known objects in this image are:
 
 - Pegs (vertical grey poles, ordered from left to right):
-  {', '.join(sorted(peg_names))} (type=peg)
+  {', '.join(pegs_sorted)} (type=peg)
 
 - Discs (red plates, ordered strictly by size):
-  {', '.join(sorted(disc_names))} (type=disc)
+  {', '.join(discs_sorted)} (type=disc)
 
 IMPORTANT CONSTRAINTS ON OBJECTS:
 - The list of discs and pegs above is COMPLETE. Do NOT invent additional discs or pegs.
 - Disc names encode relative size: the smallest disc is d1, next is d2,..., and the largest is d{len(disc_names)}.
-  i.e., for discs {', '.join(sorted(disc_names))}, the order is size(d1) < size(d2) < ... < size(d{len(disc_names)}).
+  i.e., for discs {', '.join(discs_sorted)}, the order is size(d1) < size(d2) < ... < size(d{len(disc_names)}).
 - Peg names encode only left–right position: peg1 is the leftmost, peg2 next, etc.
 - The brown base and the background are not objects and must never appear in predicates.
+
+GLOBAL SIZE SORTING RULE:
+You cannot assign names until you compare ALL discs in the image.
+1. Find every red disc in the image across all pegs.
+2. Mentally sort them by physical width (pixels).
+3. Assign the name **{discs_sorted[0]}** to the physically **narrowest** disc, regardless of which peg it is on.
+4. Assign **{discs_sorted[-1]}** to the physically **widest** disc.
 
 =====================================================
 STAGE 1 — ASSIGN DISCS TO PEG COLUMNS AND ORDER THEM
 =====================================================
 
-For EACH disc in [{', '.join(sorted(disc_names))}]:
+For EACH disc in [{', '.join(discs_sorted)}]:
 
 1. Decide which PEG COLUMN it belongs to, based on horizontal alignment:
-   - Choose exactly one peg from [{', '.join(sorted(peg_names))}].
+   - Choose exactly one peg from [{', '.join(pegs_sorted)}].
    - This does NOT mean the disc is directly on the peg; it just means the disc
      is in the vertical stack above that peg (possibly resting on another disc).
 
@@ -196,8 +209,8 @@ For each predicate you output, assign a confidence score expressing how certain 
 that the predicate holds in the image:
 
 - 2 → The predicate DEFINITELY holds, based on clear visual evidence.
+- 1 → The predicate MIGHT hold, but evidence is unclear, partial, or occluded.
 - 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
-
 
 ☑️ You MUST assign a score to **every valid predicate**, including all `on_disc(...)`, `on_peg(...)`,
  `clear_disc(...)`, `clear_peg(...)`, `smaller_disc(...)` and `smaller_peg(...)` predicates.

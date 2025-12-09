@@ -14,9 +14,9 @@ class LLMNpuzzleObjectDetector(LLMObjectDetector):
     - p1 → peg1, p2 → peg2, p3 → peg3 (pegs are renamed)
     """
 
-    def __init__(self, openai_apikey: str, model: str, temperature: float, init_state_image_path: Path):
+    def __init__(self, api_key: str, model: str, temperature: float, init_state_image_path: Path):
         super().__init__(
-            openai_apikey=openai_apikey,
+            api_key=api_key,
             model=model,
             temperature=temperature,
             init_state_image_path=init_state_image_path

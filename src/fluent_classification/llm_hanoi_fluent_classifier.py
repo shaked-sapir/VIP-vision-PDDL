@@ -7,7 +7,10 @@ Uses GPT-4 Vision to extract and classify predicates from Hanoi puzzle images.
 import itertools
 from pathlib import Path
 
+from src.fluent_classification.gemini_image_llm_backend import GeminiImageLLMBackend
+from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
+from src.fluent_classification.openai_image_llm_backend import OpenAIImageLLMBackend
 from src.llms.domains.hanoi.prompts import confidence_system_prompt
 
 
@@ -17,14 +20,19 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
     Uses GPT-4 Vision to extract predicates from images of Hanoi puzzle scenarios.
     """
 
-    def __init__(self, openai_apikey: str, init_state_image_path: Path, type_to_objects: dict[str, list[str]] = None, model: str = "gpt-4o",
-                 temperature: float = 1.0, use_uncertain: bool = True):
+    def __init__(
+            self,
+            llm_backend: ImageLLMBackend,
+            init_state_image_path: Path,
+            type_to_objects: dict[str, list[str]] = None,
+            temperature: float = 1.0,
+            use_uncertain: bool = True
+    ):
         self.use_uncertain = use_uncertain
 
         super().__init__(
-            openai_apikey=openai_apikey,
+            llm_backend=llm_backend,
             type_to_objects=type_to_objects,
-            model=model,
             temperature=temperature,
             init_state_image_path=init_state_image_path
         )
@@ -51,17 +59,17 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
         updated_preds = []
         for pred in preds:
             if "clear(peg" in pred:
-                pred = pred.replace("clear", "clear-peg")
+                pred = pred.replace("clear", "clear-peg").replace("default", "peg")
             elif "clear(d" in pred:
-                pred = pred.replace("clear", "clear-disc")
+                pred = pred.replace("clear", "clear-disc").replace("default", "disc")
             elif "smaller(peg" in pred:
-                pred = pred.replace("smaller", "smaller-peg")
+                pred = pred.replace("smaller", "smaller-peg").replace("default", "peg",1).replace("default", "disc")
             elif "smaller(d" in pred:
-                pred = pred.replace("smaller", "smaller-disc")
+                pred = pred.replace("smaller", "smaller-disc").replace("default", "disc")
             elif "on(" in pred and "peg" in pred:
-                pred = pred.replace("on", "on-peg")
+                pred = pred.replace("on", "on-peg").replace("default", "disc", 1).replace("default", "peg")
             elif "on(" in pred and "peg" not in pred:
-                pred = pred.replace("on", "on-disc")
+                pred = pred.replace("on", "on-disc").replace("default", "disc")
             updated_preds.append(f"{pred}: 2")
 
         self.fewshot_examples = [(init_state_image_path, updated_preds)]
@@ -125,3 +133,39 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
                 predicates.add(f"smaller-peg({peg}:peg,{disc}:disc)")
 
         return predicates
+
+
+if __name__ == "__main__":
+    type_to_objects = {
+        "disc": ["d1", "d2", "d3", "d4", "d5"],
+        "peg": ["peg1", "peg2", "peg3"],
+    }
+    init_image = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/hanoi/multi_problem_06-12-2025T13:58:24__model=gpt-5.1__steps=100__planner/training/trajectories/problem5/state_0000.png")
+
+    openai_backend = OpenAIImageLLMBackend(
+        api_key="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",  # Replace with your actual OpenAI API key,
+        model="gpt-5.1",
+    )
+    hanoi_openai = LLMHanoiFluentClassifier(
+        llm_backend=openai_backend,
+        init_state_image_path=init_image,
+        type_to_objects=type_to_objects,
+        temperature=0.0,
+    )
+
+    # Gemini version
+    gemini_backend = GeminiImageLLMBackend(
+        api_key="AIzaSyANQZLrjfLEQqp5gC-Ip7-sLwbP9OR46xs",
+        model="gemini-2.5-flash",
+    )
+    hanoi_gemini = LLMHanoiFluentClassifier(
+        llm_backend=gemini_backend,
+        init_state_image_path=init_image,
+        type_to_objects=type_to_objects,
+        temperature=0.0,
+    )
+
+    # Both expose the same API:
+    preds_gemini = hanoi_gemini.classify(init_image.parent / "state_0001.png")
+    # preds_openai = hanoi_openai.classify(init_image.parent / "state_0001.png")
+    print("done")

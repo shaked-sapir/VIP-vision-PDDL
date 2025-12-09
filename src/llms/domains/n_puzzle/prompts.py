@@ -1,3 +1,5 @@
+from src.utils.containers import sort_objects_numerically
+
 npuzzle_object_detection_prompt = """
 You are a visual object-recognition agent for a robotic planning system.
 
@@ -50,9 +52,9 @@ p_2_2:position
 """
 
 
-def confidence_system_prompt(tile_names, position_names):
-    tiles = ", ".join(tile_names)
-    positions = ", ".join(position_names)
+def confidence_system_prompt(tile_names: list[str], position_names: list[str]):
+    tiles = ", ".join(sort_objects_numerically(tile_names))
+    positions = ", ".join(sort_objects_numerically(position_names))
 
     return f"""
 You are a visual reasoning agent for a robotic planning system.
@@ -82,6 +84,7 @@ For each predicate you output, assign a confidence score expressing how certain 
 that the predicate holds in the image:
 
 - 2 → The predicate DEFINITELY holds, based on clear visual evidence.
+- 1 → UNCERTAIN whether the predicate holds; visual evidence is ambiguous or unclear.
 - 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
 
 

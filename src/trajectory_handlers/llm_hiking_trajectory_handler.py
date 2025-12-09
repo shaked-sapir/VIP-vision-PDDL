@@ -6,7 +6,11 @@ from pddl_plus_parser.lisp_parsers import DomainParser
 from src.action_model.gym2SAM_parser import parse_grounded_predicates
 from src.fluent_classification.llm_fluent_classifier import LLMFluentClassifier
 from src.fluent_classification.llm_hiking_fluent_classifier import LLMHikingFluentClassifier
+from src.fluent_classification.openai_image_llm_backend import OpenAIImageLLMBackend
+from src.fluent_classification.gemini_image_llm_backend import GeminiImageLLMBackend
 from src.fluent_classification.llm_npuzzle_fluent_classifier import LLMNpuzzleFluentClassifier
+from src.fluent_classification.openai_image_llm_backend import OpenAIImageLLMBackend
+from src.fluent_classification.gemini_image_llm_backend import GeminiImageLLMBackend
 from src.object_detection.llm_hiking_object_detector import LLMHikingObjectDetector
 from src.object_detection.llm_npuzzle_object_detector import LLMNpuzzleObjectDetector
 from src.trajectory_handlers import ImageTrajectoryHandler
@@ -22,13 +26,15 @@ class LLMHikingImageTrajectoryHandler(ImageTrajectoryHandler):
     def __init__(self,
                  domain_name,
                  pddl_domain_file: Path,
-                 openai_apikey: str,
+                 api_key: str,
+                 vendor: str = "openai",
                  object_detector_model: str = "gpt-4o",
                  object_detection_temperature: float = 1.0,
                  fluent_classifier_model: str = "gpt-4o",
                  fluent_classification_temperature: float = 1.0):
         super().__init__(domain_name=domain_name)
-        self.openai_apikey = openai_apikey
+        self.api_key = api_key
+        self.vendor = vendor
         self.object_detector_model = object_detector_model
         self.object_detector_temperature = object_detection_temperature
         self.fluent_classifier_model = fluent_classifier_model
@@ -43,15 +49,29 @@ class LLMHikingImageTrajectoryHandler(ImageTrajectoryHandler):
         """
 
         self.object_detector = LLMHikingObjectDetector(
-            openai_apikey=self.openai_apikey,
+            api_key=self.api_key,
             model=self.object_detector_model,
             temperature=self.object_detector_temperature,
             init_state_image_path=init_state_image_path
         )
         detected_objects_by_type: Dict[str, List[str]] = self.object_detector.detect(str(init_state_image_path))
 
+        # Create the appropriate LLM backend based on vendor
+        if self.vendor == "google":
+            llm_backend = GeminiImageLLMBackend(
+                api_key=self.api_key,
+                model=self.fluent_classifier_model,
+                temperature=self.fluent_classification_temperature
+            )
+        else:  # openai
+            llm_backend = OpenAIImageLLMBackend(
+                api_key=self.api_key,
+                model=self.fluent_classifier_model,
+                temperature=self.fluent_classification_temperature
+            )
+
         self.fluent_classifier = LLMHikingFluentClassifier(
-            openai_apikey=self.openai_apikey,
+            llm_backend=llm_backend,
             type_to_objects=detected_objects_by_type,
             model=self.fluent_classifier_model,
             temperature=self.fluent_classification_temperature,
