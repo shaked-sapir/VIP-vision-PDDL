@@ -18,7 +18,7 @@ class LLMHikingFluentClassifier(LLMFluentClassifier):
             llm_backend: ImageLLMBackend,
             init_state_image_path: Path,
             type_to_objects: dict[str, list[str]] = None,
-            temperature: float = 1.0,
+            temperature: float = None,
             use_uncertain: bool = True
     ):
         self.use_uncertain = use_uncertain

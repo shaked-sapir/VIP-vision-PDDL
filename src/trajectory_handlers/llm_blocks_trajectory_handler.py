@@ -4,8 +4,8 @@ from typing import Dict, List
 from pddl_plus_parser.lisp_parsers import DomainParser
 
 from src.action_model.gym2SAM_parser import parse_grounded_predicates
-from src.fluent_classification.llm_blocks_fluent_classifier import LLMBlocksFluentClassifier
 from src.fluent_classification.image_llm_backend_factory import ImageLLMBackendFactory
+from src.fluent_classification.llm_blocks_fluent_classifier import LLMBlocksFluentClassifier
 from src.object_detection.llm_blocks_object_detector import LLMBlocksObjectDetector
 from src.trajectory_handlers import ImageTrajectoryHandler
 from src.utils.masking import save_masking_info
@@ -34,7 +34,6 @@ class LLMBlocksImageTrajectoryHandler(ImageTrajectoryHandler):
         self.fluent_classification_temperature = fluent_classification_temperature
         self.domain = DomainParser(pddl_domain_file, partial_parsing=True).parse_domain()
 
-
     def init_visual_components(self, init_state_image_path: Path) -> None:
         """
         In this class, this method should only be called after initializing a specific
@@ -43,25 +42,20 @@ class LLMBlocksImageTrajectoryHandler(ImageTrajectoryHandler):
         """
 
         self.object_detector = LLMBlocksObjectDetector(
-            api_key=self.api_key,
-            model=self.object_detector_model,
-            temperature=self.object_detector_temperature,
+            llm_backend=ImageLLMBackendFactory.create(
+                vendor=self.vendor,
+                model_type="object_detection"
+            ),
             init_state_image_path=init_state_image_path
         )
         detected_objects_by_type: Dict[str, List[str]] = self.object_detector.detect(str(init_state_image_path))
 
-        # Create the appropriate LLM backend using factory
-        llm_backend = ImageLLMBackendFactory.create(
-            vendor=self.vendor,
-            api_key=self.api_key,
-            model=self.fluent_classifier_model,
-            temperature=self.fluent_classification_temperature
-        )
-
         self.fluent_classifier = LLMBlocksFluentClassifier(
-            llm_backend=llm_backend,
+            llm_backend=ImageLLMBackendFactory.create(
+                vendor=self.vendor,
+                model_type="fluent_classification"
+            ),
             type_to_objects=detected_objects_by_type,
-            temperature=self.fluent_classification_temperature,
             init_state_image_path=init_state_image_path
         )
 

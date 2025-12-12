@@ -25,20 +25,20 @@ RECOGNITION RULES
 -----------------------------------------------------
 Position naming:
 - Let the grid be N×M.
-- Define one position object for each cell: loc-I-J
+- Define one position object for each cell: loc_I_J
   where:
     
     I ∈ {1..N} is the row index (y-coordinate, top to bottom)
     J ∈ {1..M} is the column index (x-coordinate, left to right)
-- The top-left cell is loc-1-1.
-- The cell to its right is loc-1-2, etc.
-- The cell directly below loc-1-1 is loc-2-1, etc.
+- The top-left cell is loc_1_1.
+- The cell to its right is loc_1_2, etc.
+- The cell directly below loc_1_1 is loc_2_1, etc.
 
 -----------------------------------------------------
 EXAMPLE OUTPUT
 -----------------------------------------------------
 
-loc-1-2:location
+loc_1_2:location
 robot:robot
 doll:doll
 """
@@ -69,9 +69,9 @@ A cell is NOT clear iff it is WALL or contains the ROBOT.
 =====================================================
 BLOCK 1 — PERCEPTION (MANDATORY)
 =====================================================
-For EVERY location loc-I-J output EXACTLY one line:
+For EVERY location loc_I_J output EXACTLY one line:
 
-    cell(loc-I-J:location) = {{floor | wall | robot | doll}}
+    cell(loc_I_J:location) = {{floor | wall | robot | doll}}
 
 1. For every cell that is NOT a wall and NOT empty, describe the object briefly:
    - (row, col): short description of colors and shape.
@@ -100,9 +100,13 @@ BLOCK 2 — PREDICATES WITH SCORES
 - clear(x:location): 0  iff cell(x)=wall or cell(x)=robot
 
 (3) Orientation (choose ONE with score 2, others 0 or omitted)
+- oriented_up({robot_name}:robot): 2  iff  the robot is facing UP
+- oriented_down({robot_name}:robot): 2  iff  the robot is facing DOWN
+- oriented_left({robot_name}:robot): 2  iff  the robot is facing LEFT
+- oriented_right({robot_name}:robot): 2  iff  the robot is facing RIGHT
 
 (4) Directional movement:
-Let FROM = loc-I1-J1, TO = loc-I2-J2.
+Let FROM = loc_I1_J1, TO = loc_I2_J2.
 
 move_dir_up(FROM,TO): 2  iff
     I2 = I1 - 1  AND J2 = J1  AND  FLOOR(FROM)=2  AND FLOOR(TO)=2 

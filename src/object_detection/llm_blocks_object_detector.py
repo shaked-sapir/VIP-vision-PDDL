@@ -1,16 +1,21 @@
 from pathlib import Path
 
+from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.llms.domains.blocks.prompts import object_detection_system_prompt
 from src.object_detection.llm_object_detector import LLMObjectDetector
 
 
 class LLMBlocksObjectDetector(LLMObjectDetector):
-    def __init__(self, api_key: str, model: str = "gpt-4o", temperature: float = 1.0, init_state_image_path: Path = None):
+    def __init__(
+            self,
+            llm_backend: ImageLLMBackend,
+            init_state_image_path: Path,
+            temperature: float = None,
+    ):
         super().__init__(
-            api_key=api_key,
-            model=model,
+            llm_backend=llm_backend,
+            init_state_image_path=init_state_image_path,
             temperature=temperature,
-            init_state_image_path=init_state_image_path
         )
 
         self.imaged_obj_to_gym_obj_name = {

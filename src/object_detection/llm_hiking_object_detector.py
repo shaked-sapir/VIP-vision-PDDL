@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.llms.domains.hiking.prompts import hiking_object_detection_prompt
 from src.object_detection.llm_object_detector import LLMObjectDetector
 
@@ -14,12 +15,16 @@ class LLMHikingObjectDetector(LLMObjectDetector):
     - p1 → peg1, p2 → peg2, p3 → peg3 (pegs are renamed)
     """
 
-    def __init__(self, api_key: str, model: str, temperature: float, init_state_image_path: Path):
+    def __init__(
+            self,
+            llm_backend: ImageLLMBackend,
+            init_state_image_path: Path,
+            temperature: float = None,
+    ):
         super().__init__(
-            api_key=api_key,
-            model=model,
+            llm_backend=llm_backend,
+            init_state_image_path=init_state_image_path,
             temperature=temperature,
-            init_state_image_path=init_state_image_path
         )
 
         self.imaged_obj_to_gym_obj_name = {

@@ -4,9 +4,8 @@ from typing import Dict, List
 from pddl_plus_parser.lisp_parsers import DomainParser
 
 from src.action_model.gym2SAM_parser import parse_grounded_predicates
+from src.fluent_classification.image_llm_backend_factory import ImageLLMBackendFactory
 from src.fluent_classification.llm_npuzzle_fluent_classifier import LLMNpuzzleFluentClassifier
-from src.fluent_classification.openai_image_llm_backend import OpenAIImageLLMBackend
-from src.fluent_classification.gemini_image_llm_backend import GeminiImageLLMBackend
 from src.object_detection.llm_npuzzle_object_detector import LLMNpuzzleObjectDetector
 from src.trajectory_handlers import ImageTrajectoryHandler
 from src.utils.masking import save_masking_info
@@ -44,32 +43,21 @@ class LLMNpuzzleImageTrajectoryHandler(ImageTrajectoryHandler):
         """
 
         self.object_detector = LLMNpuzzleObjectDetector(
-            api_key=self.api_key,
-            model=self.object_detector_model,
-            temperature=self.object_detector_temperature,
+            llm_backend=ImageLLMBackendFactory.create(
+                vendor=self.vendor,
+                model_type="object_detection"
+            ),
             init_state_image_path=init_state_image_path
         )
+
         detected_objects_by_type: Dict[str, List[str]] = self.object_detector.detect(str(init_state_image_path))
 
-        # Create the appropriate LLM backend based on vendor
-        if self.vendor == "google":
-            llm_backend = GeminiImageLLMBackend(
-                api_key=self.api_key,
-                model=self.fluent_classifier_model,
-                temperature=self.fluent_classification_temperature
-            )
-        else:  # openai
-            llm_backend = OpenAIImageLLMBackend(
-                api_key=self.api_key,
-                model=self.fluent_classifier_model,
-                temperature=self.fluent_classification_temperature
-            )
-
         self.fluent_classifier = LLMNpuzzleFluentClassifier(
-            llm_backend=llm_backend,
+            llm_backend=ImageLLMBackendFactory.create(
+                vendor=self.vendor,
+                model_type="fluent_classification"
+            ),
             type_to_objects=detected_objects_by_type,
-            model=self.fluent_classifier_model,
-            temperature=self.fluent_classification_temperature,
             init_state_image_path=init_state_image_path
         )
 

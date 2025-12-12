@@ -1,13 +1,11 @@
 """
 LLM-based object detector for Hanoi domain.
-
-Uses GPT-4 Vision to detect and identify discs and pegs in Hanoi puzzle images.
 """
 
-from typing import Dict, List, Union
 from pathlib import Path
-from collections import defaultdict
+from typing import Dict, List, Union
 
+from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.llms.domains.hanoi.prompts import object_detection_system_prompt
 from src.object_detection.llm_object_detector import LLMObjectDetector
 
@@ -15,7 +13,6 @@ from src.object_detection.llm_object_detector import LLMObjectDetector
 class LLMHanoiObjectDetector(LLMObjectDetector):
     """
     LLM-based object detector for the Hanoi domain.
-    Uses GPT-4 Vision API to detect discs and pegs from images.
 
     The LLM returns objects as "d1:disc", "p1:peg", etc.
     This class maps them to the format expected by the fluent classifier:
@@ -23,12 +20,16 @@ class LLMHanoiObjectDetector(LLMObjectDetector):
     - p1 → peg1, p2 → peg2, p3 → peg3 (pegs are renamed)
     """
 
-    def __init__(self, api_key: str, model: str, temperature: float,  init_state_image_path: Path):
+    def __init__(
+        self,
+        llm_backend: ImageLLMBackend,
+        init_state_image_path: Path,
+        temperature: float = None,
+    ):
         super().__init__(
-            api_key=api_key,
-            model=model,
+            llm_backend=llm_backend,
+            init_state_image_path=init_state_image_path,
             temperature=temperature,
-            init_state_image_path=init_state_image_path
         )
 
         self.imaged_obj_to_gym_obj_name = {
@@ -72,12 +73,11 @@ class LLMHanoiObjectDetector(LLMObjectDetector):
 
         # Map peg names: p1 → peg1, p2 → peg2, etc.
         if 'peg' in detected_objects:
-            mapped_pegs = []
+            mapped_pegs: list[str] = []
             for peg_name in detected_objects['peg']:
                 if peg_name.startswith('p') and peg_name[1:].isdigit():
                     # Convert p1 → peg1
-                    mapped_name = f"peg{peg_name[1:]}"
-                    mapped_pegs.append(mapped_name)
+                    mapped_pegs.append(f"peg{peg_name[1:]}")
                 else:
                     # Keep as-is if already in correct format
                     mapped_pegs.append(peg_name)

@@ -1,4 +1,3 @@
-import base64
 import json
 import re
 from abc import ABC, abstractmethod
@@ -6,11 +5,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Union, Set
 
-from openai import OpenAI
-
+from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.object_detection.base_object_detector import ObjectDetector
 from src.utils.pddl import extract_objects_from_pddlgym_state
-from src.utils.visualize import encode_image_to_base64
 
 
 class LLMObjectDetector(ObjectDetector, ABC):
@@ -22,11 +19,17 @@ class LLMObjectDetector(ObjectDetector, ABC):
     converts model output into a mapping of object typings to grounded object names.
     """
 
-    def __init__(self, api_key: str, model: str, temperature: float, init_state_image_path: Path):
-        self.openai_client = OpenAI(api_key=api_key)
-        self.model = model
-        self.temperature = temperature
+    def __init__(
+        self,
+        llm_backend: ImageLLMBackend,
+        init_state_image_path: Path,
+        temperature: float = None
+    ):
+        self.backend = llm_backend
+        self.temperature = temperature if temperature is not None else llm_backend.temperature
+
         self.system_prompt = self._get_system_prompt()
+        self.user_instruction = self._get_user_instruction()
         self.result_regex = self._get_result_regex()
         self.llm_result_parse_func = self._parse_llm_object_detection
         self.initial_state_image_path = init_state_image_path
@@ -43,6 +46,14 @@ class LLMObjectDetector(ObjectDetector, ABC):
         """Returns the system prompt for fluent classification, depending on domain."""
         raise NotImplementedError
 
+    @classmethod
+    def _get_user_instruction(cls) -> str:
+        """User instruction sent with the target image."""
+        return (
+            "Extract all objects that appear in this image, in the form 'name:type'.\n"
+            "Output one object per line."
+        )
+
     @staticmethod
     def _get_result_regex() -> str:
         """Returns the regex pattern to extract predicates from LLM response."""
@@ -55,100 +66,40 @@ class LLMObjectDetector(ObjectDetector, ABC):
         return obj_detect_fact.replace(" ", "")  # remove spaces guardedly added by the LLM
 
     def _detect_once(
-            self,
-            image_path: Path | str,
-            temperature: float,
-            examples: list[tuple[Path | str, list[str]]] | None = None,
-    ) -> set[str]:
+        self,
+        image_path: Path | str,
+        temperature: float,
+        examples: List[tuple[Path | str, List[str]]] | None = None,
+    ) -> Set[str]:
         """
-        This method performs a single extraction of predicates with relevance scores from the given image.
-        - Zero-shot:
-            Call without examples (default).
-        - One-shot:
-            Call with a single (example_image_path, example_facts_text) pair.
-        - Few-shot:
-            Call with multiple (example_image_path, example_facts_text) pairs.
+        Perform a single LLM-based object detection call.
 
         Parameters
         ----------
         image_path : Path | str
-            The target image we want to extract predicates from.
+            Target image.
         temperature : float
-            Sampling temperature for the model.
-        examples : Optional[Iterable[Tuple[Path | str, str]]]
-            Iterable of (example_image_path, example_facts_text) pairs.
-            Each `example_facts_text` should be a multi-line string with
-            one predicate per line, in the same format you expect from the model.
+            Sampling temperature.
+        examples : list[(example_image_path, ["obj:type", ...])]
+            Optional few-shot examples.
 
         Returns
         -------
-        set[tuple[str, int]]
-            Parsed facts as returned by `self.llm_result_parse_func`.
+        set[str]
+            Parsed object strings in the 'name:type' format.
         """
-        messages = [
-            {
-                "role": "system",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": self.system_prompt,
-                        "cache_control": {"type": "ephemeral"}
-                    }
-                ],
-            }
-        ]
-
-        # Add all provided examples directly (one-shot or few-shot)
         examples = examples if examples is not None else self.fewshot_examples
-        for example_img, example_facts in examples:
-            example_b64 = encode_image_to_base64(example_img)
-            messages.append({
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{example_b64}"}
-                    },
-                    {
-                        "type": "text",
-                        "text": (
-                            "Example image. According to the types definitions in the system "
-                            "prompt, these are the correct object and their types for this image."
-                        )
-                    }
-                ]
-            })
-            messages.append({
-                "role": "assistant",
-                "content": [{"type": "text", "text": '\n'.join(example_facts)}]
-            })
 
-        # Target example
-        target_img_b64 = encode_image_to_base64(image_path)
-        messages.append({
-            "role": "user",
-            "content": [
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{target_img_b64}"}
-                },
-                {
-                    "type": "text",
-                    "text": "Extract all object with their types for this image. One line per object."
-                }
-            ]
-        })
-
-        # Run model
-        response = self.openai_client.chat.completions.create(
-            model=self.model,
+        text = self.backend.generate_text(
+            system_prompt=self.system_prompt,
+            user_instruction=self.user_instruction,
+            image_path=image_path,
             temperature=temperature,
-            messages=messages,
+            examples=examples,
         )
 
-        text = response.choices[0].message.content.strip()
-        facts = re.findall(self.result_regex, text)
-        return {self.llm_result_parse_func(f) for f in facts}
+        matches = re.findall(self.result_regex, text)
+        return {self.llm_result_parse_func(m) for m in matches}
 
     def extract_objects_from_gt_state(
             self,

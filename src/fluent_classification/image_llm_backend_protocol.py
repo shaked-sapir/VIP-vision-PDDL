@@ -4,7 +4,7 @@ from typing import Protocol, List, Set
 
 class ImageLLMBackend(Protocol):
     system_prompt: str
-
+    temperature: float
     """
         Generic interface for an LLM that extracts predicates from a single image.
 

@@ -18,12 +18,12 @@ class LLMFluentClassifier(FluentClassifier, ABC):
             self,
             llm_backend: ImageLLMBackend,
             type_to_objects: dict[str, list[str]],
-            temperature: float,
-            init_state_image_path: Path
+            init_state_image_path: Path,
+            temperature: float = None
     ):
         self.backend = llm_backend
         self.type_to_objects = type_to_objects
-        self.temperature = temperature
+        self.temperature = temperature if temperature is not None else llm_backend.temperature
 
         # Mapping from objects detected by LLM to their gym instances for predicate back-translation. define in subclass
         self.imaged_obj_to_gym_obj_name = {}

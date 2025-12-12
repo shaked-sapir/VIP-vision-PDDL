@@ -1,13 +1,11 @@
-import json
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List
 
 from pddl_plus_parser.lisp_parsers import DomainParser
 
 from src.action_model.gym2SAM_parser import parse_grounded_predicates
+from src.fluent_classification.image_llm_backend_factory import ImageLLMBackendFactory
 from src.fluent_classification.llm_maze_fluent_classifier import LLMMazeFluentClassifier
-from src.fluent_classification.openai_image_llm_backend import OpenAIImageLLMBackend
-from src.fluent_classification.gemini_image_llm_backend import GeminiImageLLMBackend
 from src.object_detection.llm_maze_object_detector import LLMMazeObjectDetector
 from src.trajectory_handlers import ImageTrajectoryHandler
 from src.utils.masking import save_masking_info
@@ -43,38 +41,27 @@ class LLMMazeImageTrajectoryHandler(ImageTrajectoryHandler):
 
         Args:
             init_state_image_path: Path to the initial state image for object detection
-            images_path: Optional path to the images directory (to extract constant predicates)
         """
 
         self.object_detector = LLMMazeObjectDetector(
-            api_key=self.api_key,
-            model=self.object_detector_model,
-            temperature=self.object_detector_temperature,
+            llm_backend=ImageLLMBackendFactory.create(
+                vendor=self.vendor,
+                model_type="object_detection"
+            ),
             init_state_image_path=init_state_image_path
         )
         detected_objects_by_type: Dict[str, List[str]] = self.object_detector.detect(str(init_state_image_path))
 
-        # Create the appropriate LLM backend based on vendor
-        if self.vendor == "google":
-            llm_backend = GeminiImageLLMBackend(
-                api_key=self.api_key,
-                model=self.fluent_classifier_model,
-                temperature=self.fluent_classification_temperature
-            )
-        else:  # openai
-            llm_backend = OpenAIImageLLMBackend(
-                api_key=self.api_key,
-                model=self.fluent_classifier_model,
-                temperature=self.fluent_classification_temperature
-            )
-
         self.fluent_classifier = LLMMazeFluentClassifier(
-            llm_backend=llm_backend,
+            llm_backend=ImageLLMBackendFactory.create(
+                vendor=self.vendor,
+                model_type="fluent_classification"
+            ),
             type_to_objects=detected_objects_by_type,
-            model=self.fluent_classifier_model,
-            temperature=self.fluent_classification_temperature,
             init_state_image_path=init_state_image_path
         )
+
+        print(f"Initialized LLMMazeImageTrajectoryHandler with detected objects: {detected_objects_by_type}")
 
     def create_masking_info(self, problem_name: str, imaged_trajectory: list[dict], trajectory_path: Path) -> None:
         trajectory_masking_info = (

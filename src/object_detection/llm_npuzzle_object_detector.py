@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.llms.domains.n_puzzle.prompts import npuzzle_object_detection_prompt
 from src.object_detection.llm_object_detector import LLMObjectDetector
 
@@ -14,12 +15,16 @@ class LLMNpuzzleObjectDetector(LLMObjectDetector):
     - p1 → peg1, p2 → peg2, p3 → peg3 (pegs are renamed)
     """
 
-    def __init__(self, api_key: str, model: str, temperature: float, init_state_image_path: Path):
+    def __init__(
+            self,
+            llm_backend: ImageLLMBackend,
+            init_state_image_path: Path,
+            temperature: float = None,
+    ):
         super().__init__(
-            api_key=api_key,
-            model=model,
+            llm_backend=llm_backend,
+            init_state_image_path=init_state_image_path,
             temperature=temperature,
-            init_state_image_path=init_state_image_path
         )
 
         self.imaged_obj_to_gym_obj_name = {
@@ -47,30 +52,5 @@ class LLMNpuzzleObjectDetector(LLMObjectDetector):
     def _get_result_regex() -> str:
         """Returns the regex pattern to extract object detections from LLM response."""
         # Pattern to match object detection in "<name>:<type>" format
-        # where name can include digits (e.g., "d1:disc", "p1:peg")
+        # where name can include digits (e.g., "t_1:tile", "p_1_2:position")
         return r'(?:t_\d+:tile|p_\d+_\d+:position)'
-
-    # def detect(self, image: Union[Path, str], *args, **kwargs) -> Dict[str, List[str]]:
-    #     """
-    #     Detect objects in image and map peg names from p1, p2, p3 to peg1, peg2, peg3.
-    #
-    #     :param image: Path to the image
-    #     :return: Dictionary mapping type to list of object names
-    #     """
-    #     # Call parent's detect method
-    #     detected_objects = super().detect(image, *args, **kwargs)
-    #
-    #     # Map peg names: p1 → peg1, p2 → peg2, etc.
-    #     if 'peg' in detected_objects:
-    #         mapped_pegs = []
-    #         for peg_name in detected_objects['peg']:
-    #             if peg_name.startswith('p') and peg_name[1:].isdigit():
-    #                 # Convert p1 → peg1
-    #                 mapped_name = f"peg{peg_name[1:]}"
-    #                 mapped_pegs.append(mapped_name)
-    #             else:
-    #                 # Keep as-is if already in correct format
-    #                 mapped_pegs.append(peg_name)
-    #         detected_objects['peg'] = mapped_pegs
-    #
-    #     return detected_objects
