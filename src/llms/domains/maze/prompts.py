@@ -69,16 +69,24 @@ A cell is NOT clear iff it is WALL or contains the ROBOT.
 =====================================================
 BLOCK 1 — PERCEPTION (MANDATORY)
 =====================================================
+First, locate the robot:
+
+1. **Find the Robot's Row:** Scan from Top (Row 1) to Bottom. In which row does the robot appear?
+2. **Find the Robot's Column (The "Step Count"):** - Go to that specific row.
+   - Start at the very Left (Column 1).
+   - Count EVERY tile moving right: "1 (Wall), 2 (..), 3 (..)..." until you hit the Robot.
+   - **Output:** "Robot found at Row X, Column Y."
+
+Then, describe the entire grid cell-by-cell.  
 For EVERY location loc_I_J output EXACTLY one line:
 
     cell(loc_I_J:location) = {{floor | wall | robot | doll}}
 
-1. For every cell that is NOT a wall and NOT empty, describe the object briefly:
+For every cell that is NOT a wall and NOT empty, describe the object briefly:
    - (row, col): short description of colors and shape.
-2. From those descriptions, decide which cell contains the ROBOT
-   (blue/turquoise rectangular body, cyan face, red antennas).
-3. Hold the location of the ROBOT in memory to output later, in this json format:
- {{"robot_at": [row, col]}}
+Verify with yourself that floor cells are white/bright with no brick texture,
+and wall cells are brown/olive with a brick pattern.
+
  
  Notice that that ROBOT cannot be in a WALL cell. 
  if you decide its on wall cell - then it means you made a mistake in perception, and you should correct it.
@@ -136,7 +144,7 @@ CONFIDENCE SCORES
 -----------------------------------------------------
 OUTPUT FORMAT (STRICT)
 -----------------------------------------------------
-Output only predicates of format of BLOCK 2.
+Output predicates of format of BLOCKS 1 and 2.
 One line per item.
 Format in BLOCK 2:
     <predicate>: <score>

@@ -154,10 +154,6 @@ def _generate_multi_problem_trajectories(
                 pddl_domain_file=benchmark_domain_path,
                 api_key=api_key,
                 vendor=vendor,
-                object_detector_model=object_detection_model,
-                object_detection_temperature=object_detection_temp,
-                fluent_classifier_model=fluent_classification_model,
-                fluent_classification_temperature=fluent_classification_temp
             )
 
             # Generate trajectory directly in problem directory (no nested images folder)
@@ -286,10 +282,6 @@ def _generate_training_data_generic(
         pddl_domain_file=benchmark_domain_path,
         api_key=api_key,
         vendor=vendor,
-        object_detector_model=object_detection_model,
-        object_detection_temperature=object_detection_temp,
-        fluent_classifier_model=fluent_classification_model,
-        fluent_classification_temperature=fluent_classification_temp
     )
 
     # Generate trajectory - images go directly under training/
@@ -897,14 +889,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--domain",
         type=str,
-        default="npuzzle",
+        default="maze",
         choices=["blocksworld", "npuzzle", "hanoi", "hiking", "maze"],
         help="Domain to generate data for (default: blocksworld)"
     )
     parser.add_argument(
         "--num-steps",
         type=int,
-        default=100,
+        default=10,
         help="Total number of steps to generate (default: 100)"
     )
     parser.add_argument(
@@ -916,7 +908,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--problem",
         type=str,
-        default="problem4",
+        default="problem0",
         help="Problem name to use from PDDLGym (default: problem7 for blocksworld, eight01x for npuzzle, problem0 for hanoi/maze, problem2 for hiking)"
     )
     parser.add_argument(
@@ -950,7 +942,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--vendor",
         type=str,
-        default="openai",
+        default="google",
         choices=["openai", "google"],
         help="LLM vendor to use for vision pipeline (default: openai)"
     )

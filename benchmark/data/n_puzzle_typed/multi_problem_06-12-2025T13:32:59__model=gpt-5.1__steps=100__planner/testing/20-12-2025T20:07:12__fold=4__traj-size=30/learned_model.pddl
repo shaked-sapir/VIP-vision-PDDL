@@ -1,0 +1,18 @@
+(define (domain n_puzzle_typed)
+(:requirements :typing :negative-preconditions :equality)
+(:types 	position tile - object
+)
+
+(:predicates (at ?tile - tile ?position - position)
+	(neighbor ?p1 - position ?p2 - position)
+	(empty ?position - position)
+)
+
+(:action move
+	:parameters (?tile - tile ?from - position ?to - position)
+	:precondition (and (neighbor ?from ?to)
+	(neighbor ?to ?from))
+	:effect (and (not (empty ?from)) 
+		))
+
+)

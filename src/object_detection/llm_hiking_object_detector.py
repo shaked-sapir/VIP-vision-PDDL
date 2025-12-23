@@ -20,11 +20,13 @@ class LLMHikingObjectDetector(LLMObjectDetector):
             llm_backend: ImageLLMBackend,
             init_state_image_path: Path,
             temperature: float = None,
+            inference_mode: bool = False
     ):
         super().__init__(
             llm_backend=llm_backend,
             init_state_image_path=init_state_image_path,
             temperature=temperature,
+            inference_mode=inference_mode
         )
 
         self.imaged_obj_to_gym_obj_name = {

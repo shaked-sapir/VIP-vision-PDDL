@@ -22,17 +22,10 @@ class LLMMazeImageTrajectoryHandler(ImageTrajectoryHandler):
                  pddl_domain_file: Path,
                  api_key: str,
                  vendor: str = "openai",
-                 object_detector_model: str = "gpt-4o",
-                 object_detection_temperature: float = 1.0,
-                 fluent_classifier_model: str = "gpt-4o",
-                 fluent_classification_temperature: float = 1.0):
+                 ):
         super().__init__(domain_name=domain_name)
         self.api_key = api_key
         self.vendor = vendor
-        self.object_detector_model = object_detector_model
-        self.object_detector_temperature = object_detection_temperature
-        self.fluent_classifier_model = fluent_classifier_model
-        self.fluent_classification_temperature = fluent_classification_temperature
         self.domain = DomainParser(pddl_domain_file, partial_parsing=True).parse_domain()
 
     def init_visual_components(self, init_state_image_path: Path) -> None:
@@ -62,6 +55,15 @@ class LLMMazeImageTrajectoryHandler(ImageTrajectoryHandler):
         )
 
         print(f"Initialized LLMMazeImageTrajectoryHandler with detected objects: {detected_objects_by_type}")
+
+    @staticmethod
+    def _rename_ground_action(action_str: str) -> str:
+        """
+        this is because amlgym testing does not accept action names with "-"
+        :param action_str: action to transform from gym format to our format
+        :return:
+        """
+        return action_str.replace('move-', 'move_')
 
     def create_masking_info(self, problem_name: str, imaged_trajectory: list[dict], trajectory_path: Path) -> None:
         trajectory_masking_info = (

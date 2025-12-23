@@ -115,3 +115,103 @@ class LLMHanoiImageTrajectoryHandler(ImageTrajectoryHandler):
         self.create_masking_info(problem_name, imaged_trajectory, images_path)
 
         return imaged_trajectory
+
+    def _manipulate_trajectory_json(self, gt_trajectory_json: list) -> list:
+        """
+        Transform hanoi trajectory from pddlgym format to typed format.
+
+        Transformations:
+        1. smaller(...) → smaller-peg(...) or smaller-disc(...) based on peg presence
+        2. on(...) → on-peg(...) or on-disc(...) based on peg presence
+        3. clear(...) → clear-peg(...) or clear-disc(...) based on peg presence
+        4. Change :default type to :peg or :disc based on variable names
+        5. Transform move(...) actions using _rename_ground_action
+
+        Args:
+            gt_trajectory_json: List of trajectory steps in pddlgym format
+
+        Returns:
+            Modified trajectory JSON in typed hanoi format
+        """
+        import re
+
+        def transform_object_type(obj: str) -> str:
+            """Transform object from :default to :peg or :disc based on name."""
+            if ':default' not in obj:
+                return obj
+
+            name = obj.split(':')[0]
+            if name.startswith('peg'):
+                return f"{name}:peg"
+            elif name.startswith('d'):
+                return f"{name}:disc"
+            return obj
+
+        def contains_peg(literal: str) -> bool:
+            """Check if a literal contains any peg argument."""
+            # Extract arguments from literal
+            match = re.match(r'\w+\((.*)\)', literal)
+            if match:
+                args_str = match.group(1)
+                # Check if any argument starts with 'peg'
+                args = [arg.split(':')[0].strip() for arg in args_str.split(',')]
+                return any(arg.startswith('peg') for arg in args)
+            return False
+
+        def transform_literal(lit: str) -> str:
+            """Transform a single literal."""
+            # Transform smaller(...) → smaller-peg(...) or smaller-disc(...)
+            if lit.startswith('smaller('):
+                suffix = 'peg' if contains_peg(lit) else 'disc'
+                lit = lit.replace('smaller(', f'smaller-{suffix}(')
+
+            # Transform on(...) → on-peg(...) or on-disc(...)
+            elif lit.startswith('on('):
+                suffix = 'peg' if contains_peg(lit) else 'disc'
+                lit = lit.replace('on(', f'on-{suffix}(')
+
+            # Transform clear(...) → clear-peg(...) or clear-disc(...)
+            elif lit.startswith('clear('):
+                suffix = 'peg' if contains_peg(lit) else 'disc'
+                lit = lit.replace('clear(', f'clear-{suffix}(')
+
+            # Transform :default to :peg or :disc
+            lit = re.sub(r'(peg\d+):default', r'\1:peg', lit)
+            lit = re.sub(r'(d\d+):default', r'\1:disc', lit)
+
+            return lit
+
+        # Process each step
+        for step in gt_trajectory_json:
+            # Transform literals in current_state and next_state
+            for state_key in ['current_state', 'next_state']:
+                if state_key in step and 'literals' in step[state_key]:
+                    literals = step[state_key]['literals']
+                    new_literals = [transform_literal(lit) for lit in literals]
+                    step[state_key]['literals'] = new_literals
+
+                # Transform objects
+                if state_key in step and 'objects' in step[state_key]:
+                    objects = step[state_key]['objects']
+                    new_objects = [transform_object_type(obj) for obj in objects]
+                    step[state_key]['objects'] = new_objects
+
+                # Transform goal literals if present
+                if state_key in step and 'goal' in step[state_key]:
+                    goal_literals = step[state_key]['goal']
+                    new_goal_literals = [transform_literal(lit) for lit in goal_literals]
+                    step[state_key]['goal'] = new_goal_literals
+
+            # Transform ground_action using existing method
+            if 'ground_action' in step:
+                original_action = step['ground_action']
+                try:
+                    transformed_action = self._rename_ground_action(original_action)
+                    # Also transform :default to :peg or :disc in the action
+                    transformed_action = re.sub(r'(peg\d+):default', r'\1:peg', transformed_action)
+                    transformed_action = re.sub(r'(d\d+):default', r'\1:disc', transformed_action)
+                    step['ground_action'] = transformed_action
+                except Exception as e:
+                    print(f"Warning: Failed to transform action '{original_action}': {e}")
+
+        return gt_trajectory_json

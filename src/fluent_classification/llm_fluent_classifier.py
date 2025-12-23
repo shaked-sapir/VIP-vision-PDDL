@@ -100,18 +100,31 @@ class LLMFluentClassifier(FluentClassifier, ABC):
     def extract_facts_once(
             self,
             image_path: Path | str,
-            examples: list[tuple[Path | str, list[str]]]
+            examples: list[tuple[Path | str, list[str]]],
+            max_retries: int = 3
     ) -> set[tuple[str, int]]:
 
-        text = self.backend.generate_text(
-            system_prompt=self.system_prompt,
-            user_instruction=self.user_instruction,
-            image_path=image_path,
-            temperature=self.temperature,
-            examples=examples,
-        )
+        facts = []
+        for attempt in range(max_retries):
+            text = self.backend.generate_text(
+                system_prompt=self.system_prompt,
+                user_instruction=self.user_instruction,
+                image_path=image_path,
+                temperature=self.temperature,
+                examples=examples,
+            )
 
-        facts = re.findall(self.result_regex, text)
+            facts = re.findall(self.result_regex, text)
+
+            if facts:
+                # Successfully extracted facts
+                break
+            else:
+                if attempt < max_retries - 1:
+                    print(f"  ⚠️  Warning: LLM did not return facts in expected format (attempt {attempt + 1}/{max_retries}), retrying...")
+                else:
+                    print(f"  ⚠️  Warning: LLM did not return facts in expected format after {max_retries} attempts for image {str(image_path).split('/')[-1]}")
+
         return {self.llm_result_parse_func(f) for f in facts}
 
     def simulate_relevance_judgement(self, image_path: Path | str,

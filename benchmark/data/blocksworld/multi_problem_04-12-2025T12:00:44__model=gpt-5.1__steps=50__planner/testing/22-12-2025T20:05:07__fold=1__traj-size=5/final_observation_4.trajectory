@@ -1,0 +1,13 @@
+(
+(:init (clear a) (clear e) (holding d) (on a b) (on b c) (ontable e) (ontable c))
+(operator: (stack d e robot))
+(:state (clear a) (clear d) (handempty ) (on a b) (on b c) (on d e) (ontable e) (ontable c))
+(operator: (unstack a b robot))
+(:state (clear d) (clear b) (holding a) (on b c) (on d e) (ontable e) (ontable c))
+(operator: (put_down a))
+(:state (clear a) (clear d) (clear b) (handempty ) (on b c) (on d e) (ontable e) (ontable a) (ontable c))
+(operator: (unstack b c robot))
+(:state (clear c) (clear a) (clear d) (holding b) (on d e) (ontable e) (ontable a) (ontable c))
+(operator: (stack b a robot))
+(:state (clear c) (clear d) (clear b) (handempty ) (on b a) (on d e) (ontable e) (ontable a) (ontable c))
+)

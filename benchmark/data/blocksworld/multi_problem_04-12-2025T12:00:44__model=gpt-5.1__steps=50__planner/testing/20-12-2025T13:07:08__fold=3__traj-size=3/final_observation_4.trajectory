@@ -1,0 +1,9 @@
+(
+(:init (clear c) (clear f) (clear b) (clear e) (clear d) (clear a) (handempty ) (ontable e) (ontable c) (ontable b) (ontable a) (ontable f) (ontable d))
+(operator: (pick_up b))
+(:state (clear c) (clear f) (clear e) (clear d) (clear a) (holding b) (ontable e) (ontable c) (ontable a) (ontable f) (ontable d))
+(operator: (stack b c))
+(:state (clear f) (clear b) (clear e) (clear d) (clear a) (handempty ) (on b c) (ontable e) (ontable c) (ontable a) (ontable f) (ontable d))
+(operator: (pick_up a))
+(:state (clear f) (clear b) (clear e) (clear d) (holding a) (on b c) (ontable e) (ontable c) (ontable f) (ontable d))
+)

@@ -78,6 +78,10 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
         """Sets the type_to_objects mapping and regenerates possible predicates."""
         self.type_to_objects = type_to_objects
 
+    @staticmethod
+    def _get_result_regex() -> str:
+        return r'\b((?:on[_-]disc|on[_-]peg|smaller[_-]disc|smaller[_-]peg|clear[_-]disc|clear[_-]peg)\([^)]*\))\s*:\s*([0-2])'
+
     def _get_system_prompt(self) -> str:
         """Returns the system prompt for the Hanoi domain."""
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."

@@ -23,7 +23,8 @@ class LLMObjectDetector(ObjectDetector, ABC):
         self,
         llm_backend: ImageLLMBackend,
         init_state_image_path: Path,
-        temperature: float = None
+        temperature: float = None,
+        inference_mode: bool = False
     ):
         self.backend = llm_backend
         self.temperature = temperature if temperature is not None else llm_backend.temperature
@@ -39,6 +40,7 @@ class LLMObjectDetector(ObjectDetector, ABC):
         trajectory_files = list(init_state_image_path.parent.glob("*_trajectory.json"))
         self.gt_json_trajectory_path: Path = trajectory_files[0]
         self.gt_json_trajectory = json.loads(self.gt_json_trajectory_path.read_text())
+        self.inference_mode = inference_mode
         self.fewshot_examples = []
 
     @abstractmethod
@@ -89,17 +91,19 @@ class LLMObjectDetector(ObjectDetector, ABC):
             Parsed object strings in the 'name:type' format.
         """
         examples = examples if examples is not None else self.fewshot_examples
+        if not self.inference_mode:
+            return set(self.fewshot_examples[0][1])
+        else:
+            text = self.backend.generate_text(
+                system_prompt=self.system_prompt,
+                user_instruction=self.user_instruction,
+                image_path=image_path,
+                temperature=temperature,
+                examples=examples,
+            )
 
-        text = self.backend.generate_text(
-            system_prompt=self.system_prompt,
-            user_instruction=self.user_instruction,
-            image_path=image_path,
-            temperature=temperature,
-            examples=examples,
-        )
-
-        matches = re.findall(self.result_regex, text)
-        return {self.llm_result_parse_func(m) for m in matches}
+            matches = re.findall(self.result_regex, text)
+            return {self.llm_result_parse_func(m) for m in matches}
 
     def extract_objects_from_gt_state(
             self,

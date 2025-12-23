@@ -3,9 +3,9 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import List, Dict, Set, Union
+from typing import List, Dict, Set, Union, Tuple
 
-from pddl_plus_parser.lisp_parsers import DomainParser
+from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 from pddl_plus_parser.models import Observation, ObservedComponent, Predicate, PDDLObject, GroundedPredicate, State, \
     Domain
 from pddlgym.core import PDDLEnv
@@ -121,7 +121,7 @@ def observation_to_trajectory_file(observation: Observation, output_path: Path) 
         positive_predicates = []
         for pred_name, grounded_preds in state.state_predicates.items():
             for grounded_pred in grounded_preds:
-                if grounded_pred.is_positive:
+                if grounded_pred.is_positive and not grounded_pred.is_masked:
                     positive_predicates.append(grounded_pred.untyped_representation)
 
         predicates_str = ' '.join(positive_predicates)
@@ -413,82 +413,125 @@ def extract_objects_from_pddlgym_state(
 def propagate_frame_axioms_in_trajectory(
     trajectory_path: Union[str, Path],
     masking_info_path: Union[str, Path],
-    domain_path: Union[str, Path]
-) -> Path:
+    domain_path: Union[str, Path],
+    mode: str = "consider_masking"
+) -> Tuple[Path, Path]:
     """
-    Propagate predicates that should persist according to frame axioms.
+    Frame-closure propagation (forward only):
 
-    For each state transition, if a predicate:
-    - Exists in current state
-    - Doesn't exist in next state
-    - Doesn't exist in next state's masking info
-    - Has no objects involved in the action
-    Then add it to next state.
+    For each transition (s, a, s'):
+      - For any *grounded* positive literal p with objects which are NOT subset of action objects:
+          enforce persistence between s and s'
+          => add missing p into s', remove spurious p from s'
 
     Args:
-        trajectory_path: Path to .trajectory file (e.g., problem8.trajectory)
-        masking_info_path: Path to .masking_info file (e.g., problem8.masking_info)
+        trajectory_path: Path to .trajectory file
+        masking_info_path: Path to .masking_info file
         domain_path: Path to domain PDDL file
+        mode: Propagation mode:
+            - "ignore_masking": Ignore masking when deciding persistence, but update masking to remove fixed predicates
+            - "consider_masking": Only propagate predicates that are NOT in the masking of the next state
 
     Returns:
-        Path to new .trajectory file with frame axioms propagated
+      (new_trajectory_path, new_masking_info_path)
     """
-    from src.utils.masking import load_masking_info
-    from pddl_plus_parser.lisp_parsers import TrajectoryParser
+    from src.utils.masking import load_masking_info, save_masking_info
 
-    trajectory_path, masking_info_path, domain_path = Path(trajectory_path), Path(masking_info_path), Path(domain_path)
+    if mode not in ["ignore_masking", "consider_masking"]:
+        raise ValueError(f"Invalid mode: {mode}. Must be 'ignore_masking' or 'consider_masking'")
 
-    # Parse files
+    trajectory_path = Path(trajectory_path)
+    masking_info_path = Path(masking_info_path)
+    domain_path = Path(domain_path)
+
     domain: Domain = DomainParser(domain_path).parse_domain()
-    parser = TrajectoryParser(domain)
-    observation = parser.parse_trajectory(trajectory_path)
-    masking_info = load_masking_info(masking_info_path, domain)
+    obs: Observation = TrajectoryParser(domain).parse_trajectory(trajectory_path)
+    masking: List[Set[GroundedPredicate]] = load_masking_info(masking_info_path, domain)
+    masking = [set(m) for m in masking]  # copy
 
-    def extract_objs(s: str) -> Set[str]:
-        """Extract object names from '(on a b)' -> {'a', 'b'}"""
-        return set(s.strip('()').split()[1:]) if '(' in s else set()
+    def pddl_objs(pddl_lit: str) -> Set[str]:
+        s = pddl_lit.strip()
+        if s.startswith("(not"):
+            s = s[len("(not"):].strip()
+        s = s.strip("() ").split()
+        return set(s[1:]) if len(s) > 1 else set()
 
-    def pred_str(p) -> str:
-        """Convert GroundedPredicate to 'on(a:block,b:block)'"""
-        if not p.object_mapping:
-            return f"{p.name}()"
-        args = ','.join(f"{v}:{p.signature[k].name}" for k, v in p.object_mapping.items())
-        return f"{p.name}({args})"
+    def gp_to_gym(gp: GroundedPredicate) -> str:
+        if not gp.object_mapping:
+            return f"{gp.name}()"
+        args = ",".join(f"{v}:{gp.signature[k].name}" for k, v in gp.object_mapping.items())
+        return f"{gp.name}({args})"
 
-    # Apply frame axioms - start with initial state and propagate forward
-    curr = {pred_str(p) for preds in observation.components[0].previous_state.state_predicates.values()
-            for p in preds if p.is_positive}
+    def positive_gym_literals(state) -> Set[str]:
+        return {
+            gp_to_gym(p)
+            for preds in state.state_predicates.values()
+            for p in preds
+            if p.is_positive
+        }
 
-    trajectory = []
-    for i, comp in enumerate(observation.components):
-        next = {pred_str(p) for preds in comp.next_state.state_predicates.values() for p in preds if p.is_positive}
-        curr_mask = {pred_str(p) for p in masking_info[i]} if i < len(masking_info) else set()
-        next_mask = {pred_str(p) for p in masking_info[i + 1]} if i + 1 < len(masking_info) else set()
-        action_objs = extract_objs(str(comp.grounded_action_call))
+    def is_frame_literal(gym_lit: str, action_objs: Set[str]) -> bool:
+        pddl_pred_str = parse_gym_to_pddl_literal(gym_lit)
+        objs = pddl_objs(pddl_pred_str)
+        return bool(objs) and not objs.issubset(action_objs)
 
-        # Remove predicates from next that are not in curr, not in curr_mask, and not involving action objects
-        next -= {p for p in next if p not in curr and p not in curr_mask and
-                 not extract_objs(parse_gym_to_pddl_literal(p)) <= action_objs}
+    # initial state is trusted
+    curr = positive_gym_literals(obs.components[0].previous_state)
+    out_steps = []
 
-        # Propagate from curr to next
-        propagated = [p for p in curr if p not in next and p not in next_mask
-                      and ((pred_objs := extract_objs(parse_gym_to_pddl_literal(p))) != set()
-                      and not pred_objs <= action_objs)]
+    for i, comp in enumerate(obs.components):
+        nxt = positive_gym_literals(comp.next_state)
+        action_objs = pddl_objs(str(comp.grounded_action_call))
 
-        trajectory.append({
-            'step': i + 1,
-            'current_state': {'literals': list(curr)},
-            'ground_action': str(comp.grounded_action_call).replace('(', '').replace(')', ''),
-            'next_state': {'literals': list(next) + propagated}
+        curr_frame = {p for p in curr if is_frame_literal(p, action_objs)}
+        nxt_frame = {p for p in nxt if is_frame_literal(p, action_objs)}
+
+        # Mode-dependent logic
+        if mode == "consider_masking":
+            # Only propagate predicates that are NOT in the masking of the next state
+            next_state_idx = i + 1
+            masked_literals = set()
+            if next_state_idx < len(masking):
+                masked_literals = {gp_to_gym(gp) for gp in masking[next_state_idx]}
+
+            # Filter out masked literals from propagation candidates
+            curr_frame_unmasked = {p for p in curr_frame if p not in masked_literals}
+            to_add = curr_frame_unmasked - nxt_frame
+            to_remove = nxt_frame - curr_frame_unmasked
+        else:  # ignore_masking
+            # Propagate regardless of masking
+            to_add = curr_frame - nxt_frame
+            to_remove = nxt_frame - curr_frame
+
+        if to_add:
+            nxt |= to_add
+        if to_remove:
+            nxt -= to_remove
+
+        # Update mask of s' (index i+1): remove literals whose truth we fixed
+        next_state_idx = i + 1
+        if next_state_idx < len(masking) and (to_add or to_remove):
+            fixed = to_add | to_remove
+            masking[next_state_idx] = {gp for gp in masking[next_state_idx] if gp_to_gym(gp) not in fixed}
+
+        out_steps.append({
+            "step": i + 1,
+            "current_state": {"literals": sorted(curr)},
+            "ground_action": str(comp.grounded_action_call).strip("()"),
+            "next_state": {"literals": sorted(nxt)},
+            "frame_closure": {"added": sorted(to_add), "removed": sorted(to_remove)},
         })
 
-        # Update curr for next iteration with propagated predicates
-        curr = next | set(propagated)
+        curr = nxt
 
-    # Write output
-    problem_name = trajectory_path.stem + '_frame_axioms'
-    build_trajectory_file(trajectory, problem_name, trajectory_path.parent)
-    return trajectory_path.parent / f"{problem_name}.trajectory"
+    out_name = trajectory_path.stem + "_frame_closed"
+    build_trajectory_file(out_steps, out_name, trajectory_path.parent)
+    save_masking_info(masking_info_path.parent, out_name, masking)
+
+    return (
+        trajectory_path.parent / f"{out_name}.trajectory",
+        masking_info_path.parent / f"{out_name}.masking_info",
+    )
 
 
 def json_to_trajectory_file(json_trajectory_path: Union[str, Path]) -> Path:
@@ -516,9 +559,110 @@ def json_to_trajectory_file(json_trajectory_path: Union[str, Path]) -> Path:
     return json_trajectory_path.parent / f"{problem_name}.trajectory"
 
 
+def replace_every_nth_state_with_ground_truth(
+    trajectory_path: Union[str, Path],
+    masking_info_path: Union[str, Path],
+    json_trajectory_path: Union[str, Path],
+    domain_path: Union[str, Path],
+    n: int
+) -> Tuple[Path, Path]:
+    """
+    Replace every n-th state in a trajectory with ground truth from JSON.
+
+    Starting from the first state after initial (state 1), replaces every n-th state
+    (states 1, n+1, 2n+1, ...) with the ground truth state from the _trajectory.json file.
+    Also removes masking info for these states since they now have ground truth.
+
+    The function respects the length of the input trajectory - if the trajectory is already
+    truncated, only that many steps will be processed from the JSON file.
+
+    Args:
+        trajectory_path: Path to .trajectory file (possibly already truncated)
+        masking_info_path: Path to .masking_info file
+        json_trajectory_path: Path to _trajectory.json file with ground truth
+        domain_path: Path to domain PDDL file
+        n: Interval for replacement (e.g., n=3 means replace states 1, 4, 7, ...)
+
+    Returns:
+        Tuple of (new_trajectory_path, new_masking_info_path)
+    """
+    from src.utils.masking import load_masking_info, save_masking_info
+
+    trajectory_path = Path(trajectory_path)
+    masking_info_path = Path(masking_info_path)
+    json_trajectory_path = Path(json_trajectory_path)
+    domain_path = Path(domain_path)
+
+    # Load current trajectory to determine its length
+    domain: Domain = DomainParser(domain_path).parse_domain()
+    parser = TrajectoryParser(domain)
+    current_observation = parser.parse_trajectory(trajectory_path)
+    num_steps = len(current_observation.components)
+
+    # Load JSON ground truth data
+    with open(json_trajectory_path, 'r') as f:
+        gt_trajectory = json.load(f)
+
+    # Load masking info
+    # Note: masking_info has length = len(states) = len(steps) + 1
+    # Index 0 is for initial state, index i is for state after step i-1
+    masking_info = load_masking_info(masking_info_path, domain)
+    masking_info = [set(m) for m in masking_info]  # Make a copy
+
+    # Build new trajectory data from ground truth, but only for num_steps
+    # gt_trajectory[i] has step i+1, current_state is state before action, next_state is state after
+    new_trajectory_data = []
+
+    for i in range(num_steps):
+        if i >= len(gt_trajectory):
+            break  # Safety check
+
+        step_data = gt_trajectory[i]
+        step_index = i + 1  # Steps are 1-indexed in the JSON
+
+        # Determine which state to use for next_state of this step
+        # State indices: init=0, after step 1 = 1, after step 2 = 2, ...
+        # We want to replace states at indices 1, n+1, 2n+1, ...
+        # That corresponds to steps 1, n+1, 2n+1, ...
+        state_after_action_index = step_index
+
+        # Check if this state should be replaced with ground truth
+        # States to replace: 1, n+1, 2n+1, ... which is (k*n + 1) for k=0,1,2,...
+        if (state_after_action_index - 1) % n == 0:
+            # Use ground truth for next_state
+            next_state_literals = step_data['next_state']['literals']
+            # Clear masking for this state
+            if state_after_action_index < len(masking_info):
+                masking_info[state_after_action_index] = set()
+        else:
+            # Keep using JSON data (which might already have errors)
+            next_state_literals = step_data['next_state']['literals']
+
+        new_trajectory_data.append({
+            'step': step_index,
+            'current_state': step_data['current_state'],
+            'ground_action': step_data['ground_action'],
+            'next_state': {'literals': next_state_literals}
+        })
+
+    # Save new trajectory file
+    problem_name = trajectory_path.stem
+    out_name = f"{problem_name}_gt_every_{n}"
+    build_trajectory_file(new_trajectory_data, out_name, trajectory_path.parent)
+
+    # Save new masking info (only keep entries up to num_steps + 1)
+    truncated_masking_info = masking_info[:num_steps + 1]
+    save_masking_info(masking_info_path.parent, out_name, truncated_masking_info)
+
+    return (
+        trajectory_path.parent / f"{out_name}.trajectory",
+        masking_info_path.parent / f"{out_name}.masking_info"
+    )
+
+
 if __name__ == "__main__":
-    path_to_change = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner/training/trajectories/problem9/problem9"
-    domain_path = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/domains/blocksworld/blocksworld.pddl")
+    path_to_change = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/hanoi/multi_problem_06-12-2025T13:58:24__model=gpt-5.1__steps=100__planner/training/trajectories/problem6/problem6"
+    domain_path = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/domains/hanoi/hanoi.pddl")
 
     propagate_frame_axioms_in_trajectory(
         Path(f"{path_to_change}.trajectory"),

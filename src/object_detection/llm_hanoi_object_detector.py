@@ -25,11 +25,13 @@ class LLMHanoiObjectDetector(LLMObjectDetector):
         llm_backend: ImageLLMBackend,
         init_state_image_path: Path,
         temperature: float = None,
+        inference_mode: bool = False
     ):
         super().__init__(
             llm_backend=llm_backend,
             init_state_image_path=init_state_image_path,
             temperature=temperature,
+            inference_mode=inference_mode
         )
 
         self.imaged_obj_to_gym_obj_name = {
@@ -48,7 +50,17 @@ class LLMHanoiObjectDetector(LLMObjectDetector):
             "peg3": "peg3"
         }
 
-        self.fewshot_examples = [(init_state_image_path, self.extract_objects_from_gt_state())]
+        gym_objects = self.extract_objects_from_gt_state()
+        updated_objects = []
+
+        for obj in gym_objects:
+            if obj.startswith("peg"):
+                obj = obj.replace("default", "peg")
+            elif obj.startswith("d"):
+                obj = obj.replace("default", "disc")
+            updated_objects.append(obj)
+
+        self.fewshot_examples = [(init_state_image_path, updated_objects)]
 
     def _get_system_prompt(self) -> str:
         """Returns the system prompt for Hanoi object detection."""

@@ -235,6 +235,27 @@ class ImageTrajectoryHandler(ABC):
 
         return GT_trajectory, ground_actions
 
+    def _manipulate_trajectory_json(self, gt_trajectory_json: list) -> list:
+        """
+        Manipulate the ground truth trajectory JSON before writing to file.
+
+        This method can be overridden by child classes to apply domain-specific transformations
+        to the trajectory, such as modifying predicates, actions, or state representations.
+
+        Args:
+            gt_trajectory_json: List of trajectory steps, each containing:
+                - step: int
+                - current_state: dict with 'literals', 'objects', 'goal'
+                - ground_action: str
+                - next_state: dict with 'literals', 'objects', 'goal'
+                - operator_object_assignment: dict
+                - lifted_preconds: str
+
+        Returns:
+            Modified trajectory JSON. Default implementation returns trajectory as-is.
+        """
+        return gt_trajectory_json
+
     def create_trajectory_from_gym(self, problem_name: str, images_output_path: Path,
                                    num_steps: int = 100, start_index: int = 0,
                                    use_planner: bool = False) -> List[str]:
@@ -273,10 +294,12 @@ class ImageTrajectoryHandler(ABC):
         else:
             GT_trajectory, ground_actions = self._execute_random_trajectory(num_steps, images_output_path, obs)
 
-        # Save trajectory
+        # Save trajectory with optional manipulation
         trajectory_log_file_path = os.path.join(images_output_path, f"{problem_name}_trajectory.json")
+        gt_trajectory_json = serialize(GT_trajectory)
+        gt_trajectory_json = self._manipulate_trajectory_json(gt_trajectory_json)
         with open(trajectory_log_file_path, 'w') as f:
-            json.dump(serialize(GT_trajectory), f, indent=4)
+            json.dump(gt_trajectory_json, f, indent=4)
 
         print(f"Images saved to the directory '{images_output_path}'")
         print(f"Trajectory log saved to '{trajectory_log_file_path}'")

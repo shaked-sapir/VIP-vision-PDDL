@@ -72,7 +72,7 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
         """Returns the regex pattern to extract predicates from LLM response."""
         # Pattern to match predicate with confidence score
         # Examples: ('move-dir-up(loc-1-3,loc-3-2)', '2')
-        return r'([a-zA-Z0-9_-]+\([^)]*\)):\s*([0-2])'  # relevance is int 0,1,2
+        return r'\b((?:(?:move[_-]dir[_-](?:up|down|left|right))|(?:oriented[_-](?:up|down|left|right))|at|clear|is[_-]goal)\([^)]*\))\s*:\s*([0-2])'
 
     def _generate_all_possible_predicates(self) -> set[str]:
         """
@@ -84,7 +84,7 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."
 
         # Extract objects by type
-        locations = sorted(self.type_to_objects['location'])
+        locations = sorted([loc.replace('_', '-') for loc in self.type_to_objects['location']])
 
         predicates = set()
 

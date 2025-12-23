@@ -3,21 +3,18 @@
         "step": 1,
         "current_state": {
             "literals": [
-                "at(t2:default,x1:default,y1:default)",
-                "at(t1:default,x2:default,y2:default)",
-                "tile(t2:default)",
-                "tile(t1:default)",
-                "blank(x2:default,y1:default)",
-                "position(y2:default)",
-                "inc(x1:default,x2:default)",
-                "position(y1:default)",
-                "at(t3:default,x1:default,y2:default)",
-                "position(x1:default)",
-                "position(x2:default)",
-                "dec(y2:default,y1:default)",
-                "inc(y1:default,y2:default)",
-                "dec(x2:default,x1:default)",
-                "tile(t3:default)"
+                "at(t_2:tile,p_1_1:position)",
+                "at(t_1:tile,p_2_2:position)",
+                "empty(p_2_1:position)",
+                "at(t_3:tile,p_1_2:position)",
+                "neighbor(p_1_1:position,p_2_1:position)",
+                "neighbor(p_1_1:position,p_1_2:position)",
+                "neighbor(p_1_2:position,p_2_2:position)",
+                "neighbor(p_1_2:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_2_2:position)",
+                "neighbor(p_2_2:position,p_1_2:position)",
+                "neighbor(p_2_2:position,p_2_1:position)"
             ],
             "objects": [
                 "y2:default",
@@ -29,12 +26,12 @@
                 "x2:default"
             ],
             "goal": [
-                "at(t1:default,x1:default,y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "at(t3:default,x2:default,y1:default)"
+                "at(t_1:tile,p_1_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)"
             ]
         },
-        "ground_action": "move-down(t1:default, x2:default, y2:default, y1:default)",
+        "ground_action": "move(t_1:tile, p_2_2:position, p_2_1:position)",
         "operator_object_assignment": {
             "?omf": "t1",
             "?by": "y1",
@@ -44,21 +41,18 @@
         "lifted_preconds": "[down(?omf:default), tile(?omf:default), position(?px:default), position(?py:default), position(?by:default), inc(?by:default,?py:default), blank(?px:default,?by:default), at(?omf:default,?px:default,?py:default)]",
         "next_state": {
             "literals": [
-                "at(t2:default,x1:default,y1:default)",
-                "tile(t2:default)",
-                "tile(t1:default)",
-                "at(t1:default,x2:default,y1:default)",
-                "position(y2:default)",
-                "inc(x1:default,x2:default)",
-                "position(y1:default)",
-                "at(t3:default,x1:default,y2:default)",
-                "position(x1:default)",
-                "position(x2:default)",
-                "dec(y2:default,y1:default)",
-                "blank(x2:default,y2:default)",
-                "dec(x2:default,x1:default)",
-                "inc(y1:default,y2:default)",
-                "tile(t3:default)"
+                "at(t_2:tile,p_1_1:position)",
+                "at(t_1:tile,p_2_1:position)",
+                "at(t_3:tile,p_1_2:position)",
+                "empty(p_2_2:position)",
+                "neighbor(p_1_1:position,p_2_1:position)",
+                "neighbor(p_1_1:position,p_1_2:position)",
+                "neighbor(p_1_2:position,p_2_2:position)",
+                "neighbor(p_1_2:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_2_2:position)",
+                "neighbor(p_2_2:position,p_1_2:position)",
+                "neighbor(p_2_2:position,p_2_1:position)"
             ],
             "objects": [
                 "y2:default",
@@ -70,9 +64,9 @@
                 "x2:default"
             ],
             "goal": [
-                "at(t1:default,x1:default,y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "at(t3:default,x2:default,y1:default)"
+                "at(t_1:tile,p_1_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)"
             ]
         }
     },
@@ -80,21 +74,18 @@
         "step": 2,
         "current_state": {
             "literals": [
-                "at(t2:default,x1:default,y1:default)",
-                "tile(t2:default)",
-                "tile(t1:default)",
-                "at(t1:default,x2:default,y1:default)",
-                "position(y2:default)",
-                "inc(x1:default,x2:default)",
-                "position(y1:default)",
-                "at(t3:default,x1:default,y2:default)",
-                "position(x1:default)",
-                "position(x2:default)",
-                "dec(y2:default,y1:default)",
-                "blank(x2:default,y2:default)",
-                "dec(x2:default,x1:default)",
-                "inc(y1:default,y2:default)",
-                "tile(t3:default)"
+                "at(t_2:tile,p_1_1:position)",
+                "at(t_1:tile,p_2_1:position)",
+                "at(t_3:tile,p_1_2:position)",
+                "empty(p_2_2:position)",
+                "neighbor(p_1_1:position,p_2_1:position)",
+                "neighbor(p_1_1:position,p_1_2:position)",
+                "neighbor(p_1_2:position,p_2_2:position)",
+                "neighbor(p_1_2:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_2_2:position)",
+                "neighbor(p_2_2:position,p_1_2:position)",
+                "neighbor(p_2_2:position,p_2_1:position)"
             ],
             "objects": [
                 "y2:default",
@@ -106,12 +97,12 @@
                 "x2:default"
             ],
             "goal": [
-                "at(t1:default,x1:default,y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "at(t3:default,x2:default,y1:default)"
+                "at(t_1:tile,p_1_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)"
             ]
         },
-        "ground_action": "move-left(t3:default, x1:default, y2:default, x2:default)",
+        "ground_action": "move(t_3:tile, p_1_2:position, p_2_2:position)",
         "operator_object_assignment": {
             "?omf": "t3",
             "?bx": "x2",
@@ -121,21 +112,18 @@
         "lifted_preconds": "[left(?omf:default), tile(?omf:default), position(?px:default), position(?py:default), position(?bx:default), dec(?bx:default,?px:default), blank(?bx:default,?py:default), at(?omf:default,?px:default,?py:default)]",
         "next_state": {
             "literals": [
-                "at(t3:default,x2:default,y2:default)",
-                "at(t2:default,x1:default,y1:default)",
-                "blank(x1:default,y2:default)",
-                "tile(t2:default)",
-                "tile(t1:default)",
-                "at(t1:default,x2:default,y1:default)",
-                "position(y2:default)",
-                "inc(x1:default,x2:default)",
-                "position(y1:default)",
-                "position(x1:default)",
-                "position(x2:default)",
-                "dec(y2:default,y1:default)",
-                "inc(y1:default,y2:default)",
-                "dec(x2:default,x1:default)",
-                "tile(t3:default)"
+                "at(t_3:tile,p_2_2:position)",
+                "at(t_2:tile,p_1_1:position)",
+                "empty(p_1_2:position)",
+                "at(t_1:tile,p_2_1:position)",
+                "neighbor(p_1_1:position,p_2_1:position)",
+                "neighbor(p_1_1:position,p_1_2:position)",
+                "neighbor(p_1_2:position,p_2_2:position)",
+                "neighbor(p_1_2:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_2_2:position)",
+                "neighbor(p_2_2:position,p_1_2:position)",
+                "neighbor(p_2_2:position,p_2_1:position)"
             ],
             "objects": [
                 "y2:default",
@@ -147,9 +135,9 @@
                 "x2:default"
             ],
             "goal": [
-                "at(t1:default,x1:default,y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "at(t3:default,x2:default,y1:default)"
+                "at(t_1:tile,p_1_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)"
             ]
         }
     },
@@ -157,21 +145,18 @@
         "step": 3,
         "current_state": {
             "literals": [
-                "at(t3:default,x2:default,y2:default)",
-                "at(t2:default,x1:default,y1:default)",
-                "blank(x1:default,y2:default)",
-                "tile(t2:default)",
-                "tile(t1:default)",
-                "at(t1:default,x2:default,y1:default)",
-                "position(y2:default)",
-                "inc(x1:default,x2:default)",
-                "position(y1:default)",
-                "position(x1:default)",
-                "position(x2:default)",
-                "dec(y2:default,y1:default)",
-                "inc(y1:default,y2:default)",
-                "dec(x2:default,x1:default)",
-                "tile(t3:default)"
+                "at(t_3:tile,p_2_2:position)",
+                "at(t_2:tile,p_1_1:position)",
+                "empty(p_1_2:position)",
+                "at(t_1:tile,p_2_1:position)",
+                "neighbor(p_1_1:position,p_2_1:position)",
+                "neighbor(p_1_1:position,p_1_2:position)",
+                "neighbor(p_1_2:position,p_2_2:position)",
+                "neighbor(p_1_2:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_2_2:position)",
+                "neighbor(p_2_2:position,p_1_2:position)",
+                "neighbor(p_2_2:position,p_2_1:position)"
             ],
             "objects": [
                 "y2:default",
@@ -183,12 +168,12 @@
                 "x2:default"
             ],
             "goal": [
-                "at(t1:default,x1:default,y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "at(t3:default,x2:default,y1:default)"
+                "at(t_1:tile,p_1_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)"
             ]
         },
-        "ground_action": "move-up(t2:default, x1:default, y1:default, y2:default)",
+        "ground_action": "move(t_2:tile, p_1_1:position, p_1_2:position)",
         "operator_object_assignment": {
             "?omf": "t2",
             "?by": "y2",
@@ -198,21 +183,18 @@
         "lifted_preconds": "[up(?omf:default), tile(?omf:default), position(?px:default), position(?py:default), position(?by:default), dec(?by:default,?py:default), blank(?px:default,?by:default), at(?omf:default,?px:default,?py:default)]",
         "next_state": {
             "literals": [
-                "at(t3:default,x2:default,y2:default)",
-                "blank(x1:default,y1:default)",
-                "tile(t2:default)",
-                "tile(t1:default)",
-                "at(t1:default,x2:default,y1:default)",
-                "position(y2:default)",
-                "inc(x1:default,x2:default)",
-                "position(y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "position(x1:default)",
-                "position(x2:default)",
-                "dec(y2:default,y1:default)",
-                "dec(x2:default,x1:default)",
-                "inc(y1:default,y2:default)",
-                "tile(t3:default)"
+                "at(t_3:tile,p_2_2:position)",
+                "empty(p_1_1:position)",
+                "at(t_1:tile,p_2_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "neighbor(p_1_1:position,p_2_1:position)",
+                "neighbor(p_1_1:position,p_1_2:position)",
+                "neighbor(p_1_2:position,p_2_2:position)",
+                "neighbor(p_1_2:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_2_2:position)",
+                "neighbor(p_2_2:position,p_1_2:position)",
+                "neighbor(p_2_2:position,p_2_1:position)"
             ],
             "objects": [
                 "y2:default",
@@ -224,9 +206,9 @@
                 "x2:default"
             ],
             "goal": [
-                "at(t1:default,x1:default,y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "at(t3:default,x2:default,y1:default)"
+                "at(t_1:tile,p_1_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)"
             ]
         }
     },
@@ -234,21 +216,18 @@
         "step": 4,
         "current_state": {
             "literals": [
-                "at(t3:default,x2:default,y2:default)",
-                "blank(x1:default,y1:default)",
-                "tile(t2:default)",
-                "tile(t1:default)",
-                "at(t1:default,x2:default,y1:default)",
-                "position(y2:default)",
-                "inc(x1:default,x2:default)",
-                "position(y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "position(x1:default)",
-                "position(x2:default)",
-                "dec(y2:default,y1:default)",
-                "dec(x2:default,x1:default)",
-                "inc(y1:default,y2:default)",
-                "tile(t3:default)"
+                "at(t_3:tile,p_2_2:position)",
+                "empty(p_1_1:position)",
+                "at(t_1:tile,p_2_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "neighbor(p_1_1:position,p_2_1:position)",
+                "neighbor(p_1_1:position,p_1_2:position)",
+                "neighbor(p_1_2:position,p_2_2:position)",
+                "neighbor(p_1_2:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_2_2:position)",
+                "neighbor(p_2_2:position,p_1_2:position)",
+                "neighbor(p_2_2:position,p_2_1:position)"
             ],
             "objects": [
                 "y2:default",
@@ -260,12 +239,12 @@
                 "x2:default"
             ],
             "goal": [
-                "at(t1:default,x1:default,y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "at(t3:default,x2:default,y1:default)"
+                "at(t_1:tile,p_1_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)"
             ]
         },
-        "ground_action": "move-right(t1:default, x2:default, y1:default, x1:default)",
+        "ground_action": "move(t_1:tile, p_2_1:position, p_1_1:position)",
         "operator_object_assignment": {
             "?omf": "t1",
             "?bx": "x1",
@@ -275,21 +254,18 @@
         "lifted_preconds": "[right(?omf:default), tile(?omf:default), position(?px:default), position(?py:default), position(?bx:default), inc(?bx:default,?px:default), blank(?bx:default,?py:default), at(?omf:default,?px:default,?py:default)]",
         "next_state": {
             "literals": [
-                "at(t3:default,x2:default,y2:default)",
-                "tile(t2:default)",
-                "tile(t1:default)",
-                "blank(x2:default,y1:default)",
-                "position(y2:default)",
-                "inc(x1:default,x2:default)",
-                "position(y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "position(x1:default)",
-                "position(x2:default)",
-                "dec(y2:default,y1:default)",
-                "inc(y1:default,y2:default)",
-                "dec(x2:default,x1:default)",
-                "tile(t3:default)",
-                "at(t1:default,x1:default,y1:default)"
+                "at(t_3:tile,p_2_2:position)",
+                "empty(p_2_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_1:tile,p_1_1:position)",
+                "neighbor(p_1_1:position,p_2_1:position)",
+                "neighbor(p_1_1:position,p_1_2:position)",
+                "neighbor(p_1_2:position,p_2_2:position)",
+                "neighbor(p_1_2:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_2_2:position)",
+                "neighbor(p_2_2:position,p_1_2:position)",
+                "neighbor(p_2_2:position,p_2_1:position)"
             ],
             "objects": [
                 "y2:default",
@@ -301,9 +277,9 @@
                 "x2:default"
             ],
             "goal": [
-                "at(t1:default,x1:default,y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "at(t3:default,x2:default,y1:default)"
+                "at(t_1:tile,p_1_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)"
             ]
         }
     },
@@ -311,21 +287,18 @@
         "step": 5,
         "current_state": {
             "literals": [
-                "at(t3:default,x2:default,y2:default)",
-                "tile(t2:default)",
-                "tile(t1:default)",
-                "blank(x2:default,y1:default)",
-                "position(y2:default)",
-                "inc(x1:default,x2:default)",
-                "position(y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "position(x1:default)",
-                "position(x2:default)",
-                "dec(y2:default,y1:default)",
-                "inc(y1:default,y2:default)",
-                "dec(x2:default,x1:default)",
-                "tile(t3:default)",
-                "at(t1:default,x1:default,y1:default)"
+                "at(t_3:tile,p_2_2:position)",
+                "empty(p_2_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_1:tile,p_1_1:position)",
+                "neighbor(p_1_1:position,p_2_1:position)",
+                "neighbor(p_1_1:position,p_1_2:position)",
+                "neighbor(p_1_2:position,p_2_2:position)",
+                "neighbor(p_1_2:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_2_2:position)",
+                "neighbor(p_2_2:position,p_1_2:position)",
+                "neighbor(p_2_2:position,p_2_1:position)"
             ],
             "objects": [
                 "y2:default",
@@ -337,12 +310,12 @@
                 "x2:default"
             ],
             "goal": [
-                "at(t1:default,x1:default,y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "at(t3:default,x2:default,y1:default)"
+                "at(t_1:tile,p_1_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)"
             ]
         },
-        "ground_action": "move-down(t3:default, x2:default, y2:default, y1:default)",
+        "ground_action": "move(t_3:tile, p_2_2:position, p_2_1:position)",
         "operator_object_assignment": {
             "?omf": "t3",
             "?by": "y1",
@@ -352,21 +325,18 @@
         "lifted_preconds": "[down(?omf:default), tile(?omf:default), position(?px:default), position(?py:default), position(?by:default), inc(?by:default,?py:default), blank(?px:default,?by:default), at(?omf:default,?px:default,?py:default)]",
         "next_state": {
             "literals": [
-                "tile(t2:default)",
-                "tile(t1:default)",
-                "position(y2:default)",
-                "inc(x1:default,x2:default)",
-                "position(y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "position(x1:default)",
-                "position(x2:default)",
-                "at(t3:default,x2:default,y1:default)",
-                "dec(y2:default,y1:default)",
-                "blank(x2:default,y2:default)",
-                "dec(x2:default,x1:default)",
-                "inc(y1:default,y2:default)",
-                "tile(t3:default)",
-                "at(t1:default,x1:default,y1:default)"
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)",
+                "empty(p_2_2:position)",
+                "at(t_1:tile,p_1_1:position)",
+                "neighbor(p_1_1:position,p_2_1:position)",
+                "neighbor(p_1_1:position,p_1_2:position)",
+                "neighbor(p_1_2:position,p_2_2:position)",
+                "neighbor(p_1_2:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_1_1:position)",
+                "neighbor(p_2_1:position,p_2_2:position)",
+                "neighbor(p_2_2:position,p_1_2:position)",
+                "neighbor(p_2_2:position,p_2_1:position)"
             ],
             "objects": [
                 "y2:default",
@@ -378,9 +348,9 @@
                 "x2:default"
             ],
             "goal": [
-                "at(t1:default,x1:default,y1:default)",
-                "at(t2:default,x1:default,y2:default)",
-                "at(t3:default,x2:default,y1:default)"
+                "at(t_1:tile,p_1_1:position)",
+                "at(t_2:tile,p_1_2:position)",
+                "at(t_3:tile,p_2_1:position)"
             ]
         }
     }

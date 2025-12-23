@@ -101,3 +101,46 @@ class LLMBlocksImageTrajectoryHandler(ImageTrajectoryHandler):
         self.create_masking_info(problem_name, imaged_trajectory, images_path)
 
         return imaged_trajectory
+
+    def _manipulate_trajectory_json(self, gt_trajectory_json: list) -> list:
+        """
+        Override to apply blocksworld-specific transformations to the trajectory JSON.
+
+        Example transformations:
+        - Modify action names (e.g., pick-up → pick_up, put-down → put_down)
+        - Simplify predicates (e.g., handempty(robot:robot) → handempty())
+        - Remove redundant robot parameters from actions
+
+        Args:
+            gt_trajectory_json: List of trajectory steps
+
+        Returns:
+            Modified trajectory JSON with blocksworld-specific transformations
+        """
+        for step in gt_trajectory_json:
+            # Modify literals in current_state and next_state
+            for state_key in ['current_state', 'next_state']:
+                if state_key in step and 'literals' in step[state_key]:
+                    literals = step[state_key]['literals']
+                    new_literals = []
+                    for lit in literals:
+                        # Example: Change handempty(robot:robot) to handempty()
+                        if lit == "handempty(robot:robot)":
+                            new_literals.append("handempty()")
+                        # Example: Remove handfull(robot:robot)
+                        elif lit == "handfull(robot:robot)":
+                            continue
+                        else:
+                            new_literals.append(lit)
+                    step[state_key]['literals'] = new_literals
+
+            # Modify ground_action
+            if 'ground_action' in step:
+                action = step['ground_action']
+                # Example: pick-up(b:block, robot:robot) → pick_up(b:block)
+                import re
+                action = re.sub(r'pick-up\(([^,]+):block,\s*robot:robot\)', r'pick_up(\1:block)', action)
+                action = re.sub(r'put-down\(([^,]+):block,\s*robot:robot\)', r'put_down(\1:block)', action)
+                step['ground_action'] = action
+
+        return gt_trajectory_json

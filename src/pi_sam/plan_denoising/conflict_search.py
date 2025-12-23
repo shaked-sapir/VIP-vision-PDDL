@@ -82,7 +82,7 @@ class ConflictDrivenPatchSearch:
         negative_preconditions_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard,
         seed: int = 42,
         logger: Optional[object] = None,
-        search_mode: str = "ucs",  # "anytime_dfs" or "ucs"
+        search_mode: str = "anytime_dfs",  # "anytime_dfs" or "ucs"
     ):
         self.partial_domain_template = partial_domain_template
         self.negative_preconditions_policy = negative_preconditions_policy
@@ -466,6 +466,7 @@ class ConflictDrivenPatchSearch:
                         f"nodes_expanded={nodes_expanded}, depth={node.depth}"
                     )
                 continue  # do not branch further from this solution node
+                # break
 
             # --- Conflicts: group + choose group ---
             conflict_groups = self._group_conflicts(conflicts)

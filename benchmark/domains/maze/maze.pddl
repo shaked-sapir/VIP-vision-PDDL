@@ -15,7 +15,7 @@
         (is-goal ?v0 - location)
     )
 
-    (:action move-up
+    (:action move_up
             :parameters (?p - player ?from - location ?to - location)
             :precondition (and (at ?p ?from)
                     (clear ?to)
@@ -31,7 +31,7 @@
                     (oriented-up ?p))
     )
 
-    (:action move-down
+    (:action move_down
             :parameters (?p - player ?from - location ?to - location)
             :precondition (and (at ?p ?from)
                     (clear ?to)
@@ -47,7 +47,7 @@
                     (oriented-down ?p))
     )
 
-    (:action move-left
+    (:action move_left
             :parameters (?p - player ?from - location ?to - location)
             :precondition (and (at ?p ?from)
                     (clear ?to)
@@ -64,7 +64,7 @@
     )
 
 
-    (:action move-right
+    (:action move_right
             :parameters (?p - player ?from - location ?to - location)
             :precondition (and (at ?p ?from)
                     (clear ?to)
