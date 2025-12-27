@@ -1,31 +1,19 @@
 import argparse
 import json
-import os
-import random
-import shutil
 from collections import defaultdict
 from concurrent.futures import as_completed, ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import List, Tuple, Dict
+from typing import List, Dict
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from amlgym.algorithms import *
 from amlgym.benchmarks import *
 from amlgym.metrics import *
-from pddl_plus_parser.lisp_parsers import TrajectoryParser, DomainParser
-from pddl_plus_parser.models import Observation
 
-from benchmark.amlgym_models.NOISY_PISAM import NOISY_PISAM
-from benchmark.amlgym_models.NOISY_SAM import NOISY_SAM
-from benchmark.amlgym_models.PISAM import PISAM
-from benchmark.amlgym_models.PO_ROSAME import PO_ROSAME
-from benchmark.amlgym_models.ROSAME import ROSAME
-from benchmark.amlgym_models.SAM import SAM
-from src.utils.masking import load_masking_info, save_masking_info
-from src.utils.pddl import observation_to_trajectory_file, propagate_frame_axioms_in_trajectory, replace_every_nth_state_with_ground_truth
+from benchmark.experiment_helpers import run_single_fold
 
 # =============================================================================
 # CONFIG & PATHS
@@ -76,12 +64,10 @@ domain_properties = {
 }
 
 N_FOLDS = 5
-# TRAJECTORY_SIZES = [1, 3, 5, 7, 10, 15, 20]
-# TRAJECTORY_SIZES = [1, 3, 5, 7, 10]
-TRAJECTORY_SIZES = [1, 3, 5, 7, 10, 20, 30]
-# TRAJECTORY_SIZES    = [1, 3, 5]
-NUM_TRAJECTORIES = 5  # Always use 5 trajectories
-GT_INJECTION_N_VALUES = [None, 2, 3, 5, 10]  # None = baseline (GT only at t=0), others = inject GT every n steps
+NUM_TRAJECTORIES_LIST = [1, 2, 3, 4, 5]  # Number of full trajectories to use for learning
+NUM_TRAJECTORIES_POOL = 5  # Total number of trajectories to select per fold
+GT_RATE_PERCENTAGES = [0, 10, 25, 50]  # Percentage of states to inject as GT (0 = only initial state)
+FRAME_AXIOM_MODE = "after_gt_only"  # "after_gt_only" or "all_states"
 
 metric_cols = [
     "precision_precs_pos", "precision_precs_neg", "precision_eff_pos", "precision_eff_neg", "precision_overall",
@@ -93,109 +79,51 @@ metric_cols = [
 # HELPER FUNCTIONS
 # =============================================================================
 
-def pre_generate_truncated_trajectories(problem_dirs: List[Path], domain_path: Path,
-                                       trajectory_sizes: List[int], n_values: List[int] = None) -> None:
+def convert_pddl_hyphens_to_underscores(pddl_file_path: Path) -> None:
     """
-    Pre-generate all truncated trajectories and masking files for all sizes and GT injection values.
+    Convert all PDDL identifiers (object names, predicate names) from hyphens to underscores.
+
+    This function works for ANY PDDL problem file, regardless of domain.
+    It replaces all hyphens with underscores in PDDL identifiers while preserving:
+    - Comments
+    - Strings
+    - PDDL keywords (define, domain, problem, :objects, :init, :goal, etc.)
+
+    Examples of conversions:
+    - Object names: player-1 → player_1, loc-3-4 → loc_3_4, disc-1 → disc_1
+    - Predicate names: move-dir-up → move_dir_up, on-table → on_table, is-goal → is_goal
+    - Any identifier: my-custom-object → my_custom_object
 
     Args:
-        problem_dirs: List of problem directories
-        domain_path: Path to domain PDDL file
-        trajectory_sizes: List of trajectory sizes to generate
-        n_values: List of GT injection intervals (None = baseline). Defaults to GT_INJECTION_N_VALUES.
-    """
-    if n_values is None:
-        n_values = GT_INJECTION_N_VALUES
-
-    print(f"\nPre-generating truncated trajectories for sizes: {trajectory_sizes}")
-    print(f"GT injection intervals: {n_values}")
-
-    for prob_dir in problem_dirs:
-        traj_files = [f for f in prob_dir.glob("*.trajectory")
-                     if 'truncated' not in f.stem and 'final' not in f.stem and 'frame_axioms' not in f.stem and 'gt' not in f.stem]
-
-        for traj_path in traj_files:
-            for size in trajectory_sizes:
-                for n in n_values:
-                    truncate_trajectory(traj_path, domain_path, size, n=n)
-
-    print(f"✓ Pre-generated all truncated trajectories for {len(trajectory_sizes)} sizes and {len(n_values)} GT injection values")
-
-
-def truncate_trajectory(traj_path: Path, domain_path: Path, max_steps: int, n: int = None) -> Path:
-    """
-    Truncate trajectory to max_steps, optionally apply GT injection, and apply frame axiom propagation.
-    Always regenerates files.
-
-    Args:
-        traj_path: Path to original trajectory file
-        domain_path: Path to domain PDDL file
-        max_steps: Maximum number of steps to keep
-        n: If provided, inject ground truth every n steps (states 1, n+1, 2n+1, ...)
+        pddl_file_path: Path to the PDDL problem file to convert
 
     Returns:
-        Path to final processed trajectory file
+        None (modifies file in-place)
     """
-    # Build output file name based on whether GT injection is used
-    suffix = f"_truncated_{max_steps}_gt{n}" if n is not None else f"_truncated_{max_steps}"
-    output_path = traj_path.parent / f"{traj_path.stem}{suffix}.trajectory"
-    output_masking_path = traj_path.parent / f"{traj_path.stem}{suffix}.masking_info"
+    import re
 
-    domain = DomainParser(domain_path).parse_domain()
-    parser = TrajectoryParser(domain)
-    observation = parser.parse_trajectory(traj_path)
+    # Read the file
+    with open(pddl_file_path, 'r') as f:
+        content = f.read()
 
-    if len(observation.components) > max_steps:
-        observation.components = observation.components[:max_steps]
+    # Replace all hyphens with underscores in PDDL identifiers
+    # Pattern explanation:
+    # - \b([a-zA-Z][a-zA-Z0-9_-]*-[a-zA-Z0-9_-]*)\b matches any word that:
+    #   * Starts with a letter (PDDL requirement)
+    #   * Contains at least one hyphen
+    #   * May contain letters, digits, underscores, and hyphens
+    #   * Is bounded by word boundaries (spaces, parens, etc.)
+    # - Lambda function replaces all hyphens in the matched identifier with underscores
+    content = re.sub(
+        r'\b([a-zA-Z][a-zA-Z0-9_-]*-[a-zA-Z0-9_-]*)\b',
+        lambda m: m.group(1).replace('-', '_'),
+        content
+    )
 
-    # Save truncated trajectory
-    observation_to_trajectory_file(observation, output_path)
+    # Write back to the same file
+    with open(pddl_file_path, 'w') as f:
+        f.write(content)
 
-    # Truncate and save masking_info
-    problem_name = traj_path.stem.split('_truncated_')[0].split('_final')[0].split('_frame_axioms')[0].split('_gt')[0]
-    masking_info_path = traj_path.parent / f"{problem_name}.masking_info"
-
-    if masking_info_path.exists():
-        masking_info = load_masking_info(masking_info_path, domain)
-        truncated_masking_info = masking_info[:max_steps + 1]
-        save_masking_info(output_path.parent, output_path.stem, truncated_masking_info)
-
-        # Step 1: Apply GT injection if n is provided
-        if n is not None:
-            try:
-                json_trajectory_path = traj_path.parent / f"{problem_name}_trajectory.json"
-                if json_trajectory_path.exists():
-                    gt_traj_path, gt_masking_path = replace_every_nth_state_with_ground_truth(
-                        output_path, output_masking_path, json_trajectory_path, domain_path, n
-                    )
-                    # Replace with GT-injected versions
-                    if gt_traj_path.exists() and gt_traj_path != output_path:
-                        shutil.move(str(gt_traj_path), str(output_path))
-                    if gt_masking_path.exists() and gt_masking_path != output_masking_path:
-                        shutil.move(str(gt_masking_path), str(output_masking_path))
-                    print(f"  ✓ Injected GT every {n} steps in {output_path.name}")
-                else:
-                    print(f"  Warning: JSON trajectory not found: {json_trajectory_path}")
-            except Exception as e:
-                print(f"  Warning: GT injection failed for {output_path.name}: {e}")
-
-        # Step 2: Apply frame axiom propagation with consider_masking mode
-        try:
-            propagated_traj_path, propagated_masking_path = propagate_frame_axioms_in_trajectory(
-                output_path, output_masking_path, domain_path, mode="consider_masking"
-            )
-
-            # Replace original truncated trajectory and masking with propagated versions
-            if propagated_traj_path.exists() and propagated_traj_path != output_path:
-                shutil.move(str(propagated_traj_path), str(output_path))
-            if propagated_masking_path.exists() and propagated_masking_path != output_masking_path:
-                shutil.move(str(propagated_masking_path), str(output_masking_path))
-            print(f"  ✓ Applied frame axioms (consider_masking) to {output_path.name}")
-        except Exception as e:
-            print(f"  Warning: Frame axiom propagation failed for {output_path.name}: {e}")
-            # Continue with original truncated trajectory if propagation fails
-
-    return output_path
 
 
 def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Dict[str, str] = None) -> dict:
@@ -218,62 +146,6 @@ def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Di
     return metrics
 
 
-def run_noisy_pisam_trial(domain_path: Path, trajectories: List[Path], testing_dir: Path,
-                         fold: int, traj_size: int) -> Tuple[str, List[Observation], dict]:
-    """Run NOISY_PISAM and save results."""
-    noisy_pisam = NOISY_PISAM()
-    model, final_obs, report = noisy_pisam.learn(str(domain_path), [str(t) for t in trajectories])
-
-    # Create output directory
-    timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-    output_dir = testing_dir / f"{timestamp}__fold={fold}__traj-size={traj_size}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create trajectory mapping (final_observation_X -> original trajectory name)
-    trajectory_mapping = {}
-    for i, (obs, traj_path) in enumerate(zip(final_obs, trajectories)):
-        obs_path = output_dir / f"final_observation_{i}.trajectory"
-        observation_to_trajectory_file(obs, obs_path)
-        # Store original trajectory name (without path)
-        trajectory_mapping[f"final_observation_{i}"] = traj_path.name
-
-    # Save learning metrics with trajectory mapping
-    save_learning_metrics(output_dir, report, trajectory_mapping)
-
-    # Save learned model
-    with open(output_dir / "learned_model.pddl", 'w') as f:
-        f.write(model)
-
-    return model, final_obs, report
-
-
-def run_noisy_sam_trial(domain_path: Path, trajectories: List[Path], testing_dir: Path,
-                        fold: int, traj_size: int) -> Tuple[str, List[Observation], dict]:
-    """Run NOISY_SAM and save results."""
-    noisy_sam = NOISY_SAM()
-    model, final_obs, report = noisy_sam.learn(str(domain_path), [str(t) for t in trajectories])
-
-    # Create output directory
-    timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-    output_dir = testing_dir / f"{timestamp}__fold={fold}__traj-size={traj_size}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create trajectory mapping (final_observation_X -> original trajectory name)
-    trajectory_mapping = {}
-    for i, (obs, traj_path) in enumerate(zip(final_obs, trajectories)):
-        obs_path = output_dir / f"final_observation_{i}.trajectory"
-        observation_to_trajectory_file(obs, obs_path)
-        # Store original trajectory name (without path)
-        trajectory_mapping[f"final_observation_{i}"] = traj_path.name
-
-    # Save learning metrics with trajectory mapping
-    save_learning_metrics(output_dir, report, trajectory_mapping)
-
-    # Save learned model
-    with open(output_dir / "learned_model.pddl", 'w') as f:
-        f.write(model)
-
-    return model, final_obs, report
 
 
 def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[str]) -> dict:
@@ -354,301 +226,6 @@ def format_mean_std(mean_val, std_val) -> str:
     return f"{mean_val:.3f}±{std_val:.3f}"
 
 
-def run_single_fold(fold: int, problem_dirs: List[Path], n_problems: int, traj_size: int,
-                    domain_ref_path: Path, testing_dir: Path, bench_name: str, mode: str = 'masked', n: int = None) -> List[dict]:
-    """
-    Run a single fold experiment and return 4 results.
-
-    Args:
-        mode: Either 'masked' (PISAM/PO_ROSAME with masking) or 'fullyobs' (SAM/ROSAME without masking)
-        n: GT injection interval (None = baseline with GT only at t=0)
-
-    Returns:
-        List of 4 dicts with results for: unclean SAM/PISAM, unclean ROSAME, cleaned SAM/PISAM, cleaned ROSAME
-    """
-    n_str = f"_gt{n}" if n is not None else ""
-    print(f"[PID {os.getpid()}] Fold {fold+1}/{N_FOLDS}, size={traj_size}, mode={mode}, n={n}")
-
-    fold_work_dir = testing_dir / f"work_fold{fold}_size{traj_size}"
-    fold_work_dir.mkdir(parents=True, exist_ok=True)
-    original_cwd = os.getcwd()
-    os.chdir(fold_work_dir)
-
-    try:
-        # CV split
-        indices = list(range(n_problems))
-        random.seed(42 + fold)
-        random.shuffle(indices)
-        n_train = max(1, min(int(0.8 * n_problems), n_problems - 1))
-        train_idx, test_idx = indices[:n_train], indices[n_train:]
-
-        train_problem_dirs = [problem_dirs[i] for i in train_idx]
-        test_problem_dirs = [problem_dirs[i] for i in test_idx]
-
-        # Select and use pre-generated truncated trajectories
-        random.seed(42 + fold)
-        selected_dirs = random.sample(train_problem_dirs, min(NUM_TRAJECTORIES, len(train_problem_dirs)))
-
-        # Use pre-generated truncated trajectories (with frame axioms already applied)
-        truncated_trajs = []
-        for prob_dir in selected_dirs:
-            truncated_file = prob_dir / f"{prob_dir.name}_truncated_{traj_size}{n_str}.trajectory"
-            if truncated_file.exists():
-                truncated_trajs.append(truncated_file)
-
-        gt_info = f"GT every {n} steps" if n is not None else "GT only at t=0"
-        print(f"  Using {len(truncated_trajs)} pre-generated trajectories ({gt_info}, frame axioms applied)")
-
-        test_problem_paths = [str(list(d.glob("*.pddl"))[0]) for d in test_problem_dirs if list(d.glob("*.pddl"))]
-
-        null_metrics = {k: None for k in ['precision_precs_pos', 'precision_precs_neg',
-                        'precision_eff_pos', 'precision_eff_neg', 'precision_overall',
-                        'recall_precs_pos', 'recall_precs_neg', 'recall_eff_pos',
-                        'recall_eff_neg', 'recall_overall', 'solving_ratio',
-                        'false_plans_ratio', 'unsolvable_ratio', 'timed_out']}
-
-        # ========================================================================
-        # PHASE 1: UNCLEAN (learning on original truncated trajectories)
-        # ========================================================================
-        print(f"  Phase 1: Learning on unclean trajectories...")
-
-        # Choose algorithms based on mode
-        if mode == 'masked':
-            # Run base PISAM (no denoising) on truncated trajectories - PISAM handles trajectories directly
-            sam_unclean = PISAM()
-            sam_unclean_model = sam_unclean.learn(str(domain_ref_path), [str(t) for t in truncated_trajs])
-            algo_name = 'PISAM'
-        else:  # fullyobs
-            # For SAM, we need to create problem files alongside trajectories
-            temp_sam_unclean_dir = testing_dir / f"temp_sam_unclean_fold{fold}_size{traj_size}"
-            temp_sam_unclean_dir.mkdir(parents=True, exist_ok=True)
-
-            sam_unclean_traj_paths = []
-            for truncated_traj in truncated_trajs:
-                problem_name = truncated_traj.stem.split('_truncated_')[0]
-                problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
-
-                if not problem_file.exists():
-                    continue
-
-                problem_dir = temp_sam_unclean_dir / problem_name
-                problem_dir.mkdir(parents=True, exist_ok=True)
-
-                # Copy trajectory and problem file
-                traj_path = problem_dir / f"{problem_name}.trajectory"
-                shutil.copy(truncated_traj, traj_path)
-                shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
-                sam_unclean_traj_paths.append(str(traj_path))
-
-            sam_unclean = SAM()
-            sam_unclean_model = sam_unclean.learn(str(domain_ref_path), sam_unclean_traj_paths, use_problems=False)
-            algo_name = 'SAM'
-
-        temp_sam_unclean_path = testing_dir / f'{algo_name}_unclean_{bench_name}_fold{fold}_size{traj_size}.pddl'
-        temp_sam_unclean_path.write_text(sam_unclean_model)
-
-        sam_unclean_metrics = evaluate_model(str(temp_sam_unclean_path), domain_ref_path, test_problem_paths)
-        unclean_sam_result = {
-            'domain': bench_name, 'algorithm': algo_name, 'fold': fold,
-            'traj_size': traj_size, 'gt_n': n, 'problems_count': len(test_problem_paths),
-            '_internal_phase': 'unclean',
-            'fold_data_creation_timedout': 0,
-            **sam_unclean_metrics
-        }
-        temp_sam_unclean_path.unlink()
-
-        # Run ROSAME on original truncated trajectories
-        temp_rosame_unclean_dir = testing_dir / f"temp_rosame_unclean_fold{fold}_size{traj_size}"
-        temp_rosame_unclean_dir.mkdir(parents=True, exist_ok=True)
-
-        rosame_unclean_traj_paths = []
-        for truncated_traj in truncated_trajs:
-            problem_name = truncated_traj.stem.split('_truncated_')[0]
-            problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
-
-            if not problem_file.exists():
-                continue
-
-            problem_dir = temp_rosame_unclean_dir / problem_name
-            problem_dir.mkdir(parents=True, exist_ok=True)
-
-            # Copy the truncated trajectory itself
-            traj_path = problem_dir / f"{problem_name}.trajectory"
-            shutil.copy(truncated_traj, traj_path)
-            shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
-
-            # For masked mode, also copy masking_info
-            if mode == 'masked':
-                masking_file = truncated_traj.parent / f"{truncated_traj.stem}.masking_info"
-                if masking_file.exists():
-                    shutil.copy(masking_file, problem_dir / f"{problem_name}.masking_info")
-                else:
-                    continue  # Skip if masking file missing in masked mode
-
-            rosame_unclean_traj_paths.append(str(traj_path))
-
-        if rosame_unclean_traj_paths:
-            try:
-                if mode == 'masked':
-                    rosame_unclean_model = PO_ROSAME().learn(str(domain_ref_path), rosame_unclean_traj_paths, use_problems=False)
-                else:  # fullyobs
-                    rosame_unclean_model = ROSAME().learn(str(domain_ref_path), rosame_unclean_traj_paths, use_problems=False)
-
-                if rosame_unclean_model and ":action" in rosame_unclean_model:
-                    temp_rosame_unclean_path = testing_dir / f'ROSAME_unclean_{bench_name}_fold{fold}_size{traj_size}.pddl'
-                    temp_rosame_unclean_path.write_text(rosame_unclean_model)
-                    rosame_unclean_metrics = evaluate_model(str(temp_rosame_unclean_path), domain_ref_path, test_problem_paths)
-                    temp_rosame_unclean_path.unlink()
-                else:
-                    raise ValueError("Invalid ROSAME model")
-            except Exception as e:
-                print(f"  Warning: ROSAME (unclean) failed: {e}")
-                rosame_unclean_metrics = null_metrics
-        else:
-            rosame_unclean_metrics = null_metrics
-
-        unclean_rosame_result = {
-            'domain': bench_name, 'algorithm': 'ROSAME', 'fold': fold,
-            'traj_size': traj_size, 'gt_n': n, 'problems_count': len(test_problem_paths),
-            '_internal_phase': 'unclean',
-            'fold_data_creation_timedout': 0,
-            **rosame_unclean_metrics
-        }
-
-        # ========================================================================
-        # PHASE 2: CLEANED (learning on denoised trajectories)
-        # ========================================================================
-        print(f"  Phase 2: Learning on cleaned trajectories...")
-
-        # Run NOISY_PISAM or NOISY_SAM based on mode
-        if mode == 'masked':
-            sam_model, final_obs, report = run_noisy_pisam_trial(
-                domain_ref_path, truncated_trajs, testing_dir, fold, traj_size)
-            algo_name = 'PISAM'
-        else:  # fullyobs
-            # For NOISY_SAM, we need to create problem files alongside trajectories
-            temp_noisy_sam_dir = testing_dir / f"temp_noisy_sam_fold{fold}_size{traj_size}"
-            temp_noisy_sam_dir.mkdir(parents=True, exist_ok=True)
-
-            noisy_sam_traj_paths = []
-            for truncated_traj in truncated_trajs:
-                problem_name = truncated_traj.stem.split('_truncated_')[0]
-                problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
-
-                if not problem_file.exists():
-                    continue
-
-                problem_dir = temp_noisy_sam_dir / problem_name
-                problem_dir.mkdir(parents=True, exist_ok=True)
-
-                # Copy trajectory and problem file
-                traj_path = problem_dir / f"{problem_name}.trajectory"
-                shutil.copy(truncated_traj, traj_path)
-                shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
-                noisy_sam_traj_paths.append(traj_path)
-
-            sam_model, final_obs, report = run_noisy_sam_trial(
-                domain_ref_path, noisy_sam_traj_paths, testing_dir, fold, traj_size)
-            algo_name = 'SAM'
-
-        # Determine if fold data creation timed out
-        fold_timedout = 0 if report.get('terminated_by') == 'solution_found' else 1
-
-        temp_sam_path = testing_dir / f'{algo_name}_{bench_name}_fold{fold}_size{traj_size}.pddl'
-        temp_sam_path.write_text(sam_model)
-
-        sam_metrics = evaluate_model(str(temp_sam_path), domain_ref_path, test_problem_paths)
-        cleaned_sam_result = {
-            'domain': bench_name, 'algorithm': algo_name, 'fold': fold,
-            'traj_size': traj_size, 'gt_n': n, 'problems_count': len(test_problem_paths),
-            '_internal_phase': 'cleaned',
-            'fold_data_creation_timedout': fold_timedout,
-            **sam_metrics
-        }
-
-        # Run ROSAME with final observations
-        temp_rosame_dir = testing_dir / f"temp_rosame_fold{fold}_size{traj_size}"
-        temp_rosame_dir.mkdir(parents=True, exist_ok=True)
-
-        rosame_traj_paths = []
-        for obs, truncated_traj in zip(final_obs, truncated_trajs):
-            problem_name = truncated_traj.stem.split('_truncated_')[0]
-            problem_file = truncated_traj.parent / f"{truncated_traj.parent.name}.pddl"
-
-            if not problem_file.exists():
-                continue
-
-            problem_dir = temp_rosame_dir / problem_name
-            problem_dir.mkdir(parents=True, exist_ok=True)
-
-            traj_path = problem_dir / f"{problem_name}.trajectory"
-            observation_to_trajectory_file(obs, traj_path)
-            shutil.copy(problem_file, problem_dir / f"{problem_name}.pddl")
-
-            # Handle masking info only in masked mode
-            if mode == 'masked':
-                masking_file = truncated_traj.parent / f"{truncated_traj.stem}.masking_info"
-                if not masking_file.exists():
-                    continue
-
-                # Load original masking info and adjust to final observation length
-                domain = DomainParser(domain_ref_path).parse_domain()
-                original_masking_info = load_masking_info(masking_file, domain)
-
-                # Final observation may have different length than truncated trajectory
-                final_obs_length = len(obs.components)
-
-                # Adjust masking info to match final observation length
-                if len(original_masking_info) - 1 > final_obs_length:
-                    # Truncate if final obs is shorter
-                    adjusted_masking_info = original_masking_info[:final_obs_length + 1]
-                elif len(original_masking_info) - 1 < final_obs_length:
-                    # Extend with last masking state if final obs is longer
-                    adjusted_masking_info = original_masking_info + [original_masking_info[-1]] * (final_obs_length - (len(original_masking_info) - 1))
-                else:
-                    adjusted_masking_info = original_masking_info
-
-                # Save adjusted masking info
-                save_masking_info(problem_dir, problem_name, adjusted_masking_info)
-
-            rosame_traj_paths.append(str(traj_path))
-
-        if rosame_traj_paths:
-            try:
-                if mode == 'masked':
-                    rosame_model = PO_ROSAME().learn(str(domain_ref_path), rosame_traj_paths, use_problems=False)
-                else:  # fullyobs
-                    rosame_model = ROSAME().learn(str(domain_ref_path), rosame_traj_paths, use_problems=False)
-
-                if rosame_model and ":action" in rosame_model:
-                    temp_rosame_path = testing_dir / f'ROSAME_{bench_name}_fold{fold}_size{traj_size}.pddl'
-                    temp_rosame_path.write_text(rosame_model)
-                    rosame_metrics = evaluate_model(str(temp_rosame_path), domain_ref_path, test_problem_paths)
-                    temp_rosame_path.unlink()
-                else:
-                    raise ValueError("Invalid ROSAME model")
-            except Exception as e:
-                print(f"  Warning: ROSAME (cleaned) failed: {e}")
-                rosame_metrics = null_metrics
-        else:
-            rosame_metrics = null_metrics
-
-        cleaned_rosame_result = {
-            'domain': bench_name, 'algorithm': 'ROSAME', 'fold': fold,
-            'traj_size': traj_size, 'gt_n': n, 'problems_count': len(test_problem_paths),
-            '_internal_phase': 'cleaned',
-            'fold_data_creation_timedout': fold_timedout,
-            **rosame_metrics
-        }
-
-        # Cleanup
-        if temp_sam_path.exists():
-            temp_sam_path.unlink()
-
-        return [unclean_sam_result, unclean_rosame_result, cleaned_sam_result, cleaned_rosame_result]
-    finally:
-        # Always restore working directory
-        os.chdir(original_cwd)
 
 
 def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dict], output_path: Path):
@@ -666,7 +243,7 @@ def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dic
 
     if unclean_results:
         df_unclean = pd.DataFrame(unclean_results)
-        grouped_unclean = df_unclean.groupby(["domain", "algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
+        grouped_unclean = df_unclean.groupby(["domain", "algorithm", "num_trajectories", "gt_rate"])[metric_cols].agg(["mean", "std"]).reset_index()
 
         flat_cols = []
         for col in grouped_unclean.columns:
@@ -677,7 +254,7 @@ def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dic
                 flat_cols.append(col)
         grouped_unclean.columns = flat_cols
 
-        df_avg_unclean = grouped_unclean[["domain", "algorithm", "traj_size"]].copy()
+        df_avg_unclean = grouped_unclean[["domain", "algorithm", "num_trajectories", "gt_rate"]].copy()
         for m in metric_cols:
             df_avg_unclean[m] = grouped_unclean[f"{m}_mean"]
             df_avg_unclean[f"{m}_std"] = grouped_unclean[f"{m}_std"]
@@ -687,7 +264,7 @@ def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dic
 
     if cleaned_results:
         df_cleaned = pd.DataFrame(cleaned_results)
-        grouped_cleaned = df_cleaned.groupby(["domain", "algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
+        grouped_cleaned = df_cleaned.groupby(["domain", "algorithm", "num_trajectories", "gt_rate"])[metric_cols].agg(["mean", "std"]).reset_index()
 
         flat_cols = []
         for col in grouped_cleaned.columns:
@@ -698,7 +275,7 @@ def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dic
                 flat_cols.append(col)
         grouped_cleaned.columns = flat_cols
 
-        df_avg_cleaned = grouped_cleaned[["domain", "algorithm", "traj_size"]].copy()
+        df_avg_cleaned = grouped_cleaned[["domain", "algorithm", "num_trajectories", "gt_rate"]].copy()
         for m in metric_cols:
             df_avg_cleaned[m] = grouped_cleaned[f"{m}_mean"]
             df_avg_cleaned[f"{m}_std"] = grouped_cleaned[f"{m}_std"]
@@ -708,12 +285,12 @@ def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dic
 
     df_avg = pd.concat(all_results_with_phase, ignore_index=True)
 
-    # Group by (trajectory size, phase)
-    by_size_phase = defaultdict(list)
+    # Group by (num_trajectories, gt_rate, phase)
+    by_config = defaultdict(list)
     for _, row in df_avg.iterrows():
         phase = row["_phase"]
-        size_key = f"{int(row['traj_size'])}__{'unclean' if phase == 'unclean' else ''}"
-        by_size_phase[size_key].append(row.to_dict())
+        config_key = f"numtrajs{int(row['num_trajectories'])}_gtrate{int(row['gt_rate'])}__{'unclean' if phase == 'unclean' else ''}"
+        by_config[config_key].append(row.to_dict())
 
     def clean_excel_value(v):
         if v is None or pd.isna(v):
@@ -728,20 +305,27 @@ def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dic
         thick_left = workbook.add_format({"border": 1, "left": 2})
         thick_right = workbook.add_format({"border": 1, "right": 2})
 
-        # Sort sheet names: size=1__unclean, size=1, size=3__unclean, size=3, ...
+        # Sort sheet names: numtrajs1_gtrate0__unclean, numtrajs1_gtrate0, numtrajs1_gtrate10__unclean, ...
         def sort_key(key):
             parts = key.split('__')
-            size = int(parts[0])
+            config = parts[0]  # e.g., "numtrajs1_gtrate0"
             phase = 0 if len(parts) > 1 and parts[1] == 'unclean' else 1
-            return (size, phase)
 
-        for size_phase_key in sorted(by_size_phase.keys(), key=sort_key):
-            results = by_size_phase[size_phase_key]
-            # Sheet name: "size=1__unclean" or "size=1" (for cleaned)
-            if size_phase_key.endswith('__unclean'):
-                sheet_name = f"size={size_phase_key}"
+            # Extract num_trajectories and gt_rate from config
+            numtrajs_part = config.split('_')[0]  # "numtrajs1"
+            gtrate_part = config.split('_')[1]    # "gtrate0"
+            num_trajs = int(numtrajs_part.replace('numtrajs', ''))
+            gt_rate = int(gtrate_part.replace('gtrate', ''))
+
+            return (num_trajs, gt_rate, phase)
+
+        for config_key in sorted(by_config.keys(), key=sort_key):
+            results = by_config[config_key]
+            # Sheet name: "numtrajs1_gtrate0__unclean" or "numtrajs1_gtrate0" (for cleaned)
+            if config_key.endswith('__unclean'):
+                sheet_name = config_key
             else:
-                sheet_name = f"size={size_phase_key.split('__')[0]}"  # Remove trailing "__"
+                sheet_name = config_key.split('__')[0]  # Remove trailing "__"
 
             sheet = workbook.add_worksheet(sheet_name)
             writer.sheets[sheet_name] = sheet
@@ -889,8 +473,8 @@ def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plo
     """Generate plots per domain comparing unclean vs cleaned trajectories."""
     plots_dir.mkdir(exist_ok=True)
 
-    def plot_metric_vs_size(df, metric_key, metric_title, save_path, phase_label, domain_label):
-        """Plot metric vs trajectory size with error bars."""
+    def plot_metric_vs_num_trajectories(df, metric_key, metric_title, save_path, phase_label, domain_label):
+        """Plot metric vs number of trajectories with error bars."""
         if df.empty:
             return
 
@@ -898,19 +482,19 @@ def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plo
 
         algorithms = sorted(df["algorithm"].unique())
         for algo in algorithms:
-            sub = df[df["algorithm"] == algo].sort_values("traj_size")
-            x = sub["traj_size"]
+            sub = df[df["algorithm"] == algo].sort_values("num_trajectories")
+            x = sub["num_trajectories"]
             y = sub[metric_key]
             yerr = sub[f"{metric_key}_std"] if f"{metric_key}_std" in sub.columns else None
 
             plt.errorbar(x, y, yerr=yerr, marker="o", capsize=4, label=algo)
 
-        plt.title(f"{metric_title} vs Trajectory Size ({phase_label} - {domain_label})")
-        plt.xlabel("Trajectory Size (steps)")
+        plt.title(f"{metric_title} vs Number of Trajectories ({phase_label} - {domain_label})")
+        plt.xlabel("Number of Trajectories")
         plt.ylabel(metric_title)
 
-        # Set x-axis ticks: bins of 5 (0, 5, 10, ..., 30)
-        plt.xticks([0, 5, 10, 15, 20, 25, 30])
+        # Set x-axis ticks: 1, 2, 3, 4, 5
+        plt.xticks([1, 2, 3, 4, 5])
 
         # Set y-axis ticks: bins of 0.1 (0, 0.1, ..., 1.0)
         plt.yticks([0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
@@ -937,7 +521,7 @@ def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plo
             domain_unclean = [r for r in unclean_results if r['domain'] == domain]
             if domain_unclean:
                 df_unclean = pd.DataFrame(domain_unclean)
-                grouped_unclean = df_unclean.groupby(["algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
+                grouped_unclean = df_unclean.groupby(["algorithm", "num_trajectories"])[metric_cols].agg(["mean", "std"]).reset_index()
 
                 flat_cols = []
                 for col in grouped_unclean.columns:
@@ -948,19 +532,19 @@ def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plo
                         flat_cols.append(col)
                 grouped_unclean.columns = flat_cols
 
-                df_avg_unclean = grouped_unclean[["algorithm", "traj_size"]].copy()
+                df_avg_unclean = grouped_unclean[["algorithm", "num_trajectories"]].copy()
                 for m in metric_cols:
                     df_avg_unclean[m] = grouped_unclean[f"{m}_mean"]
                     df_avg_unclean[f"{m}_std"] = grouped_unclean[f"{m}_std"]
 
-                plot_metric_vs_size(df_avg_unclean, "solving_ratio", "Solving Ratio",
-                                   plots_dir / f"solving_ratio_vs_traj_size__unclean_({domain_upper}).png",
+                plot_metric_vs_num_trajectories(df_avg_unclean, "solving_ratio", "Solving Ratio",
+                                   plots_dir / f"solving_ratio_vs_num_trajectories__unclean_({domain_upper}).png",
                                    "Unclean", domain_upper)
-                plot_metric_vs_size(df_avg_unclean, "false_plans_ratio", "False Plan Ratio",
-                                   plots_dir / f"false_plans_ratio_vs_traj_size__unclean_({domain_upper}).png",
+                plot_metric_vs_num_trajectories(df_avg_unclean, "false_plans_ratio", "False Plan Ratio",
+                                   plots_dir / f"false_plans_ratio_vs_num_trajectories__unclean_({domain_upper}).png",
                                    "Unclean", domain_upper)
-                plot_metric_vs_size(df_avg_unclean, "unsolvable_ratio", "Unsolvable Ratio",
-                                   plots_dir / f"unsolvable_ratio_vs_traj_size__unclean_({domain_upper}).png",
+                plot_metric_vs_num_trajectories(df_avg_unclean, "unsolvable_ratio", "Unsolvable Ratio",
+                                   plots_dir / f"unsolvable_ratio_vs_num_trajectories__unclean_({domain_upper}).png",
                                    "Unclean", domain_upper)
 
         # Process cleaned results for this domain
@@ -968,7 +552,7 @@ def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plo
             domain_cleaned = [r for r in cleaned_results if r['domain'] == domain]
             if domain_cleaned:
                 df_cleaned = pd.DataFrame(domain_cleaned)
-                grouped_cleaned = df_cleaned.groupby(["algorithm", "traj_size"])[metric_cols].agg(["mean", "std"]).reset_index()
+                grouped_cleaned = df_cleaned.groupby(["algorithm", "num_trajectories"])[metric_cols].agg(["mean", "std"]).reset_index()
 
                 flat_cols = []
                 for col in grouped_cleaned.columns:
@@ -979,19 +563,19 @@ def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plo
                         flat_cols.append(col)
                 grouped_cleaned.columns = flat_cols
 
-                df_avg_cleaned = grouped_cleaned[["algorithm", "traj_size"]].copy()
+                df_avg_cleaned = grouped_cleaned[["algorithm", "num_trajectories"]].copy()
                 for m in metric_cols:
                     df_avg_cleaned[m] = grouped_cleaned[f"{m}_mean"]
                     df_avg_cleaned[f"{m}_std"] = grouped_cleaned[f"{m}_std"]
 
-                plot_metric_vs_size(df_avg_cleaned, "solving_ratio", "Solving Ratio",
-                                   plots_dir / f"solving_ratio_vs_traj_size_({domain_upper}).png",
+                plot_metric_vs_num_trajectories(df_avg_cleaned, "solving_ratio", "Solving Ratio",
+                                   plots_dir / f"solving_ratio_vs_num_trajectories_({domain_upper}).png",
                                    "Cleaned", domain_upper)
-                plot_metric_vs_size(df_avg_cleaned, "false_plans_ratio", "False Plan Ratio",
-                                   plots_dir / f"false_plans_ratio_vs_traj_size_({domain_upper}).png",
+                plot_metric_vs_num_trajectories(df_avg_cleaned, "false_plans_ratio", "False Plan Ratio",
+                                   plots_dir / f"false_plans_ratio_vs_num_trajectories_({domain_upper}).png",
                                    "Cleaned", domain_upper)
-                plot_metric_vs_size(df_avg_cleaned, "unsolvable_ratio", "Unsolvable Ratio",
-                                   plots_dir / f"unsolvable_ratio_vs_traj_size_({domain_upper}).png",
+                plot_metric_vs_num_trajectories(df_avg_cleaned, "unsolvable_ratio", "Unsolvable Ratio",
+                                   plots_dir / f"unsolvable_ratio_vs_num_trajectories_({domain_upper}).png",
                                    "Cleaned", domain_upper)
 
 
@@ -1042,40 +626,82 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
             if n_problems < 2:
                 raise ValueError(f"Domain {bench_name} has too few problems ({n_problems}) for 80/20 CV.")
 
+            # Validate all problem directories have PDDL files BEFORE starting experiments
+            print(f"Validating {n_problems} problem directories...")
+            invalid_dirs = []
+            for prob_dir in problem_dirs:
+                # Use consistent naming: {problem_dir_name}.pddl
+                problem_pddl_path = prob_dir / f"{prob_dir.name}.pddl"
+                if not problem_pddl_path.exists():
+                    # Try glob as fallback
+                    pddl_files = list(prob_dir.glob("*.pddl"))
+                    if not pddl_files:
+                        invalid_dirs.append(prob_dir.name)
+
+            if invalid_dirs:
+                raise ValueError(
+                    f"Domain {bench_name} has {len(invalid_dirs)} problem directories without PDDL files:\n"
+                    f"  {invalid_dirs}\n"
+                    f"All problem directories must contain a PDDL file for CV to work correctly.\n"
+                    f"Expected naming: {{problem_dir_name}}/{{problem_dir_name}}.pddl"
+                )
+
+            print(f"✓ All {n_problems} problem directories validated")
+
             print(f"\n{'=' * 80}")
             print(f"Domain: {bench_name} | data dir: {dir_name}")
             print(f"Total problems: {n_problems}")
-            print(f"Trajectory sizes: {TRAJECTORY_SIZES}")
+            print(f"Number of trajectories: {NUM_TRAJECTORIES_LIST}")
+            print(f"GT rates: {GT_RATE_PERCENTAGES}")
+            print(f"Frame axiom mode: {FRAME_AXIOM_MODE}")
             print(f"CV folds: {N_FOLDS}")
             print(f"{'=' * 80}\n")
 
-            # Pre-generate all truncated trajectories before parallel execution
-            pre_generate_truncated_trajectories(problem_dirs, domain_ref_path, TRAJECTORY_SIZES)
+            # PRE-GENERATE all GT+frame-axiom files before experiments
+            from benchmark.experiment_helpers import pregenerate_all_gt_frame_axiom_files
+            pregenerate_all_gt_frame_axiom_files(
+                problem_dirs, domain_ref_path, GT_RATE_PERCENTAGES, FRAME_AXIOM_MODE
+            )
 
-            # IMPORTANT: Size first, then n values, then folds (so cheap computations finish first)
-            for traj_size in TRAJECTORY_SIZES:
-                print(f"\n{'='*60}\nTRAJECTORY SIZE = {traj_size}\n{'='*60}")
+            # NEW: Iterate over number of trajectories instead of trajectory sizes
+            for num_trajectories in NUM_TRAJECTORIES_LIST:
+                print(f"\n{'='*60}\nNUMBER OF TRAJECTORIES = {num_trajectories}\n{'='*60}")
 
-                for n in GT_INJECTION_N_VALUES:
-                    n_info = f"GT every {n} steps" if n is not None else "Baseline (GT only at t=0)"
-                    print(f"\n{'-'*60}\n{n_info}\n{'-'*60}")
+                for gt_rate in GT_RATE_PERCENTAGES:
+                    gt_info = f"GT rate: {gt_rate}%" if gt_rate > 0 else "Baseline (GT only at t=0)"
+                    print(f"\n{'-'*60}\n{gt_info}\n{'-'*60}")
 
-                    # Run all folds in parallel for this trajectory size and n value
-                    # with ThreadPoolExecutor(max_workers=N_FOLDS) as executor:
+                    # Run all folds in parallel for this num_trajectories and gt_rate
+                    print(f"  [MAIN] Starting {N_FOLDS} folds in parallel...")
                     with ProcessPoolExecutor(max_workers=N_FOLDS) as executor:
                         futures = []
                         for fold in range(N_FOLDS):
                             future = executor.submit(
                                 run_single_fold,
-                                fold, problem_dirs, n_problems, traj_size,
-                                domain_ref_path, testing_dir, bench_name, mode, n
+                                fold, problem_dirs, n_problems, num_trajectories,
+                                gt_rate, domain_ref_path, testing_dir, bench_name, mode,
+                                evaluate_model, save_learning_metrics
                             )
                             futures.append(future)
 
+                        print(f"  [MAIN] All {N_FOLDS} fold tasks submitted, waiting for completion...")
+
                         # Wait for all folds to complete and collect results
-                        for future in as_completed(futures):
+                        completed_count = 0
+                        completed_folds = set()
+                        import time
+                        start_time = time.time()
+
+                        for future in as_completed(futures, timeout=3600):  # 1 hour timeout per fold batch
                             try:
-                                results_list = future.result()  # Returns 4 results: [unclean_pisam, unclean_rosame, cleaned_pisam, cleaned_rosame]
+                                completed_count += 1
+                                elapsed = time.time() - start_time
+                                print(f"  [MAIN] Fold {completed_count}/{N_FOLDS} completed after {elapsed:.1f}s, collecting results...")
+                                results_list = future.result(timeout=1800)  # 30 min timeout per fold
+
+                                # Identify which fold this was from the results
+                                fold_num = results_list[0]['fold'] if results_list else '?'
+                                completed_folds.add(fold_num)
 
                                 # Separate by phase and remove internal marker
                                 for result in results_list:
@@ -1084,14 +710,21 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
                                         unclean_results.append(result)
                                     else:  # phase == 'cleaned'
                                         cleaned_results.append(result)
+
+                                pending_folds = set(range(N_FOLDS)) - completed_folds
+                                print(f"  [MAIN] Fold {fold_num} results processed. Pending: {sorted(pending_folds)}")
+                            except TimeoutError:
+                                print(f"TIMEOUT: Fold {completed_count} exceeded time limit")
+                                print(f"  Completed so far: {completed_count}/{N_FOLDS}")
+                                # Continue to wait for other folds
                             except Exception as e:
-                                print(f"ERROR in fold: {e}")
+                                print(f"ERROR in fold {completed_count}: {e}")
                                 import traceback
                                 traceback.print_exc()
 
-                        print(f"✓ All folds for traj_size={traj_size}, n={n} completed")
+                        print(f"✓ All {N_FOLDS} folds for num_trajectories={num_trajectories}, gt_rate={gt_rate}% completed")
 
-                # Write TWO separate CSV files after all trajectory sizes and n values complete
+                # Write TWO separate CSV files after all num_trajectories and gt_rate values complete
                 csv_unclean = evaluation_results_dir / f"results_{bench_name}_unclean.csv"
                 csv_cleaned = evaluation_results_dir / f"results_{bench_name}.csv"
 
@@ -1101,26 +734,26 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
                 # Create combined CSV (unclean + cleaned results)
                 csv_combined = evaluation_results_dir / f"results_{bench_name}_combined.csv"
 
-                # Filter results for this domain - they already have _internal_phase field
+                # Filter results for this domain
                 domain_results = [r for r in unclean_results + cleaned_results if r['domain'] == bench_name]
                 pd.DataFrame(domain_results).to_csv(csv_combined, index=False)
 
-                print(f"\n✓ All folds for traj_size={traj_size} completed")
+                print(f"\n✓ All folds for num_trajectories={num_trajectories} completed")
                 print(f"✓ Unclean results written to {csv_unclean}")
                 print(f"✓ Cleaned results written to {csv_cleaned}")
                 print(f"✓ Combined results written to {csv_combined}")
 
-                # Generate Excel report after each trajectory size completes
+                # Generate Excel report after each num_trajectories completes
                 print(f"\n{'='*60}")
-                print(f"GENERATING AGGREGATED REPORT FOR TRAJECTORY SIZE = {traj_size}")
+                print(f"GENERATING AGGREGATED REPORT FOR NUM_TRAJECTORIES = {num_trajectories}")
                 print(f"{'='*60}")
 
                 timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
                 xlsx_path = evaluation_results_dir / f"benchmark_results_{timestamp}.xlsx"
                 generate_excel_report(unclean_results, cleaned_results, xlsx_path)
                 print(f"✓ Excel report saved to: {xlsx_path}")
-                completed_sizes = sorted(set(r['traj_size'] for r in unclean_results))
-                print(f"  Sheets completed so far: {[f'{s}__unclean' for s in completed_sizes] + [str(s) for s in completed_sizes]}")
+                completed_numtrajs = sorted(set(r['num_trajectories'] for r in unclean_results))
+                print(f"  Completed num_trajectories so far: {completed_numtrajs}")
 
                 # Generate GT injection analysis plots
                 print(f"\n{'='*60}")
@@ -1128,10 +761,10 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
                 print(f"{'='*60}")
                 generate_gt_injection_plots(csv_combined, evaluation_results_dir, bench_name)
 
-                # Generate plots after each trajectory size
+                # Generate plots after each num_trajectories
                 plots_dir = evaluation_results_dir / "plots"
                 generate_plots(unclean_results, cleaned_results, plots_dir)
-                print(f"✓ Plots updated with results up to size={traj_size}")
+                print(f"✓ Plots updated with results up to num_trajectories={num_trajectories}")
 
     # =============================================================================
     # FINAL SUMMARY
@@ -1159,21 +792,20 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
 # PLOTTING FUNCTIONS FOR GT INJECTION ANALYSIS
 # =============================================================================
 
-def plot_metric_vs_traj_size_by_n(results_df, metric_name, output_dir, domain_name):
+def plot_metric_vs_num_trajectories_by_gt_rate(results_df, metric_name, output_dir, domain_name):
     """
-    Figure Type 1: How does trajectory size affect metrics for each GT density (n)?
+    Figure Type 1: How does number of trajectories affect metrics for each GT rate?
 
-    Creates one figure with 2x2 subplots (one per n value).
-    Each subplot shows metric vs trajectory_size with lines for each algorithm.
-    Baseline (n=None) is shown as horizontal dashed line in each subplot.
+    Creates one figure with 2x2 subplots (one per gt_rate value).
+    Each subplot shows metric vs num_trajectories with lines for each algorithm.
+    Baseline (gt_rate=0) is shown as horizontal dashed line in each subplot.
 
     Args:
-        results_df: DataFrame with columns: algorithm, traj_size, gt_n, fold, {metric_name}
+        results_df: DataFrame with columns: algorithm, num_trajectories, gt_rate, fold, {metric_name}
         metric_name: Name of metric to plot (e.g., 'solving_ratio', 'false_plans_ratio', 'unsolvable_ratio')
         output_dir: Directory to save plots
         domain_name: Name of domain for title
     """
-    import numpy as np
 
     # Define color map for algorithms (consistent across all plots)
     algo_colors = {
@@ -1184,27 +816,23 @@ def plot_metric_vs_traj_size_by_n(results_df, metric_name, output_dir, domain_na
         'NOISY_SAM': 'C1',  # orange (for fullyobs mode)
     }
 
-    # Filter for cleaned phase only (handle both old 'phase' and new '_internal_phase' column names)
+    # Filter for cleaned phase only
     if '_internal_phase' in results_df.columns:
         df = results_df[results_df['_internal_phase'] == 'cleaned'].copy()
     elif 'phase' in results_df.columns:
         df = results_df[results_df['phase'] == 'cleaned'].copy()
     else:
-        # No phase column - assume all data is cleaned (for backwards compatibility)
         df = results_df.copy()
 
-    # Get baseline results (n=None/NaN)
-    baseline_df = df[df['gt_n'].isna()].copy()
+    # Get all gt_rate values including 0 (sorted)
+    gt_rates = sorted(df['gt_rate'].unique())
 
-    # Get non-baseline n values (sorted) - use pd.notna() to properly filter out NaN
-    n_values = sorted([n for n in df['gt_n'].unique() if pd.notna(n)])
-
-    if not n_values:
-        print(f"  Warning: No GT injection data found for {metric_name}")
+    if not gt_rates:
+        print(f"  Warning: No data found for {metric_name}")
         return
 
-    # Create grid based on number of n values (default 2x2 for up to 4 values)
-    num_plots = len(n_values)
+    # Create grid based on number of gt_rate values (default 2x2 for up to 4 values)
+    num_plots = len(gt_rates)
     if num_plots <= 4:
         nrows, ncols = 2, 2
     elif num_plots <= 6:
@@ -1215,65 +843,59 @@ def plot_metric_vs_traj_size_by_n(results_df, metric_name, output_dir, domain_na
     fig, axes = plt.subplots(nrows, ncols, figsize=(7*ncols, 5*nrows), sharex=True, sharey=True)
     axes = axes.flatten()
 
-    for idx, n in enumerate(n_values):
+    for idx, gt_rate in enumerate(gt_rates):
         ax = axes[idx]
 
-        # Plot baseline as horizontal dashed lines (one per algorithm)
-        for algo in baseline_df['algorithm'].unique():
-            algo_baseline = baseline_df[baseline_df['algorithm'] == algo]
-            if len(algo_baseline) > 0:
-                mean_val = algo_baseline[metric_name].mean()
-                ax.axhline(y=mean_val, color=algo_colors.get(algo, 'gray'),
-                          linestyle='--', alpha=0.5, label=f'{algo} baseline')
+        # Plot current gt_rate value as solid lines
+        rate_df = df[df['gt_rate'] == gt_rate]
+        for algo in rate_df['algorithm'].unique():
+            algo_df = rate_df[rate_df['algorithm'] == algo]
 
-        # Plot current n value as solid lines
-        n_df = df[df['gt_n'] == n]
-        for algo in n_df['algorithm'].unique():
-            algo_df = n_df[n_df['algorithm'] == algo]
-
-            # Group by traj_size and compute mean/std
-            grouped = algo_df.groupby('traj_size')[metric_name].agg(['mean', 'std'])
-            traj_sizes = sorted(grouped.index)
-            means = [grouped.loc[ts, 'mean'] for ts in traj_sizes]
-            stds = [grouped.loc[ts, 'std'] for ts in traj_sizes]
+            # Group by num_trajectories and compute mean/std
+            grouped = algo_df.groupby('num_trajectories')[metric_name].agg(['mean', 'std'])
+            num_trajs = sorted(grouped.index)
+            means = [grouped.loc[nt, 'mean'] for nt in num_trajs]
+            stds = [grouped.loc[nt, 'std'] for nt in num_trajs]
 
             color = algo_colors.get(algo, 'gray')
-            ax.plot(traj_sizes, means, marker='o', label=f'{algo} (GT every {n})',
+            label = f'{algo}' if gt_rate == 0 else f'{algo} (GT rate {gt_rate}%)'
+            ax.plot(num_trajs, means, marker='o', label=label,
                    color=color, linewidth=2)
-            ax.fill_between(traj_sizes,
+            ax.fill_between(num_trajs,
                            [m - s for m, s in zip(means, stds)],
                            [m + s for m, s in zip(means, stds)],
                            alpha=0.2, color=color)
 
-        ax.set_title(f'GT every {n} steps', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Trajectory Size', fontsize=10)
+        title = 'Baseline (GT only at t=0)' if gt_rate == 0 else f'GT Rate {gt_rate}%'
+        ax.set_title(title, fontsize=12, fontweight='bold')
+        ax.set_xlabel('Number of Trajectories', fontsize=10)
         ax.set_ylabel(metric_name.replace('_', ' ').title(), fontsize=10)
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=8, loc='best')
 
     # Hide unused subplots
-    for idx in range(len(n_values), len(axes)):
+    for idx in range(len(gt_rates), len(axes)):
         axes[idx].set_visible(False)
 
-    fig.suptitle(f'{domain_name}: {metric_name.replace("_", " ").title()} vs Trajectory Size',
+    fig.suptitle(f'{domain_name}: {metric_name.replace("_", " ").title()} vs Number of Trajectories',
                 fontsize=14, fontweight='bold')
     plt.tight_layout()
 
-    output_path = output_dir / f'{domain_name}_{metric_name}_vs_traj_size_by_n.png'
+    output_path = output_dir / f'{domain_name}_{metric_name}_vs_num_trajectories_by_gt_rate.png'
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  ✓ Saved plot: {output_path}")
 
 
-def plot_metric_vs_n_by_traj_size(results_df, metric_name, output_dir, domain_name):
+def plot_metric_vs_gt_rate_by_num_trajectories(results_df, metric_name, output_dir, domain_name):
     """
-    Figure Type 2: How does GT density (n) affect metrics for fixed trajectory sizes?
+    Figure Type 2: How does GT rate affect metrics for fixed numbers of trajectories?
 
-    Creates one figure with 1x3 subplots (one per trajectory size: 5, 10, 30).
-    Each subplot shows metric vs n with lines for each algorithm.
+    Creates one figure with 1x3 subplots (one per num_trajectories: 1, 3, 5).
+    Each subplot shows metric vs gt_rate with lines for each algorithm.
 
     Args:
-        results_df: DataFrame with columns: algorithm, traj_size, gt_n, fold, {metric_name}
+        results_df: DataFrame with columns: algorithm, num_trajectories, gt_rate, fold, {metric_name}
         metric_name: Name of metric to plot
         output_dir: Directory to save plots
         domain_name: Name of domain for title
@@ -1287,64 +909,62 @@ def plot_metric_vs_n_by_traj_size(results_df, metric_name, output_dir, domain_na
         'NOISY_SAM': 'C1',
     }
 
-    # Filter for cleaned phase only and exclude baseline (handle both old 'phase' and new '_internal_phase' column names)
+    # Filter for cleaned phase only (include all gt_rate values including 0)
     if '_internal_phase' in results_df.columns:
-        df = results_df[(results_df['_internal_phase'] == 'cleaned') & (results_df['gt_n'].notna())].copy()
+        df = results_df[results_df['_internal_phase'] == 'cleaned'].copy()
     elif 'phase' in results_df.columns:
-        df = results_df[(results_df['phase'] == 'cleaned') & (results_df['gt_n'].notna())].copy()
+        df = results_df[results_df['phase'] == 'cleaned'].copy()
     else:
-        # No phase column - assume all data is cleaned, just filter out baseline
-        df = results_df[results_df['gt_n'].notna()].copy()
+        df = results_df.copy()
 
-    # Representative trajectory sizes
-    representative_sizes = [5, 10, 30]
-    # Filter to available sizes
-    available_sizes = [s for s in representative_sizes if s in df['traj_size'].unique()]
+    # Representative num_trajectories values
+    representative_nums = [1, 3, 5]
+    # Filter to available values
+    available_nums = [n for n in representative_nums if n in df['num_trajectories'].unique()]
 
-    if not available_sizes:
-        print(f"  Warning: No representative trajectory sizes available for {metric_name}")
+    if not available_nums:
+        print(f"  Warning: No representative num_trajectories available for {metric_name}")
         return
 
-    # Create 1x3 grid (or adjust based on available sizes)
-    fig, axes = plt.subplots(1, len(available_sizes), figsize=(6*len(available_sizes), 5), sharey=True)
-    if len(available_sizes) == 1:
+    # Create 1x3 grid (or adjust based on available values)
+    fig, axes = plt.subplots(1, len(available_nums), figsize=(6*len(available_nums), 5), sharey=True)
+    if len(available_nums) == 1:
         axes = [axes]
 
-    for idx, traj_size in enumerate(available_sizes):
+    for idx, num_traj in enumerate(available_nums):
         ax = axes[idx]
 
-        size_df = df[df['traj_size'] == traj_size]
+        num_df = df[df['num_trajectories'] == num_traj]
 
-        for algo in size_df['algorithm'].unique():
-            algo_df = size_df[size_df['algorithm'] == algo]
+        for algo in num_df['algorithm'].unique():
+            algo_df = num_df[num_df['algorithm'] == algo]
 
-            # Group by gt_n and compute mean/std
-            grouped = algo_df.groupby('gt_n')[metric_name].agg(['mean', 'std'])
-            n_values = sorted(grouped.index)
-            means = [grouped.loc[n, 'mean'] for n in n_values]
-            stds = [grouped.loc[n, 'std'] for n in n_values]
+            # Group by gt_rate and compute mean/std
+            grouped = algo_df.groupby('gt_rate')[metric_name].agg(['mean', 'std'])
+            gt_rates = sorted(grouped.index)
+            means = [grouped.loc[r, 'mean'] for r in gt_rates]
+            stds = [grouped.loc[r, 'std'] for r in gt_rates]
 
             color = algo_colors.get(algo, 'gray')
-            ax.plot(n_values, means, marker='o', label=algo,
+            ax.plot(gt_rates, means, marker='o', label=algo,
                    color=color, linewidth=2)
-            ax.fill_between(n_values,
+            ax.fill_between(gt_rates,
                            [m - s for m, s in zip(means, stds)],
                            [m + s for m, s in zip(means, stds)],
                            alpha=0.2, color=color)
 
-        ax.set_title(f'Trajectory Size = {traj_size}', fontsize=12, fontweight='bold')
-        ax.set_xlabel('GT Injection Interval (n)', fontsize=10)
+        ax.set_title(f'Number of Trajectories = {num_traj}', fontsize=12, fontweight='bold')
+        ax.set_xlabel('GT Rate (%)', fontsize=10)
         if idx == 0:
             ax.set_ylabel(metric_name.replace('_', ' ').title(), fontsize=10)
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=9, loc='best')
-        ax.invert_xaxis()  # Reverse order helps intuition (smaller n = more GT)
 
-    fig.suptitle(f'{domain_name}: {metric_name.replace("_", " ").title()} vs GT Density',
+    fig.suptitle(f'{domain_name}: {metric_name.replace("_", " ").title()} vs GT Rate',
                 fontsize=14, fontweight='bold')
     plt.tight_layout()
 
-    output_path = output_dir / f'{domain_name}_{metric_name}_vs_n_by_traj_size.png'
+    output_path = output_dir / f'{domain_name}_{metric_name}_vs_gt_rate_by_num_trajectories.png'
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  ✓ Saved plot: {output_path}")
@@ -1360,15 +980,15 @@ def generate_gt_injection_plots(results_csv_path, output_dir, domain_name):
     - unsolvable_ratio
 
     For each metric, creates:
-    1. Metric vs trajectory size (2x2 grid, one subplot per n)
-    2. Metric vs n (1x3 grid, one subplot per representative traj_size)
+    1. Metric vs num_trajectories (2x2 grid, one subplot per gt_rate)
+    2. Metric vs gt_rate (1x3 grid, one subplot per representative num_trajectories)
     """
     # Load results
     df = pd.read_csv(results_csv_path)
 
-    # Ensure gt_n column exists
-    if 'gt_n' not in df.columns:
-        print(f"Warning: No 'gt_n' column in {results_csv_path}, skipping GT injection plots")
+    # Ensure gt_rate column exists
+    if 'gt_rate' not in df.columns:
+        print(f"Warning: No 'gt_rate' column in {results_csv_path}, skipping GT injection plots")
         return
 
     # Create plots directory
@@ -1387,11 +1007,11 @@ def generate_gt_injection_plots(results_csv_path, output_dir, domain_name):
 
         print(f"\n  Plotting {metric}...")
 
-        # Figure Type 1: Metric vs trajectory size (by n)
-        plot_metric_vs_traj_size_by_n(df, metric, plots_dir, domain_name)
+        # Figure Type 1: Metric vs num_trajectories (by gt_rate)
+        plot_metric_vs_num_trajectories_by_gt_rate(df, metric, plots_dir, domain_name)
 
-        # Figure Type 2: Metric vs n (by trajectory size)
-        plot_metric_vs_n_by_traj_size(df, metric, plots_dir, domain_name)
+        # Figure Type 2: Metric vs gt_rate (by num_trajectories)
+        plot_metric_vs_gt_rate_by_num_trajectories(df, metric, plots_dir, domain_name)
 
     print(f"\n✓ All GT injection plots saved to: {plots_dir}")
 

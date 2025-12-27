@@ -1,9 +1,0 @@
-(
-(:init (clear e) (clear a) (holding d) (on a b) (on b c) (ontable c) (ontable e))
-(operator: (stack d e robot))
-(:state (clear d) (clear a) (handempty ) (on a b) (on d e) (on b c) (ontable c) (ontable e))
-(operator: (unstack a b robot))
-(:state (clear d) (clear b) (holding a) (on d e) (on b c) (ontable c) (ontable e))
-(operator: (put_down a))
-(:state (clear d) (clear b) (clear a) (handempty ) (on d e) (on b c) (ontable a) (ontable c) (ontable e))
-)

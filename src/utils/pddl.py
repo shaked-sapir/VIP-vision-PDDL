@@ -660,6 +660,251 @@ def replace_every_nth_state_with_ground_truth(
     )
 
 
+def propagate_frame_axioms_selective(
+    trajectory_path: Union[str, Path],
+    masking_info_path: Union[str, Path],
+    domain_path: Union[str, Path],
+    gt_state_indices: Set[int],
+    mode: str = "after_gt_only"
+) -> Tuple[Path, Path]:
+    """
+    Apply frame axiom propagation selectively based on GT state locations.
+
+    Args:
+        trajectory_path: Path to .trajectory file
+        masking_info_path: Path to .masking_info file
+        domain_path: Path to domain PDDL file
+        gt_state_indices: Set of state indices that are ground truth
+        mode: "after_gt_only" - only apply frame axioms after GT states
+              "all_states" - apply frame axioms after all states
+
+    Returns:
+        Tuple of (new_trajectory_path, new_masking_info_path)
+    """
+    from src.utils.masking import load_masking_info, save_masking_info
+
+    if mode not in ["after_gt_only", "all_states"]:
+        raise ValueError(f"Invalid mode: {mode}. Must be 'after_gt_only' or 'all_states'")
+
+    if mode == "all_states":
+        # Apply frame axioms to all states - use existing function
+        return propagate_frame_axioms_in_trajectory(
+            trajectory_path, masking_info_path, domain_path, mode="consider_masking"
+        )
+
+    # For "after_gt_only" mode, we need to selectively apply frame axioms
+    trajectory_path = Path(trajectory_path)
+    masking_info_path = Path(masking_info_path)
+    domain_path = Path(domain_path)
+
+    print(f"    [FA DEBUG] Parsing domain...")
+    domain: Domain = DomainParser(domain_path).parse_domain()
+    print(f"    [FA DEBUG] Parsing trajectory...")
+    obs: Observation = TrajectoryParser(domain).parse_trajectory(trajectory_path)
+    print(f"    [FA DEBUG] Loading masking info...")
+    masking: List[Set[GroundedPredicate]] = load_masking_info(masking_info_path, domain)
+    masking = [set(m) for m in masking]  # copy
+    print(f"    [FA DEBUG] Trajectory has {len(obs.components)} components")
+
+    def pddl_objs(pddl_lit: str) -> Set[str]:
+        s = pddl_lit.strip()
+        if s.startswith("(not"):
+            s = s[len("(not"):].strip()
+        s = s.strip("() ").split()
+        return set(s[1:]) if len(s) > 1 else set()
+
+    def gp_to_gym(gp: GroundedPredicate) -> str:
+        if not gp.object_mapping:
+            return f"{gp.name}()"
+        args = ",".join(f"{v}:{gp.signature[k].name}" for k, v in gp.object_mapping.items())
+        return f"{gp.name}({args})"
+
+    def positive_gym_literals(state) -> Set[str]:
+        return {
+            gp_to_gym(p)
+            for preds in state.state_predicates.values()
+            for p in preds
+            if p.is_positive
+        }
+
+    def is_frame_literal(gym_lit: str, action_objs: Set[str]) -> bool:
+        pddl_pred_str = parse_gym_to_pddl_literal(gym_lit)
+        objs = pddl_objs(pddl_pred_str)
+        return bool(objs) and not objs.issubset(action_objs)
+
+    # initial state is trusted
+    curr = positive_gym_literals(obs.components[0].previous_state)
+    out_steps = []
+
+    for i, comp in enumerate(obs.components):
+        nxt = positive_gym_literals(comp.next_state)
+        action_objs = pddl_objs(str(comp.grounded_action_call))
+
+        # State index of current state (before this transition)
+        current_state_idx = i
+
+        # Only apply frame axioms if current state is GT
+        if current_state_idx in gt_state_indices:
+            curr_frame = {p for p in curr if is_frame_literal(p, action_objs)}
+            nxt_frame = {p for p in nxt if is_frame_literal(p, action_objs)}
+
+            # Only propagate predicates that are NOT in the masking of the next state
+            next_state_idx = i + 1
+            masked_literals = set()
+            if next_state_idx < len(masking):
+                masked_literals = {gp_to_gym(gp) for gp in masking[next_state_idx]}
+
+            # Filter out masked literals from propagation candidates
+            curr_frame_unmasked = {p for p in curr_frame if p not in masked_literals}
+            to_add = curr_frame_unmasked - nxt_frame
+            to_remove = nxt_frame - curr_frame_unmasked
+
+            if to_add:
+                nxt |= to_add
+            if to_remove:
+                nxt -= to_remove
+
+            # Update mask of s' (index i+1): remove literals whose truth we fixed
+            if next_state_idx < len(masking):
+                for fixed_lit in (to_add | to_remove):
+                    masking[next_state_idx] -= {gp for gp in masking[next_state_idx]
+                                                if gp_to_gym(gp) == fixed_lit}
+
+        # Build output step with updated next_state
+        nxt_grounded = [parse_gym_to_pddl_literal(p) for p in nxt]
+        out_steps.append((comp.grounded_action_call, nxt_grounded))
+        curr = nxt
+
+    # Save modified trajectory
+    problem_name = trajectory_path.stem.split('_frame_axioms')[0]  # Remove previous suffix
+    out_name = f"{problem_name}_frame_axioms"
+    observation_to_trajectory_file(obs, trajectory_path.parent / f"{out_name}.trajectory")
+
+    # Save modified masking
+    save_masking_info(masking_info_path.parent, out_name, masking)
+
+    return (
+        trajectory_path.parent / f"{out_name}.trajectory",
+        masking_info_path.parent / f"{out_name}.masking_info"
+    )
+
+
+def inject_gt_states_by_percentage(
+    trajectory_path: Union[str, Path],
+    masking_info_path: Union[str, Path],
+    json_trajectory_path: Union[str, Path],
+    domain_path: Union[str, Path],
+    gt_rate: int
+) -> Tuple[Path, Path, Set[int]]:
+    """
+    Inject ground truth states at percentage-based intervals throughout the trajectory.
+
+    Starting from the initial state (which is always GT), injects GT states evenly spread
+    throughout the trajectory based on the specified percentage.
+
+    Args:
+        trajectory_path: Path to .trajectory file
+        masking_info_path: Path to .masking_info file
+        json_trajectory_path: Path to _trajectory.json file with ground truth
+        domain_path: Path to domain PDDL file
+        gt_rate: Percentage of states to inject as GT (0-100)
+                gt_rate=0 means only initial state is GT
+                gt_rate=10 means 10% of states are GT (evenly spread)
+
+    Returns:
+        Tuple of (new_trajectory_path, new_masking_info_path)
+
+    Example:
+        For a 100-state trajectory with gt_rate=10:
+        - Total GT states: 10
+        - Interval: 100 / 10 = 10
+        - GT state indices: 0, 10, 20, 30, 40, 50, 60, 70, 80, 90
+    """
+    import math
+    from src.utils.masking import load_masking_info, save_masking_info
+
+    trajectory_path = Path(trajectory_path)
+    masking_info_path = Path(masking_info_path)
+    json_trajectory_path = Path(json_trajectory_path)
+    domain_path = Path(domain_path)
+
+    # Load current trajectory to determine its length
+    domain: Domain = DomainParser(domain_path).parse_domain()
+    parser = TrajectoryParser(domain)
+    current_observation = parser.parse_trajectory(trajectory_path)
+    num_steps = len(current_observation.components)
+    num_states = num_steps + 1  # Including initial state
+
+    # Load JSON ground truth data
+    with open(json_trajectory_path, 'r') as f:
+        gt_trajectory = json.load(f)
+
+    # Load masking info
+    masking_info = load_masking_info(masking_info_path, domain)
+    masking_info = [set(m) for m in masking_info]  # Make a copy
+
+    # Calculate which states should be GT
+    gt_state_indices = set()
+    gt_state_indices.add(0)  # Initial state is always GT
+
+    if gt_rate > 0:
+        # Calculate total number of GT states needed
+        num_gt_states = max(1, math.ceil(num_states * gt_rate / 100.0))
+
+        if num_gt_states > 1:
+            # Calculate interval for even spacing
+            interval = num_states / num_gt_states
+
+            # Generate evenly spaced GT state indices
+            for i in range(num_gt_states):
+                idx = int(i * interval)
+                if idx < num_states:
+                    gt_state_indices.add(idx)
+
+    # Build new trajectory data
+    new_trajectory_data = []
+
+    for i in range(num_steps):
+        if i >= len(gt_trajectory):
+            break  # Safety check
+
+        step_data = gt_trajectory[i]
+        step_index = i + 1  # Steps are 1-indexed in the JSON
+        state_after_action_index = step_index
+
+        # Check if this state should be replaced with ground truth
+        if state_after_action_index in gt_state_indices:
+            # Use ground truth for next_state
+            next_state_literals = step_data['next_state']['literals']
+            # Clear masking for this state
+            if state_after_action_index < len(masking_info):
+                masking_info[state_after_action_index] = set()
+        else:
+            # Keep using JSON data (which might already have errors)
+            next_state_literals = step_data['next_state']['literals']
+
+        new_trajectory_data.append({
+            'step': step_index,
+            'current_state': step_data['current_state'],
+            'ground_action': step_data['ground_action'],
+            'next_state': {'literals': next_state_literals}
+        })
+
+    # Save new trajectory file
+    problem_name = trajectory_path.stem.split('_gtrate')[0]  # Remove any previous gtrate suffix
+    out_name = f"{problem_name}_gtrate{gt_rate}" if gt_rate > 0 else problem_name
+    build_trajectory_file(new_trajectory_data, out_name, trajectory_path.parent)
+
+    # Save new masking info
+    save_masking_info(masking_info_path.parent, out_name, masking_info)
+
+    return (
+        trajectory_path.parent / f"{out_name}.trajectory",
+        masking_info_path.parent / f"{out_name}.masking_info",
+        gt_state_indices  # Return the set of GT state indices for frame axiom application
+    )
+
+
 if __name__ == "__main__":
     path_to_change = "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/hanoi/multi_problem_06-12-2025T13:58:24__model=gpt-5.1__steps=100__planner/training/trajectories/problem6/problem6"
     domain_path = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/domains/hanoi/hanoi.pddl")

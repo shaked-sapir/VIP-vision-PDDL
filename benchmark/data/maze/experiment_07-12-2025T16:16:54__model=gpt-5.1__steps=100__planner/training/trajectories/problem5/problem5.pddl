@@ -1,78 +1,78 @@
 
 (define (problem maze) (:domain maze)
   (:objects
-        loc-1-1 - location
-	loc-1-2 - location
-	loc-1-3 - location
-	loc-1-4 - location
-	loc-1-5 - location
-	loc-1-6 - location
-	loc-2-1 - location
-	loc-2-2 - location
-	loc-2-3 - location
-	loc-2-4 - location
-	loc-2-5 - location
-	loc-2-6 - location
-	loc-3-1 - location
-	loc-3-2 - location
-	loc-3-3 - location
-	loc-3-4 - location
-	loc-3-5 - location
-	loc-3-6 - location
-	loc-4-1 - location
-	loc-4-2 - location
-	loc-4-3 - location
-	loc-4-4 - location
-	loc-4-5 - location
-	loc-4-6 - location
-	loc-5-1 - location
-	loc-5-2 - location
-	loc-5-3 - location
-	loc-5-4 - location
-	loc-5-5 - location
-	loc-5-6 - location
-	loc-6-1 - location
-	loc-6-2 - location
-	loc-6-3 - location
-	loc-6-4 - location
-	loc-6-5 - location
-	loc-6-6 - location
-	player-1 - player
+        loc_1_1 - location
+	loc_1_2 - location
+	loc_1_3 - location
+	loc_1_4 - location
+	loc_1_5 - location
+	loc_1_6 - location
+	loc_2_1 - location
+	loc_2_2 - location
+	loc_2_3 - location
+	loc_2_4 - location
+	loc_2_5 - location
+	loc_2_6 - location
+	loc_3_1 - location
+	loc_3_2 - location
+	loc_3_3 - location
+	loc_3_4 - location
+	loc_3_5 - location
+	loc_3_6 - location
+	loc_4_1 - location
+	loc_4_2 - location
+	loc_4_3 - location
+	loc_4_4 - location
+	loc_4_5 - location
+	loc_4_6 - location
+	loc_5_1 - location
+	loc_5_2 - location
+	loc_5_3 - location
+	loc_5_4 - location
+	loc_5_5 - location
+	loc_5_6 - location
+	loc_6_1 - location
+	loc_6_2 - location
+	loc_6_3 - location
+	loc_6_4 - location
+	loc_6_5 - location
+	loc_6_6 - location
+	player_1 - player
   )
   (:init 
-	(at player-1 loc-3-4)
-	(clear loc-2-3)
-	(clear loc-2-5)
-	(clear loc-3-2)
-	(clear loc-3-3)
-	(clear loc-3-5)
-	(clear loc-4-2)
-	(clear loc-5-2)
-	(clear loc-5-3)
-	(clear loc-5-4)
-	(clear loc-5-5)
-	(is-goal loc-5-4)
-	(move-dir-down loc-2-3 loc-3-3)
-	(move-dir-down loc-2-5 loc-3-5)
-	(move-dir-down loc-3-2 loc-4-2)
-	(move-dir-down loc-4-2 loc-5-2)
-	(move-dir-left loc-3-3 loc-3-2)
-	(move-dir-left loc-3-4 loc-3-3)
-	(move-dir-left loc-3-5 loc-3-4)
-	(move-dir-left loc-5-3 loc-5-2)
-	(move-dir-left loc-5-4 loc-5-3)
-	(move-dir-left loc-5-5 loc-5-4)
-	(move-dir-right loc-3-2 loc-3-3)
-	(move-dir-right loc-3-3 loc-3-4)
-	(move-dir-right loc-3-4 loc-3-5)
-	(move-dir-right loc-5-2 loc-5-3)
-	(move-dir-right loc-5-3 loc-5-4)
-	(move-dir-right loc-5-4 loc-5-5)
-	(move-dir-up loc-3-3 loc-2-3)
-	(move-dir-up loc-3-5 loc-2-5)
-	(move-dir-up loc-4-2 loc-3-2)
-	(move-dir-up loc-5-2 loc-4-2)
-	(oriented-right player-1)
+	(at player_1 loc_3_4)
+	(clear loc_2_3)
+	(clear loc_2_5)
+	(clear loc_3_2)
+	(clear loc_3_3)
+	(clear loc_3_5)
+	(clear loc_4_2)
+	(clear loc_5_2)
+	(clear loc_5_3)
+	(clear loc_5_4)
+	(clear loc_5_5)
+	(is-goal loc_5_4)
+	(move-dir-down loc_2_3 loc_3_3)
+	(move-dir-down loc_2_5 loc_3_5)
+	(move-dir-down loc_3_2 loc_4_2)
+	(move-dir-down loc_4_2 loc_5_2)
+	(move-dir-left loc_3_3 loc_3_2)
+	(move-dir-left loc_3_4 loc_3_3)
+	(move-dir-left loc_3_5 loc_3_4)
+	(move-dir-left loc_5_3 loc_5_2)
+	(move-dir-left loc_5_4 loc_5_3)
+	(move-dir-left loc_5_5 loc_5_4)
+	(move-dir-right loc_3_2 loc_3_3)
+	(move-dir-right loc_3_3 loc_3_4)
+	(move-dir-right loc_3_4 loc_3_5)
+	(move-dir-right loc_5_2 loc_5_3)
+	(move-dir-right loc_5_3 loc_5_4)
+	(move-dir-right loc_5_4 loc_5_5)
+	(move-dir-up loc_3_3 loc_2_3)
+	(move-dir-up loc_3_5 loc_2_5)
+	(move-dir-up loc_4_2 loc_3_2)
+	(move-dir-up loc_5_2 loc_4_2)
+	(oriented-right player_1)
   )
-  (:goal (and (at player-1 loc-5-4)))
+  (:goal (and (at player_1 loc_5_4)))
 )

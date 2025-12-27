@@ -9,7 +9,7 @@ OBJECT TYPES
 -----------------------------------------------------
 You must create objects of these types:
 
-- location  → a grid cell (e.g., loc-1-1, loc-1-2, ..., loc-N-M): type=location
+- location  → a grid cell (e.g., loc_1_1, loc_1_2, ..., loc_N_M): type=location
 - robot → a cartoon turquoise/blue robot with a square head, orange chest panel,
   and two small arms. It may be rotated but is always the only blue robot in the grid.
 - doll → a black bear plush, IT ALWAYS EXISTS IN THE GRID. type=doll
