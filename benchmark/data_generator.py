@@ -896,7 +896,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-steps",
         type=int,
-        default=10,
+        default=5,
         help="Total number of steps to generate (default: 100)"
     )
     parser.add_argument(
@@ -909,7 +909,7 @@ if __name__ == "__main__":
         "--problem",
         type=str,
         default="problem0",
-        help="Problem name to use from PDDLGym (default: problem7 for blocksworld, eight01x for npuzzle, problem0 for hanoi/maze, problem2 for hiking)"
+        help="Problem name to use from PDDLGym (default: problem7 for blocksworld, problem7 for npuzzle, problem0 for hanoi/maze, problem2 for hiking)"
     )
     parser.add_argument(
         "--start-index",
@@ -942,7 +942,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--vendor",
         type=str,
-        default="google",
+        default="openai",
         choices=["openai", "google"],
         help="LLM vendor to use for vision pipeline (default: openai)"
     )

@@ -75,6 +75,25 @@ class LLMMazeImageTrajectoryHandler(ImageTrajectoryHandler):
         # Save to working directory
         save_masking_info(trajectory_path, problem_name, trajectory_masking_info)
 
+    def _manipulate_trajectory_json(self, gt_trajectory_json: list) -> list:
+        """
+        Replace hyphens with underscores in action names only (not in parameters).
+        Example: "move-north(x:location)" -> "move_north(x:location)"
+        """
+        for step in gt_trajectory_json:
+            if 'ground_action' in step and step['ground_action']:
+                action = step['ground_action']
+                # Find the opening parenthesis to separate action name from parameters
+                paren_idx = action.find('(')
+                if paren_idx > 0:
+                    # Replace hyphens in action name only
+                    step['ground_action'] = action[:paren_idx].replace('-', '_') + action[paren_idx:]
+                else:
+                    # No parameters, replace hyphens in entire action
+                    step['ground_action'] = action.replace('-', '_')
+        
+        return gt_trajectory_json
+
     def create_trajectory_and_masks(self, problem_name: str, actions: List[str], images_path: Path) -> List[dict]:
         """
         Creates trajectory and masking info files from images.

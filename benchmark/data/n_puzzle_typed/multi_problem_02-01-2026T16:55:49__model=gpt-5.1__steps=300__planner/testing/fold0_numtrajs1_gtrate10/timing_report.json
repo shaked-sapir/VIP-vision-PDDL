@@ -1,0 +1,224 @@
+{
+  "summary": {
+    "prepare_fold_trajectories": 0.002246375079266727,
+    "count_total_transitions_and_gt": 0.01240624999627471,
+    "learning_process_PISAM_unclean": 0.6516606250079349,
+    "learning_sam_pisam_unclean_PISAM": 0.8492085000034422,
+    "metrics_checking_sam_pisam_unclean": 2.3133931249612942,
+    "learning_rosame_unclean_PO_ROSAME": 5.063601083937101,
+    "metrics_checking_rosame_unclean": 1.9410272910026833,
+    "learning_process_PISAM_cleaned": 2.1158985421061516,
+    "learning_sam_pisam_cleaned_NOISY_PISAM": 2.2888187079224735,
+    "metrics_checking_sam_pisam_cleaned": 1.565462208003737,
+    "count_total_transitions_and_gt_cleaned": 0.009002457954920828,
+    "learning_rosame_cleaned_PO_ROSAME": 4.23343024996575,
+    "metrics_checking_rosame_cleaned": 1.6743523749755695
+  },
+  "detailed": {
+    "sam_pisam_trajectory_processing_unclean": [
+      {
+        "operation": "parse_trajectory",
+        "time_seconds": 0.01190212497022003,
+        "trajectory_index": 0,
+        "problem_name": "problem3_gtrate10_frame_axioms"
+      },
+      {
+        "operation": "load_masking_info",
+        "time_seconds": 0.003421708010137081,
+        "trajectory_index": 0,
+        "problem_name": "problem3_gtrate10_frame_axioms"
+      },
+      {
+        "operation": "ground_observation_completely",
+        "time_seconds": 0.0505763340042904,
+        "trajectory_index": 0,
+        "problem_name": "problem3_gtrate10_frame_axioms"
+      },
+      {
+        "operation": "mask_observation",
+        "time_seconds": 0.12993129098322242,
+        "trajectory_index": 0,
+        "problem_name": "problem3_gtrate10_frame_axioms"
+      }
+    ],
+    "sam_pisam_trajectory_loading_unclean": [
+      {
+        "operation": "load_masked_observation_total",
+        "time_seconds": 0.1960964580066502,
+        "trajectory_index": 0,
+        "problem_name": "problem3_gtrate10_frame_axioms"
+      }
+    ],
+    "amlgym_metrics": [
+      {
+        "operation": "syntactic_precision",
+        "time_seconds": 0.005064165918156505,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PISAM_unclean_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "syntactic_recall",
+        "time_seconds": 0.005040750023908913,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PISAM_unclean_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "problem_solving",
+        "time_seconds": 2.302766582928598,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PISAM_unclean_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "syntactic_precision",
+        "time_seconds": 0.006653708056546748,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PO_ROSAME_unclean_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "syntactic_recall",
+        "time_seconds": 0.004176959046162665,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PO_ROSAME_unclean_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "problem_solving",
+        "time_seconds": 1.9296613330952823,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PO_ROSAME_unclean_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "syntactic_precision",
+        "time_seconds": 0.003986708004958928,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PISAM_cleaned_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "syntactic_recall",
+        "time_seconds": 0.004141959012486041,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PISAM_cleaned_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "problem_solving",
+        "time_seconds": 1.5568093329202384,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PISAM_cleaned_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "syntactic_precision",
+        "time_seconds": 0.004348500049673021,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PO_ROSAME_cleaned_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "syntactic_recall",
+        "time_seconds": 0.005523750092834234,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PO_ROSAME_cleaned_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      },
+      {
+        "operation": "problem_solving",
+        "time_seconds": 1.6639372920617461,
+        "model_path": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/testing/PO_ROSAME_cleaned_npuzzle_fold0.pddl",
+        "num_test_problems": 2
+      }
+    ],
+    "rosame_trajectory_processing": [
+      {
+        "operation": "parse_trajectory",
+        "time_seconds": 0.013447957928292453,
+        "trajectory_index": 0,
+        "problem_name": "problem3"
+      },
+      {
+        "operation": "ground_observation_completely",
+        "time_seconds": 0.17164912505540997,
+        "trajectory_index": 0,
+        "problem_name": "problem3"
+      },
+      {
+        "operation": "load_masking_info",
+        "time_seconds": 0.005405250005424023,
+        "trajectory_index": 0,
+        "problem_name": "problem3"
+      },
+      {
+        "operation": "mask_observation",
+        "time_seconds": 0.18407687498256564,
+        "trajectory_index": 0,
+        "problem_name": "problem3"
+      },
+      {
+        "operation": "learn_rosame_single",
+        "time_seconds": 4.670174999977462,
+        "trajectory_index": 0,
+        "problem_name": "problem3"
+      },
+      {
+        "operation": "parse_trajectory",
+        "time_seconds": 0.008102249936200678,
+        "trajectory_index": 0,
+        "problem_name": "problem3"
+      },
+      {
+        "operation": "ground_observation_completely",
+        "time_seconds": 0.044048875104635954,
+        "trajectory_index": 0,
+        "problem_name": "problem3"
+      },
+      {
+        "operation": "load_masking_info",
+        "time_seconds": 0.002502041985280812,
+        "trajectory_index": 0,
+        "problem_name": "problem3"
+      },
+      {
+        "operation": "mask_observation",
+        "time_seconds": 0.10947545804083347,
+        "trajectory_index": 0,
+        "problem_name": "problem3"
+      },
+      {
+        "operation": "learn_rosame_single",
+        "time_seconds": 4.054959666915238,
+        "trajectory_index": 0,
+        "problem_name": "problem3"
+      }
+    ],
+    "sam_pisam_trajectory_processing_cleaned": [
+      {
+        "operation": "parse_trajectory",
+        "time_seconds": 0.013194209081120789,
+        "trajectory_index": 0,
+        "problem_name": "problem3_gtrate10_frame_axioms"
+      },
+      {
+        "operation": "load_masking_info",
+        "time_seconds": 0.003072708030231297,
+        "trajectory_index": 0,
+        "problem_name": "problem3_gtrate10_frame_axioms"
+      },
+      {
+        "operation": "ground_observation_completely",
+        "time_seconds": 0.040951209026388824,
+        "trajectory_index": 0,
+        "problem_name": "problem3_gtrate10_frame_axioms"
+      },
+      {
+        "operation": "mask_observation",
+        "time_seconds": 0.11433950008358806,
+        "trajectory_index": 0,
+        "problem_name": "problem3_gtrate10_frame_axioms"
+      }
+    ],
+    "sam_pisam_trajectory_loading_cleaned": [
+      {
+        "operation": "load_masked_observation_total",
+        "time_seconds": 0.17195762495975941,
+        "trajectory_index": 0,
+        "problem_name": "problem3_gtrate10_frame_axioms"
+      }
+    ]
+  },
+  "total_time": 22.7205077909166
+}

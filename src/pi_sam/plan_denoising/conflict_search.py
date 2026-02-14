@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
+import statistics
 from dataclasses import dataclass, field
 from typing import Dict, Set, Tuple, List, Sequence, Optional
 from copy import deepcopy, copy
+from pathlib import Path
 import heapq
 import time
 
@@ -83,11 +86,14 @@ class ConflictDrivenPatchSearch:
         seed: int = 42,
         logger: Optional[object] = None,
         search_mode: str = "anytime_dfs",  # "anytime_dfs" or "ucs"
+        conflict_free_models_dir: Optional[Path] = None,
     ):
         self.partial_domain_template = partial_domain_template
         self.negative_preconditions_policy = negative_preconditions_policy
         self.seed = seed
         self.search_mode = search_mode
+        self.conflict_free_models_dir = conflict_free_models_dir
+        self._conflict_free_model_counter = 0
 
         if logger is None:
             # Create default structured logger
@@ -101,6 +107,53 @@ class ConflictDrivenPatchSearch:
             logger.setLevel(logging.DEBUG)  # ensure node logs are printed
 
         self.logger = logger
+
+    def _save_conflict_free_model(self, domain: LearnerDomain) -> None:
+        """Save a conflict-free model to the conflict_free_models directory."""
+        if self.conflict_free_models_dir is None:
+            return
+        
+        self.conflict_free_models_dir.mkdir(parents=True, exist_ok=True)
+        model_index = self._conflict_free_model_counter
+        self._conflict_free_model_counter += 1
+        
+        model_path = self.conflict_free_models_dir / f"conflict_free_model_{model_index}.pddl"
+        model_path.write_text(domain.to_pddl())
+        self.logger.info(f"Saved conflict-free model {model_index} to {model_path}")
+
+    def _write_node_expansion_times(
+        self,
+        node_expansion_times: List[Dict],
+        search_mode: str,
+    ) -> None:
+        """Write per-node _learn_with_state wall times to fold dir for tracking."""
+        if self.conflict_free_models_dir is None:
+            return
+        out_dir = self.conflict_free_models_dir.parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / "node_expansion_times.json"
+
+        wall_times = [e["wall_time_seconds"] for e in node_expansion_times]
+        summary: Dict = {}
+        if wall_times:
+            summary["min_wall_time_seconds"] = round(min(wall_times), 4)
+            summary["max_wall_time_seconds"] = round(max(wall_times), 4)
+            summary["avg_wall_time_seconds"] = round(statistics.mean(wall_times), 4)
+            if len(wall_times) >= 2:
+                quantiles = statistics.quantiles(wall_times, n=100)
+                summary["percentile_10_wall_time_seconds"] = round(quantiles[9], 4)
+                summary["percentile_25_wall_time_seconds"] = round(quantiles[24], 4)
+                summary["percentile_50_wall_time_seconds"] = round(quantiles[49], 4)
+                summary["percentile_90_wall_time_seconds"] = round(quantiles[89], 4)
+                summary["percentile_95_wall_time_seconds"] = round(quantiles[94], 4)
+                summary["percentile_99_wall_time_seconds"] = round(quantiles[98], 4)
+
+        payload = {
+            "search_mode": search_mode,
+            "summary": summary,
+            "node_expansion_times": node_expansion_times,
+        }
+        out_path.write_text(json.dumps(payload, indent=2))
 
     # ----------------------------------------------------------------------
     # Public API
@@ -125,9 +178,8 @@ class ConflictDrivenPatchSearch:
         """
         Run the conflict-driven patch search on trajectories T (= observations).
 
-        :param search_mode:
-            "ucs"         -> uniform-cost search (globally minimal #fluent patches).
-            "anytime_dfs" -> depth-first anytime (fast first solution, improves until stop).
+        :param timeout_seconds: If the search runs longer than this, it will terminate and return the best solution
+                found so far.
 
         Returns:
             (learned_domain,
@@ -191,6 +243,8 @@ class ConflictDrivenPatchSearch:
         start_time = time.time()
         terminated_by = "exhausted"
 
+        node_expansion_times: List[Dict] = []
+
         while open_heap:
             if max_nodes is not None and nodes_expanded >= max_nodes:
                 terminated_by = "max_nodes_exceeded"
@@ -214,11 +268,21 @@ class ConflictDrivenPatchSearch:
             nodes_expanded += 1
             max_depth = max(max_depth, node.depth)
 
+            start_time_node = time.time()
             domain, conflicts, report = self._learn_with_state(
                 observations,
                 node.model_constraints,
                 node.fluent_patches,
             )
+            wall_time_node = time.time() - start_time_node
+
+            node_expansion_times.append({
+                "node_index": len(node_expansion_times),
+                "wall_time_seconds": round(wall_time_node, 4),
+                "depth": node.depth,
+                "patch_count": node.cost,
+                "nodes_expanded_so_far": nodes_expanded,
+            })
 
             last_domain, last_conflicts, last_state, last_report, last_cost = (
                 domain,
@@ -241,6 +305,9 @@ class ConflictDrivenPatchSearch:
 
             # First conflict-free node popped from UCS heap = minimal #fluent patches
             if not conflicts:
+                # Save conflict-free model
+                self._save_conflict_free_model(domain)
+                
                 total_time = time.time() - start_time
                 patch_diff = self._compute_patch_diff(
                     initial_constraints=root_constraints,
@@ -263,6 +330,7 @@ class ConflictDrivenPatchSearch:
                     observations,
                     node.fluent_patches,
                 )
+                self._write_node_expansion_times(node_expansion_times, "ucs")
                 return (
                     domain,
                     [],
@@ -318,6 +386,8 @@ class ConflictDrivenPatchSearch:
 
         # No conflict-free model found; return last evaluated node
         total_time = time.time() - start_time
+        if terminated_by == "timeout_exceeded" and timeout_seconds is not None:
+            total_time = min(total_time, float(timeout_seconds))
         last_constraints, last_fluent_patches = last_state
 
         patch_diff = self._compute_patch_diff(
@@ -341,6 +411,8 @@ class ConflictDrivenPatchSearch:
             observations,
             last_fluent_patches,
         )
+
+        self._write_node_expansion_times(node_expansion_times, "ucs")
 
         return (
             last_domain,
@@ -399,6 +471,9 @@ class ConflictDrivenPatchSearch:
         # count how many conflict-free models we encountered
         conflict_free_count: int = 0
 
+        # per-node _learn_with_state wall times for fold dir JSON
+        node_expansion_times: List[Dict] = []
+
         while open_stack:
             if max_nodes is not None and nodes_expanded >= max_nodes:
                 terminated_by = "max_nodes_exceeded"
@@ -427,11 +502,21 @@ class ConflictDrivenPatchSearch:
             if best_domain is not None and current_patch_count >= best_patch_count:
                 continue
 
+            start_time_node = time.time()
             domain, conflicts, report = self._learn_with_state(
                 observations,
                 node.model_constraints,
                 node.fluent_patches,
             )
+            wall_time_node = time.time() - start_time_node
+
+            node_expansion_times.append({
+                "node_index": len(node_expansion_times),
+                "wall_time_seconds": round(wall_time_node, 4),
+                "depth": node.depth,
+                "patch_count": current_patch_count,
+                "nodes_expanded_so_far": nodes_expanded,
+            })
 
             last_domain, last_conflicts, last_state, last_report, last_cost = (
                 domain,
@@ -440,6 +525,15 @@ class ConflictDrivenPatchSearch:
                 report,
                 current_patch_count,
             )
+
+            # Check timeout immediately after _learn_with_state so we don't run past limit
+            # (timeout is only checked at loop start; one _learn_with_state can exceed it)
+            if timeout_seconds is not None and (time.time() - start_time) >= timeout_seconds:
+                terminated_by = "timeout_exceeded"
+                self.logger.info(
+                    f"Stopping search (DFS): timeout of {timeout_seconds:.1f}s exceeded after iteration"
+                )
+                break
 
             # if hasattr(self.logger, "log_node"):
             #     self.logger.log_node(
@@ -455,6 +549,9 @@ class ConflictDrivenPatchSearch:
             # conflict-free model → update best-so-far and continue
             if not conflicts:
                 conflict_free_count += 1
+                # Save conflict-free model
+                self._save_conflict_free_model(domain)
+                
                 if current_patch_count < best_patch_count:
                     best_domain = domain
                     best_constraints = node.model_constraints
@@ -516,6 +613,9 @@ class ConflictDrivenPatchSearch:
                 open_stack.append(child)
 
         total_time = time.time() - start_time
+        # When we stopped due to timeout, cap reported time so metrics show timeout limit, not wall time
+        if terminated_by == "timeout_exceeded" and timeout_seconds is not None:
+            total_time = min(total_time, float(timeout_seconds))
 
         if best_domain is not None:
             constraints = best_constraints
@@ -555,6 +655,8 @@ class ConflictDrivenPatchSearch:
             observations,
             fluent_patches,
         )
+
+        self._write_node_expansion_times(node_expansion_times, "anytime_dfs")
 
         return (
             final_domain,

@@ -37,6 +37,7 @@ class NOISY_PISAM(AlgorithmAdapter):
     fluent_patch_cost = 1
     model_patch_cost = 1
     max_search_nodes = None
+    timeout_seconds = 60
     seed = 42
 
     def learn(self,
@@ -87,7 +88,8 @@ class NOISY_PISAM(AlgorithmAdapter):
         # Learn action model
         learned_model, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = conflict_search.run(
             observations=masked_observations,
-            max_nodes=self.max_search_nodes
+            max_nodes=self.max_search_nodes,
+            timeout_seconds=self.timeout_seconds
         )
 
         # TODO: show conflicts and patches at the end of the learning?

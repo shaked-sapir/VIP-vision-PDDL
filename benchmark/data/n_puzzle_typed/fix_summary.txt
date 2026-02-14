@@ -1,0 +1,39 @@
+TRAJECTORY FIX SUMMARY
+======================
+
+Successfully fixed trajectory files in:
+/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner/training/trajectories
+
+RESULTS BY PROBLEM:
+-------------------
+problem0: 0 corrections (already correct)
+problem1: 0 corrections (already correct)
+problem2: 0 corrections (already correct)
+problem3: 0 corrections (already correct)
+problem4: 80 corrections applied
+problem5: 132 corrections applied
+problem6: 132 corrections applied
+problem7: 0 corrections (already correct)
+problem8: 190 corrections applied
+problem9: 192 corrections applied
+
+TOTAL: 726 corrections across 5 problem directories
+
+WHAT WAS FIXED:
+---------------
+For each step in the trajectory:
+1. Examined the current_state to find which tile was actually at the "from" position
+2. Updated the ground_action in the JSON file to use the correct tile
+3. Updated the corresponding operator in the .trajectory file (without type annotations)
+
+VERIFICATION (problem8 example):
+--------------------------------
+Step 1 - BEFORE: move(t_1:tile, p_3_2:position, p_4_2:position)
+         AFTER:  move(t_18:tile, p_3_2:position, p_4_2:position)
+         Current state had: at(t_18:tile, p_3_2:position) ✓
+
+Step 2 - BEFORE: move(t_1:tile, p_3_3:position, p_3_2:position)
+         AFTER:  move(t_10:tile, p_3_3:position, p_3_2:position)
+         Current state had: at(t_10:tile, p_3_3:position) ✓
+
+All corrections verified to match the actual state of the puzzle.

@@ -1,0 +1,34 @@
+(define (domain hanoi)
+(:requirements :typing :strips)
+(:types 	peg disc - object
+)
+
+(:predicates (clear-peg ?x - peg)
+	(clear-disc ?x - disc)
+	(on-disc ?x - disc ?y - disc)
+	(on-peg ?x - disc ?y - peg)
+	(smaller-disc ?x - disc ?y - disc)
+	(smaller-peg ?x - peg ?y - disc)
+)
+
+(:action move_disc_disc
+	:parameters (?disc - disc ?from - disc ?to - disc)
+	:precondition (and (on-disc ?from ?disc) (on-disc ?from ?to) (on-disc ?to ?disc) (on-disc ?to ?from) (smaller-disc ?disc ?from) (smaller-disc ?disc ?to) (smaller-disc ?from ?disc) (smaller-disc ?from ?to) (smaller-disc ?to ?disc) (smaller-disc ?to ?from))
+	:effect (and (clear-disc ?disc) (clear-disc ?from) (clear-disc ?to) (on-disc ?disc ?from) (on-disc ?disc ?to) (not (on-disc ?from ?disc))  (not (on-disc ?from ?to))  (not (on-disc ?to ?disc))  (not (on-disc ?to ?from))  (not (smaller-disc ?disc ?from))  (not (smaller-disc ?disc ?to))))
+
+(:action move_disc_peg
+	:parameters (?disc - disc ?from - disc ?to - peg)
+	:precondition (and (clear-peg ?to) (on-disc ?disc ?from) (on-disc ?from ?disc) (on-peg ?from ?to) (smaller-disc ?from ?disc) (smaller-peg ?to ?disc) (smaller-peg ?to ?from))
+	:effect (and (on-peg ?disc ?to) (smaller-disc ?disc ?from) (not (clear-peg ?to))  (not (on-disc ?from ?disc))  (not (on-peg ?from ?to))))
+
+(:action move_peg_disc
+	:parameters (?disc - disc ?from - peg ?to - disc)
+	:precondition (and (clear-disc ?disc) (on-peg ?disc ?from) (smaller-disc ?to ?disc) (smaller-peg ?from ?disc) (smaller-peg ?from ?to))
+	:effect (and (clear-peg ?from) (on-disc ?disc ?to) (not (on-peg ?disc ?from))))
+
+(:action move_peg_peg
+	:parameters (?disc - disc ?from - peg ?to - peg)
+	:precondition (and (clear-peg ?from) (clear-peg ?to) (clear-disc ?disc) (on-peg ?disc ?from) (on-peg ?disc ?to) (smaller-peg ?from ?disc) (smaller-peg ?to ?disc))
+	:effect (and  (not (clear-peg ?from))  (not (clear-peg ?to))  (not (clear-disc ?disc))  (not (on-peg ?disc ?from))  (not (on-peg ?disc ?to))  (not (smaller-peg ?from ?disc))  (not (smaller-peg ?to ?disc))))
+
+)

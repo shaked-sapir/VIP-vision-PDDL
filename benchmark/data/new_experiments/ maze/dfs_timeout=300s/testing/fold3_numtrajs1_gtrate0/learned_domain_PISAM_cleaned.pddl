@@ -1,0 +1,50 @@
+(define (domain maze)
+(:requirements :typing :negative-preconditions :strips :equality)
+(:types 	player location - object
+)
+
+(:predicates (move-dir-up ?v0 - location ?v1 - location)
+	(move-dir-down ?v0 - location ?v1 - location)
+	(move-dir-left ?v0 - location ?v1 - location)
+	(move-dir-right ?v0 - location ?v1 - location)
+	(clear ?v0 - location)
+	(at ?v0 - player ?v1 - location)
+	(oriented-up ?v0 - player)
+	(oriented-down ?v0 - player)
+	(oriented-left ?v0 - player)
+	(oriented-right ?v0 - player)
+	(is-goal ?v0 - location)
+)
+
+(:action move_up
+	:parameters (?p - player ?from - location ?to - location)
+	:precondition (and (clear ?from)
+	(clear ?to)
+	(move-dir-down ?to ?from)
+	(move-dir-up ?from ?to)
+	(oriented-up ?p))
+	:effect (and  
+		))
+
+(:action move_down
+	:parameters (?p - player ?from - location ?to - location)
+	:precondition (and (at ?p ?from)
+	(clear ?to)
+	(move-dir-down ?from ?to)
+	(move-dir-up ?to ?from)
+	(oriented-left ?p))
+	:effect (and (not (oriented-left ?p))
+		(oriented-up ?p) 
+		))
+
+(:action move_right
+	:parameters (?p - player ?from - location ?to - location)
+	:precondition (and (clear ?from)
+	(clear ?to)
+	(move-dir-left ?to ?from)
+	(move-dir-right ?from ?to)
+	(oriented-up ?p))
+	:effect (and  
+		))
+
+)

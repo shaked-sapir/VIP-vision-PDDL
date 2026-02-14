@@ -1,3 +1,5 @@
+import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Union
 
@@ -16,6 +18,26 @@ def save_masking_info(experiment_path: Path, problem_name: str, trajectory_maski
             f.write(f"{predicates_str}\n")
 
 
+def _parse_predicate_string(pred_str: str, domain: Domain) -> GroundedPredicate:
+    """
+    Parse a single predicate string into a GroundedPredicate object.
+    This function is separated for potential memoization/caching.
+    
+    :param pred_str: String representation of the predicate
+    :param domain: The PDDL domain for predicate parsing
+    :return: GroundedPredicate object
+    """
+    gym_format_pred = pddlplus_to_gym_predicate(pred_str)
+    predicate_name, lifted_predicate_signature, predicate_object_mapping = lift_predicate(gym_format_pred, domain)
+    return GroundedPredicate(
+        name=predicate_name,
+        signature=lifted_predicate_signature,
+        object_mapping=predicate_object_mapping,
+        is_positive=NEGATION_PREFIX not in pred_str,
+        is_masked=True
+    )
+
+
 def load_masking_info(
     masking_file_path: Union[Path, str],
     domain: Domain,
@@ -27,28 +49,43 @@ def load_masking_info(
     1. load_masking_info(experiment_dir, domain, problem_name) - constructs file path
     2. load_masking_info(masking_file_path, domain) - uses direct file path
 
+    Optimizations:
+    - Uses memoization to cache parsed predicates that appear multiple times
+    - Processes predicates in batches for better performance
+
     :param masking_file_path: Either the experiment directory or direct path to .masking_info file
     :param domain: The PDDL domain for predicate parsing
     :return: List of masking info (set of grounded predicates per state)
     """
     assert masking_file_path.suffix == '.masking_info', "The masking file must have a .masking_info extension."
 
+    # Create a memoized version of the parser function per domain
+    # Using a dict-based cache keyed by predicate string for this specific domain
+    # This significantly speeds up loading when the same predicates appear multiple times
+    _predicate_cache: dict[str, GroundedPredicate] = {}
+    
+    def _parse_with_cache(pred_str: str) -> GroundedPredicate:
+        """Parse predicate with caching for repeated strings."""
+        if pred_str in _predicate_cache:
+            # Reuse cached predicate (they are immutable enough for our use case)
+            # Since we always set is_masked=True and predicates in sets are compared by value,
+            # we can safely reuse the cached object
+            return _predicate_cache[pred_str]
+        parsed = _parse_predicate_string(pred_str, domain)
+        _predicate_cache[pred_str] = parsed
+        return parsed
+
     loaded_trajectory_masking_info: list[set[GroundedPredicate]] = []
     with open(masking_file_path, 'r') as f:
         for line in f:
-            predicates_strs = [] if line.strip() == '' else line.strip().split(', ') # handle empty lines properly
-            state_masking = set()
-            for pred_str in predicates_strs:
-                gym_format_pred = pddlplus_to_gym_predicate(pred_str)
-                predicate_name, lifted_predicate_signature, predicate_object_mapping = lift_predicate(gym_format_pred, domain)
-                grounded_pred = GroundedPredicate(
-                    name=predicate_name,
-                    signature=lifted_predicate_signature,
-                    object_mapping=predicate_object_mapping,
-                    is_positive=NEGATION_PREFIX not in pred_str,
-                    is_masked=True
-                )
-                state_masking.add(grounded_pred)
+            line = line.strip()
+            if not line:  # Empty line - empty state masking
+                loaded_trajectory_masking_info.append(set())
+                continue
+                
+            predicates_strs = line.split(', ')
+            # Use set comprehension with cached parsing for better performance
+            state_masking = {_parse_with_cache(pred_str) for pred_str in predicates_strs}
             loaded_trajectory_masking_info.append(state_masking)
 
     return loaded_trajectory_masking_info
@@ -138,7 +175,8 @@ def mask_observations(observations: list[Observation], masking_info: list[list[s
 def load_masked_observation(
     trajectory_path: Path,
     masking_info_path: Path,
-    domain: Domain
+    domain: Domain,
+    timing_callback=None
 ) -> Observation:
     """
     Load a trajectory and apply masking in one unified call.
@@ -155,6 +193,7 @@ def load_masked_observation(
     :param trajectory_path: Path to the .trajectory file
     :param masking_info_path: Path to the .masking_info file
     :param domain: The PDDL domain for parsing predicates and actions
+    :param timing_callback: Optional callback function(step_name, elapsed_seconds) to record timings
     :return: A fully grounded and masked observation ready for PI-SAM learning
 
     Example:
@@ -167,18 +206,20 @@ def load_masked_observation(
         >>>
         >>> masked_obs = load_masked_observation(traj_path, mask_path, domain)
     """
+    def _time_step(step_name, func):
+        start = time.perf_counter() if timing_callback else None
+        result = func()
+        if timing_callback:
+            timing_callback(step_name, time.perf_counter() - start)
+        return result
 
-    # Step 1: Parse the trajectory file
-    trajectory_parser = TrajectoryParser(partial_domain=domain)
-    observation = trajectory_parser.parse_trajectory(trajectory_path)
-
-    # Step 2: Load masking info from file
-    masking_info = load_masking_info(masking_info_path, domain)
-
-    # Step 3: Ground observation completely
-    grounded_observation = ground_observation_completely(domain, observation)
-
-    # Step 4: Apply mask to grounded observation
-    masked_observation = mask_observation(grounded_observation, masking_info)
+    observation = _time_step('parse_trajectory', 
+        lambda: TrajectoryParser(partial_domain=domain).parse_trajectory(trajectory_path))
+    masking_info = _time_step('load_masking_info', 
+        lambda: load_masking_info(masking_info_path, domain))
+    grounded_observation = _time_step('ground_observation_completely', 
+        lambda: ground_observation_completely(domain, observation))
+    masked_observation = _time_step('mask_observation', 
+        lambda: mask_observation(grounded_observation, masking_info))
 
     return masked_observation

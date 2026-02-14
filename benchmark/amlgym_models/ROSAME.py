@@ -1,10 +1,10 @@
 import sys
+import time
 from pathlib import Path
 from typing import List
 
 from amlgym.algorithms.AlgorithmAdapter import AlgorithmAdapter
-from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
-from pddl_plus_parser.lisp_parsers import ProblemParser
+from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 
 from benchmark.amlgym_models.po_rosame_runner import PORosame_Runner
 
@@ -12,8 +12,12 @@ from benchmark.amlgym_models.po_rosame_runner import PORosame_Runner
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.utils.pddl import ground_observation_completely
-from src.utils.masking import load_masking_info, mask_observation
+
+def _record_timing(profiler, category, step_name, elapsed, traj_idx, problem_name):
+    """Helper to record timing with consistent metadata."""
+    if profiler:
+        profiler.add_detailed_timing(category, step_name, elapsed,
+            {'trajectory_index': traj_idx, 'problem_name': problem_name})
 
 
 class ROSAME(AlgorithmAdapter):
@@ -39,7 +43,8 @@ class ROSAME(AlgorithmAdapter):
     @staticmethod
     def learn(domain_path: str,
               trajectory_paths: List[str],
-              use_problems: bool = False) -> str:
+              use_problems: bool = False,
+              profiler=None) -> str:
         """
         Learns a PDDL action model from:
          (i)    a (possibly empty) input model which is required to specify the predicates and operators signature;
@@ -56,35 +61,35 @@ class ROSAME(AlgorithmAdapter):
 
         :return: a string representing the learned PDDL model
         """
-
-        # Instantiate amlgym_models algorithm
         partial_domain = DomainParser(Path(domain_path), partial_parsing=True).parse_domain()
         rosame = PORosame_Runner(domain_path)
 
-        # Parse input trajectories
         if use_problems:
-            # Direct parsing without problems (trajectories already have all objects)
             allowed_observations = [TrajectoryParser(partial_domain).parse_trajectory(Path(traj_path))
                                     for traj_path in trajectory_paths]
-        else:
-            # Parse with problems and apply masking
-            for traj_path in trajectory_paths:
-                traj_path = Path(traj_path)
+            return rosame.rosame_to_pddl()
+        
+        for traj_idx, traj_path in enumerate(trajectory_paths):
+            traj_path = Path(traj_path)
+            problem_path = traj_path.parent / f"{traj_path.parent.stem}.pddl"
+            
+            problem = ProblemParser(problem_path, partial_domain).parse_problem()
+            rosame.add_problem(problem)
 
-                # Derive problem path: same directory, same name but .pddl suffix
-                # e.g., trace_0/problem1.trajectory → trace_0/problem1.pddl
-                problem_path = traj_path.parent / f"{traj_path.parent.stem}.pddl"
-                # problem_path = traj_path.with_suffix('.pddl')
+            problem_name = traj_path.stem
+            category = "rosame_trajectory_processing"
+            
+            def _time_step(step_name, func):
+                start = time.perf_counter() if profiler else None
+                result = func()
+                _record_timing(profiler, category, step_name,
+                    time.perf_counter() - start if profiler else 0, traj_idx, problem_name)
+                return result
 
-                # Parse problem
-                problem = ProblemParser(problem_path, partial_domain).parse_problem()
-                rosame.add_problem(problem)
+            observation = _time_step("parse_trajectory",
+                lambda: TrajectoryParser(partial_domain).parse_trajectory(traj_path))
 
-                # Parse trajectory
-                observation = TrajectoryParser(partial_domain).parse_trajectory(traj_path)
-
-                # Learn from masked observation
-                rosame.ground_new_trajectory()
-                rosame.learn_rosame(observation)
+            rosame.ground_new_trajectory()
+            _time_step("learn_rosame_single", lambda: rosame.learn_rosame(observation))
 
         return rosame.rosame_to_pddl()

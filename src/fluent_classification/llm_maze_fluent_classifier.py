@@ -62,10 +62,11 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
         base_instruction = super(LLMMazeFluentClassifier, cls)._get_user_instruction()
         return f"{base_instruction}\nPay carefull attention to the blue robot location and to the bear location."
 
-    def _alter_predicate_from_llm_to_problem(self, predicate: str) -> str:
+    @staticmethod
+    def _alter_predicate_from_llm_to_problem(predicate: str) -> str:
         """Alters the predicate from LLM format to the problem format.
         the original domain predicates are with hypens but llm doesnt like it"""
-        return predicate.replace("robot:robot", "player_1:player")
+        return predicate.replace("_", "-").replace("robot:robot", "player-1:player")
 
     @staticmethod
     def _get_result_regex() -> str:
@@ -84,13 +85,13 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
         assert self.type_to_objects is not None, "type_to_objects must be set before getting system prompt."
 
         # Extract objects by type
-        locations = sorted([loc for loc in self.type_to_objects['location']])
+        locations = sorted([loc.replace("_", "-") for loc in self.type_to_objects['location']])
 
         predicates = set()
 
         # at(player, location) predicates - player is at location in the grid
         for location in locations:
-            predicates.add(f"at(player_1:player,{location}:location)")
+            predicates.add(f"at(player-1:player,{location}:location)")
 
         # clear(location) predicates - location is clear (not occupied)
         for location in locations:
@@ -98,16 +99,16 @@ class LLMMazeFluentClassifier(LLMFluentClassifier):
 
         # is-goal(location) predicates - location is the goal
         for location in locations:
-            predicates.add(f"is_goal({location}:location)")
+            predicates.add(f"is-goal({location}:location)")
 
         # oriented_{direction}(player) predicates - player is oriented in a direction
         directions = ['right', 'left', 'up', 'down']
         for direction in directions:
-            predicates.add(f"oriented_{direction}(player_1:player)")
+            predicates.add(f"oriented-{direction}(player-1:player)")
 
         for location1, location2 in [(l1, l2) for l1 in locations for l2 in locations if l1 != l2]:
             for dir in directions:
-                predicates.add(f"move_dir_{dir}({location1}:location,{location2}:location)")
+                predicates.add(f"move-dir-{dir}({location1}:location,{location2}:location)")
 
         # move-dir predicates are added from const_predicates (not generated here)
 
@@ -146,6 +147,6 @@ if __name__ == "__main__":
     )
 
     # Both expose the same API:
-    preds_gemini = hanoi_gemini.classify(init_image.parent / "state_0010.png")
+    # preds_gemini = hanoi_gemini.classify(init_image.parent / "state_0010.png")
     preds_openai = hanoi_openai.classify(init_image.parent / "state_0010.png")
     print("done")

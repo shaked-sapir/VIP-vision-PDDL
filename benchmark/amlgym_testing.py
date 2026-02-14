@@ -9,11 +9,10 @@ from typing import List, Dict
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from amlgym.algorithms import *
-from amlgym.benchmarks import *
-from amlgym.metrics import *
+from amlgym.metrics import print_metrics, syntactic_precision, syntactic_recall, problem_solving
 
-from benchmark.experiment_helpers import run_single_fold
+from benchmark.experiment_running_helpers.run_fold import run_single_fold
+from benchmark.experiment_running_helpers.trajectory_utils import pregenerate_all_gt_frame_axiom_files
 
 # =============================================================================
 # CONFIG & PATHS
@@ -26,11 +25,15 @@ print_metrics()
 evaluation_lock = Lock()
 
 experiment_data_dirs_masked = {
-    "blocksworld": ["multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner"],
-    "hanoi": ["multi_problem_06-12-2025T13:58:24__model=gpt-5.1__steps=100__planner"],
+    # "blocksworld": ["multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner"],
+    "blocksworld": ["multi_problem_02-01-2026T14:16:59__model=gpt-5.1__steps=300__planner"],
+    # "hanoi": ["multi_problem_06-12-2025T13:58:24__model=gpt-5.1__steps=100__planner"],
+    "hanoi": ["multi_problem_02-01-2026T14:26:29__model=gpt-5.1__steps=300__planner"],
     # "hanoi": ["multi_problem_13-12-2025T14:53:55__model=gemini-2.5-pro__steps=11__planner"],
-    "n_puzzle_typed": ["multi_problem_06-12-2025T13:32:59__model=gpt-5.1__steps=100__planner"],
-    "maze": ["experiment_07-12-2025T16:16:54__model=gpt-5.1__steps=100__planner"],
+    # "n_puzzle_typed": ["multi_problem_06-12-2025T13:32:59__model=gpt-5.1__steps=100__planner"],
+    "n_puzzle_typed": ["multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner"],
+    "maze": ["multi_problem_09-01-2026T15:28:23__model=gpt-5.1__steps=300__planner"],
+    # "maze": ["experiment_07-12-2025T16:16:54__model=gpt-5.1__steps=100__planner"],
     # "maze": ["multi_problem_13-12-2025T18:10:23__model=gemini-2.5-pro__steps=100__planner"]
 }
 
@@ -42,9 +45,9 @@ experiment_data_dirs_fullyobs = {
 }
 
 domain_name_mappings = {
-    # 'n_puzzle_typed': 'npuzzle',
     'blocksworld': 'blocksworld',
     # 'hanoi': 'hanoi',
+    # 'n_puzzle_typed': 'npuzzle',
     # 'maze': 'maze',
 }
 
@@ -64,15 +67,19 @@ domain_properties = {
 }
 
 N_FOLDS = 5
-NUM_TRAJECTORIES_LIST = [1, 2, 3, 4, 5]  # Number of full trajectories to use for learning
-NUM_TRAJECTORIES_POOL = 5  # Total number of trajectories to select per fold
-GT_RATE_PERCENTAGES = [0, 10, 25, 50]  # Percentage of states to inject as GT (0 = only initial state)
+NUM_TRAJECTORIES_LIST = [1, 2, 3, 4, 5, 6, 7, 8]  # Number of full trajectories to use for learning
+# Pool size per fold = 0.8 * n_problems (computed in run_fold). With 10 problems, pool=8.
+NUM_TRAJECTORIES_POOL = 8  # Typical value (0.8*10); actual pool is 0.8*n_problems in run_fold
+GT_RATE_PERCENTAGES = [0, 10, 25, 50, 75, 100]  # Percentage of states to inject as GT (0 = only initial state)
+# GT_RATE_PERCENTAGES = [100]  # Percentage of states to inject as GT (0 = only initial state)
 FRAME_AXIOM_MODE = "after_gt_only"  # "after_gt_only" or "all_states"
+CONFLICT_SEARCH_TIMEOUTS = [60]  # Time limits in seconds for conflict search (cleaning phase). Can specify multiple values.
+PLANNING_TIMEOUT = 60  # Timeout in seconds for planning during evaluation
 
 metric_cols = [
     "precision_precs_pos", "precision_precs_neg", "precision_eff_pos", "precision_eff_neg", "precision_overall",
     "recall_precs_pos", "recall_precs_neg", "recall_eff_pos", "recall_eff_neg", "recall_overall",
-    "problems_count", "solving_ratio", "false_plans_ratio", "unsolvable_ratio", "timed_out",
+    "problems_count", "solving_ratio", "false_plans_ratio", "unsolvable_ratio", "planning_timed_out_ratio",
 ]
 
 # =============================================================================
@@ -134,6 +141,7 @@ def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Di
         "nodes_expanded": report.get("nodes_expanded", None),
         "terminated_by": report.get("terminated_by", None),
         "conflict_free_model_count": report.get("conflict_free_model_count", None),
+        "actual_timeout_seconds": report.get("actual_timeout_seconds", None),  # Actual timeout used (includes defaults)
     }
 
     # Add trajectory mapping if provided
@@ -148,13 +156,39 @@ def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Di
 
 
 
-def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[str]) -> dict:
-    """Evaluate a learned model. Handles AMLGym SimpleDomainReader race conditions."""
+def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[str], planning_timeout: int = 60, profiler=None) -> dict:
+    """Evaluate a learned model. Handles AMLGym SimpleDomainReader race conditions.
+    
+    Args:
+        model_path: Path to learned model PDDL file
+        domain_ref_path: Path to reference domain PDDL file
+        test_problems: List of test problem paths
+        planning_timeout: Timeout in seconds for planning during evaluation (default: 60)
+        profiler: Optional TimingProfiler instance for detailed timing
+    
+    Returns:
+        Dictionary of evaluation metrics
+    """
     # NOTE: evaluation_lock is a threading lock, but we use ProcessPoolExecutor,
     # so it doesn't prevent race conditions across processes.
 
     import time
     import random
+
+    def _time_metric(metric_name, func):
+        """Helper to time a metric computation."""
+        if profiler:
+            start = time.perf_counter()
+            result = func()
+            elapsed = time.perf_counter() - start
+            profiler.add_detailed_timing(
+                'amlgym_metrics',
+                metric_name,
+                elapsed,
+                {'model_path': model_path, 'num_test_problems': len(test_problems)}
+            )
+            return result
+        return func()
 
     max_retries = 5
     for attempt in range(max_retries):
@@ -164,9 +198,13 @@ def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[s
                 time.sleep(random.uniform(0.1, 0.5))
 
             # Run all evaluations together - if any fail, retry all
-            precision = syntactic_precision(model_path, str(domain_ref_path))
-            recall = syntactic_recall(model_path, str(domain_ref_path))
-            problem_solving_result = problem_solving(model_path, str(domain_ref_path), test_problems, timeout=60)
+            # Profile each metric computation separately
+            precision = _time_metric('syntactic_precision', 
+                lambda: syntactic_precision(model_path, str(domain_ref_path)))
+            recall = _time_metric('syntactic_recall',
+                lambda: syntactic_recall(model_path, str(domain_ref_path)))
+            problem_solving_result = _time_metric('problem_solving',
+                lambda: problem_solving(model_path, str(domain_ref_path), test_problems, timeout=planning_timeout))
 
             # Success - break out of retry loop
             break
@@ -203,7 +241,7 @@ def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[s
         'solving_ratio': problem_solving_result.get('solving_ratio') if isinstance(problem_solving_result, dict) else None,
         'false_plans_ratio': problem_solving_result.get('false_plans_ratio') if isinstance(problem_solving_result, dict) else None,
         'unsolvable_ratio': problem_solving_result.get('unsolvable_ratio') if isinstance(problem_solving_result, dict) else None,
-        'timed_out': problem_solving_result.get('timed_out') if isinstance(problem_solving_result, dict) else None,
+        'planning_timed_out_ratio': problem_solving_result.get('timed_out') if isinstance(problem_solving_result, dict) else None,
     }
 
 
@@ -236,7 +274,7 @@ def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dic
     # Define metric groups for Excel table structure
     precision_metrics = ["precision_precs_pos", "precision_precs_neg", "precision_eff_pos", "precision_eff_neg", "precision_overall"]
     recall_metrics = ["recall_precs_pos", "recall_precs_neg", "recall_eff_pos", "recall_eff_neg", "recall_overall"]
-    problem_metrics = ["problems_count", "solving_ratio", "false_plans_ratio", "unsolvable_ratio", "timed_out"]
+    problem_metrics = ["problems_count", "solving_ratio", "false_plans_ratio", "unsolvable_ratio", "planning_timed_out_ratio"]
 
     # Process both result sets and combine with phase labels
     all_results_with_phase = []
@@ -654,11 +692,12 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
             print(f"Number of trajectories: {NUM_TRAJECTORIES_LIST}")
             print(f"GT rates: {GT_RATE_PERCENTAGES}")
             print(f"Frame axiom mode: {FRAME_AXIOM_MODE}")
+            print(f"Conflict search timeouts: {CONFLICT_SEARCH_TIMEOUTS}")
+            print(f"Planning timeout: {PLANNING_TIMEOUT}s")
             print(f"CV folds: {N_FOLDS}")
             print(f"{'=' * 80}\n")
 
             # PRE-GENERATE all GT+frame-axiom files before experiments
-            from benchmark.experiment_helpers import pregenerate_all_gt_frame_axiom_files
             pregenerate_all_gt_frame_axiom_files(
                 problem_dirs, domain_ref_path, GT_RATE_PERCENTAGES, FRAME_AXIOM_MODE
             )
@@ -671,18 +710,22 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
                     gt_info = f"GT rate: {gt_rate}%" if gt_rate > 0 else "Baseline (GT only at t=0)"
                     print(f"\n{'-'*60}\n{gt_info}\n{'-'*60}")
 
-                    # Run all folds in parallel for this num_trajectories and gt_rate
-                    print(f"  [MAIN] Starting {N_FOLDS} folds in parallel...")
-                    with ProcessPoolExecutor(max_workers=N_FOLDS) as executor:
-                        futures = []
-                        for fold in range(N_FOLDS):
-                            future = executor.submit(
-                                run_single_fold,
-                                fold, problem_dirs, n_problems, num_trajectories,
-                                gt_rate, domain_ref_path, testing_dir, bench_name, mode,
-                                evaluate_model, save_learning_metrics
-                            )
-                            futures.append(future)
+                    for conflict_timeout in CONFLICT_SEARCH_TIMEOUTS:
+                        timeout_info = f"Conflict search timeout: {conflict_timeout}s" if conflict_timeout else "No timeout"
+                        print(f"\n{'-'*40}\n{timeout_info}\n{'-'*40}")
+
+                        # Run all folds in parallel for this num_trajectories, gt_rate, and timeout
+                        print(f"  [MAIN] Starting {N_FOLDS} folds in parallel...")
+                        with ProcessPoolExecutor(max_workers=N_FOLDS) as executor:
+                            futures = []
+                            for fold in range(N_FOLDS):
+                                future = executor.submit(
+                                    run_single_fold,
+                                    fold, problem_dirs, n_problems, num_trajectories,
+                                    gt_rate, domain_ref_path, testing_dir, bench_name, mode,
+                                    evaluate_model, save_learning_metrics, conflict_timeout, PLANNING_TIMEOUT
+                                )
+                                futures.append(future)
 
                         print(f"  [MAIN] All {N_FOLDS} fold tasks submitted, waiting for completion...")
 
@@ -692,7 +735,7 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
                         import time
                         start_time = time.time()
 
-                        for future in as_completed(futures, timeout=3600):  # 1 hour timeout per fold batch
+                        for future in as_completed(futures, timeout=600):  # 10 min timeout per fold batch
                             try:
                                 completed_count += 1
                                 elapsed = time.time() - start_time
@@ -705,7 +748,7 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
 
                                 # Separate by phase and remove internal marker
                                 for result in results_list:
-                                    phase = result.pop('_internal_phase')
+                                    phase = result['_internal_phase']
                                     if phase == 'unclean':
                                         unclean_results.append(result)
                                     else:  # phase == 'cleaned'
@@ -722,26 +765,29 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
                                 import traceback
                                 traceback.print_exc()
 
-                        print(f"✓ All {N_FOLDS} folds for num_trajectories={num_trajectories}, gt_rate={gt_rate}% completed")
+                        print(f"✓ All {N_FOLDS} folds for num_trajectories={num_trajectories}, gt_rate={gt_rate}%, timeout={conflict_timeout}s completed")
 
-                # Write TWO separate CSV files after all num_trajectories and gt_rate values complete
-                csv_unclean = evaluation_results_dir / f"results_{bench_name}_unclean.csv"
-                csv_cleaned = evaluation_results_dir / f"results_{bench_name}.csv"
+                        # Write TWO separate CSV files after each timeout completes
+                        timeout_suffix = f"_timeout{conflict_timeout}s" if conflict_timeout else "_notimeout"
+                        csv_unclean = evaluation_results_dir / f"results_{bench_name}_unclean{timeout_suffix}.csv"
+                        csv_cleaned = evaluation_results_dir / f"results_{bench_name}{timeout_suffix}.csv"
 
-                pd.DataFrame(unclean_results).to_csv(csv_unclean, index=False)
-                pd.DataFrame(cleaned_results).to_csv(csv_cleaned, index=False)
+                        pd.DataFrame(unclean_results).to_csv(csv_unclean, index=False)
+                        pd.DataFrame(cleaned_results).to_csv(csv_cleaned, index=False)
 
-                # Create combined CSV (unclean + cleaned results)
-                csv_combined = evaluation_results_dir / f"results_{bench_name}_combined.csv"
+                        # Create combined CSV (unclean + cleaned results)
+                        csv_combined = evaluation_results_dir / f"results_{bench_name}_combined{timeout_suffix}.csv"
 
-                # Filter results for this domain
-                domain_results = [r for r in unclean_results + cleaned_results if r['domain'] == bench_name]
-                pd.DataFrame(domain_results).to_csv(csv_combined, index=False)
+                        # Filter results for this domain
+                        domain_results = [r for r in unclean_results + cleaned_results if r['domain'] == bench_name]
+                        pd.DataFrame(domain_results).to_csv(csv_combined, index=False)
+
+                        print(f"\n✓ Results for timeout={conflict_timeout}s written:")
+                        print(f"  - Unclean: {csv_unclean}")
+                        print(f"  - Cleaned: {csv_cleaned}")
+                        print(f"  - Combined: {csv_combined}")
 
                 print(f"\n✓ All folds for num_trajectories={num_trajectories} completed")
-                print(f"✓ Unclean results written to {csv_unclean}")
-                print(f"✓ Cleaned results written to {csv_cleaned}")
-                print(f"✓ Combined results written to {csv_combined}")
 
                 # Generate Excel report after each num_trajectories completes
                 print(f"\n{'='*60}")
@@ -760,6 +806,12 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
                 print(f"GENERATING GT INJECTION PLOTS")
                 print(f"{'='*60}")
                 generate_gt_injection_plots(csv_combined, evaluation_results_dir, bench_name)
+                
+                # Generate stacked solving rate plots
+                print(f"\n{'='*60}")
+                print(f"GENERATING STACKED SOLVING RATE PLOTS")
+                print(f"{'='*60}")
+                plot_stacked_solving_rate(csv_combined, evaluation_results_dir, bench_name)
 
                 # Generate plots after each num_trajectories
                 plots_dir = evaluation_results_dir / "plots"
@@ -794,180 +846,272 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
 
 def plot_metric_vs_num_trajectories_by_gt_rate(results_df, metric_name, output_dir, domain_name):
     """
-    Figure Type 1: How does number of trajectories affect metrics for each GT rate?
+    Impact of Number of Trajectories (Figure Type 2)
 
-    Creates one figure with 2x2 subplots (one per gt_rate value).
-    Each subplot shows metric vs num_trajectories with lines for each algorithm.
-    Baseline (gt_rate=0) is shown as horizontal dashed line in each subplot.
-
-    Args:
-        results_df: DataFrame with columns: algorithm, num_trajectories, gt_rate, fold, {metric_name}
-        metric_name: Name of metric to plot (e.g., 'solving_ratio', 'false_plans_ratio', 'unsolvable_ratio')
-        output_dir: Directory to save plots
-        domain_name: Name of domain for title
-    """
-
-    # Define color map for algorithms (consistent across all plots)
-    algo_colors = {
-        'PISAM': 'C0',  # blue
-        'NOISY_PISAM': 'C1',  # orange
-        'ROSAME': 'C2',  # green
-        'SAM': 'C0',  # blue (for fullyobs mode)
-        'NOISY_SAM': 'C1',  # orange (for fullyobs mode)
-    }
-
-    # Filter for cleaned phase only
-    if '_internal_phase' in results_df.columns:
-        df = results_df[results_df['_internal_phase'] == 'cleaned'].copy()
-    elif 'phase' in results_df.columns:
-        df = results_df[results_df['phase'] == 'cleaned'].copy()
-    else:
-        df = results_df.copy()
-
-    # Get all gt_rate values including 0 (sorted)
-    gt_rates = sorted(df['gt_rate'].unique())
-
-    if not gt_rates:
-        print(f"  Warning: No data found for {metric_name}")
-        return
-
-    # Create grid based on number of gt_rate values (default 2x2 for up to 4 values)
-    num_plots = len(gt_rates)
-    if num_plots <= 4:
-        nrows, ncols = 2, 2
-    elif num_plots <= 6:
-        nrows, ncols = 2, 3
-    else:
-        nrows, ncols = 3, 3
-
-    fig, axes = plt.subplots(nrows, ncols, figsize=(7*ncols, 5*nrows), sharex=True, sharey=True)
-    axes = axes.flatten()
-
-    for idx, gt_rate in enumerate(gt_rates):
-        ax = axes[idx]
-
-        # Plot current gt_rate value as solid lines
-        rate_df = df[df['gt_rate'] == gt_rate]
-        for algo in rate_df['algorithm'].unique():
-            algo_df = rate_df[rate_df['algorithm'] == algo]
-
-            # Group by num_trajectories and compute mean/std
-            grouped = algo_df.groupby('num_trajectories')[metric_name].agg(['mean', 'std'])
-            num_trajs = sorted(grouped.index)
-            means = [grouped.loc[nt, 'mean'] for nt in num_trajs]
-            stds = [grouped.loc[nt, 'std'] for nt in num_trajs]
-
-            color = algo_colors.get(algo, 'gray')
-            label = f'{algo}' if gt_rate == 0 else f'{algo} (GT rate {gt_rate}%)'
-            ax.plot(num_trajs, means, marker='o', label=label,
-                   color=color, linewidth=2)
-            ax.fill_between(num_trajs,
-                           [m - s for m, s in zip(means, stds)],
-                           [m + s for m, s in zip(means, stds)],
-                           alpha=0.2, color=color)
-
-        title = 'Baseline (GT only at t=0)' if gt_rate == 0 else f'GT Rate {gt_rate}%'
-        ax.set_title(title, fontsize=12, fontweight='bold')
-        ax.set_xlabel('Number of Trajectories', fontsize=10)
-        ax.set_ylabel(metric_name.replace('_', ' ').title(), fontsize=10)
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=8, loc='best')
-
-    # Hide unused subplots
-    for idx in range(len(gt_rates), len(axes)):
-        axes[idx].set_visible(False)
-
-    fig.suptitle(f'{domain_name}: {metric_name.replace("_", " ").title()} vs Number of Trajectories',
-                fontsize=14, fontweight='bold')
-    plt.tight_layout()
-
-    output_path = output_dir / f'{domain_name}_{metric_name}_vs_num_trajectories_by_gt_rate.png'
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"  ✓ Saved plot: {output_path}")
-
-
-def plot_metric_vs_gt_rate_by_num_trajectories(results_df, metric_name, output_dir, domain_name):
-    """
-    Figure Type 2: How does GT rate affect metrics for fixed numbers of trajectories?
-
-    Creates one figure with 1x3 subplots (one per num_trajectories: 1, 3, 5).
-    Each subplot shows metric vs gt_rate with lines for each algorithm.
+    Creates subplots for each GT rate (0%, 10%, 25%, 50%).
+    X-axis: Number of trajectories (1, 2, 3, 4, 5)
+    Y-axis: Performance metric
+    Each subplot shows both cleaned and unclean algorithms for comparison.
 
     Args:
-        results_df: DataFrame with columns: algorithm, num_trajectories, gt_rate, fold, {metric_name}
+        results_df: DataFrame with columns: algorithm, num_trajectories, gt_rate, fold, {metric_name}, _internal_phase
         metric_name: Name of metric to plot
         output_dir: Directory to save plots
         domain_name: Name of domain for title
     """
-    # Define color map for algorithms
-    algo_colors = {
-        'PISAM': 'C0',
-        'NOISY_PISAM': 'C1',
-        'ROSAME': 'C2',
-        'SAM': 'C0',
-        'NOISY_SAM': 'C1',
+
+    # Define jitter and style mapping
+    jitter_config = {
+        ('unclean', 'PISAM'): {'h': -0.03, 'v': 0.005},
+        ('cleaned', 'PISAM'): {'h': 0.01, 'v': -0.005},
+        ('unclean', 'PO_ROSAME'): {'h': -0.01, 'v': 0.01},
+        ('cleaned', 'PO_ROSAME'): {'h': 0.03, 'v': -0.01},
+    }
+    # Color mapping for each algorithm-phase combination (4 distinct colors)
+    color_map = {
+        ('PISAM', 'unclean'): '#E74C3C',      # Red
+        ('PO_ROSAME', 'unclean'): '#9B59B6',  # Purple
+        ('PISAM', 'cleaned'): '#3498DB',      # Blue
+        ('PO_ROSAME', 'cleaned'): '#2ECC71',  # Green
+    }
+    algo_style_map = {
+        'PISAM': {'linestyle': {'unclean': '--', 'cleaned': '-'}},
+        'PO_ROSAME': {'linestyle': {'unclean': '--', 'cleaned': '-'}},
     }
 
-    # Filter for cleaned phase only (include all gt_rate values including 0)
-    if '_internal_phase' in results_df.columns:
-        df = results_df[results_df['_internal_phase'] == 'cleaned'].copy()
-    elif 'phase' in results_df.columns:
-        df = results_df[results_df['phase'] == 'cleaned'].copy()
+    gt_rates = sorted(results_df['gt_rate'].unique())
+    num_plots = len(gt_rates)
+    nrows, ncols = (2, 2) if num_plots <= 4 else (2, 3)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 5 * nrows), sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    for idx, gt_rate in enumerate(gt_rates):
+        ax = axes[idx]
+        rate_df = results_df[results_df['gt_rate'] == gt_rate].copy()
+
+        for phase in ['unclean', 'cleaned']:
+            phase_df = rate_df[rate_df['_internal_phase'] == phase]
+            for algo in sorted(phase_df['algorithm'].unique()):
+                if algo not in algo_style_map: continue
+
+                j = jitter_config.get((phase, algo), {'h': 0, 'v': 0})
+                algo_df = phase_df[phase_df['algorithm'] == algo]
+                grouped = algo_df.groupby('num_trajectories')[metric_name].agg(['mean', 'std'])
+                if len(grouped) == 0: continue
+
+                num_trajs = sorted(grouped.index)
+                jx = [nt + j['h'] for nt in num_trajs]
+                original_y = [grouped.loc[nt, 'mean'] for nt in num_trajs]
+                jy = [y + j['v'] for y in original_y]
+
+                style = algo_style_map[algo]
+                # Get distinct color for this algorithm-phase combination
+                plot_color = color_map.get((algo, phase), 'black')
+                # Use circle marker for unclean, square marker for cleaned
+                marker = 'o' if phase == 'unclean' else 's'
+                ax.plot(jx, jy, marker=marker, label=f"{algo} ({phase})",
+                        color=plot_color, linestyle=style['linestyle'][phase], linewidth=2)
+
+                # ADD DATA LABELS (Black text)
+                for x_val, y_orig, y_jit in zip(jx, original_y, jy):
+                    ax.text(x_val + 0.05, y_jit, f"{y_orig:.2f}",
+                            color='black', fontsize=8, fontweight='bold',
+                            va='center', ha='left')
+
+        ax.set_ylim(-0.1, 1.2)  # Increased upper limit slightly for labels
+        ax.set_title('Baseline (gt = only init state)' if gt_rate == 0 else f'GT Rate {gt_rate}%', fontweight='bold')
+        ax.set_xlabel('Number of Trajectories', fontsize=12)
+        ax.set_ylabel(metric_name.replace('_', ' ').title(), fontsize=12)
+        ax.grid(True, alpha=0.3)
+        
+        # Add orange border to 100% GT rate subplot
+        if gt_rate == 100:
+            for spine in ax.spines.values():
+                spine.set_edgecolor('orange')
+                spine.set_linewidth(3)
+        
+        # Create custom legend with 5 entries: PISAM unclean, PO_ROSAME unclean, PISAM cleaned, PO_ROSAME cleaned, 100% GT Rate
+        from matplotlib.lines import Line2D
+        custom_handles = []
+        
+        # PISAM unclean - dashed red with circle marker
+        pisam_unclean_color = color_map[('PISAM', 'unclean')]
+        line1 = Line2D([0, 1], [0, 0], color=pisam_unclean_color, linestyle='--', linewidth=2, marker='o', 
+                      markersize=8, markevery=[0], label='PISAM unclean')
+        line1.set_dashes([5, 2])  # Explicitly set dash pattern
+        custom_handles.append(line1)
+        # PO_ROSAME unclean - dashed purple with circle marker
+        rosame_unclean_color = color_map[('PO_ROSAME', 'unclean')]
+        line2 = Line2D([0, 1], [0, 0], color=rosame_unclean_color, linestyle='--', linewidth=2, marker='o', 
+                      markersize=8, markevery=[0], label='PO_ROSAME unclean')
+        line2.set_dashes([5, 2])  # Explicitly set dash pattern
+        custom_handles.append(line2)
+        # PISAM cleaned - solid blue with square marker
+        pisam_cleaned_color = color_map[('PISAM', 'cleaned')]
+        custom_handles.append(Line2D([0, 1], [0, 0], color=pisam_cleaned_color, linestyle='-', linewidth=2, marker='s', 
+                                    markersize=7, markevery=[0], label='PISAM cleaned'))
+        # PO_ROSAME cleaned - solid green with square marker
+        rosame_cleaned_color = color_map[('PO_ROSAME', 'cleaned')]
+        custom_handles.append(Line2D([0, 1], [0, 0], color=rosame_cleaned_color, linestyle='-', linewidth=2, marker='s', 
+                                    markersize=7, markevery=[0], label='PO_ROSAME cleaned'))
+        
+        ax.legend(handles=custom_handles, fontsize=9, loc='lower right')
+
+    for idx in range(len(gt_rates), len(axes)): axes[idx].set_visible(False)
+    fig.suptitle(f'{domain_name.upper()}: Impact of Trajectories on {metric_name.replace("_", " ").title()}',
+                 fontsize=18, fontweight='bold', y=0.98)
+    plt.tight_layout(rect=(0, 0.03, 1, 0.95))
+    plt.savefig(output_dir / f"{domain_name}_{metric_name}_vs_num_trajectories_by_gt_rate.png", dpi=300)
+    plt.close()
+
+
+def plot_metric_vs_gt_rate_by_num_trajectories(results_df, metric_name, output_dir, domain_name):
+    """
+    Impact of GT Rate (Figure Type 1)
+
+    Creates subplots for all available numbers of trajectories.
+    X-axis: GT rate (0%, 10%, 25%, 50%, etc.)
+    Y-axis: Performance metric
+    Each subplot shows both cleaned and unclean algorithms for comparison.
+
+    Args:
+        results_df: DataFrame with columns: algorithm, num_trajectories, gt_rate, fold, {metric_name}, _internal_phase
+        metric_name: Name of metric to plot
+        output_dir: Directory to save plots
+        domain_name: Name of domain for title
+    """
+    jitter_config = {
+        ('unclean', 'PISAM'): {'h': -0.4, 'v': 0.005},
+        ('cleaned', 'PISAM'): {'h': 0.1, 'v': -0.005},
+        ('unclean', 'PO_ROSAME'): {'h': -0.1, 'v': 0.01},
+        ('cleaned', 'PO_ROSAME'): {'h': 0.4, 'v': -0.01},
+    }
+    # Color mapping for each algorithm-phase combination (4 distinct colors)
+    color_map = {
+        ('PISAM', 'unclean'): '#E74C3C',      # Red
+        ('PO_ROSAME', 'unclean'): '#9B59B6',  # Purple
+        ('PISAM', 'cleaned'): '#3498DB',      # Blue
+        ('PO_ROSAME', 'cleaned'): '#2ECC71',  # Green
+    }
+    algo_style_map = {
+        'PISAM': {'linestyle': {'unclean': '--', 'cleaned': '-'}},
+        'PO_ROSAME': {'linestyle': {'unclean': '--', 'cleaned': '-'}},
+    }
+
+    # Show all available trajectory numbers from the data
+    available_nums = sorted(results_df['num_trajectories'].unique())
+    num_plots = len(available_nums)
+    
+    # Determine layout: one subplot per trajectory number
+    if num_plots <= 4:
+        nrows, ncols = (2, 2)
+    elif num_plots <= 6:
+        nrows, ncols = (2, 3)
+    elif num_plots <= 8:
+        nrows, ncols = (2, 4)
+    elif num_plots <= 9:
+        nrows, ncols = (3, 3)
     else:
-        df = results_df.copy()
-
-    # Representative num_trajectories values
-    representative_nums = [1, 3, 5]
-    # Filter to available values
-    available_nums = [n for n in representative_nums if n in df['num_trajectories'].unique()]
-
-    if not available_nums:
-        print(f"  Warning: No representative num_trajectories available for {metric_name}")
-        return
-
-    # Create 1x3 grid (or adjust based on available values)
-    fig, axes = plt.subplots(1, len(available_nums), figsize=(6*len(available_nums), 5), sharey=True)
-    if len(available_nums) == 1:
-        axes = [axes]
+        nrows, ncols = (3, 4)  # Can handle up to 12
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 5 * nrows), sharex=True, sharey=True)
+    axes = axes.flatten()
 
     for idx, num_traj in enumerate(available_nums):
         ax = axes[idx]
+        num_df = results_df[results_df['num_trajectories'] == num_traj].copy()
 
-        num_df = df[df['num_trajectories'] == num_traj]
+        # Collect all GT rates that will be plotted (before jitter)
+        all_gt_rates = sorted(num_df['gt_rate'].unique())
+        
+        for phase in ['unclean', 'cleaned']:
+            phase_df = num_df[num_df['_internal_phase'] == phase]
+            for algo in sorted(phase_df['algorithm'].unique()):
+                if algo not in algo_style_map: continue
+                j = jitter_config.get((phase, algo), {'h': 0, 'v': 0})
+                algo_df = phase_df[phase_df['algorithm'] == algo]
+                grouped = algo_df.groupby('gt_rate')[metric_name].agg(['mean', 'std'])
 
-        for algo in num_df['algorithm'].unique():
-            algo_df = num_df[num_df['algorithm'] == algo]
+                gt_rates = sorted(grouped.index)
+                jx = [r + j['h'] for r in gt_rates]
+                original_y = [grouped.loc[r, 'mean'] for r in gt_rates]
+                jy = [y + j['v'] for y in original_y]
 
-            # Group by gt_rate and compute mean/std
-            grouped = algo_df.groupby('gt_rate')[metric_name].agg(['mean', 'std'])
-            gt_rates = sorted(grouped.index)
-            means = [grouped.loc[r, 'mean'] for r in gt_rates]
-            stds = [grouped.loc[r, 'std'] for r in gt_rates]
+                style = algo_style_map[algo]
+                # Get distinct color for this algorithm-phase combination
+                plot_color = color_map.get((algo, phase), 'black')
+                # Use circle marker for unclean, square marker for cleaned
+                marker = 'o' if phase == 'unclean' else 's'
+                ax.plot(jx, jy, marker=marker, label=f"{algo} ({phase})", color=plot_color,
+                        linestyle=style['linestyle'][phase], linewidth=2)
 
-            color = algo_colors.get(algo, 'gray')
-            ax.plot(gt_rates, means, marker='o', label=algo,
-                   color=color, linewidth=2)
-            ax.fill_between(gt_rates,
-                           [m - s for m, s in zip(means, stds)],
-                           [m + s for m, s in zip(means, stds)],
-                           alpha=0.2, color=color)
+                # ADD DATA LABELS (Black text)
+                for x_val, y_orig, y_jit in zip(jx, original_y, jy):
+                    ax.text(x_val + 0.8, y_jit, f"{y_orig:.2f}",
+                            color='black', fontsize=8, fontweight='bold',
+                            va='center', ha='left')
 
-        ax.set_title(f'Number of Trajectories = {num_traj}', fontsize=12, fontweight='bold')
-        ax.set_xlabel('GT Rate (%)', fontsize=10)
-        if idx == 0:
-            ax.set_ylabel(metric_name.replace('_', ' ').title(), fontsize=10)
+        # Set x-axis limits and ticks based on actual GT rates (not jittered values)
+        if all_gt_rates:
+            x_min = min(all_gt_rates) - 5
+            x_max = max(all_gt_rates) + 5
+            ax.set_xlim(x_min, x_max)
+            ax.set_xticks(all_gt_rates)
+        
+        ax.set_ylim(-0.1, 1.2)
+        
+        # Check if we should add 100% GT rate line
+        add_100_line = False
+        if all_gt_rates and (100 in all_gt_rates or max(all_gt_rates) >= 90):
+            add_100_line = True
+            y_min, y_max = ax.get_ylim()
+            ax.axvline(x=100, color='orange', linestyle='-', linewidth=2, alpha=0.7, zorder=0)
+        
+        ax.set_title(f'Number of Trajectories = {num_traj}', fontweight='bold')
+        ax.set_xlabel('GT Rate (%)', fontsize=12)
+        ax.set_ylabel(metric_name.replace('_', ' ').title(), fontsize=12)
         ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=9, loc='best')
+        
+        # Create custom legend with 5 entries: PISAM unclean, PO_ROSAME unclean, PISAM cleaned, PO_ROSAME cleaned, 100% GT Rate
+        from matplotlib.lines import Line2D
+        custom_handles = []
+        
+        # PISAM unclean - dashed red with circle marker
+        pisam_unclean_color = color_map[('PISAM', 'unclean')]
+        line1 = Line2D([0, 1], [0, 0], color=pisam_unclean_color, linestyle='--', linewidth=2, marker='o', 
+                      markersize=8, markevery=[0], label='PISAM unclean')
+        line1.set_dashes([5, 2])  # Explicitly set dash pattern
+        custom_handles.append(line1)
+        # PO_ROSAME unclean - dashed purple with circle marker
+        rosame_unclean_color = color_map[('PO_ROSAME', 'unclean')]
+        line2 = Line2D([0, 1], [0, 0], color=rosame_unclean_color, linestyle='--', linewidth=2, marker='o', 
+                      markersize=8, markevery=[0], label='PO_ROSAME unclean')
+        line2.set_dashes([5, 2])  # Explicitly set dash pattern
+        custom_handles.append(line2)
+        # PISAM cleaned - solid blue with square marker
+        pisam_cleaned_color = color_map[('PISAM', 'cleaned')]
+        custom_handles.append(Line2D([0, 1], [0, 0], color=pisam_cleaned_color, linestyle='-', linewidth=2, marker='s', 
+                                    markersize=7, markevery=[0], label='PISAM cleaned'))
+        # PO_ROSAME cleaned - solid green with square marker
+        rosame_cleaned_color = color_map[('PO_ROSAME', 'cleaned')]
+        custom_handles.append(Line2D([0, 1], [0, 0], color=rosame_cleaned_color, linestyle='-', linewidth=2, marker='s', 
+                                    markersize=7, markevery=[0], label='PO_ROSAME cleaned'))
+        
+        # Add 100% GT rate line to legend if it was drawn
+        if add_100_line:
+            custom_handles.append(Line2D([0, 1], [0, 0], color='orange', linestyle='-', linewidth=2, label='100% GT Rate'))
+        
+        ax.legend(handles=custom_handles, fontsize=9, loc='lower right')
 
-    fig.suptitle(f'{domain_name}: {metric_name.replace("_", " ").title()} vs GT Rate',
-                fontsize=14, fontweight='bold')
-    plt.tight_layout()
-
-    output_path = output_dir / f'{domain_name}_{metric_name}_vs_gt_rate_by_num_trajectories.png'
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    # Hide extra subplots
+    for idx in range(len(available_nums), len(axes)):
+        axes[idx].set_visible(False)
+    
+    fig.suptitle(f'{domain_name.upper()}: Impact of GT Rate on {metric_name.replace("_", " ").title()}',
+                 fontsize=18, fontweight='bold', y=0.98)
+    plt.tight_layout(rect=(0, 0.03, 1, 0.95))
+    plt.savefig(output_dir / f"{domain_name}_{metric_name}_vs_gt_rate_by_num_trajectories.png", dpi=300)
     plt.close()
-    print(f"  ✓ Saved plot: {output_path}")
 
 
 def generate_gt_injection_plots(results_csv_path, output_dir, domain_name):
@@ -986,7 +1130,7 @@ def generate_gt_injection_plots(results_csv_path, output_dir, domain_name):
     # Load results
     df = pd.read_csv(results_csv_path)
 
-    # Ensure gt_rate column exists
+    # Ensure required columns exist
     if 'gt_rate' not in df.columns:
         print(f"Warning: No 'gt_rate' column in {results_csv_path}, skipping GT injection plots")
         return
@@ -1014,6 +1158,159 @@ def generate_gt_injection_plots(results_csv_path, output_dir, domain_name):
         plot_metric_vs_gt_rate_by_num_trajectories(df, metric, plots_dir, domain_name)
 
     print(f"\n✓ All GT injection plots saved to: {plots_dir}")
+
+
+def plot_stacked_solving_rate(results_csv_path, output_dir, domain_name):
+    """
+    Generate stacked area charts showing solving rate over number of trajectories.
+    
+    Creates two plots (one per phase: unclean/cleaned), each containing subplots for all GT rates.
+    Each subplot shows stacked areas for:
+    - Solved (solving_ratio) - light yellow
+    - Inapplicable (false_plans_ratio) - light blue  
+    - Not Solved (unsolvable_ratio) - red
+    
+    X-axis: Number of trajectories (num_trajectories)
+    Y-axis: Solving rate (0-1)
+    
+    Args:
+        results_csv_path: Path to CSV file with results
+        output_dir: Directory to save plots
+        domain_name: Name of domain for title
+    """
+    # Load results
+    df = pd.read_csv(results_csv_path)
+    
+    # Ensure required columns exist
+    required_cols = ['algorithm', 'num_trajectories', 'gt_rate', 'solving_ratio', 
+                     'false_plans_ratio', 'unsolvable_ratio', '_internal_phase']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        print(f"  Warning: Missing columns in {results_csv_path}: {missing_cols}, skipping stacked plots")
+        return
+    
+    # Filter for PISAM only
+    pisam_df = df[df['algorithm'] == 'PISAM'].copy()
+    
+    if pisam_df.empty:
+        print(f"  Warning: No PISAM data found for {domain_name}, skipping stacked plots")
+        return
+    
+    # Create output directory
+    stacked_plots_dir = output_dir / 'plots' / 'stacked_solving_rate'
+    stacked_plots_dir.mkdir(parents=True, exist_ok=True)
+    
+    print(f"\nGenerating stacked solving rate plots for {domain_name}...")
+    
+    # Color scheme similar to the example image
+    colors = {
+        'solved': '#FFF4C4',  # Light yellow (similar to "Solved" in example)
+        'inapplicable': '#B0E0E6',  # Light blue (similar to "Inapplicable" in example)
+        'not_solved': '#FF6B6B'  # Light red (similar to "Not Solved" in example)
+    }
+    
+    # Generate one plot per phase
+    for phase in ['unclean', 'cleaned']:
+        phase_df = pisam_df[pisam_df['_internal_phase'] == phase].copy()
+        
+        if phase_df.empty:
+            continue
+        
+        # Get unique GT rates for this phase
+        gt_rates = sorted(phase_df['gt_rate'].unique())
+        
+        if not gt_rates:
+            continue
+        
+        # Determine subplot layout (similar to GT injection plots)
+        num_plots = len(gt_rates)
+        nrows, ncols = (2, 2) if num_plots <= 4 else (2, 3)
+        fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 5 * nrows), sharex=True, sharey=True)
+        axes = axes.flatten()
+        
+        phase_label = 'Cleaned' if phase == 'cleaned' else 'Unclean'
+        
+        # Create subplot for each GT rate
+        for idx, gt_rate in enumerate(gt_rates):
+            ax = axes[idx]
+            
+            # Filter data for this GT rate
+            rate_df = phase_df[phase_df['gt_rate'] == gt_rate].copy()
+            
+            if rate_df.empty:
+                continue
+            
+            # Group by num_trajectories and calculate mean across folds
+            grouped = rate_df.groupby('num_trajectories').agg({
+                'solving_ratio': 'mean',
+                'false_plans_ratio': 'mean',
+                'unsolvable_ratio': 'mean'
+            }).reset_index()
+            
+            # Sort by num_trajectories
+            grouped = grouped.sort_values('num_trajectories')
+            
+            # Get x values (num_trajectories)
+            x = grouped['num_trajectories'].values
+            num_trajs_sorted = sorted(grouped['num_trajectories'].unique())
+            
+            # Get y values for each category
+            solved = grouped['solving_ratio'].values
+            inapplicable = grouped['false_plans_ratio'].values
+            
+            # Adjust not_solved to complement solved + inapplicable to sum to 1.0
+            # This ensures the stacked areas always total 1.0, even if data doesn't sum perfectly
+            not_solved = 1.0 - (solved + inapplicable)
+            # Ensure values are in [0, 1] range
+            not_solved = [max(0.0, min(1.0, val)) for val in not_solved]
+            
+            # Create stacked area chart using stackplot
+            # Order: solved (bottom), inapplicable (middle), not_solved (top)
+            ax.stackplot(x, solved, inapplicable, not_solved,
+                        colors=[colors['solved'], colors['inapplicable'], colors['not_solved']],
+                        alpha=0.8, labels=['Solved', 'Inapplicable', 'Not Solved'],
+                        edgecolor='white', linewidth=0.5)
+            
+            # Set subplot title
+            subplot_title = 'Baseline (gt = only init state)' if gt_rate == 0 else f'GT Rate {gt_rate}%'
+            ax.set_title(subplot_title, fontweight='bold', fontsize=11)
+            
+            # Set labels
+            ax.set_xlabel('Number of Trajectories', fontsize=10)
+            ax.set_ylabel('Solving Rate', fontsize=10)
+            
+            # Set x-axis ticks based on available data
+            ax.set_xticks(num_trajs_sorted)
+            ax.set_xlim(min(num_trajs_sorted) - 0.5, max(num_trajs_sorted) + 0.5)
+            
+            # Set y-axis
+            ax.set_ylim(0.0, 1.0)
+            ax.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+            
+            # Add grid
+            ax.grid(True, linestyle='--', alpha=0.3, axis='both')
+            
+            # Add legend only to first subplot
+            if idx == 0:
+                ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
+        
+        # Hide unused subplots
+        for idx in range(len(gt_rates), len(axes)):
+            axes[idx].set_visible(False)
+        
+        # Set overall title
+        fig.suptitle(f'Solving Rate Over Number of Trajectories - PISAM {phase_label} - {domain_name.upper()}', 
+                    fontsize=14, fontweight='bold', y=0.98)
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        
+        # Save plot
+        filename = f"{domain_name}_PISAM_{phase}_stacked_solving_rate.png"
+        plt.savefig(stacked_plots_dir / filename, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"  ✓ Saved: {filename}")
+    
+    print(f"\n✓ All stacked solving rate plots saved to: {stacked_plots_dir}")
 
 
 if __name__ == "__main__":

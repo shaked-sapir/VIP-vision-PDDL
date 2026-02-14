@@ -1,0 +1,56 @@
+[
+    {
+        "step": 1,
+        "current_state": {
+            "literals": [
+                "clear-disc(d1:disc)",
+                "smaller-peg(peg1:peg,d1:disc)",
+                "clear-disc(d2:disc)",
+                "smaller-peg(peg2:peg,d2:disc)",
+                "on-peg(d2:disc,peg2:peg)",
+                "smaller-peg(peg1:peg,d2:disc)",
+                "smaller-peg(peg2:peg,d1:disc)",
+                "on-peg(d1:disc,peg1:peg)",
+                "smaller-disc(d2:disc,d1:disc)"
+            ],
+            "objects": [
+                "d1:disc",
+                "peg2:peg",
+                "d2:disc",
+                "peg1:peg"
+            ],
+            "goal": [
+                "on-disc(d1:disc,d2:disc)"
+            ]
+        },
+        "ground_action": "move_peg_disc(d1:disc, peg1:peg, d2:disc)",
+        "operator_object_assignment": {
+            "?disc": "d1",
+            "?from": "peg1",
+            "?to": "d2"
+        },
+        "lifted_preconds": "[smaller(?to:default,?disc:default), on(?disc:default,?from:default), clear(?disc:default), clear(?to:default)]",
+        "next_state": {
+            "literals": [
+                "clear-disc(d1:disc)",
+                "smaller-peg(peg1:peg,d1:disc)",
+                "on-disc(d1:disc,d2:disc)",
+                "on-peg(d2:disc,peg2:peg)",
+                "smaller-peg(peg2:peg,d2:disc)",
+                "smaller-peg(peg1:peg,d2:disc)",
+                "clear-peg(peg1:peg)",
+                "smaller-peg(peg2:peg,d1:disc)",
+                "smaller-disc(d2:disc,d1:disc)"
+            ],
+            "objects": [
+                "d1:disc",
+                "peg2:peg",
+                "d2:disc",
+                "peg1:peg"
+            ],
+            "goal": [
+                "on-disc(d1:disc,d2:disc)"
+            ]
+        }
+    }
+]

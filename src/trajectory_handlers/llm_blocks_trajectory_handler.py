@@ -137,10 +137,11 @@ class LLMBlocksImageTrajectoryHandler(ImageTrajectoryHandler):
             # Modify ground_action
             if 'ground_action' in step:
                 action = step['ground_action']
-                # Example: pick-up(b:block, robot:robot) → pick_up(b:block)
                 import re
                 action = re.sub(r'pick-up\(([^,]+):block,\s*robot:robot\)', r'pick_up(\1:block)', action)
                 action = re.sub(r'put-down\(([^,]+):block,\s*robot:robot\)', r'put_down(\1:block)', action)
+                action = re.sub(r'stack\(([^,]+):block,\s*([^,]+):block,\s*robot:robot\)', r'stack(\1:block, \2:block)', action)
+                action = re.sub(r'unstack\(([^,]+):block,\s*([^,]+):block,\s*robot:robot\)', r'unstack(\1:block, \2:block)', action)
                 step['ground_action'] = action
 
         return gt_trajectory_json

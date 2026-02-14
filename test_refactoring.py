@@ -83,7 +83,7 @@ print("TEST 3: File Structure Verification")
 print("=" * 60)
 
 files_to_check = [
-    Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/experiment_helpers.py"),
+    Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/run_fold.py"),
     Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/amlgym_testing.py"),
     Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/utils/pddl.py"),
 ]

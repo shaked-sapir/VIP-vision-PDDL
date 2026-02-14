@@ -602,7 +602,7 @@ def create_trajectories_for_lab(
             fluent_classifier_model=fluent_classification_model_name,
             fluent_classification_temperature=fluent_classification_temperature
         )
-        gym_problems = ["eight01x", "eight01x", "eight01x", "eight01x", "eight01x"] # because of lack of problems
+        gym_problems = ["problem7", "problem7", "problem7", "problem7", "problem7"] # because of lack of problems
     else:
         raise ValueError(f"Unsupported domain: {domain_name}. Supported domains: blocksworld, hanoi, npuzzle")
 

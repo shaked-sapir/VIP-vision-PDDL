@@ -177,6 +177,54 @@ def copy_observation(observation: Observation) -> Observation:
     return copied_observation
 
 
+def observations_equal(obs1: Observation, obs2: Observation) -> bool:
+    """
+    Check if two Observation objects are equal.
+    
+    Two observations are considered equal if:
+    - They have the same number of components
+    - Each component has the same previous_state, grounded_action_call, next_state, and is_successful
+    - They have the same grounded_objects
+    
+    :param obs1: First Observation object
+    :param obs2: Second Observation object
+    :return: True if observations are equal, False otherwise
+    """
+    # Check number of components
+    if len(obs1.components) != len(obs2.components):
+        return False
+    
+    # Check grounded objects
+    if set(obs1.grounded_objects.keys()) != set(obs2.grounded_objects.keys()):
+        return False
+    
+    for obj_name in obs1.grounded_objects.keys():
+        obj1 = obs1.grounded_objects[obj_name]
+        obj2 = obs2.grounded_objects[obj_name]
+        if obj1.name != obj2.name or obj1.type.name != obj2.type.name:
+            return False
+    
+    # Check each component
+    for comp1, comp2 in zip(obs1.components, obs2.components):
+        # Check action call
+        if str(comp1.grounded_action_call) != str(comp2.grounded_action_call):
+            return False
+        
+        # Check is_successful
+        if comp1.is_successful != comp2.is_successful:
+            return False
+        
+        # Check previous_state
+        if comp1.previous_state != comp2.previous_state:
+            return False
+        
+        # Check next_state
+        if comp1.next_state != comp2.next_state:
+            return False
+    
+    return True
+
+
 # TODO: suggest this to pddl_plus_parser as a new class method - I could use it => need to fix CR for supprting constants + add test
 def get_all_possible_groundings(predicate: Predicate,
                                 grounded_objects: Dict[str, PDDLObject]) -> Set[GroundedPredicate]:
