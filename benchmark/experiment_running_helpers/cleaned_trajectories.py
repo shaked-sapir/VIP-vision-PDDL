@@ -10,6 +10,21 @@ from src.utils.masking import load_masking_info, save_masking_info
 from src.utils.pddl import observation_to_trajectory_file
 
 
+def save_observations_to_dir(
+    patched_observations,
+    prepared_trajectories: List[Tuple[Path, Path, Path]],
+    output_dir: Path,
+) -> None:
+    """Save observation list to trajectory files only (no masking). Names by problem from prepared_trajectories."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for idx, obs in enumerate(patched_observations):
+        if idx >= len(prepared_trajectories):
+            break
+        problem_name = prepared_trajectories[idx][2].stem
+        traj_file = output_dir / f"final_observation_{problem_name}.trajectory"
+        observation_to_trajectory_file(obs, traj_file)
+
+
 def save_patched_observations(
     patched_observations,
     prepared_trajectories: List[Tuple[Path, Path, Path]],

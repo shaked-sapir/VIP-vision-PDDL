@@ -17,8 +17,8 @@
 
 (:action put_down
 	:parameters (?x - block)
-	:precondition (and (handempty) (holding ?x))
-	:effect (and ))
+	:precondition (and (ontable ?x))
+	:effect (and (clear ?x) (handempty) (holding ?x) (not (ontable ?x))))
 
 (:action stack
 	:parameters (?x - block ?y - block)
@@ -27,7 +27,7 @@
 
 (:action unstack
 	:parameters (?x - block ?y - block)
-	:precondition (and (on ?y ?x) (ontable ?y))
-	:effect (and ))
+	:precondition (and )
+	:effect (and (on ?x ?y) (on ?y ?x) (ontable ?x) (ontable ?y) (clear ?x) (clear ?y) (handempty) (holding ?x) (holding ?y)))
 
 )

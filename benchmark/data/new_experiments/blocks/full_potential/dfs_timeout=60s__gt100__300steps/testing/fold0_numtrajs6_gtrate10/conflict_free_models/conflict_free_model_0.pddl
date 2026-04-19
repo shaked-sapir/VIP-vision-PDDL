@@ -1,5 +1,5 @@
 (define (domain blocks)
-(:requirements :strips :typing :negative-preconditions :equality)
+(:requirements :equality :negative-preconditions :strips :typing)
 (:types 	block - object
 )
 

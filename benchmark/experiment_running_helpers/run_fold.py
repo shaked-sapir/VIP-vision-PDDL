@@ -15,6 +15,7 @@ from typing import List, Tuple, Dict
 from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 
 from benchmark.experiment_running_helpers.cleaned_trajectories import convert_cleaned_dir_to_trajectory_list, save_patched_observations
+from benchmark.experiment_running_helpers.post_process_gt_metrics import run_post_process_gt_metrics
 from benchmark.experiment_running_helpers.learning_helpers import learn_rosame, learn_sam_pisam
 from benchmark.experiment_running_helpers.profiling import TimingProfiler
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
@@ -317,6 +318,8 @@ def run_single_fold(
                     patched_observations, prepared_trajectories, final_observations_dir, domain_ref_path
                 )
                 print(f"  [PHASE 2] Patched observations saved")
+                # Post-process: T vs GT and T' vs GT metrics per conflict-free model (no GT in conflict search)
+                run_post_process_gt_metrics(fold_work_dir, prepared_trajectories, domain_ref_path, gt_rate)
 
             # Re-learn ROSAME on PATCHED OBSERVATIONS from denoiser
             if patched_observations is not None:

@@ -1,5 +1,5 @@
 (define (domain blocks)
-(:requirements :strips :typing)
+(:requirements :typing :strips)
 (:types 	block - object
 )
 
@@ -27,7 +27,7 @@
 
 (:action unstack
 	:parameters (?x - block ?y - block)
-	:precondition (and (ontable ?x) (handempty) (holding ?y))
-	:effect (and (on ?x ?y) (on ?y ?x) (ontable ?y) (clear ?x) (clear ?y) (holding ?x) (not (ontable ?x))  (not (handempty))  (not (holding ?y))))
+	:precondition (and (on ?x ?y) (on ?y ?x) (ontable ?x) (ontable ?y) (clear ?x) (clear ?y) (handempty) (holding ?x) (holding ?y))
+	:effect (and ))
 
 )

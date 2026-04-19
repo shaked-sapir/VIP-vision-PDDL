@@ -28,6 +28,6 @@
 (:action unstack
 	:parameters (?x - block ?y - block)
 	:precondition (and (on ?x ?y) (on ?y ?x) (ontable ?x) (ontable ?y) (clear ?x) (clear ?y) (handempty) (holding ?x) (holding ?y))
-	:effect (and  (not (ontable ?y))  (not (clear ?y))  (not (holding ?x))))
+	:effect (and ))
 
 )

@@ -17,6 +17,7 @@ from benchmark.amlgym_models.PISAM import PISAM
 from benchmark.amlgym_models.PO_ROSAME import PO_ROSAME
 from benchmark.amlgym_models.ROSAME import ROSAME
 from benchmark.amlgym_models.SAM import SAM
+from benchmark.experiment_running_helpers.cleaned_trajectories import save_observations_to_dir
 from benchmark.experiment_running_helpers.trajectory_utils import setup_algorithm_workspace
 from src.pi_sam import PISAMLearner
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
@@ -30,7 +31,10 @@ def _parse_learning_output(learning_output, is_denoising):
     return learning_output, None, {}
 
 
-def _learn_pisam_with_profiling(domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler, fold_work_dir=None):
+def _learn_pisam_with_profiling(
+    domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler,
+    fold_work_dir=None, prepared_trajectories=None
+):
     """Learn PISAM with detailed profiling."""
     partial_domain = DomainParser(Path(str(domain_ref_path)), partial_parsing=True).parse_domain()
     masked_observations = []
@@ -67,17 +71,17 @@ def _learn_pisam_with_profiling(domain_ref_path, traj_paths, is_denoising, learn
     start_learn = time.perf_counter()
     
     if is_denoising:
-        # Create conflict_free_models directory if fold_work_dir is provided
-        conflict_free_models_dir = None
-        if fold_work_dir is not None:
-            conflict_free_models_dir = fold_work_dir / "conflict_free_models"
-        
+        conflict_free_models_dir = (fold_work_dir / "conflict_free_models") if fold_work_dir else None
+        save_t_prime_fn = None
+        if conflict_free_models_dir is not None and prepared_trajectories:
+            save_t_prime_fn = lambda obs, out_dir: save_observations_to_dir(obs, prepared_trajectories, out_dir)
         conflict_search = ConflictDrivenPatchSearch(
             partial_domain_template=deepcopy(partial_domain),
             negative_preconditions_policy=learner.negative_precondition_policy,
             seed=learner.seed,
             logger=None,
-            conflict_free_models_dir=conflict_free_models_dir
+            conflict_free_models_dir=conflict_free_models_dir,
+            save_t_prime_fn=save_t_prime_fn,
         )
         learned_model, _, _, _, _, report, patched_observations = conflict_search.run(
             observations=masked_observations,
@@ -139,7 +143,8 @@ def learn_sam_pisam(
         
         if profiler:
             model, report, patched_observations = _learn_pisam_with_profiling(
-                domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler, fold_work_dir
+                domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler,
+                fold_work_dir=fold_work_dir, prepared_trajectories=prepared_trajectories,
             )
         else:
             learning_output = learner.learn(str(domain_ref_path), traj_paths, use_problems=False)

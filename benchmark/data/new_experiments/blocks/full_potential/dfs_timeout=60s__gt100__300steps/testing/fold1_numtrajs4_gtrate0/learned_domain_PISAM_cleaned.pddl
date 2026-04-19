@@ -1,5 +1,5 @@
 (define (domain blocks)
-(:requirements :negative-preconditions :strips :equality :typing)
+(:requirements :equality :strips :negative-preconditions :typing)
 (:types 	block - object
 )
 
@@ -37,7 +37,8 @@
 		(not (clear ?y))
 		(not (holding ?x))
 		(not (ontable ?y))
-		(on ?x ?y) 
+		(on ?x ?y)
+		(on ?y ?x) 
 		))
 
 (:action unstack
@@ -46,7 +47,6 @@
 	(on ?x ?y))
 	:effect (and (holding ?x)
 		(not (clear ?x))
-		(not (clear ?y))
 		(not (handempty ))
 		(not (on ?x ?y))
 		(not (ontable ?x))

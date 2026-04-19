@@ -33,6 +33,7 @@
 	:precondition (and (clear ?x)
 	(holding ?x))
 	:effect (and (handempty )
+		(not (clear ?x))
 		(not (clear ?y))
 		(not (holding ?x))
 		(not (ontable ?y))
@@ -47,7 +48,8 @@
 		(holding ?x)
 		(not (clear ?x))
 		(not (handempty ))
-		(not (on ?x ?y)) 
+		(not (on ?x ?y))
+		(not (ontable ?y)) 
 		))
 
 )

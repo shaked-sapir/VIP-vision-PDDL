@@ -27,7 +27,7 @@
 
 (:action unstack
 	:parameters (?x - block ?y - block)
-	:precondition (and (ontable ?y) (clear ?y))
-	:effect (and (on ?x ?y) (on ?y ?x) (ontable ?x) (clear ?x) (handempty) (holding ?x) (holding ?y)))
+	:precondition (and (ontable ?x) (ontable ?y) (clear ?x) (clear ?y) (holding ?x))
+	:effect (and ))
 
 )

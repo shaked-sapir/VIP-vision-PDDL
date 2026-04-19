@@ -266,6 +266,39 @@ def get_state_masked_predicates(state: State) -> Set[GroundedPredicate]:
     return {pred for pred in get_state_grounded_predicates(state) if pred.is_masked}
 
 
+def state_positive_set(state: State, unmasked_only: bool = False) -> Set[str]:
+    """Set of untyped_representation of positive fluents in state. If unmasked_only, exclude masked."""
+    preds = get_state_unmasked_predicates(state) if unmasked_only else get_state_grounded_predicates(state)
+    return {p.untyped_representation for p in preds if p.is_positive}
+
+
+def compare_states(pred_state: State, gt_state: State, unmasked_only: bool = True) -> Dict:
+    """Compare predicted state to GT. Returns tp, fp, fn, precision, recall, masked_count (for pred)."""
+    pred_set = state_positive_set(pred_state, unmasked_only=unmasked_only)
+    gt_set = state_positive_set(gt_state, unmasked_only=False)
+    tp = len(pred_set & gt_set)
+    fp = len(pred_set - gt_set)
+    fn = len(gt_set - pred_set)
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    masked_count = len(get_state_masked_predicates(pred_state))
+    return {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "masked_count": masked_count}
+
+
+def compare_observations(obs_pred: Observation, obs_gt: Observation, unmasked_only: bool = True) -> Dict:
+    """Compare observation states to GT. Returns per_state list and overall aggregated metrics."""
+    pred_states = [obs_pred.components[0].previous_state] + [c.next_state for c in obs_pred.components]
+    gt_states = [obs_gt.components[0].previous_state] + [c.next_state for c in obs_gt.components]
+    if len(pred_states) != len(gt_states):
+        return {"per_state": [], "overall": {"tp": 0, "fp": 0, "fn": 0, "precision": 0.0, "recall": 0.0, "masked_count": 0}}
+    per_state = [compare_states(p, g, unmasked_only=unmasked_only) for p, g in zip(pred_states, gt_states)]
+    total = {"tp": sum(s["tp"] for s in per_state), "fp": sum(s["fp"] for s in per_state),
+             "fn": sum(s["fn"] for s in per_state), "masked_count": sum(s["masked_count"] for s in per_state)}
+    total["precision"] = total["tp"] / (total["tp"] + total["fp"]) if (total["tp"] + total["fp"]) > 0 else 0.0
+    total["recall"] = total["tp"] / (total["tp"] + total["fn"]) if (total["tp"] + total["fn"]) > 0 else 0.0
+    return {"per_state": per_state, "overall": total}
+
+
 def multi_replace_predicate(p: str, mapping: dict[str, str]) -> str:
     # Sort by length to avoid partial overlaps (just in case)
     keys = sorted(mapping.keys(), key=len, reverse=True)

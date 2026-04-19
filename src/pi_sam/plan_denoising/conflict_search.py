@@ -4,7 +4,7 @@ import json
 import logging
 import statistics
 from dataclasses import dataclass, field
-from typing import Dict, Set, Tuple, List, Sequence, Optional
+from typing import Callable, Dict, Set, Tuple, List, Sequence, Optional
 from copy import deepcopy, copy
 from pathlib import Path
 import heapq
@@ -87,12 +87,14 @@ class ConflictDrivenPatchSearch:
         logger: Optional[object] = None,
         search_mode: str = "anytime_dfs",  # "anytime_dfs" or "ucs"
         conflict_free_models_dir: Optional[Path] = None,
+        save_t_prime_fn: Optional[Callable[[List[Observation], Path], None]] = None,
     ):
         self.partial_domain_template = partial_domain_template
         self.negative_preconditions_policy = negative_preconditions_policy
         self.seed = seed
         self.search_mode = search_mode
         self.conflict_free_models_dir = conflict_free_models_dir
+        self.save_t_prime_fn = save_t_prime_fn
         self._conflict_free_model_counter = 0
 
         if logger is None:
@@ -108,18 +110,35 @@ class ConflictDrivenPatchSearch:
 
         self.logger = logger
 
-    def _save_conflict_free_model(self, domain: LearnerDomain) -> None:
-        """Save a conflict-free model to the conflict_free_models directory."""
+    def _save_conflict_free_model(
+        self, domain: LearnerDomain, patched_observations: Optional[List[Observation]] = None
+    ) -> None:
+        """Save a conflict-free model and its T' to conflict_free_models/conflict_free_model_X/."""
         if self.conflict_free_models_dir is None:
             return
-        
         self.conflict_free_models_dir.mkdir(parents=True, exist_ok=True)
         model_index = self._conflict_free_model_counter
         self._conflict_free_model_counter += 1
-        
-        model_path = self.conflict_free_models_dir / f"conflict_free_model_{model_index}.pddl"
-        model_path.write_text(domain.to_pddl())
-        self.logger.info(f"Saved conflict-free model {model_index} to {model_path}")
+        model_dir = self.conflict_free_models_dir / f"conflict_free_model_{model_index}"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        (model_dir / "model.pddl").write_text(domain.to_pddl())
+        if patched_observations and self.save_t_prime_fn:
+            self.save_t_prime_fn(patched_observations, model_dir / "final_observations")
+        self.logger.info(f"Saved conflict-free model {model_index} to {model_dir}")
+
+    def _save_final_model(
+        self, domain: LearnerDomain, patched_observations: Optional[List[Observation]] = None
+    ) -> None:
+        """Save the single final model (no conflict-free found) to conflict_free_models/final_model/."""
+        if self.conflict_free_models_dir is None:
+            return
+        self.conflict_free_models_dir.mkdir(parents=True, exist_ok=True)
+        final_dir = self.conflict_free_models_dir / "final_model"
+        final_dir.mkdir(parents=True, exist_ok=True)
+        (final_dir / "model.pddl").write_text(domain.to_pddl())
+        if patched_observations and self.save_t_prime_fn:
+            self.save_t_prime_fn(patched_observations, final_dir / "final_observations")
+        self.logger.info(f"Saved final model (no conflict-free) to {final_dir}")
 
     def _write_node_expansion_times(
         self,
@@ -305,9 +324,12 @@ class ConflictDrivenPatchSearch:
 
             # First conflict-free node popped from UCS heap = minimal #fluent patches
             if not conflicts:
-                # Save conflict-free model
-                self._save_conflict_free_model(domain)
-                
+                patched_obs = self._apply_patches_to_observations(
+                    observations,
+                    node.fluent_patches,
+                )
+                self._save_conflict_free_model(domain, patched_obs)
+
                 total_time = time.time() - start_time
                 patch_diff = self._compute_patch_diff(
                     initial_constraints=root_constraints,
@@ -324,11 +346,6 @@ class ConflictDrivenPatchSearch:
                         terminated_by="solution_found_ucs",
                         total_time_seconds=total_time,
                     )
-                )
-
-                patched_obs = self._apply_patches_to_observations(
-                    observations,
-                    node.fluent_patches,
                 )
                 self._write_node_expansion_times(node_expansion_times, "ucs")
                 return (
@@ -411,7 +428,7 @@ class ConflictDrivenPatchSearch:
             observations,
             last_fluent_patches,
         )
-
+        self._save_final_model(last_domain, patched_obs)
         self._write_node_expansion_times(node_expansion_times, "ucs")
 
         return (
@@ -549,9 +566,11 @@ class ConflictDrivenPatchSearch:
             # conflict-free model → update best-so-far and continue
             if not conflicts:
                 conflict_free_count += 1
-                # Save conflict-free model
-                self._save_conflict_free_model(domain)
-                
+                patched_obs_node = self._apply_patches_to_observations(
+                    observations, node.fluent_patches
+                )
+                self._save_conflict_free_model(domain, patched_obs_node)
+
                 if current_patch_count < best_patch_count:
                     best_domain = domain
                     best_constraints = node.model_constraints
@@ -655,7 +674,8 @@ class ConflictDrivenPatchSearch:
             observations,
             fluent_patches,
         )
-
+        if conflict_free_count == 0:
+            self._save_final_model(final_domain, patched_obs)
         self._write_node_expansion_times(node_expansion_times, "anytime_dfs")
 
         return (

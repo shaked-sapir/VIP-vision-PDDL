@@ -13,7 +13,7 @@
 (:action pick_up
 	:parameters (?x - block)
 	:precondition (and (ontable ?x) (clear ?x) (handempty))
-	:effect (and (holding ?x) (not (ontable ?x))  (not (clear ?x))  (not (handempty))))
+	:effect (and (holding ?x) (not (ontable ?x))  (not (handempty))))
 
 (:action put_down
 	:parameters (?x - block)
@@ -22,12 +22,12 @@
 
 (:action stack
 	:parameters (?x - block ?y - block)
-	:precondition (and (holding ?x))
-	:effect (and (on ?y ?x) (handempty) (not (holding ?x))))
+	:precondition (and (clear ?x) (clear ?y) (holding ?x))
+	:effect (and (on ?y ?x) (handempty) (not (clear ?x))  (not (clear ?y))  (not (holding ?x))))
 
 (:action unstack
 	:parameters (?x - block ?y - block)
 	:precondition (and (on ?x ?y) (handempty))
-	:effect (and (holding ?x) (not (on ?x ?y))  (not (handempty))))
+	:effect (and (clear ?x) (holding ?x) (not (on ?x ?y))  (not (handempty))))
 
 )

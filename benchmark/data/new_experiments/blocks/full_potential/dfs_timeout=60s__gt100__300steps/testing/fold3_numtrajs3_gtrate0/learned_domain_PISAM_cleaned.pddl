@@ -29,9 +29,7 @@
 (:action stack
 	:parameters (?x - block ?y - block)
 	:precondition (and (holding ?x))
-	:effect (and (clear ?x)
-		(handempty )
-		(not (clear ?y))
+	:effect (and (handempty )
 		(not (holding ?x))
 		(not (ontable ?y))
 		(on ?y ?x) 
@@ -40,8 +38,8 @@
 (:action unstack
 	:parameters (?x - block ?y - block)
 	:precondition (and (handempty ))
-	:effect (and (holding ?x)
-		(not (clear ?x))
+	:effect (and (clear ?x)
+		(holding ?x)
 		(not (clear ?y))
 		(not (handempty ))
 		(not (on ?x ?y))

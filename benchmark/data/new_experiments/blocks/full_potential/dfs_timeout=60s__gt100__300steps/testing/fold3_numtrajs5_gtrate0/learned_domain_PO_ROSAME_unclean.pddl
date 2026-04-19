@@ -17,7 +17,7 @@
 
 (:action put_down
 	:parameters (?x - block)
-	:precondition (and )
+	:precondition (and (ontable ?x) (clear ?x) (handempty) (holding ?x))
 	:effect (and ))
 
 (:action stack
