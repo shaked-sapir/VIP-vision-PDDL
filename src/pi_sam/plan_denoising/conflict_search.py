@@ -14,7 +14,7 @@ from pddl_plus_parser.models import Domain, Observation
 from sam_learning.core import LearnerDomain
 from utilities import NegativePreconditionPolicy
 
-from src.pi_sam.noisy_pisam.simpler_version.typings import (
+from src.pi_sam.noisy_pisam.typings import (
     Conflict,
     ConflictType,
     FluentLevelPatch,
@@ -23,7 +23,7 @@ from src.pi_sam.noisy_pisam.simpler_version.typings import (
     PatchOperation,
     ParameterBoundLiteral, ConflictPriority,
 )
-from src.pi_sam.noisy_pisam.simpler_version.simple_noisy_pisam_learning import NoisyPisamLearner
+from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
 
 
 Key = Tuple[str, ModelPart, ParameterBoundLiteral]   # (action_name, part, pbl)

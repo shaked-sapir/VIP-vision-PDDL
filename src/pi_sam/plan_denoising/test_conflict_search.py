@@ -26,8 +26,8 @@ from pddl_plus_parser.models import Domain, Observation
 from utilities import NegativePreconditionPolicy
 
 from src.pi_sam.pi_sam_learning import PISAMLearner
-from src.pi_sam.noisy_pisam.simpler_version.simple_noisy_pisam_learning import NoisyPisamLearner
-from src.pi_sam.noisy_pisam.simpler_version.typings import (
+from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
+from src.pi_sam.noisy_pisam.typings import (
     FluentLevelPatch,
     ModelLevelPatch,
     Conflict,
