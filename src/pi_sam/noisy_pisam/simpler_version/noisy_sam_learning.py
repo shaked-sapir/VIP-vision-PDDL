@@ -457,11 +457,7 @@ class NoisySAMLearner(SAMLearner):
             possible_lifted_gp = self.matcher.get_possible_literal_matches(grounded_action, [gp])
             lifted_gp = possible_lifted_gp[0] if possible_lifted_gp else None
             if lifted_gp in prior_cannot_effects:
-                pbl = ParameterBoundLiteral(
-                    predicate_name=lifted_gp.name,
-                    parameters=tuple(p for p in lifted_gp.signature.keys()),
-                    is_positive=getattr(lifted_gp, "is_positive", True),
-                )
+                pbl = ParameterBoundLiteral.from_lifted_predicate(lifted_gp)
                 conflict = Conflict(
                     action_name=action_name,
                     pbl=pbl,
@@ -502,11 +498,7 @@ class NoisySAMLearner(SAMLearner):
             possible_lifted_gp = self.matcher.get_possible_literal_matches(grounded_action, [gp])
             lifted_gp = possible_lifted_gp[0] if possible_lifted_gp else None
             if lifted_gp in prior_must_effects:
-                pbl = ParameterBoundLiteral(
-                    predicate_name=lifted_gp.name,
-                    parameters=tuple(p for p in lifted_gp.signature.keys()),
-                    is_positive=getattr(lifted_gp, "is_positive", True),
-                )
+                pbl = ParameterBoundLiteral.from_lifted_predicate(lifted_gp)
                 to_negate = self._should_negate_grounded_effect(
                     gp,
                     self.current_observation_index,

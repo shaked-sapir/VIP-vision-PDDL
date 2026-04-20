@@ -359,7 +359,7 @@ class ConflictDrivenPatchSearch:
             )
         ))
         fluent_tuple = tuple(sorted(
-            (fp.observation_index, fp.component_index, fp.state_type, fp.fluent)
+            (fp.observation_index, fp.component_index, fp.state_type, fp.normalized_fluent)
             for fp in fluent_patches
         ))
         return constraints_tuple, fluent_tuple
@@ -478,11 +478,11 @@ class ConflictDrivenPatchSearch:
        These correspond to a "flip + flip back" across adjacent transitions.
        """
         next_p = {
-            (p.observation_index, p.component_index, p.fluent): p
+            (p.observation_index, p.component_index, p.normalized_fluent): p
             for p in patches if p.state_type == "next"
         }
         prev_p = {
-            (p.observation_index, p.component_index, p.fluent): p
+            (p.observation_index, p.component_index, p.normalized_fluent): p
             for p in patches if p.state_type == "prev"
         }
 
