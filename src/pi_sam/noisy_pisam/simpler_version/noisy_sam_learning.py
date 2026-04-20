@@ -18,8 +18,6 @@ from src.pi_sam.noisy_pisam.simpler_version.typings import (
     ConflictType,
     Conflict,
 )
-from src.pi_sam.pi_sam_learning import PISAMLearner
-
 from src.utils.pddl import (
     get_state_grounded_predicates, )
 
@@ -31,12 +29,10 @@ class NoisySAMLearner(SAMLearner):
       - Model-level patches:
             EFFECT + FORBID  -> cannot be effect
             EFFECT + REQUIRE -> must be effect
-            PRE + FORBID     -> cannot be precondition
       - Conflict detection:
-            * Patch vs PI-SAM:
+            * Patch vs SAM:
                 - FORBID_EFFECT_VS_MUST
                 - REQUIRE_EFFECT_VS_CANNOT
-                - FORBID_PRECOND_VS_IS
             * Data-only SAM effect inconsistencies, using the same types:
                 - PRIOR cannot_be_effect + new must-effect -> FORBID_EFFECT_VS_MUST
                 - PRIOR must-effect + new cannot_be_effect -> REQUIRE_EFFECT_VS_CANNOT
@@ -63,7 +59,6 @@ class NoisySAMLearner(SAMLearner):
 
         self.forbidden_effects: Dict[str, Set[ParameterBoundLiteral]] = {}
         self.required_effects: Dict[str, Set[ParameterBoundLiteral]] = {}
-        self.forbidden_preconditions: Dict[str, Set[ParameterBoundLiteral]] = {}
 
         # conflicts (collected during learning)
         self.conflicts: List[Conflict] = []
@@ -88,7 +83,6 @@ class NoisySAMLearner(SAMLearner):
 
           - (EFFECT, FORBID)   : cannot be effect
           - (EFFECT, REQUIRE)  : must be effect
-          - (PRECONDITION, FORBID): cannot be precondition
         """
         self.fluent_patches = fluent_patches
         self.model_patches = model_patches
@@ -96,7 +90,6 @@ class NoisySAMLearner(SAMLearner):
 
         self.forbidden_effects.clear()
         self.required_effects.clear()
-        self.forbidden_preconditions.clear()
 
         for patch in model_patches:
             if patch.model_part == ModelPart.EFFECT:
@@ -104,15 +97,6 @@ class NoisySAMLearner(SAMLearner):
                     self.forbidden_effects.setdefault(patch.action_name, set()).add(patch.pbl)
                 else:  # REQUIRE
                     self.required_effects.setdefault(patch.action_name, set()).add(patch.pbl)
-
-            elif patch.model_part == ModelPart.PRECONDITION:
-                if patch.operation == PatchOperation.FORBID:
-                    self.forbidden_preconditions.setdefault(patch.action_name, set()).add(patch.pbl)
-                else:
-                    # FORBID preconditions are not handled in this version
-                    self.logger.warning(
-                        f"REQUIRE precondition patch not supported in NoisyPisamLearner: {patch}"
-                    )
 
     # -------------------------------------------------------------------------
     # Fluent-level patches
@@ -615,7 +599,7 @@ class NoisySAMLearner(SAMLearner):
         **kwargs,
     ) -> Tuple[LearnerDomain, Dict[str, str]]:
         """
-        Same learning loop as PISAMLearner, but:
+        Same learning loop as SAMLearner, but:
 
           - apply fluent-level patches on a deep copy of observations,
           - track (observation_index, component_index) for every transition,

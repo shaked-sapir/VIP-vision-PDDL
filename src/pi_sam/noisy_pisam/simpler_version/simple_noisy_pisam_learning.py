@@ -30,12 +30,10 @@ class NoisyPisamLearner(PISAMLearner):
       - Model-level patches:
             EFFECT + FORBID  -> cannot be effect
             EFFECT + REQUIRE -> must be effect
-            PRE + FORBID     -> cannot be precondition
       - Conflict detection:
             * Patch vs PI-SAM:
                 - FORBID_EFFECT_VS_MUST
                 - REQUIRE_EFFECT_VS_CANNOT
-                - FORBID_PRECOND_VS_IS
             * Data-only PI-SAM effect inconsistencies, using the same types:
                 - PRIOR cannot_be_effect + new must-effect -> FORBID_EFFECT_VS_MUST
                 - PRIOR must-effect + new cannot_be_effect -> REQUIRE_EFFECT_VS_CANNOT
@@ -63,7 +61,6 @@ class NoisyPisamLearner(PISAMLearner):
 
         self.forbidden_effects: Dict[str, Set[ParameterBoundLiteral]] = {}
         self.required_effects: Dict[str, Set[ParameterBoundLiteral]] = {}
-        self.forbidden_preconditions: Dict[str, Set[ParameterBoundLiteral]] = {}
 
         # conflicts (collected during learning)
         self.conflicts: List[Conflict] = []
@@ -88,7 +85,6 @@ class NoisyPisamLearner(PISAMLearner):
 
           - (EFFECT, FORBID)   : cannot be effect
           - (EFFECT, REQUIRE)  : must be effect
-          - (PRECONDITION, FORBID): cannot be precondition
         """
         self.fluent_patches = fluent_patches
         self.model_patches = model_patches
@@ -96,7 +92,6 @@ class NoisyPisamLearner(PISAMLearner):
 
         self.forbidden_effects.clear()
         self.required_effects.clear()
-        self.forbidden_preconditions.clear()
 
         for patch in model_patches:
             if patch.model_part == ModelPart.EFFECT:
@@ -104,15 +99,6 @@ class NoisyPisamLearner(PISAMLearner):
                     self.forbidden_effects.setdefault(patch.action_name, set()).add(patch.pbl)
                 else:  # REQUIRE
                     self.required_effects.setdefault(patch.action_name, set()).add(patch.pbl)
-
-            elif patch.model_part == ModelPart.PRECONDITION:
-                if patch.operation == PatchOperation.FORBID:
-                    self.forbidden_preconditions.setdefault(patch.action_name, set()).add(patch.pbl)
-                else:
-                    # FORBID preconditions are not handled in this version
-                    self.logger.warning(
-                        f"REQUIRE precondition patch not supported in NoisyPisamLearner: {patch}"
-                    )
 
     # -------------------------------------------------------------------------
     # Fluent-level patches
