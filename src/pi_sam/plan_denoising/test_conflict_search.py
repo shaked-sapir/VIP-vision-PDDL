@@ -26,8 +26,8 @@ from pddl_plus_parser.models import Domain, Observation
 from utilities import NegativePreconditionPolicy
 
 from src.pi_sam.pi_sam_learning import PISAMLearner
-from src.pi_sam.noisy_pisam.simpler_version.simple_noisy_pisam_learning import NoisyPisamLearner
-from src.pi_sam.noisy_pisam.simpler_version.typings import (
+from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
+from src.pi_sam.noisy_pisam.typings import (
     FluentLevelPatch,
     ModelLevelPatch,
     Conflict,
@@ -276,7 +276,7 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         print(f"{'─' * 80}")
 
         # Run search with no max_nodes limit
-        learned_domain, conflicts, model_constraints, fluent_patches, cost, report = search.run(
+        learned_domain, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = search.run(
             observations=[self.masked_observation], max_nodes=None
         )
 
@@ -438,7 +438,7 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         )
 
         # Run search with no max_nodes limit
-        learned_domain, conflicts, model_constraints, fluent_patches, cost, report = search.run(
+        learned_domain, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = search.run(
             observations=[self.masked_observation],
             max_nodes=None,
             initial_fluent_patches={fluent_patch}

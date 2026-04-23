@@ -59,8 +59,8 @@ from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 from pddl_plus_parser.models import Domain
 from utilities import NegativePreconditionPolicy
 
-from src.pi_sam.noisy_pisam.simpler_version.simple_noisy_pisam_learning import NoisyPisamLearner
-from src.pi_sam.noisy_pisam.simpler_version.typings import (
+from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
+from src.pi_sam.noisy_pisam.typings import (
     FluentLevelPatch,
     ModelLevelPatch,
     ParameterBoundLiteral,
