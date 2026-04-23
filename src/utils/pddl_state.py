@@ -14,7 +14,7 @@ from pddl_plus_parser.models import (
 # ============================================================================
 
 def get_state_grounded_predicates(state: State) -> Set[GroundedPredicate]:
-    return set.union(*state.state_predicates.values())
+    return set().union(*state.state_predicates.values())
 
 
 def get_state_unmasked_predicates(state: State) -> Set[GroundedPredicate]:
