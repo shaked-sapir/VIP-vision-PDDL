@@ -276,7 +276,7 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         print(f"{'─' * 80}")
 
         # Run search with no max_nodes limit
-        learned_domain, conflicts, model_constraints, fluent_patches, cost, report = search.run(
+        learned_domain, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = search.run(
             observations=[self.masked_observation], max_nodes=None
         )
 
@@ -438,7 +438,7 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         )
 
         # Run search with no max_nodes limit
-        learned_domain, conflicts, model_constraints, fluent_patches, cost, report = search.run(
+        learned_domain, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = search.run(
             observations=[self.masked_observation],
             max_nodes=None,
             initial_fluent_patches={fluent_patch}
