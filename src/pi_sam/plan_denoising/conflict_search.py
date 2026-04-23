@@ -4,7 +4,7 @@ import json
 import logging
 import statistics
 import time
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from copy import deepcopy, copy
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,7 +44,7 @@ class DefaultSearchLogger(logging.Logger):
         self.debug(msg)
 
 
-class ConflictDrivenPatchSearchBase:
+class ConflictDrivenPatchSearchBase(ABC):
     """
     Conflict-driven patch search with state-based pruning.
 
