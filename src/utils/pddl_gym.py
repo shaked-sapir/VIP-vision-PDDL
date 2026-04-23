@@ -46,7 +46,7 @@ def parse_gym_to_pddl_literal(literal: str) -> str:
 
 
 def parse_gym_to_pddl_ground_action(ground_action_str: str) -> str:
-    """Convert 'put-down(a:block, robot:robot)' -> '(putdown a robot)'"""
+    """Convert 'put-down(a:block, robot:robot)' -> '(put-down a robot)'"""
     if '(' in ground_action_str:
         name, args = ground_action_str.split('(')
         args = args.rstrip(')')
