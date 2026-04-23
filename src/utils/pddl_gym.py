@@ -58,6 +58,8 @@ def parse_gym_to_pddl_ground_action(ground_action_str: str) -> str:
 
 
 def multi_replace_predicate(p: str, mapping: dict[str, str]) -> str:
+    if not mapping:
+        return p
     keys = sorted(mapping.keys(), key=len, reverse=True)
     pattern = re.compile(r'\b(?:' + '|'.join(map(re.escape, keys)) + r')\b')
     return pattern.sub(lambda m: mapping[m.group(0)], p)
