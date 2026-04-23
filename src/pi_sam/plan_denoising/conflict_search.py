@@ -70,13 +70,22 @@ class ConflictDrivenPatchSearchBase:
         search_mode: SearchMode = SearchMode.ANYTIME_DFS,
         conflict_free_models_dir: Optional[Path] = None,
         save_t_prime_fn: Optional[Callable[[List[Observation], Path], None]] = None,
+        fluent_patch_cost: float = 1.0,
+        model_patch_cost: float = 1.0,
+        **kwargs,
     ):
+        if kwargs:
+            unexpected_kwargs = ", ".join(sorted(kwargs.keys()))
+            raise TypeError(f"Unexpected keyword argument(s): {unexpected_kwargs}")
+
         self.partial_domain_template = partial_domain_template
         self.negative_preconditions_policy = negative_preconditions_policy
         self.seed = seed
         self.search_mode = search_mode
         self.conflict_free_models_dir = conflict_free_models_dir
         self.save_t_prime_fn = save_t_prime_fn
+        self.fluent_patch_cost = fluent_patch_cost
+        self.model_patch_cost = model_patch_cost
         self._conflict_free_model_counter = 0
 
         if logger is None:
