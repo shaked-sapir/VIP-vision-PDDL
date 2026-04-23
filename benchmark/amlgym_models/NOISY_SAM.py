@@ -8,7 +8,7 @@ from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, Trajector
 from pddl_plus_parser.models import Observation
 from utilities import NegativePreconditionPolicy
 
-from src.pi_sam.plan_denoising.conflict_search_regular_sam import ConflictDrivenPatchSearch
+from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearchSAM
 
 
 @dataclass
@@ -56,7 +56,7 @@ class NOISY_SAM(AlgorithmAdapter):
 
         # Instantiate SAM algorithm
         partial_domain = DomainParser(Path(domain_path), partial_parsing=True).parse_domain()
-        conflict_search = ConflictDrivenPatchSearch(
+        conflict_search = ConflictDrivenPatchSearchSAM(
             partial_domain_template=deepcopy(partial_domain),
             negative_preconditions_policy=self.negative_precondition_policy,
             seed=self.seed,

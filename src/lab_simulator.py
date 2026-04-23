@@ -247,7 +247,7 @@ class LabSimulatorRunner:
             logger=None
         )
 
-        learned_domain, conflicts, model_constraints, fluent_patches, cost, report = search.run(
+        learned_domain, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = search.run(
             observations=masked_observations,
             max_nodes=self.max_search_nodes
         )
