@@ -28,9 +28,9 @@ class SearchMode(Enum):
 class SearchNode:
     """Search node ordered by (cost, depth).
 
-    cost = number of fluent patches (lower is better).
+    cost = weighted sum of fluent patches and model constraints (lower is better).
     """
-    cost: int
+    cost: float
     depth: int
     model_constraints: Dict[Key, PatchOperation] = field(compare=False)
     fluent_patches: Set[FluentLevelPatch] = field(compare=False)

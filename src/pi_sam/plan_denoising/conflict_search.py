@@ -71,7 +71,9 @@ class ConflictDrivenPatchSearchBase(ABC):
         conflict_free_models_dir: Optional[Path] = None,
         save_t_prime_fn: Optional[Callable[[List[Observation], Path], None]] = None,
         fluent_patch_cost: float = 1.0,
+        fluent_patch_weight: float = 1.0,
         model_patch_cost: float = 1.0,
+        model_constraint_weight: float = 0.0,
         **kwargs,
     ):
         if kwargs:
@@ -85,7 +87,9 @@ class ConflictDrivenPatchSearchBase(ABC):
         self.conflict_free_models_dir = conflict_free_models_dir
         self.save_t_prime_fn = save_t_prime_fn
         self.fluent_patch_cost = fluent_patch_cost
+        self.fluent_patch_weight = fluent_patch_weight
         self.model_patch_cost = model_patch_cost
+        self.model_constraint_weight = model_constraint_weight
         self._conflict_free_model_counter = 0
 
         if logger is None:
@@ -107,6 +111,26 @@ class ConflictDrivenPatchSearchBase(ABC):
     def _create_learner(self, domain_copy: Domain) -> NoisyLearnerMixin:
         """Create a fresh noisy learner for one expansion."""
         ...
+
+    # ------------------------------------------------------------------
+    # Cost
+    # ------------------------------------------------------------------
+
+    def _compute_cost(
+        self,
+        fluent_patches: Set[FluentLevelPatch],
+        model_constraints: Dict[Key, PatchOperation],
+    ) -> float:
+        """Weighted cost of a search node.
+
+        cost = fluent_patch_weight * fluent_patch_cost * |fluent_patches|
+             + model_constraint_weight * model_patch_cost * |model_constraints|
+
+        With default weights (fluent_patch_weight=1.0, model_constraint_weight=0.0) this reduces to
+        the original cost function: fluent_patch_cost * |fluent_patches|.
+        """
+        return (self.fluent_patch_weight * self.fluent_patch_cost * len(fluent_patches)
+                + self.model_constraint_weight * self.model_patch_cost * len(model_constraints))
 
     # ------------------------------------------------------------------
     # Model / timing persistence
@@ -203,7 +227,7 @@ class ConflictDrivenPatchSearchBase(ABC):
 
         frontier: Frontier = make_frontier(self.search_mode)
         frontier.push(SearchNode(
-            cost=len(root_fluent_patches),
+            cost=self._compute_cost(root_fluent_patches, root_constraints),
             depth=0,
             model_constraints=root_constraints,
             fluent_patches=root_fluent_patches,
@@ -223,14 +247,14 @@ class ConflictDrivenPatchSearchBase(ABC):
         last_constraints = root_constraints
         last_fluent_patches = root_fluent_patches
         last_report: Dict[str, str] = {}
-        last_cost: int = len(root_fluent_patches)
+        last_cost: float = self._compute_cost(root_fluent_patches, root_constraints)
 
         # Best conflict-free solution found so far (anytime tracking)
         best_domain: Optional[LearnerDomain] = None
         best_constraints: Dict[Key, PatchOperation] = {}
         best_fluent_patches: Set[FluentLevelPatch] = set()
         best_report: Dict[str, str] = {}
-        best_patch_count: int = float("inf")
+        best_cost: float = float("inf")
         conflict_free_count: int = 0
 
         while frontier:
@@ -254,11 +278,11 @@ class ConflictDrivenPatchSearchBase(ABC):
 
             nodes_expanded += 1
             max_depth = max(max_depth, node.depth)
-            current_patch_count = len(node.fluent_patches)
-            node.cost = current_patch_count
+            current_cost = self._compute_cost(node.fluent_patches, node.model_constraints)
+            node.cost = current_cost
 
-            # Branch-and-bound: prune if we already have a better solution
-            if best_domain is not None and current_patch_count >= best_patch_count:
+            # Branch-and-bound: prune if we already have a better or equal solution
+            if best_domain is not None and current_cost >= best_cost:
                 continue
 
             # --- Expand node ---
@@ -272,7 +296,9 @@ class ConflictDrivenPatchSearchBase(ABC):
                 "node_index": len(node_expansion_times),
                 "wall_time_seconds": round(wall_time, 4),
                 "depth": node.depth,
-                "patch_count": current_patch_count,
+                "cost": current_cost,
+                "fluent_patch_count": len(node.fluent_patches),
+                "model_constraint_count": len(node.model_constraints),
                 "nodes_expanded_so_far": nodes_expanded,
             })
 
@@ -281,7 +307,7 @@ class ConflictDrivenPatchSearchBase(ABC):
             last_constraints = node.model_constraints
             last_fluent_patches = node.fluent_patches
             last_report = report
-            last_cost = current_patch_count
+            last_cost = current_cost
 
             # Post-expansion timeout check
             if timeout_seconds is not None and (time.time() - start_time) >= timeout_seconds:
@@ -299,14 +325,16 @@ class ConflictDrivenPatchSearchBase(ABC):
                 )
                 self._save_conflict_free_model(domain, patched_obs)
 
-                if current_patch_count < best_patch_count:
+                if current_cost < best_cost:
                     best_domain = domain
                     best_constraints = node.model_constraints
                     best_fluent_patches = node.fluent_patches
                     best_report = report
-                    best_patch_count = current_patch_count
+                    best_cost = current_cost
                     self.logger.info(
-                        f"New best solution: patches={best_patch_count}, "
+                        f"New best solution: cost={best_cost:.2f} "
+                        f"(fluent_patches={len(node.fluent_patches)}, "
+                        f"model_constraints={len(node.model_constraints)}), "
                         f"nodes_expanded={nodes_expanded}, depth={node.depth}"
                     )
 
@@ -320,7 +348,7 @@ class ConflictDrivenPatchSearchBase(ABC):
             group = self._choose_conflict_group(conflict_groups)
 
             # Child A: DATA-FIX (fluent patches for all conflicts in the group)
-            child_a_constraints = dict(node.model_constraints)
+            child_a_model_constraints = dict(node.model_constraints)
             child_a_fluent_patches = set(node.fluent_patches)
             changed = False
             for c in group:
@@ -332,9 +360,9 @@ class ConflictDrivenPatchSearchBase(ABC):
             if changed:
                 child_a_fluent_patches = self._dedup_patches(child_a_fluent_patches)
                 frontier.push(SearchNode(
-                    cost=len(child_a_fluent_patches),
+                    cost=self._compute_cost(child_a_fluent_patches, child_a_model_constraints),
                     depth=node.depth + 1,
-                    model_constraints=child_a_constraints,
+                    model_constraints=child_a_model_constraints,
                     fluent_patches=child_a_fluent_patches,
                 ))
 
@@ -345,11 +373,12 @@ class ConflictDrivenPatchSearchBase(ABC):
                     rep_conflict, dict(node.model_constraints),
                 )
                 if new_constraints != node.model_constraints:
+                    child_b_fluent_patches = set(node.fluent_patches)
                     frontier.push(SearchNode(
-                        cost=len(node.fluent_patches),
+                        cost=self._compute_cost(child_b_fluent_patches, new_constraints),
                         depth=node.depth + 1,
                         model_constraints=new_constraints,
-                        fluent_patches=set(node.fluent_patches),
+                        fluent_patches=child_b_fluent_patches,
                     ))
 
         # ------------------------------------------------------------------
@@ -364,7 +393,7 @@ class ConflictDrivenPatchSearchBase(ABC):
             final_conflicts: List[Conflict] = []
             final_constraints = best_constraints
             final_fluent_patches = best_fluent_patches
-            final_cost = best_patch_count
+            final_cost = best_cost
             base_report = best_report
         else:
             final_domain = last_domain
@@ -388,7 +417,13 @@ class ConflictDrivenPatchSearchBase(ABC):
                 max_depth=max_depth,
                 terminated_by=terminated_by,
                 total_time_seconds=total_time,
-                best_patch_count=(best_patch_count if best_domain is not None else None),
+                best_cost=(best_cost if best_domain is not None else None),
+                best_fluent_patch_count=(len(best_fluent_patches) if best_domain is not None else None),
+                best_model_constraint_count=(len(best_constraints) if best_domain is not None else None),
+                fluent_patch_cost=self.fluent_patch_cost,
+                fluent_patch_weight=self.fluent_patch_weight,
+                model_patch_cost=self.model_patch_cost,
+                model_constraint_weight=self.model_constraint_weight,
                 conflict_free_model_count=conflict_free_count,
             )
         )
