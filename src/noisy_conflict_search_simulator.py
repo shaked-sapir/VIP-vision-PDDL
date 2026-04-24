@@ -34,10 +34,12 @@ class NoisyConflictSearchExperimentRunner(OfflinePiSamExperimentRunner):
         domain_file_name: str,
         problem_prefix: str = "problem",
         n_split: int = 5,
-        fluent_patch_cost: int = 1,
-        model_patch_cost: int = 1,
+        fluent_patch_cost: float = 1.0,
+        fluent_patch_weight: float = 1.0,
+        model_patch_cost: float = 1.0,
+        model_constraint_weight: float = 0.0,
         max_search_nodes: int = None,
-        seed: int = 42
+        seed: int = 42,
     ):
         """
         Initialize the noisy conflict search experiment runner.
@@ -46,8 +48,10 @@ class NoisyConflictSearchExperimentRunner(OfflinePiSamExperimentRunner):
         :param domain_file_name: Name of the domain file.
         :param problem_prefix: Prefix for problem files.
         :param n_split: Number of cross-validation folds.
-        :param fluent_patch_cost: Cost of adding a fluent patch.
-        :param model_patch_cost: Cost of adding a model constraint.
+        :param fluent_patch_cost: Per-patch cost for fluent patches.
+        :param fluent_patch_weight: Weight multiplier for fluent patch cost.
+        :param model_patch_cost: Per-patch cost for model constraints.
+        :param model_constraint_weight: Weight multiplier for model constraint cost (0.0 = free).
         :param max_search_nodes: Maximum nodes to explore in search (None = unlimited).
         :param seed: Random seed for reproducibility.
         """
@@ -55,18 +59,22 @@ class NoisyConflictSearchExperimentRunner(OfflinePiSamExperimentRunner):
             working_directory_path=working_directory_path,
             domain_file_name=domain_file_name,
             problem_prefix=problem_prefix,
-            n_split=n_split
+            n_split=n_split,
         )
 
         self.fluent_patch_cost = fluent_patch_cost
+        self.fluent_patch_weight = fluent_patch_weight
         self.model_patch_cost = model_patch_cost
+        self.model_constraint_weight = model_constraint_weight
         self.max_search_nodes = max_search_nodes
         self.seed = seed
 
-        self.logger.info(f"Initialized NoisyConflictSearchExperimentRunner")
+        self.logger.info("Initialized NoisyConflictSearchExperimentRunner")
         self.logger.info(f"  Fluent patch cost: {fluent_patch_cost}")
+        self.logger.info(f"  Fluent patch weight: {fluent_patch_weight}")
         self.logger.info(f"  Model patch cost: {model_patch_cost}")
-        self.logger.info(f"  Max search nodes: {max_search_nodes if max_search_nodes else 'unlimited'}")
+        self.logger.info(f"  Model constraint weight: {model_constraint_weight}")
+        self.logger.info(f"  Max search nodes: {max_search_nodes or 'unlimited'}")
         self.logger.info(f"  Random seed: {seed}")
 
     def _apply_learning_algorithm(
@@ -95,9 +103,10 @@ class NoisyConflictSearchExperimentRunner(OfflinePiSamExperimentRunner):
             partial_domain_template=deepcopy(partial_domain),
             negative_preconditions_policy=self.negative_precondition_policy,
             fluent_patch_cost=self.fluent_patch_cost,
+            fluent_patch_weight=self.fluent_patch_weight,
             model_patch_cost=self.model_patch_cost,
+            model_constraint_weight=self.model_constraint_weight,
             seed=self.seed,
-            logger=None  # No tree logging during cross-validation for performance
         )
 
         # Run search on all observations
@@ -192,10 +201,12 @@ class NoisyConflictSearchSimulator(Simulator):
         fluent_classification_model_name: str,
         fluent_classification_temperature: float,
         experiment_dir_path: Path = Path("noisy_conflict_experiments"),
-        fluent_patch_cost: int = 1,
-        model_patch_cost: int = 1,
+        fluent_patch_cost: float = 1.0,
+        fluent_patch_weight: float = 1.0,
+        model_patch_cost: float = 1.0,
+        model_constraint_weight: float = 0.0,
         max_search_nodes: int = None,
-        seed: int = 42
+        seed: int = 42,
     ):
         """
         Initialize the noisy conflict search simulator.
@@ -209,8 +220,10 @@ class NoisyConflictSearchSimulator(Simulator):
         :param fluent_classification_model_name: LLM model name for fluent classification.
         :param fluent_classification_temperature: Temperature for fluent classification LLM.
         :param experiment_dir_path: Directory for experiment outputs.
-        :param fluent_patch_cost: Cost of adding a fluent patch in search.
-        :param model_patch_cost: Cost of adding a model constraint in search.
+        :param fluent_patch_cost: Per-patch cost for fluent patches.
+        :param fluent_patch_weight: Weight multiplier for fluent patch cost.
+        :param model_patch_cost: Per-patch cost for model constraints.
+        :param model_constraint_weight: Weight multiplier for model constraint cost (0.0 = free).
         :param max_search_nodes: Maximum nodes to explore in search (None = unlimited).
         :param seed: Random seed for reproducibility.
         """
@@ -223,18 +236,22 @@ class NoisyConflictSearchSimulator(Simulator):
             object_detection_temperature=object_detection_temperature,
             fluent_classification_model_name=fluent_classification_model_name,
             fluent_classification_temperature=fluent_classification_temperature,
-            experiment_dir_path=experiment_dir_path
+            experiment_dir_path=experiment_dir_path,
         )
 
         self.fluent_patch_cost = fluent_patch_cost
+        self.fluent_patch_weight = fluent_patch_weight
         self.model_patch_cost = model_patch_cost
+        self.model_constraint_weight = model_constraint_weight
         self.max_search_nodes = max_search_nodes
         self.seed = seed
 
-        print(f"NoisyConflictSearchSimulator initialized")
+        print("NoisyConflictSearchSimulator initialized")
         print(f"  Fluent patch cost: {fluent_patch_cost}")
+        print(f"  Fluent patch weight: {fluent_patch_weight}")
         print(f"  Model patch cost: {model_patch_cost}")
-        print(f"  Max search nodes: {max_search_nodes if max_search_nodes else 'unlimited'}")
+        print(f"  Model constraint weight: {model_constraint_weight}")
+        print(f"  Max search nodes: {max_search_nodes or 'unlimited'}")
         print(f"  Random seed: {seed}")
 
     def run_cross_validation_with_conflict_search(
@@ -341,9 +358,11 @@ class NoisyConflictSearchSimulator(Simulator):
             domain_file_name=self.pddl_domain_file.name,
             problem_prefix="problem",
             fluent_patch_cost=self.fluent_patch_cost,
+            fluent_patch_weight=self.fluent_patch_weight,
             model_patch_cost=self.model_patch_cost,
+            model_constraint_weight=self.model_constraint_weight,
             max_search_nodes=self.max_search_nodes,
-            seed=self.seed
+            seed=self.seed,
         )
 
         experiment_runner.run_cross_validation()
@@ -401,10 +420,12 @@ if __name__ == '__main__':
         fluent_classification_model_name=fluent_classification_model_name,
         fluent_classification_temperature=fluent_classification_temperature,
         experiment_dir_path=Path("noisy_conflict_experiments"),
-        fluent_patch_cost=1,
-        model_patch_cost=1,
-        max_search_nodes=None,  # Limit search for efficiency
-        seed=42
+        fluent_patch_cost=1.0,
+        fluent_patch_weight=1.0,
+        model_patch_cost=1.0,
+        model_constraint_weight=0.0,
+        max_search_nodes=None,
+        seed=42,
     )
 
     # Configuration for cross-validation experiment
