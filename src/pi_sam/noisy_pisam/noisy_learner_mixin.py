@@ -374,10 +374,7 @@ class NoisyLearnerMixin:
                         grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
                     ))
 
-        if local_conflicts:
-            self.conflicts.extend(local_conflicts)
-            return
-
+        self.conflicts.extend(local_conflicts)
         self._delegate_handle_effects(grounded_action, previous_state, next_state)
 
     # ------------------------------------------------------------------
