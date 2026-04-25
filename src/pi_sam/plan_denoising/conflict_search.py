@@ -5,7 +5,7 @@ import logging
 import statistics
 import time
 from abc import ABC, abstractmethod
-from copy import deepcopy, copy
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Set, Tuple, List, Sequence, Optional
@@ -559,19 +559,26 @@ class ConflictDrivenPatchSearchBase(ABC):
         conflict: Conflict,
         model_patches: Dict[Key, PatchOperation],
     ) -> Dict[Key, PatchOperation]:
+        """
+        Build/update model constraints based on a representative conflict.
+
+        Rules:
+          - map conflict type to a desired operation
+          - no-op if key already has the desired operation
+          - otherwise set/replace key with desired operation
+        """
         key: Key = self._conflict_to_key(conflict)
-        new = copy(model_patches)
-        existing_op = model_patches.get(key)
+        desired_op = {
+            ConflictType.REQUIRE_EFFECT_VS_CANNOT: PatchOperation.FORBID,
+            ConflictType.FORBID_EFFECT_VS_MUST: PatchOperation.REQUIRE,
+        }.get(conflict.conflict_type)
+        if desired_op is None:
+            return dict(model_patches)
 
-        if existing_op is None:
-            if conflict.conflict_type == ConflictType.REQUIRE_EFFECT_VS_CANNOT:
-                new[key] = PatchOperation.FORBID
-            elif conflict.conflict_type == ConflictType.FORBID_EFFECT_VS_MUST:
-                new[key] = PatchOperation.REQUIRE
-        else:
-            del new[key]
-
-        return new
+        # No-op if already at desired op; otherwise set/replace to desired op.
+        if model_patches.get(key) == desired_op:
+            return dict(model_patches)
+        return {**model_patches, key: desired_op}
 
     # ------------------------------------------------------------------
     # Learner interaction
