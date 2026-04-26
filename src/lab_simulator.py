@@ -56,11 +56,13 @@ class LabSimulatorRunner:
         domain_file_name: str,
         problem_prefix: str = "problem",
         n_split: int = 5,
-        fluent_patch_cost: int = 1,
-        model_patch_cost: int = 1,
+        fluent_patch_cost: float = 1.0,
+        fluent_patch_weight: float = 1.0,
+        model_patch_cost: float = 1.0,
+        model_constraint_weight: float = 0.0,
         max_search_nodes: Optional[int] = None,
         seed: int = 42,
-        negative_precondition_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard
+        negative_precondition_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard,
     ):
         """
         Initialize the lab simulator.
@@ -69,8 +71,10 @@ class LabSimulatorRunner:
         :param domain_file_name: Name of the domain file.
         :param problem_prefix: Prefix for problem files.
         :param n_split: Number of cross-validation folds.
-        :param fluent_patch_cost: Cost for fluent patches in conflict search.
-        :param model_patch_cost: Cost for model patches in conflict search.
+        :param fluent_patch_cost: Per-patch cost for fluent patches.
+        :param fluent_patch_weight: Weight multiplier for fluent patch cost.
+        :param model_patch_cost: Per-patch cost for model constraints.
+        :param model_constraint_weight: Weight multiplier for model constraint cost (0.0 = free).
         :param max_search_nodes: Max nodes for conflict search (None = unlimited).
         :param seed: Random seed.
         :param negative_precondition_policy: Policy for negative preconditions.
@@ -84,7 +88,9 @@ class LabSimulatorRunner:
 
         # Conflict search parameters
         self.fluent_patch_cost = fluent_patch_cost
+        self.fluent_patch_weight = fluent_patch_weight
         self.model_patch_cost = model_patch_cost
+        self.model_constraint_weight = model_constraint_weight
         self.max_search_nodes = max_search_nodes
         self.seed = seed
 
@@ -242,9 +248,10 @@ class LabSimulatorRunner:
             partial_domain_template=deepcopy(partial_domain),
             negative_preconditions_policy=self.negative_precondition_policy,
             fluent_patch_cost=self.fluent_patch_cost,
+            fluent_patch_weight=self.fluent_patch_weight,
             model_patch_cost=self.model_patch_cost,
+            model_constraint_weight=self.model_constraint_weight,
             seed=self.seed,
-            logger=None
         )
 
         learned_domain, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = search.run(
@@ -701,8 +708,10 @@ def main():
     # Experiment parameters
     num_steps = 1
     n_split = 5
-    fluent_patch_cost = 1
-    model_patch_cost = 1
+    fluent_patch_cost = 1.0
+    fluent_patch_weight = 1.0
+    model_patch_cost = 1.0
+    model_constraint_weight = 0.0
     max_search_nodes = None  # Unlimited search
     seed = 42
 
@@ -776,9 +785,11 @@ def main():
         problem_prefix="problem",
         n_split=n_split,
         fluent_patch_cost=fluent_patch_cost,
+        fluent_patch_weight=fluent_patch_weight,
         model_patch_cost=model_patch_cost,
+        model_constraint_weight=model_constraint_weight,
         max_search_nodes=max_search_nodes,
-        seed=seed
+        seed=seed,
     )
 
     pisam_dir, noisy_dir = lab.run_cross_validation()

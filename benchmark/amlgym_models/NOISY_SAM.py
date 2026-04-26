@@ -31,8 +31,10 @@ class NOISY_SAM(AlgorithmAdapter):
     negative_precondition_policy = NegativePreconditionPolicy.hard
 
     # Conflict search parameters
-    fluent_patch_cost = 1
-    model_patch_cost = 1
+    fluent_patch_cost: float = 1.0
+    fluent_patch_weight: float = 1.0
+    model_patch_cost: float = 1.0
+    model_constraint_weight: float = 0.0
     max_search_nodes = None
     timeout_seconds = 60
     seed = 42
@@ -60,7 +62,10 @@ class NOISY_SAM(AlgorithmAdapter):
             partial_domain_template=deepcopy(partial_domain),
             negative_preconditions_policy=self.negative_precondition_policy,
             seed=self.seed,
-            logger=None
+            fluent_patch_cost=self.fluent_patch_cost,
+            fluent_patch_weight=self.fluent_patch_weight,
+            model_patch_cost=self.model_patch_cost,
+            model_constraint_weight=self.model_constraint_weight,
         )
         # Parse input trajectories
 

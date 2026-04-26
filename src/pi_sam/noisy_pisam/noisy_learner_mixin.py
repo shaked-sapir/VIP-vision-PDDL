@@ -12,7 +12,7 @@ from copy import deepcopy
 from typing import List, Set, Dict, Tuple
 
 from pddl_plus_parser.models import (
-    Observation, State, ActionCall, Predicate, GroundedPredicate, Action,
+    Observation, State, ActionCall, Predicate, GroundedPredicate, Action, ObservedComponent,
 )
 from sam_learning.core import LearnerDomain
 
@@ -70,6 +70,15 @@ class NoisyLearnerMixin:
     ) -> None:
         """Called on the no-conflict path to perform the base learner's
         normal effect update."""
+        ...
+
+    @abstractmethod
+    def handle_single_trajectory_component(self, component: ObservedComponent) -> None:
+        """Process one trajectory transition in the concrete learner.
+
+        The mixin owns the outer learning loop but delegates per-transition
+        processing (including add/update-action routing) to the concrete learner.
+        """
         ...
 
     # ------------------------------------------------------------------
@@ -374,10 +383,7 @@ class NoisyLearnerMixin:
                         grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
                     ))
 
-        if local_conflicts:
-            self.conflicts.extend(local_conflicts)
-            return
-
+        self.conflicts.extend(local_conflicts)
         self._delegate_handle_effects(grounded_action, previous_state, next_state)
 
     # ------------------------------------------------------------------
@@ -389,6 +395,19 @@ class NoisyLearnerMixin:
         observations: List[Observation],
         **kwargs,
     ) -> Tuple[LearnerDomain, Dict[str, str]]:
+        # Defensive contract check: this mixin expects concrete learners
+        # to implement per-component handling.
+        handler = getattr(type(self), "handle_single_trajectory_component", None)
+        if (
+            handler is None
+            or not callable(handler)
+            or handler is NoisyLearnerMixin.handle_single_trajectory_component
+        ):
+            raise TypeError(
+                f"{self.__class__.__name__} must override callable "
+                f"handle_single_trajectory_component(component)"
+            )
+
         self.logger.info("Starting noisy learner with conflict detection.")
 
         self.start_measure_learning_time()
