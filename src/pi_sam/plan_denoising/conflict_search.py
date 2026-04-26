@@ -6,7 +6,6 @@ import statistics
 import time
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Set, Tuple, List, Sequence, Optional
 
