@@ -397,10 +397,14 @@ class NoisyLearnerMixin:
     ) -> Tuple[LearnerDomain, Dict[str, str]]:
         # Defensive contract check: this mixin expects concrete learners
         # to implement per-component handling.
-        handler = getattr(self, "handle_single_trajectory_component", None)
-        if handler is None or not callable(handler):
+        handler = getattr(type(self), "handle_single_trajectory_component", None)
+        if (
+            handler is None
+            or not callable(handler)
+            or handler is NoisyLearnerMixin.handle_single_trajectory_component
+        ):
             raise TypeError(
-                f"{self.__class__.__name__} must implement callable "
+                f"{self.__class__.__name__} must override callable "
                 f"handle_single_trajectory_component(component)"
             )
 
