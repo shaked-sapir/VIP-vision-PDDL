@@ -210,7 +210,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         List[Conflict],
         Dict[Key, PatchOperation],
         Set[FluentLevelPatch],
-        int,
+        float,
         Dict[str, str],
         List[Observation],
     ]:
@@ -219,7 +219,7 @@ class ConflictDrivenPatchSearchBase(ABC):
 
         Returns:
             (learned_domain, conflicts, model_constraints, fluent_patches,
-             patch_count, learning_report, patched_observations)
+             cost, learning_report, patched_observations)
         """
         root_constraints: Dict[Key, PatchOperation] = initial_model_constraints or {}
         root_fluent_patches: Set[FluentLevelPatch] = initial_fluent_patches or set()
