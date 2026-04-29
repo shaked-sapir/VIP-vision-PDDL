@@ -12,7 +12,7 @@ from copy import deepcopy
 from typing import List, Set, Dict, Tuple
 
 from pddl_plus_parser.models import (
-    Observation, State, ActionCall, Predicate, GroundedPredicate, Action, ObservedComponent,
+    Observation, State, ActionCall, Predicate, GroundedPredicate, Action,
 )
 from sam_learning.core import LearnerDomain
 
@@ -70,15 +70,6 @@ class NoisyLearnerMixin:
     ) -> None:
         """Called on the no-conflict path to perform the base learner's
         normal effect update."""
-        ...
-
-    @abstractmethod
-    def handle_single_trajectory_component(self, component: ObservedComponent) -> None:
-        """Process one trajectory transition in the concrete learner.
-
-        The mixin owns the outer learning loop but delegates per-transition
-        processing (including add/update-action routing) to the concrete learner.
-        """
         ...
 
     # ------------------------------------------------------------------
@@ -397,12 +388,10 @@ class NoisyLearnerMixin:
     ) -> Tuple[LearnerDomain, Dict[str, str]]:
         # Defensive contract check: this mixin expects concrete learners
         # to implement per-component handling.
-        handler = getattr(type(self), "handle_single_trajectory_component", None)
-        if (
-            handler is None
-            or not callable(handler)
-            or handler is NoisyLearnerMixin.handle_single_trajectory_component
-        ):
+        # Accept concrete implementations inherited from any base class
+        # (e.g. PISAMLearner/SAMLearner), not only direct overrides.
+        handler = getattr(self, "handle_single_trajectory_component", None)
+        if handler is None or not callable(handler):
             raise TypeError(
                 f"{self.__class__.__name__} must override callable "
                 f"handle_single_trajectory_component(component)"

@@ -73,7 +73,7 @@ NUM_TRAJECTORIES_POOL = 8  # Typical value (0.8*10); actual pool is 0.8*n_proble
 GT_RATE_PERCENTAGES = [0, 10, 25, 50, 75, 100]  # Percentage of states to inject as GT (0 = only initial state)
 # GT_RATE_PERCENTAGES = [100]  # Percentage of states to inject as GT (0 = only initial state)
 FRAME_AXIOM_MODE = "after_gt_only"  # "after_gt_only" or "all_states"
-CONFLICT_SEARCH_TIMEOUTS = [60]  # Time limits in seconds for conflict search (cleaning phase). Can specify multiple values.
+CONFLICT_SEARCH_TIMEOUTS = [180]  # Time limits in seconds for conflict search (cleaning phase). Can specify multiple values.
 PLANNING_TIMEOUT = 60  # Timeout in seconds for planning during evaluation
 
 metric_cols = [

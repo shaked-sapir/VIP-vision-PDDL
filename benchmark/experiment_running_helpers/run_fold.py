@@ -258,6 +258,11 @@ def run_single_fold(
         # ==================================================
         print(f"  [PHASE 2] Denoising and re-learning...")
         
+        # Default cleaned-phase transition stats for error/fallback paths.
+        # If denoising succeeds, these may be recomputed/overridden below.
+        total_transitions_cleaned = total_transitions_unclean
+        total_gt_transitions_cleaned = total_gt_transitions_unclean
+
         # Initialize comparison flags
         cleaned_equals_unclean_pisam = None
         cleaned_equals_unclean_rosame = None
