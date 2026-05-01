@@ -108,7 +108,12 @@ def learn_sam_pisam(
     is_denoising: bool = False,
     conflict_search_timeout: int = None,
     profiler=None,
-    fold_work_dir: Path = None
+    fold_work_dir: Path = None,
+    fluent_patch_cost: float = 1.0,
+    fluent_patch_weight: float = 1.0,
+    model_patch_cost: float = 1.0,
+    model_constraint_weight: float = 0.0,
+    max_search_nodes: int = None,
 ) -> Tuple[str, dict, str, any]:
     """
     Learn SAM/PISAM model.
@@ -122,6 +127,11 @@ def learn_sam_pisam(
         conflict_search_timeout: Optional timeout in seconds for conflict search (cleaning phase)
         profiler: Optional TimingProfiler instance for detailed timing
         fold_work_dir: Optional fold working directory for saving conflict-free models
+        fluent_patch_cost: Per-patch cost for fluent patches in denoising conflict search
+        fluent_patch_weight: Weight multiplier for fluent patch cost in denoising conflict search
+        model_patch_cost: Per-patch cost for model constraints in denoising conflict search
+        model_constraint_weight: Weight multiplier for model constraint cost in denoising conflict search
+        max_search_nodes: Max denoising conflict-search nodes (None = unlimited)
 
     Returns:
         Tuple of (model, learning_report, algorithm_name, patched_observations)
@@ -138,6 +148,11 @@ def learn_sam_pisam(
         if is_denoising:
             if conflict_search_timeout is not None:
                 learner.timeout_seconds = conflict_search_timeout
+            learner.fluent_patch_cost = fluent_patch_cost
+            learner.fluent_patch_weight = fluent_patch_weight
+            learner.model_patch_cost = model_patch_cost
+            learner.model_constraint_weight = model_constraint_weight
+            learner.max_search_nodes = max_search_nodes
             # Capture actual timeout used (either explicit or default)
             actual_learning_timeout = learner.timeout_seconds
         
@@ -156,6 +171,11 @@ def learn_sam_pisam(
         if is_denoising:
             if conflict_search_timeout is not None:
                 learner.timeout_seconds = conflict_search_timeout
+            learner.fluent_patch_cost = fluent_patch_cost
+            learner.fluent_patch_weight = fluent_patch_weight
+            learner.model_patch_cost = model_patch_cost
+            learner.model_constraint_weight = model_constraint_weight
+            learner.max_search_nodes = max_search_nodes
             # Capture actual timeout used (either explicit or default)
             actual_learning_timeout = learner.timeout_seconds
         
@@ -167,6 +187,11 @@ def learn_sam_pisam(
         if report is None:
             report = {}
         report['actual_timeout_seconds'] = actual_learning_timeout
+        report['fluent_patch_cost'] = fluent_patch_cost
+        report['fluent_patch_weight'] = fluent_patch_weight
+        report['model_patch_cost'] = model_patch_cost
+        report['model_constraint_weight'] = model_constraint_weight
+        report['max_search_nodes'] = max_search_nodes
     
     return model, report, algo_name, patched_observations
 

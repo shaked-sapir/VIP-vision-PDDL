@@ -75,6 +75,11 @@ GT_RATE_PERCENTAGES = [0, 10, 25, 50, 75, 100]  # Percentage of states to inject
 FRAME_AXIOM_MODE = "after_gt_only"  # "after_gt_only" or "all_states"
 CONFLICT_SEARCH_TIMEOUTS = [180]  # Time limits in seconds for conflict search (cleaning phase). Can specify multiple values.
 PLANNING_TIMEOUT = 60  # Timeout in seconds for planning during evaluation
+FLUENT_PATCH_COST = 1.0
+FLUENT_PATCH_WEIGHT = 1.0
+MODEL_PATCH_COST = 1.0
+MODEL_CONSTRAINT_WEIGHT = 0.0
+MAX_SEARCH_NODES = None
 
 metric_cols = [
     "precision_precs_pos", "precision_precs_neg", "precision_eff_pos", "precision_eff_neg", "precision_overall",
@@ -142,6 +147,11 @@ def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Di
         "terminated_by": report.get("terminated_by", None),
         "conflict_free_model_count": report.get("conflict_free_model_count", None),
         "actual_timeout_seconds": report.get("actual_timeout_seconds", None),  # Actual timeout used (includes defaults)
+        "fluent_patch_cost": report.get("fluent_patch_cost", None),
+        "fluent_patch_weight": report.get("fluent_patch_weight", None),
+        "model_patch_cost": report.get("model_patch_cost", None),
+        "model_constraint_weight": report.get("model_constraint_weight", None),
+        "max_search_nodes": report.get("max_search_nodes", None),
     }
 
     # Add trajectory mapping if provided
@@ -620,7 +630,17 @@ def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plo
 # =============================================================================
 # MAIN EXPERIMENT LOOP
 # =============================================================================
-def main(selected_domains: List[str] = None, mode: str = 'masked'):
+def main(
+    selected_domains: List[str] = None,
+    mode: str = 'masked',
+    learning_timeout_seconds: int = 180,
+    planning_timeout_seconds: int = 60,
+    fluent_patch_cost: float = 1.0,
+    fluent_patch_weight: float = 1.0,
+    model_patch_cost: float = 1.0,
+    model_constraint_weight: float = 0.0,
+    max_search_nodes: int = None,
+):
     """
     Run benchmark experiments.
 
@@ -693,7 +713,14 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
             print(f"GT rates: {GT_RATE_PERCENTAGES}")
             print(f"Frame axiom mode: {FRAME_AXIOM_MODE}")
             print(f"Conflict search timeouts: {CONFLICT_SEARCH_TIMEOUTS}")
-            print(f"Planning timeout: {PLANNING_TIMEOUT}s")
+            print(f"Planning timeout: {planning_timeout_seconds}s")
+            print(
+                f"Denoising params: fluent_cost={fluent_patch_cost}, "
+                f"fluent_weight={fluent_patch_weight}, "
+                f"model_cost={model_patch_cost}, "
+                f"model_constraint_weight={model_constraint_weight}, "
+                f"max_search_nodes={max_search_nodes if max_search_nodes is not None else 'unlimited'}"
+            )
             print(f"CV folds: {N_FOLDS}")
             print(f"{'=' * 80}\n")
 
@@ -723,7 +750,11 @@ def main(selected_domains: List[str] = None, mode: str = 'masked'):
                                     run_single_fold,
                                     fold, problem_dirs, n_problems, num_trajectories,
                                     gt_rate, domain_ref_path, testing_dir, bench_name, mode,
-                                    evaluate_model, save_learning_metrics, conflict_timeout, PLANNING_TIMEOUT
+                                    evaluate_model, save_learning_metrics,
+                                    conflict_timeout, planning_timeout_seconds,
+                                    fluent_patch_cost, fluent_patch_weight,
+                                    model_patch_cost, model_constraint_weight,
+                                    max_search_nodes,
                                 )
                                 futures.append(future)
 
@@ -1319,8 +1350,39 @@ if __name__ == "__main__":
                        help='Domain to run (blocksworld, hanoi, n_puzzle_typed, maze, or "all" for all domains)')
     parser.add_argument('--mode', type=str, default='masked', choices=['masked', 'fullyobs'],
                        help='Mode to run: "masked" (PISAM/PO_ROSAME) or "fullyobs" (SAM/ROSAME)')
+    parser.add_argument('--learning-timeout-seconds', type=int, default=CONFLICT_SEARCH_TIMEOUTS[0],
+                        help='Timeout in seconds for denoising conflict search')
+    parser.add_argument('--planning-timeout-seconds', type=int, default=PLANNING_TIMEOUT,
+                        help='Timeout in seconds for planning during evaluation')
+    parser.add_argument('--fluent-patch-cost', type=float, default=FLUENT_PATCH_COST,
+                        help='Per-patch cost for fluent patches in conflict search')
+    parser.add_argument('--fluent-patch-weight', type=float, default=FLUENT_PATCH_WEIGHT,
+                        help='Weight multiplier for fluent patch cost in conflict search')
+    parser.add_argument('--model-patch-cost', type=float, default=MODEL_PATCH_COST,
+                        help='Per-patch cost for model patches/constraints in conflict search')
+    parser.add_argument('--model-constraint-weight', type=float, default=MODEL_CONSTRAINT_WEIGHT,
+                        help='Weight multiplier for model constraint cost in conflict search')
+    parser.add_argument('--max-search-nodes', type=int, default=0,
+                        help='Max conflict-search nodes; <=0 means unlimited')
 
     args = parser.parse_args()
+
+    if args.learning_timeout_seconds <= 0:
+        parser.error("--learning-timeout-seconds must be > 0")
+    if args.planning_timeout_seconds <= 0:
+        parser.error("--planning-timeout-seconds must be > 0")
+    if args.fluent_patch_cost < 0:
+        parser.error("--fluent-patch-cost must be >= 0")
+    if args.fluent_patch_weight < 0:
+        parser.error("--fluent-patch-weight must be >= 0")
+    if args.model_patch_cost < 0:
+        parser.error("--model-patch-cost must be >= 0")
+    if args.model_constraint_weight < 0:
+        parser.error("--model-constraint-weight must be >= 0")
+
+    # CLI controls a single timeout value for this run.
+    CONFLICT_SEARCH_TIMEOUTS = [args.learning_timeout_seconds]
+    max_search_nodes = None if args.max_search_nodes <= 0 else args.max_search_nodes
 
     # Determine which domains to run
     if args.domain == 'all':
@@ -1333,4 +1395,14 @@ if __name__ == "__main__":
             exit(1)
         selected_domains = [args.domain]
 
-    main(selected_domains=selected_domains, mode=args.mode)
+    main(
+        selected_domains=selected_domains,
+        mode=args.mode,
+        learning_timeout_seconds=args.learning_timeout_seconds,
+        planning_timeout_seconds=args.planning_timeout_seconds,
+        fluent_patch_cost=args.fluent_patch_cost,
+        fluent_patch_weight=args.fluent_patch_weight,
+        model_patch_cost=args.model_patch_cost,
+        model_constraint_weight=args.model_constraint_weight,
+        max_search_nodes=max_search_nodes,
+    )

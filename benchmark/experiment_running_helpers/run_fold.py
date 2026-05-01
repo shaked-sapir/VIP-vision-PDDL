@@ -83,7 +83,12 @@ def run_single_fold(
     evaluate_model_func,
     save_learning_metrics_func,
     conflict_search_timeout: int = None,
-    planning_timeout: int = 60
+    planning_timeout: int = 60,
+    fluent_patch_cost: float = 1.0,
+    fluent_patch_weight: float = 1.0,
+    model_patch_cost: float = 1.0,
+    model_constraint_weight: float = 0.0,
+    max_search_nodes: int = None,
 ) -> List[dict]:
     """
     Run a single fold experiment with specified number of trajectories and GT rate.
@@ -102,6 +107,11 @@ def run_single_fold(
         save_learning_metrics_func: Function to save learning metrics
         conflict_search_timeout: Optional timeout in seconds for conflict search (cleaning phase)
         planning_timeout: Timeout in seconds for planning during evaluation (default: 60)
+        fluent_patch_cost: Per-patch cost for fluent patches in denoising conflict search.
+        fluent_patch_weight: Weight multiplier for fluent patch cost in denoising conflict search.
+        model_patch_cost: Per-patch cost for model patches in denoising conflict search.
+        model_constraint_weight: Weight multiplier for model constraint cost in denoising conflict search.
+        max_search_nodes: Max conflict-search nodes in denoising phase (None = unlimited).
 
     Returns:
         List of 4 dicts with results for: unclean SAM/PISAM, unclean ROSAME, cleaned SAM/PISAM, cleaned ROSAME
@@ -204,7 +214,16 @@ def run_single_fold(
         sam_algo_name = 'PISAM' if mode == 'masked' else 'SAM'
         with profiler.time_operation(f"learning_sam_pisam_unclean_{sam_algo_name}"):
             sam_unclean_model, sam_report, sam_algo_name, _ = learn_sam_pisam(
-                mode, domain_ref_path, prepared_trajectories, testing_dir, is_denoising=False, conflict_search_timeout=conflict_search_timeout, profiler=profiler, fold_work_dir=fold_work_dir
+                mode, domain_ref_path, prepared_trajectories, testing_dir,
+                is_denoising=False,
+                conflict_search_timeout=conflict_search_timeout,
+                profiler=profiler,
+                fold_work_dir=fold_work_dir,
+                fluent_patch_cost=fluent_patch_cost,
+                fluent_patch_weight=fluent_patch_weight,
+                model_patch_cost=model_patch_cost,
+                model_constraint_weight=model_constraint_weight,
+                max_search_nodes=max_search_nodes,
             )
         print(f"  [PHASE 1] SAM/PISAM learning done, saving metrics...")
         save_learning_metrics_func(fold_work_dir, sam_report)
@@ -275,8 +294,16 @@ def run_single_fold(
             denoiser_algo_name = 'NOISY_PISAM' if mode == 'masked' else 'NOISY_SAM'
             with profiler.time_operation(f"learning_sam_pisam_cleaned_{denoiser_algo_name}"):
                 cleaned_model, denoising_report, denoiser_algo_name, patched_observations = learn_sam_pisam(
-                    mode, domain_ref_path, prepared_trajectories, testing_dir, is_denoising=True,
-                    conflict_search_timeout=conflict_search_timeout, profiler=profiler, fold_work_dir=fold_work_dir
+                    mode, domain_ref_path, prepared_trajectories, testing_dir,
+                    is_denoising=True,
+                    conflict_search_timeout=conflict_search_timeout,
+                    profiler=profiler,
+                    fold_work_dir=fold_work_dir,
+                    fluent_patch_cost=fluent_patch_cost,
+                    fluent_patch_weight=fluent_patch_weight,
+                    model_patch_cost=model_patch_cost,
+                    model_constraint_weight=model_constraint_weight,
+                    max_search_nodes=max_search_nodes,
                 )
             print(f"  [PHASE 2] Denoising complete, saving metrics...")
             save_learning_metrics_func(fold_work_dir, denoising_report)
