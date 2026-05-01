@@ -664,6 +664,31 @@ def main(
     else:
         domains_to_run = domain_name_mappings
 
+    # Persist effective run configuration for reproducibility/debugging.
+    run_params = {
+        "timestamp": datetime.now().isoformat(),
+        "mode": mode,
+        "selected_domains": selected_domains if selected_domains is not None else "all",
+        "domains_to_run": list(domains_to_run.keys()),
+        "experiment_data_dirs": {d: experiment_data_dirs[d] for d in domains_to_run.keys()},
+        "n_folds": N_FOLDS,
+        "num_trajectories_list": NUM_TRAJECTORIES_LIST,
+        "gt_rate_percentages": GT_RATE_PERCENTAGES,
+        "frame_axiom_mode": FRAME_AXIOM_MODE,
+        "learning_timeout_seconds": learning_timeout_seconds,
+        "conflict_search_timeouts": CONFLICT_SEARCH_TIMEOUTS,
+        "planning_timeout_seconds": planning_timeout_seconds,
+        "fluent_patch_cost": fluent_patch_cost,
+        "fluent_patch_weight": fluent_patch_weight,
+        "model_patch_cost": model_patch_cost,
+        "model_constraint_weight": model_constraint_weight,
+        "max_search_nodes": max_search_nodes,
+    }
+    run_params_path = evaluation_results_dir / "run_params.json"
+    with open(run_params_path, "w") as f:
+        json.dump(run_params, f, indent=2)
+    print(f"Saved run params to: {run_params_path}")
+
     print(f"\n{'='*80}")
     print(f"RUNNING BENCHMARK IN {mode.upper()} MODE")
     print(f"Domains: {list(domains_to_run.keys())}")
