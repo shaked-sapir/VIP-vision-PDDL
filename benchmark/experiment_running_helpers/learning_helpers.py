@@ -80,6 +80,10 @@ def _learn_pisam_with_profiling(
             negative_preconditions_policy=learner.negative_precondition_policy,
             seed=learner.seed,
             logger=None,
+            fluent_patch_cost=learner.fluent_patch_cost,
+            fluent_patch_weight=learner.fluent_patch_weight,
+            model_patch_cost=learner.model_patch_cost,
+            model_constraint_weight=learner.model_constraint_weight,
             conflict_free_models_dir=conflict_free_models_dir,
             save_t_prime_fn=save_t_prime_fn,
         )
