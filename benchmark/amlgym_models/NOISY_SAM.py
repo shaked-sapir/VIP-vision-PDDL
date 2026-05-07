@@ -9,6 +9,7 @@ from pddl_plus_parser.models import Observation
 from utilities import NegativePreconditionPolicy
 
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearchSAM
+from src.pi_sam.plan_denoising.frontier import NodeChoosingStrategy, SearchMode
 
 
 @dataclass
@@ -37,6 +38,8 @@ class NOISY_SAM(AlgorithmAdapter):
     model_constraint_weight: float = 0.0
     max_search_nodes = None
     timeout_seconds = 60
+    search_mode: SearchMode = SearchMode.ANYTIME_DFS
+    node_choosing_strategy: NodeChoosingStrategy = NodeChoosingStrategy.MODEL_PATCH_FIRST
     seed = 42
 
     def learn(self,
@@ -62,10 +65,12 @@ class NOISY_SAM(AlgorithmAdapter):
             partial_domain_template=deepcopy(partial_domain),
             negative_preconditions_policy=self.negative_precondition_policy,
             seed=self.seed,
+            search_mode=self.search_mode,
             fluent_patch_cost=self.fluent_patch_cost,
             fluent_patch_weight=self.fluent_patch_weight,
             model_patch_cost=self.model_patch_cost,
             model_constraint_weight=self.model_constraint_weight,
+            node_choosing_strategy=self.node_choosing_strategy,
         )
         # Parse input trajectories
 

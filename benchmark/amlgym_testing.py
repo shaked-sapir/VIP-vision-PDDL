@@ -152,6 +152,8 @@ def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Di
         "model_patch_cost": report.get("model_patch_cost", None),
         "model_constraint_weight": report.get("model_constraint_weight", None),
         "max_search_nodes": report.get("max_search_nodes", None),
+        "search_mode": report.get("search_mode", None),
+        "node_choosing_strategy": report.get("node_choosing_strategy", None),
     }
 
     # Add trajectory mapping if provided
@@ -640,6 +642,8 @@ def main(
     model_patch_cost: float = 1.0,
     model_constraint_weight: float = 0.0,
     max_search_nodes: int = None,
+    search_mode: str = "dfs",
+    node_choosing_strategy: str = "model_patch_first",
 ):
     """
     Run benchmark experiments.
@@ -683,6 +687,8 @@ def main(
         "model_patch_cost": model_patch_cost,
         "model_constraint_weight": model_constraint_weight,
         "max_search_nodes": max_search_nodes,
+        "search_mode": search_mode,
+        "node_choosing_strategy": node_choosing_strategy,
     }
     run_params_path = evaluation_results_dir / "run_params.json"
     with open(run_params_path, "w") as f:
@@ -744,7 +750,9 @@ def main(
                 f"fluent_weight={fluent_patch_weight}, "
                 f"model_cost={model_patch_cost}, "
                 f"model_constraint_weight={model_constraint_weight}, "
-                f"max_search_nodes={max_search_nodes if max_search_nodes is not None else 'unlimited'}"
+                f"max_search_nodes={max_search_nodes if max_search_nodes is not None else 'unlimited'}, "
+                f"search_mode={search_mode}, "
+                f"node_choosing_strategy={node_choosing_strategy}"
             )
             print(f"CV folds: {N_FOLDS}")
             print(f"{'=' * 80}\n")
@@ -780,6 +788,8 @@ def main(
                                     fluent_patch_cost, fluent_patch_weight,
                                     model_patch_cost, model_constraint_weight,
                                     max_search_nodes,
+                                    search_mode,
+                                    node_choosing_strategy,
                                 )
                                 futures.append(future)
 
@@ -1389,6 +1399,18 @@ if __name__ == "__main__":
                         help='Weight multiplier for model constraint cost in conflict search')
     parser.add_argument('--max-search-nodes', type=int, default=0,
                         help='Max conflict-search nodes; <=0 means unlimited')
+    parser.add_argument('--search-mode', type=str, default='dfs', choices=['dfs', 'ucs'],
+                        help='Conflict-search strategy for denoising: "dfs" (anytime DFS) or "ucs"')
+    parser.add_argument(
+        '--node-choosing-strategy',
+        type=str,
+        default='model_patch_first',
+        choices=['model_patch_first', 'fluent_patch_first', 'randomized'],
+        help=(
+            'Order strategy for inserting denoising branch children: '
+            '"model_patch_first", "fluent_patch_first", or "randomized"'
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -1430,4 +1452,6 @@ if __name__ == "__main__":
         model_patch_cost=args.model_patch_cost,
         model_constraint_weight=args.model_constraint_weight,
         max_search_nodes=max_search_nodes,
+        search_mode=args.search_mode,
+        node_choosing_strategy=args.node_choosing_strategy,
     )

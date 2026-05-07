@@ -89,6 +89,8 @@ def run_single_fold(
     model_patch_cost: float = 1.0,
     model_constraint_weight: float = 0.0,
     max_search_nodes: int = None,
+    search_mode: str = "dfs",
+    node_choosing_strategy: str = "model_patch_first",
 ) -> List[dict]:
     """
     Run a single fold experiment with specified number of trajectories and GT rate.
@@ -112,6 +114,8 @@ def run_single_fold(
         model_patch_cost: Per-patch cost for model patches in denoising conflict search.
         model_constraint_weight: Weight multiplier for model constraint cost in denoising conflict search.
         max_search_nodes: Max conflict-search nodes in denoising phase (None = unlimited).
+        search_mode: Conflict-search strategy for denoising ("dfs" or "ucs").
+        node_choosing_strategy: Conflict-search branch insertion ordering strategy.
 
     Returns:
         List of 4 dicts with results for: unclean SAM/PISAM, unclean ROSAME, cleaned SAM/PISAM, cleaned ROSAME
@@ -224,6 +228,8 @@ def run_single_fold(
                 model_patch_cost=model_patch_cost,
                 model_constraint_weight=model_constraint_weight,
                 max_search_nodes=max_search_nodes,
+                search_mode=search_mode,
+                node_choosing_strategy=node_choosing_strategy,
             )
         print(f"  [PHASE 1] SAM/PISAM learning done, saving metrics...")
         save_learning_metrics_func(fold_work_dir, sam_report)
@@ -304,6 +310,8 @@ def run_single_fold(
                     model_patch_cost=model_patch_cost,
                     model_constraint_weight=model_constraint_weight,
                     max_search_nodes=max_search_nodes,
+                    search_mode=search_mode,
+                    node_choosing_strategy=node_choosing_strategy,
                 )
             print(f"  [PHASE 2] Denoising complete, saving metrics...")
             save_learning_metrics_func(fold_work_dir, denoising_report)

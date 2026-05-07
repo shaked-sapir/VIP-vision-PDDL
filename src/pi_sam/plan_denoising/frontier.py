@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import heapq
+import itertools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -22,6 +23,14 @@ class SearchMode(Enum):
     """Available search strategies for conflict-driven patch search."""
     ANYTIME_DFS = "anytime_dfs"
     UCS = "ucs"
+
+
+class NodeChoosingStrategy(Enum):
+    """Order policy for inserting model/fluent branch children."""
+
+    MODEL_PATCH_FIRST = "model_patch_first"
+    FLUENT_PATCH_FIRST = "fluent_patch_first"
+    RANDOMIZED = "randomized"
 
 
 @dataclass(order=True)
@@ -53,13 +62,17 @@ class HeapFrontier(Frontier):
     """Min-heap frontier (UCS): always expands the lowest-cost node."""
 
     def __init__(self) -> None:
-        self._heap: List[SearchNode] = []
+        self._heap: List[Tuple[float, int, int, SearchNode]] = []
+        self._counter = itertools.count()
 
     def push(self, node: SearchNode) -> None:
-        heapq.heappush(self._heap, node)
+        heapq.heappush(
+            self._heap,
+            (node.cost, node.depth, next(self._counter), node),
+        )
 
     def pop(self) -> SearchNode:
-        return heapq.heappop(self._heap)
+        return heapq.heappop(self._heap)[3]
 
     def __bool__(self) -> bool:
         return len(self._heap) > 0

@@ -21,6 +21,7 @@ from benchmark.experiment_running_helpers.cleaned_trajectories import save_obser
 from benchmark.experiment_running_helpers.trajectory_utils import setup_algorithm_workspace
 from src.pi_sam import PISAMLearner
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+from src.pi_sam.plan_denoising.frontier import NodeChoosingStrategy, SearchMode
 from src.utils.masking import load_masked_observation
 
 
@@ -29,6 +30,36 @@ def _parse_learning_output(learning_output, is_denoising):
     if is_denoising and isinstance(learning_output, tuple) and len(learning_output) == 3:
         return learning_output[0], learning_output[1], learning_output[2]
     return learning_output, None, {}
+
+
+def _resolve_search_mode(search_mode: str | SearchMode) -> SearchMode:
+    if isinstance(search_mode, SearchMode):
+        return search_mode
+    normalized = str(search_mode).strip().lower()
+    if normalized == "ucs":
+        return SearchMode.UCS
+    if normalized == "dfs":
+        return SearchMode.ANYTIME_DFS
+    raise ValueError(f"Unsupported search_mode '{search_mode}'. Expected one of: dfs, ucs.")
+
+
+def _resolve_node_choosing_strategy(
+    node_choosing_strategy: str | NodeChoosingStrategy,
+) -> NodeChoosingStrategy:
+    if isinstance(node_choosing_strategy, NodeChoosingStrategy):
+        return node_choosing_strategy
+    normalized = str(node_choosing_strategy).strip().lower()
+    if normalized == "model_patch_first":
+        return NodeChoosingStrategy.MODEL_PATCH_FIRST
+    if normalized == "fluent_patch_first":
+        return NodeChoosingStrategy.FLUENT_PATCH_FIRST
+    if normalized == "randomized":
+        return NodeChoosingStrategy.RANDOMIZED
+    raise ValueError(
+        "Unsupported node_choosing_strategy "
+        f"'{node_choosing_strategy}'. Expected one of: "
+        "model_patch_first, fluent_patch_first, randomized."
+    )
 
 
 def _learn_pisam_with_profiling(
@@ -80,10 +111,12 @@ def _learn_pisam_with_profiling(
             negative_preconditions_policy=learner.negative_precondition_policy,
             seed=learner.seed,
             logger=None,
+            search_mode=_resolve_search_mode(learner.search_mode),
             fluent_patch_cost=learner.fluent_patch_cost,
             fluent_patch_weight=learner.fluent_patch_weight,
             model_patch_cost=learner.model_patch_cost,
             model_constraint_weight=learner.model_constraint_weight,
+            node_choosing_strategy=_resolve_node_choosing_strategy(learner.node_choosing_strategy),
             conflict_free_models_dir=conflict_free_models_dir,
             save_t_prime_fn=save_t_prime_fn,
         )
@@ -118,6 +151,8 @@ def learn_sam_pisam(
     model_patch_cost: float = 1.0,
     model_constraint_weight: float = 0.0,
     max_search_nodes: int = None,
+    search_mode: str = "dfs",
+    node_choosing_strategy: str = "model_patch_first",
 ) -> Tuple[str, dict, str, any]:
     """
     Learn SAM/PISAM model.
@@ -136,6 +171,8 @@ def learn_sam_pisam(
         model_patch_cost: Per-patch cost for model constraints in denoising conflict search
         model_constraint_weight: Weight multiplier for model constraint cost in denoising conflict search
         max_search_nodes: Max denoising conflict-search nodes (None = unlimited)
+        search_mode: Conflict-search strategy for denoising ("dfs" or "ucs")
+        node_choosing_strategy: Branch insertion ordering strategy in conflict search
 
     Returns:
         Tuple of (model, learning_report, algorithm_name, patched_observations)
@@ -157,6 +194,8 @@ def learn_sam_pisam(
             learner.model_patch_cost = model_patch_cost
             learner.model_constraint_weight = model_constraint_weight
             learner.max_search_nodes = max_search_nodes
+            learner.search_mode = _resolve_search_mode(search_mode)
+            learner.node_choosing_strategy = _resolve_node_choosing_strategy(node_choosing_strategy)
             # Capture actual timeout used (either explicit or default)
             actual_learning_timeout = learner.timeout_seconds
         
@@ -180,6 +219,8 @@ def learn_sam_pisam(
             learner.model_patch_cost = model_patch_cost
             learner.model_constraint_weight = model_constraint_weight
             learner.max_search_nodes = max_search_nodes
+            learner.search_mode = _resolve_search_mode(search_mode)
+            learner.node_choosing_strategy = _resolve_node_choosing_strategy(node_choosing_strategy)
             # Capture actual timeout used (either explicit or default)
             actual_learning_timeout = learner.timeout_seconds
         
@@ -196,6 +237,10 @@ def learn_sam_pisam(
         report['model_patch_cost'] = model_patch_cost
         report['model_constraint_weight'] = model_constraint_weight
         report['max_search_nodes'] = max_search_nodes
+        report['search_mode'] = _resolve_search_mode(search_mode).value
+        report['node_choosing_strategy'] = (
+            _resolve_node_choosing_strategy(node_choosing_strategy).value
+        )
     
     return model, report, algo_name, patched_observations
 

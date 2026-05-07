@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import statistics
 import time
 from abc import ABC, abstractmethod
@@ -28,6 +29,7 @@ from src.pi_sam.noisy_pisam.typings import (
 )
 from src.pi_sam.plan_denoising.frontier import (
     Key,
+    NodeChoosingStrategy,
     SearchMode,
     SearchNode,
     Frontier,
@@ -73,6 +75,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         fluent_patch_weight: float = 1.0,
         model_patch_cost: float = 1.0,
         model_constraint_weight: float = 0.0,
+        node_choosing_strategy: NodeChoosingStrategy = NodeChoosingStrategy.MODEL_PATCH_FIRST,
         **kwargs,
     ):
         if kwargs:
@@ -89,6 +92,8 @@ class ConflictDrivenPatchSearchBase(ABC):
         self.fluent_patch_weight = fluent_patch_weight
         self.model_patch_cost = model_patch_cost
         self.model_constraint_weight = model_constraint_weight
+        self.node_choosing_strategy = node_choosing_strategy
+        self._rng = random.Random(seed)
         self._conflict_free_model_counter = 0
 
         if logger is None:
@@ -131,6 +136,24 @@ class ConflictDrivenPatchSearchBase(ABC):
         return (self.fluent_patch_weight * self.fluent_patch_cost * len(fluent_patches)
                 + self.model_constraint_weight * self.model_patch_cost * len(model_constraints))
 
+    def _ordered_children_for_frontier(
+        self,
+        fluent_child: Optional[SearchNode],
+        model_child: Optional[SearchNode],
+    ) -> List[SearchNode]:
+        if fluent_child is None:
+            return [model_child] if model_child is not None else []
+        if model_child is None:
+            return [fluent_child]
+
+        model_first = self.node_choosing_strategy == NodeChoosingStrategy.MODEL_PATCH_FIRST
+        if self.node_choosing_strategy == NodeChoosingStrategy.FLUENT_PATCH_FIRST:
+            model_first = False
+        elif self.node_choosing_strategy == NodeChoosingStrategy.RANDOMIZED:
+            model_first = self._rng.random() < 0.5
+
+        return [model_child, fluent_child] if model_first else [fluent_child, model_child]
+
     # ------------------------------------------------------------------
     # Model / timing persistence
     # ------------------------------------------------------------------
@@ -164,7 +187,10 @@ class ConflictDrivenPatchSearchBase(ABC):
         self.logger.info(f"Saved final model (no conflict-free) to {final_dir}")
 
     def _write_node_expansion_times(
-        self, node_expansion_times: List[Dict], search_mode: SearchMode,
+        self,
+        node_expansion_times: List[Dict],
+        search_mode: SearchMode,
+        node_choosing_strategy: NodeChoosingStrategy,
     ) -> None:
         if self.conflict_free_models_dir is None:
             return
@@ -189,6 +215,7 @@ class ConflictDrivenPatchSearchBase(ABC):
 
         payload = {
             "search_mode": search_mode.value,
+            "node_choosing_strategy": node_choosing_strategy.value,
             "summary": summary,
             "node_expansion_times": node_expansion_times,
         }
@@ -210,7 +237,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         List[Conflict],
         Dict[Key, PatchOperation],
         Set[FluentLevelPatch],
-        float,
+        int,
         Dict[str, str],
         List[Observation],
     ]:
@@ -219,7 +246,7 @@ class ConflictDrivenPatchSearchBase(ABC):
 
         Returns:
             (learned_domain, conflicts, model_constraints, fluent_patches,
-             cost, learning_report, patched_observations)
+             patch_count, learning_report, patched_observations)
         """
         root_constraints: Dict[Key, PatchOperation] = initial_model_constraints or {}
         root_fluent_patches: Set[FluentLevelPatch] = initial_fluent_patches or set()
@@ -356,14 +383,17 @@ class ConflictDrivenPatchSearchBase(ABC):
                     child_a_fluent_patches.add(fp)
                     changed = True
 
+            child_a_node: Optional[SearchNode] = None
+            child_b_node: Optional[SearchNode] = None
+
             if changed:
                 child_a_fluent_patches = self._dedup_patches(child_a_fluent_patches)
-                frontier.push(SearchNode(
+                child_a_node = SearchNode(
                     cost=self._compute_cost(child_a_fluent_patches, child_a_model_constraints),
                     depth=node.depth + 1,
                     model_constraints=child_a_model_constraints,
                     fluent_patches=child_a_fluent_patches,
-                ))
+                )
 
             # Child B: MODEL-FIX (only for non-frame-axiom conflicts)
             rep_conflict = group[0]
@@ -373,12 +403,22 @@ class ConflictDrivenPatchSearchBase(ABC):
                 )
                 if new_constraints != node.model_constraints:
                     child_b_fluent_patches = set(node.fluent_patches)
-                    frontier.push(SearchNode(
+                    child_b_node = SearchNode(
                         cost=self._compute_cost(child_b_fluent_patches, new_constraints),
                         depth=node.depth + 1,
                         model_constraints=new_constraints,
                         fluent_patches=child_b_fluent_patches,
-                    ))
+                    )
+
+            ordered_children = self._ordered_children_for_frontier(
+                fluent_child=child_a_node,
+                model_child=child_b_node,
+            )
+            # Stack frontier is LIFO, so push reverse order to expand preferred child first.
+            if self.search_mode == SearchMode.ANYTIME_DFS:
+                ordered_children = list(reversed(ordered_children))
+            for child in ordered_children:
+                frontier.push(child)
 
         # ------------------------------------------------------------------
         # Build final result
@@ -432,7 +472,11 @@ class ConflictDrivenPatchSearchBase(ABC):
         )
         if conflict_free_count == 0:
             self._save_final_model(final_domain, patched_obs)
-        self._write_node_expansion_times(node_expansion_times, self.search_mode)
+        self._write_node_expansion_times(
+            node_expansion_times,
+            self.search_mode,
+            self.node_choosing_strategy,
+        )
 
         return (
             final_domain,
@@ -567,6 +611,8 @@ class ConflictDrivenPatchSearchBase(ABC):
           - otherwise set/replace key with desired operation
         """
         key: Key = self._conflict_to_key(conflict)
+
+        # Map conflict type to a desired operation, to flip the conflict properly.
         desired_op = {
             ConflictType.REQUIRE_EFFECT_VS_CANNOT: PatchOperation.FORBID,
             ConflictType.FORBID_EFFECT_VS_MUST: PatchOperation.REQUIRE,
@@ -599,7 +645,7 @@ class ConflictDrivenPatchSearchBase(ABC):
             for (action_name, part, pbl), op in model_constraints.items()
         }
         domain_copy: Domain = deepcopy(self.partial_domain_template)
-        learner = self._create_learner(domain_copy)
+        learner: NoisyLearnerMixin = self._create_learner(domain_copy)
         learned_domain, conflicts, report = learner.learn_action_model_with_conflicts(
             observations=list(observations),
             fluent_patches=fluent_patches,
