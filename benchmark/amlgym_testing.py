@@ -67,11 +67,13 @@ domain_properties = {
 }
 
 N_FOLDS = 5
-NUM_TRAJECTORIES_LIST = [1, 2, 3, 4, 5, 6, 7, 8]  # Number of full trajectories to use for learning
+# NUM_TRAJECTORIES_LIST = [1, 2, 3, 4, 5, 6, 7, 8]  # Number of full trajectories to use for learning
+NUM_TRAJECTORIES_LIST = [5]  # Number of full trajectories to use for learning
+
 # Pool size per fold = 0.8 * n_problems (computed in run_fold). With 10 problems, pool=8.
 NUM_TRAJECTORIES_POOL = 8  # Typical value (0.8*10); actual pool is 0.8*n_problems in run_fold
-GT_RATE_PERCENTAGES = [0, 10, 25, 50, 75, 100]  # Percentage of states to inject as GT (0 = only initial state)
-# GT_RATE_PERCENTAGES = [100]  # Percentage of states to inject as GT (0 = only initial state)
+# GT_RATE_PERCENTAGES = [0, 10, 25, 50, 75, 100]  # Percentage of states to inject as GT (0 = only initial state)
+GT_RATE_PERCENTAGES = [0]  # Percentage of states to inject as GT (0 = only initial state)
 FRAME_AXIOM_MODE = "after_gt_only"  # "after_gt_only" or "all_states"
 CONFLICT_SEARCH_TIMEOUTS = [180]  # Time limits in seconds for conflict search (cleaning phase). Can specify multiple values.
 PLANNING_TIMEOUT = 60  # Timeout in seconds for planning during evaluation
@@ -1455,3 +1457,14 @@ if __name__ == "__main__":
         search_mode=args.search_mode,
         node_choosing_strategy=args.node_choosing_strategy,
     )
+
+"""cli running command:
+python -m benchmark.amlgym_testing \
+  --domain blocksworld \
+  --mode masked \
+  --learning-timeout-seconds 180 \
+  --planning-timeout-seconds 60 \
+  --search-mode dfs \
+  --node-choosing-strategy fluent_patch_first \
+  --model-constraint-weight 0.0
+"""

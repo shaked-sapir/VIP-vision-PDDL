@@ -292,6 +292,23 @@ class NoisyLearnerMixin:
         )
         all_grounded_must = list(grounded_add_effects) + list(grounded_del_effects)
 
+        # PRED_MATCHER_DEBUGGING
+        _diag = action_name == "unstack"
+        if _diag:
+            print(
+                f"[PRED_MATCHER_DEBUGGING] === handle_effects: {action_name}({', '.join(grounded_action.parameters)}) "
+                f"obs={self.current_observation_index} comp={self.current_component_index} ==="
+            )
+            print(
+                f"[PRED_MATCHER_DEBUGGING] grounded_add_effects: "
+                f"{[gp.untyped_representation for gp in grounded_add_effects]}"
+            )
+            print(
+                f"[PRED_MATCHER_DEBUGGING] grounded_del_effects: "
+                f"{[gp.untyped_representation for gp in grounded_del_effects]}"
+            )
+        # END PRED_MATCHER_DEBUGGING
+
         # Frame-axiom conflicts
         local_conflicts.extend(
             self._collect_frame_axiom_conflicts(
@@ -305,20 +322,42 @@ class NoisyLearnerMixin:
             self.cannot_be_effect.get(action_name, set())
         )
 
+        # PRED_MATCHER_DEBUGGING
+        if _diag:
+            print(
+                f"[PRED_MATCHER_DEBUGGING] prior_must_effects (discrete_effects): "
+                f"{[str(p) for p in prior_must_effects]}"
+            )
+            print(
+                f"[PRED_MATCHER_DEBUGGING] prior_cannot_effects: "
+                f"{[str(p) for p in prior_cannot_effects]}"
+            )
+        # END PRED_MATCHER_DEBUGGING
+
         # (2a) DATA-ONLY: prior cannot_be_effect + new must-be-effect
         for gp in all_grounded_must:
             possible_lifted = self.matcher.get_possible_literal_matches(grounded_action, [gp])
-            lifted_gp = possible_lifted[0] if possible_lifted else None
-            if lifted_gp in prior_cannot_effects:
-                pbl = ParameterBoundLiteral.from_lifted_predicate(lifted_gp)
-                local_conflicts.append(Conflict(
-                    action_name=action_name,
-                    pbl=pbl,
-                    conflict_type=ConflictType.FORBID_EFFECT_VS_MUST,
-                    observation_index=self.current_observation_index,
-                    component_index=self.current_component_index,
-                    grounded_fluent=gp.untyped_representation,
-                ))
+
+            # PRED_MATCHER_DEBUGGING
+            if _diag:
+                self.logger.debug(
+                    f"[PRED_MATCHER_DEBUGGING] (2a) gp={gp.untyped_representation} "
+                    f"possible_lifted={[str(p) for p in possible_lifted]} "
+                    f"hits={[str(p) for p in possible_lifted if p in prior_cannot_effects]}"
+                )
+            # END PRED_MATCHER_DEBUGGING
+
+            for lifted_gp in possible_lifted:
+                if lifted_gp in prior_cannot_effects:
+                    pbl = ParameterBoundLiteral.from_lifted_predicate(lifted_gp)
+                    local_conflicts.append(Conflict(
+                        action_name=action_name,
+                        pbl=pbl,
+                        conflict_type=ConflictType.FORBID_EFFECT_VS_MUST,
+                        observation_index=self.current_observation_index,
+                        component_index=self.current_component_index,
+                        grounded_fluent=gp.untyped_representation,
+                    ))
 
         # (1a) PATCH-BASED: FORBID_EFFECT_VS_MUST
         forbid_set = self.forbidden_effects.get(action_name, set())
@@ -339,23 +378,41 @@ class NoisyLearnerMixin:
             prev_preds, next_preds,
         )
 
+        # PRED_MATCHER_DEBUGGING
+        if _diag:
+            print(
+                f"[PRED_MATCHER_DEBUGGING] cannot_be_effects: "
+                f"{[gp.untyped_representation for gp in cannot_be_effects]}"
+            )
+        # END PRED_MATCHER_DEBUGGING
+
         # (2b) DATA-ONLY: prior must-be-effect + new cannot-be-effect
         for gp in cannot_be_effects:
             possible_lifted = self.matcher.get_possible_literal_matches(grounded_action, [gp])
-            lifted_gp = possible_lifted[0] if possible_lifted else None
-            if lifted_gp in prior_must_effects:
-                pbl = ParameterBoundLiteral.from_lifted_predicate(lifted_gp)
-                to_negate = self._should_negate_grounded_effect(
-                    gp, self.current_observation_index, self.current_component_index,
+
+            # PRED_MATCHER_DEBUGGING
+            if _diag:
+                self.logger.debug(
+                    f"[PRED_MATCHER_DEBUGGING] (2b) gp={gp.untyped_representation} "
+                    f"possible_lifted={[str(p) for p in possible_lifted]} "
+                    f"hits={[str(p) for p in possible_lifted if p in prior_must_effects]}"
                 )
-                local_conflicts.append(Conflict(
-                    action_name=action_name,
-                    pbl=pbl,
-                    conflict_type=ConflictType.REQUIRE_EFFECT_VS_CANNOT,
-                    observation_index=self.current_observation_index,
-                    component_index=self.current_component_index,
-                    grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
-                ))
+            # END PRED_MATCHER_DEBUGGING
+
+            for lifted_gp in possible_lifted:
+                if lifted_gp in prior_must_effects:
+                    pbl = ParameterBoundLiteral.from_lifted_predicate(lifted_gp)
+                    to_negate = self._should_negate_grounded_effect(
+                        gp, self.current_observation_index, self.current_component_index,
+                    )
+                    local_conflicts.append(Conflict(
+                        action_name=action_name,
+                        pbl=pbl,
+                        conflict_type=ConflictType.REQUIRE_EFFECT_VS_CANNOT,
+                        observation_index=self.current_observation_index,
+                        component_index=self.current_component_index,
+                        grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
+                    ))
 
         # (1b) PATCH-BASED: REQUIRE_EFFECT_VS_CANNOT
         require_set = self.required_effects.get(action_name, set())
@@ -374,8 +431,30 @@ class NoisyLearnerMixin:
                         grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
                     ))
 
+        # PRED_MATCHER_DEBUGGING
+        if _diag:
+            print(
+                f"[PRED_MATCHER_DEBUGGING] local_conflicts found: {len(local_conflicts)}"
+            )
+            for c in local_conflicts:
+                print(f"[PRED_MATCHER_DEBUGGING]   conflict: {c}")  # PRED_MATCHER_DEBUGGING
+        # END PRED_MATCHER_DEBUGGING
+
         self.conflicts.extend(local_conflicts)
         self._delegate_handle_effects(grounded_action, previous_state, next_state)
+
+        # PRED_MATCHER_DEBUGGING
+        if _diag:
+            print(
+                f"[PRED_MATCHER_DEBUGGING] AFTER delegate: discrete_effects for {action_name}: "
+                f"{[str(p) for p in observed_action.discrete_effects]}"
+            )
+            print(
+                f"[PRED_MATCHER_DEBUGGING] AFTER delegate: cannot_be_effect for {action_name}: "
+                f"{[str(p) for p in self.cannot_be_effect.get(action_name, set())]}"
+            )
+            print(f"[PRED_MATCHER_DEBUGGING] === END {action_name} ===")  # PRED_MATCHER_DEBUGGING
+        # END PRED_MATCHER_DEBUGGING
 
     # ------------------------------------------------------------------
     # Learning loop with index tracking
