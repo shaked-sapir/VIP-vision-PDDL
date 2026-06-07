@@ -21,6 +21,9 @@ from benchmark.experiment_running_helpers.profiling import TimingProfiler
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt, load_learning_metrics
 from benchmark.experiment_running_helpers.trajectory_utils import prepare_fold_trajectories, save_fold_metadata, update_fold_metadata
+from benchmark.evaluation.test_states_generator import generate_predictive_power_test_states
+from benchmark.evaluation.multi_solution_evaluator import evaluate_all_solutions
+from benchmark.evaluation.correlation_analysis import build_correlation_table
 from src.utils.pddl import ground_observation_completely, observations_equal
 
 
@@ -53,7 +56,7 @@ def check_trajectories_equal(
     domain = DomainParser(domain_ref_path).parse_domain()
     parser = TrajectoryParser(domain)
     
-    for idx, (traj_path, _, _) in enumerate(prepared_trajectories):
+    for idx, (traj_path, *_) in enumerate(prepared_trajectories):
         if is_patched_observations:
             original_obs = parser.parse_trajectory(traj_path)
             fully_grounded_original_obs = ground_observation_completely(domain, original_obs)
@@ -91,6 +94,7 @@ def run_single_fold(
     max_search_nodes: int = None,
     search_mode: str = "dfs",
     node_choosing_strategy: str = "model_patch_first",
+    conflict_group_strategy: str = "most_observations",
 ) -> List[dict]:
     """
     Run a single fold experiment with specified number of trajectories and GT rate.
@@ -116,6 +120,8 @@ def run_single_fold(
         max_search_nodes: Max conflict-search nodes in denoising phase (None = unlimited).
         search_mode: Conflict-search strategy for denoising ("dfs" or "ucs").
         node_choosing_strategy: Conflict-search branch insertion ordering strategy.
+        conflict_group_strategy: Which conflict group to resolve first at each node
+            ("first", "largest", "largest_model_patchable", "most_observations").
 
     Returns:
         List of 4 dicts with results for: unclean SAM/PISAM, unclean ROSAME, cleaned SAM/PISAM, cleaned ROSAME
@@ -141,7 +147,9 @@ def run_single_fold(
                     'precision_eff_pos', 'precision_eff_neg', 'precision_overall',
                     'recall_precs_pos', 'recall_precs_neg', 'recall_eff_pos',
                     'recall_eff_neg', 'recall_overall', 'solving_ratio',
-                    'false_plans_ratio', 'unsolvable_ratio', 'planning_timed_out_ratio']}
+                    'false_plans_ratio', 'unsolvable_ratio', 'planning_timed_out_ratio',
+                    'pred_app_precision', 'pred_app_recall',
+                    'pred_eff_precision', 'pred_eff_recall']}
 
     try:
         # ==================================================
@@ -198,6 +206,22 @@ def run_single_fold(
         if len(test_problem_paths) < len(test_problem_dirs):
             print(f"  Warning: Only found {len(test_problem_paths)} test problems out of {len(test_problem_dirs)} directories")
 
+        # ==================================================
+        # Generate S_test (predictive power test states)
+        # ==================================================
+        print(f"  [S_TEST] Generating predictive power test states...")
+        test_states_dir = fold_work_dir / "predictive_power_test_states"
+        with profiler.time_operation("generate_predictive_power_test_states"):
+            test_states_path = generate_predictive_power_test_states(
+                domain_ref_path=domain_ref_path,
+                test_problem_paths=test_problem_paths,
+                output_dir=test_states_dir,
+                num_trajectories_per_problem=50,
+                seed=42 + fold,
+            )
+        test_states_path_str = str(test_states_path)
+        print(f"  [S_TEST] Test states ready at {test_states_path.name}")
+
         # Save fold metadata with test problem names
         save_fold_metadata(fold_work_dir, prepared_trajectories, fold, num_trajectories, gt_rate, test_problem_paths)
 
@@ -230,6 +254,7 @@ def run_single_fold(
                 max_search_nodes=max_search_nodes,
                 search_mode=search_mode,
                 node_choosing_strategy=node_choosing_strategy,
+                conflict_group_strategy=conflict_group_strategy,
             )
         print(f"  [PHASE 1] SAM/PISAM learning done, saving metrics...")
         save_learning_metrics_func(fold_work_dir, sam_report)
@@ -248,7 +273,8 @@ def run_single_fold(
                 learning_metrics=sam_learning_metrics,
                 conflict_search_timeout=conflict_search_timeout,
                 planning_timeout=planning_timeout,
-                profiler=profiler
+                profiler=profiler,
+                test_states_path=test_states_path_str,
             )
 
         # Learn ROSAME
@@ -275,7 +301,8 @@ def run_single_fold(
                 learning_metrics=rosame_learning_metrics,
                 conflict_search_timeout=conflict_search_timeout,
                 planning_timeout=planning_timeout,
-                profiler=profiler
+                profiler=profiler,
+                test_states_path=test_states_path_str,
             )
 
         # ==================================================
@@ -312,6 +339,7 @@ def run_single_fold(
                     max_search_nodes=max_search_nodes,
                     search_mode=search_mode,
                     node_choosing_strategy=node_choosing_strategy,
+                    conflict_group_strategy=conflict_group_strategy,
                 )
             print(f"  [PHASE 2] Denoising complete, saving metrics...")
             save_learning_metrics_func(fold_work_dir, denoising_report)
@@ -336,7 +364,8 @@ def run_single_fold(
                     learning_metrics=denoising_learning_metrics,
                     conflict_search_timeout=conflict_search_timeout,
                     planning_timeout=planning_timeout,
-                    profiler=profiler
+                    profiler=profiler,
+                    test_states_path=test_states_path_str,
                 )
 
             # Check if cleaned and unclean trajectories are the same for PISAM/SAM
@@ -360,6 +389,25 @@ def run_single_fold(
                 print(f"  [PHASE 2] Patched observations saved")
                 # Post-process: T vs GT and T' vs GT metrics per conflict-free model (no GT in conflict search)
                 run_post_process_gt_metrics(fold_work_dir, prepared_trajectories, domain_ref_path, gt_rate)
+
+                # Evaluate ALL conflict-free models (multi-solution evaluation)
+                conflict_free_models_dir = fold_work_dir / "conflict_free_models"
+                if conflict_free_models_dir.exists():
+                    print(f"  [MULTI-EVAL] Evaluating all conflict-free models...")
+                    with profiler.time_operation("evaluate_all_solutions"):
+                        all_solutions_results = evaluate_all_solutions(
+                            conflict_free_models_dir=conflict_free_models_dir,
+                            ref_domain_path=domain_ref_path,
+                            test_problem_paths=test_problem_paths,
+                            test_states_path=test_states_path,
+                            planning_timeout=planning_timeout,
+                            output_dir=fold_work_dir,
+                        )
+                    print(f"  [MULTI-EVAL] Evaluated {len(all_solutions_results)} solutions")
+
+                    # Build correlation table (join AMLGym metrics with fluent-change metrics)
+                    with profiler.time_operation("build_correlation_table"):
+                        build_correlation_table(fold_work_dir)
 
             # Re-learn ROSAME on PATCHED OBSERVATIONS from denoiser
             if patched_observations is not None:
@@ -424,7 +472,8 @@ def run_single_fold(
                                 learning_metrics=rosame_cleaned_learning_metrics,
                                 conflict_search_timeout=conflict_search_timeout,
                                 planning_timeout=planning_timeout,
-                                profiler=profiler
+                                profiler=profiler,
+                                test_states_path=test_states_path_str,
                             )
                     else:
                         print(f"  Warning: No cleaned trajectories found in {final_observations_dir}")
@@ -437,7 +486,8 @@ def run_single_fold(
                             learning_metrics={},
                             conflict_search_timeout=conflict_search_timeout,
                             planning_timeout=planning_timeout,
-                            profiler=profiler
+                            profiler=profiler,
+                            test_states_path=test_states_path_str,
                         )
                 else:
                     print(f"  Warning: final_observations directory does not exist")
@@ -450,7 +500,8 @@ def run_single_fold(
                         learning_metrics={},
                         conflict_search_timeout=conflict_search_timeout,
                         planning_timeout=planning_timeout,
-                        profiler=profiler
+                        profiler=profiler,
+                        test_states_path=test_states_path_str,
                     )
             else:
                 print(f"  Warning: No patched observations returned from denoiser")
@@ -463,7 +514,8 @@ def run_single_fold(
                     learning_metrics={},
                     conflict_search_timeout=conflict_search_timeout,
                     planning_timeout=planning_timeout,
-                    profiler=profiler
+                    profiler=profiler,
+                    test_states_path=test_states_path_str,
                 )
 
         except Exception as e:
@@ -481,7 +533,8 @@ def run_single_fold(
                 learning_metrics={},
                 conflict_search_timeout=conflict_search_timeout,
                 planning_timeout=planning_timeout,
-                profiler=profiler
+                profiler=profiler,
+                test_states_path=test_states_path_str,
             )
             cleaned_rosame_result = evaluate_and_build_result(
                 None, rosame_algo_name, bench_name, fold, num_trajectories, gt_rate,
@@ -492,7 +545,8 @@ def run_single_fold(
                 learning_metrics={},
                 conflict_search_timeout=conflict_search_timeout,
                 planning_timeout=planning_timeout,
-                profiler=profiler
+                profiler=profiler,
+                test_states_path=test_states_path_str,
             )
 
         # Update fold metadata with comparison results (if not already updated)

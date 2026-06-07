@@ -99,7 +99,7 @@ def count_total_transitions_and_gt(
     total_transitions = 0
     total_gt_states = 0
     
-    for traj_path, masking_path, problem_pddl_path in prepared_trajectories:
+    for traj_path, masking_path, problem_pddl_path, *_ in prepared_trajectories:
         transitions = count_transitions_in_trajectory(traj_path)
         total_transitions += transitions
         

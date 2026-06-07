@@ -25,11 +25,12 @@ def evaluate_and_build_result(
     learning_metrics: dict = None,
     conflict_search_timeout: int = None,
     planning_timeout: int = 60,
-    profiler=None
+    profiler=None,
+    test_states_path: str = None,
 ) -> dict:
     """
     Evaluate model and build result dictionary.
-    
+
     Args:
         model: PDDL model string or None
         model_name: Name of the algorithm
@@ -50,7 +51,8 @@ def evaluate_and_build_result(
         conflict_search_timeout: Timeout in seconds for conflict search (cleaning phase)
         planning_timeout: Timeout in seconds for planning during evaluation
         profiler: Optional TimingProfiler instance for detailed timing
-        
+        test_states_path: Path to test_states.json for predictive power metrics (optional)
+
     Returns:
         Result dictionary with all metrics
     """
@@ -65,7 +67,11 @@ def evaluate_and_build_result(
             domain_save_path.write_text(model)
             print(f"  [DEBUG] Saved learned domain to {domain_save_path.name}")
 
-        metrics = evaluate_model_func(str(temp_path), domain_ref_path, test_problem_paths, planning_timeout=planning_timeout, profiler=profiler)
+        metrics = evaluate_model_func(
+            str(temp_path), domain_ref_path, test_problem_paths,
+            planning_timeout=planning_timeout, profiler=profiler,
+            test_states_path=test_states_path,
+        )
         temp_path.unlink()
         print(f"  [DEBUG] Evaluation complete for {model_name}")
     else:

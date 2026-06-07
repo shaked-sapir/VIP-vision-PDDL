@@ -28,6 +28,7 @@ from src.pi_sam.noisy_pisam.typings import (
     ConflictPriority,
 )
 from src.pi_sam.plan_denoising.frontier import (
+    ConflictGroupStrategy,
     Key,
     NodeChoosingStrategy,
     SearchMode,
@@ -76,6 +77,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         model_patch_cost: float = 1.0,
         model_constraint_weight: float = 0.0,
         node_choosing_strategy: NodeChoosingStrategy = NodeChoosingStrategy.MODEL_PATCH_FIRST,
+        conflict_group_strategy: ConflictGroupStrategy = ConflictGroupStrategy.FIRST,
         **kwargs,
     ):
         if kwargs:
@@ -93,6 +95,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         self.model_patch_cost = model_patch_cost
         self.model_constraint_weight = model_constraint_weight
         self.node_choosing_strategy = node_choosing_strategy
+        self.conflict_group_strategy = conflict_group_strategy
         self._rng = random.Random(seed)
         self._conflict_free_model_counter = 0
 
@@ -149,6 +152,10 @@ class ConflictDrivenPatchSearchBase(ABC):
         model_first = self.node_choosing_strategy == NodeChoosingStrategy.MODEL_PATCH_FIRST
         if self.node_choosing_strategy == NodeChoosingStrategy.FLUENT_PATCH_FIRST:
             model_first = False
+        elif self.node_choosing_strategy == NodeChoosingStrategy.FLUENT_PATCH_FIRST_THEN_MODEL:
+            # Prefer fluent patches until the first conflict-free model is found,
+            # then switch to model patches for the rest of the search.
+            model_first = self._conflict_free_model_counter > 0
         elif self.node_choosing_strategy == NodeChoosingStrategy.RANDOMIZED:
             model_first = self._rng.random() < 0.5
 
@@ -232,6 +239,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         initial_model_constraints: Optional[Dict[Key, PatchOperation]] = None,
         initial_fluent_patches: Optional[Set[FluentLevelPatch]] = None,
         timeout_seconds: int = 60,
+        gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None,
     ) -> Tuple[
         LearnerDomain,
         List[Conflict],
@@ -241,8 +249,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         Dict[str, str],
         List[Observation],
     ]:
-        """
-        Run the conflict-driven patch search on trajectories T (= observations).
+        """Run the conflict-driven patch search on trajectories T (= observations).
 
         Returns:
             (learned_domain, conflicts, model_constraints, fluent_patches,
@@ -315,6 +322,7 @@ class ConflictDrivenPatchSearchBase(ABC):
             t0 = time.time()
             domain, conflicts, report = self._learn_with_state(
                 observations, node.model_constraints, node.fluent_patches,
+                gt_source_indices_by_obs=gt_source_indices_by_obs,
             )
             wall_time = time.time() - t0
 
@@ -539,18 +547,88 @@ class ConflictDrivenPatchSearchBase(ABC):
         return list(groups.values())
 
     def _choose_conflict_group(self, groups: List[List[Conflict]]) -> List[Conflict]:
-        def group_score(g: List[Conflict]) -> Tuple[int, int, int]:
-            rep = min(
-                g,
-                key=lambda c: (
-                    int(self._conflict_priority(c)),
-                    c.observation_index,
-                    c.component_index,
-                ),
-            )
-            return int(self._conflict_priority(rep)), rep.observation_index, rep.component_index
+        strategy = self.conflict_group_strategy
 
-        return min(groups, key=group_score)
+        if strategy == ConflictGroupStrategy.FIRST:
+            # Original: pick by (priority, first obs, first component).
+            return min(groups, key=self._group_score_first)
+
+        if strategy == ConflictGroupStrategy.LARGEST:
+            # Same priority tier, but prefer the group with the most conflicts.
+            return min(groups, key=self._group_score_largest)
+
+        if strategy == ConflictGroupStrategy.LARGEST_MODEL_PATCHABLE:
+            # Like LARGEST but only counts non-FRAME_AXIOM conflicts in size,
+            # since FRAME_AXIOM has no model-patch branch.
+            return min(groups, key=self._group_score_largest_model_patchable)
+
+        if strategy == ConflictGroupStrategy.MOST_OBSERVATIONS:
+            # Prefer groups spanning the most distinct observations.
+            return min(groups, key=self._group_score_most_observations)
+
+        raise ValueError(f"Unknown conflict_group_strategy: {strategy}")
+
+    # -- Scoring helpers (lower = chosen first) ----------------------------
+
+    @staticmethod
+    def _group_representative(g: List[Conflict]) -> Conflict:
+        """Pick the canonical representative for a group (lowest priority, earliest position)."""
+        return min(
+            g,
+            key=lambda c: (
+                int(ConflictDrivenPatchSearchBase._conflict_priority(c)),
+                c.observation_index,
+                c.component_index,
+            ),
+        )
+
+    @staticmethod
+    def _group_score_first(g: List[Conflict]) -> Tuple[int, int, int]:
+        """Original heuristic: priority, then earliest observation/component."""
+        rep = ConflictDrivenPatchSearchBase._group_representative(g)
+        return (
+            int(ConflictDrivenPatchSearchBase._conflict_priority(rep)),
+            rep.observation_index,
+            rep.component_index,
+        )
+
+    @staticmethod
+    def _group_score_largest(g: List[Conflict]) -> Tuple[int, int, int, int]:
+        """Same priority tier, prefer largest group (negative size for min-sort)."""
+        rep = ConflictDrivenPatchSearchBase._group_representative(g)
+        return (
+            int(ConflictDrivenPatchSearchBase._conflict_priority(rep)),
+            -len(g),
+            rep.observation_index,
+            rep.component_index,
+        )
+
+    @staticmethod
+    def _group_score_largest_model_patchable(g: List[Conflict]) -> Tuple[int, int, int, int, int]:
+        """Prefer largest group, but only count conflicts that have a model-patch branch."""
+        rep = ConflictDrivenPatchSearchBase._group_representative(g)
+        n_model_patchable = sum(
+            1 for c in g if c.conflict_type != ConflictType.FRAME_AXIOM
+        )
+        return (
+            int(ConflictDrivenPatchSearchBase._conflict_priority(rep)),
+            -n_model_patchable,
+            -len(g),  # secondary: total size
+            rep.observation_index,
+            rep.component_index,
+        )
+
+    @staticmethod
+    def _group_score_most_observations(g: List[Conflict]) -> Tuple[int, int, int, int]:
+        """Prefer groups spanning the most distinct observations (likely genuine model errors)."""
+        rep = ConflictDrivenPatchSearchBase._group_representative(g)
+        n_distinct_obs = len({c.observation_index for c in g})
+        return (
+            int(ConflictDrivenPatchSearchBase._conflict_priority(rep)),
+            -n_distinct_obs,
+            -len(g),  # secondary: total size
+            rep.observation_index,
+        )
 
     # ------------------------------------------------------------------
     # Fluent patches & model patches
@@ -634,6 +712,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         observations: Sequence[Observation],
         model_constraints: Dict[Key, PatchOperation],
         fluent_patches: Set[FluentLevelPatch],
+        gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None,
     ) -> Tuple[LearnerDomain, List[Conflict], Dict[str, str]]:
         model_patches: Set[ModelLevelPatch] = {
             ModelLevelPatch(
@@ -650,6 +729,7 @@ class ConflictDrivenPatchSearchBase(ABC):
             observations=list(observations),
             fluent_patches=fluent_patches,
             model_patches=model_patches,
+            gt_source_indices_by_obs=gt_source_indices_by_obs,
         )
         return learned_domain, conflicts, report
 

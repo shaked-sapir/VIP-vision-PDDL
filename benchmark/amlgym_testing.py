@@ -1,5 +1,7 @@
 import argparse
 import json
+import os
+import time
 from collections import defaultdict
 from concurrent.futures import as_completed, ProcessPoolExecutor
 from datetime import datetime
@@ -10,6 +12,9 @@ from typing import List, Dict
 import matplotlib.pyplot as plt
 import pandas as pd
 from amlgym.metrics import print_metrics, syntactic_precision, syntactic_recall, problem_solving
+
+from benchmark.evaluation.predictive_metrics import evaluate_predictive_power
+from benchmark.evaluation.correlation_analysis import aggregate_correlation_tables
 
 from benchmark.experiment_running_helpers.run_fold import run_single_fold
 from benchmark.experiment_running_helpers.trajectory_utils import pregenerate_all_gt_frame_axiom_files
@@ -68,7 +73,7 @@ domain_properties = {
 
 N_FOLDS = 5
 # NUM_TRAJECTORIES_LIST = [1, 2, 3, 4, 5, 6, 7, 8]  # Number of full trajectories to use for learning
-NUM_TRAJECTORIES_LIST = [5]  # Number of full trajectories to use for learning
+NUM_TRAJECTORIES_LIST = [3, 4, 5, 6, 7, 8]  # Number of full trajectories to use for learning
 
 # Pool size per fold = 0.8 * n_problems (computed in run_fold). With 10 problems, pool=8.
 NUM_TRAJECTORIES_POOL = 8  # Typical value (0.8*10); actual pool is 0.8*n_problems in run_fold
@@ -87,6 +92,7 @@ metric_cols = [
     "precision_precs_pos", "precision_precs_neg", "precision_eff_pos", "precision_eff_neg", "precision_overall",
     "recall_precs_pos", "recall_precs_neg", "recall_eff_pos", "recall_eff_neg", "recall_overall",
     "problems_count", "solving_ratio", "false_plans_ratio", "unsolvable_ratio", "planning_timed_out_ratio",
+    "pred_app_precision", "pred_app_recall", "pred_eff_precision", "pred_eff_recall",
 ]
 
 # =============================================================================
@@ -156,6 +162,7 @@ def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Di
         "max_search_nodes": report.get("max_search_nodes", None),
         "search_mode": report.get("search_mode", None),
         "node_choosing_strategy": report.get("node_choosing_strategy", None),
+        "conflict_group_strategy": report.get("conflict_group_strategy", None),
     }
 
     # Add trajectory mapping if provided
@@ -170,16 +177,18 @@ def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Di
 
 
 
-def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[str], planning_timeout: int = 60, profiler=None) -> dict:
+def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[str],
+                   planning_timeout: int = 60, profiler=None, test_states_path: str = None) -> dict:
     """Evaluate a learned model. Handles AMLGym SimpleDomainReader race conditions.
-    
+
     Args:
         model_path: Path to learned model PDDL file
         domain_ref_path: Path to reference domain PDDL file
         test_problems: List of test problem paths
         planning_timeout: Timeout in seconds for planning during evaluation (default: 60)
         profiler: Optional TimingProfiler instance for detailed timing
-    
+        test_states_path: Path to test_states.json for predictive power metrics (optional)
+
     Returns:
         Dictionary of evaluation metrics
     """
@@ -213,7 +222,7 @@ def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[s
 
             # Run all evaluations together - if any fail, retry all
             # Profile each metric computation separately
-            precision = _time_metric('syntactic_precision', 
+            precision = _time_metric('syntactic_precision',
                 lambda: syntactic_precision(model_path, str(domain_ref_path)))
             recall = _time_metric('syntactic_recall',
                 lambda: syntactic_recall(model_path, str(domain_ref_path)))
@@ -241,6 +250,19 @@ def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[s
                 recall = None
                 problem_solving_result = None
 
+    # Predictive power metrics (applicability + predicted effects)
+    if test_states_path:
+        predictive = evaluate_predictive_power(
+            model_path, str(domain_ref_path), test_states_path, test_problems,
+        )
+    else:
+        predictive = {
+            "pred_app_precision": None,
+            "pred_app_recall": None,
+            "pred_eff_precision": None,
+            "pred_eff_recall": None,
+        }
+
     return {
         'precision_precs_pos': precision.get('precs_pos') if isinstance(precision, dict) else None,
         'precision_precs_neg': precision.get('precs_neg') if isinstance(precision, dict) else None,
@@ -256,6 +278,7 @@ def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[s
         'false_plans_ratio': problem_solving_result.get('false_plans_ratio') if isinstance(problem_solving_result, dict) else None,
         'unsolvable_ratio': problem_solving_result.get('unsolvable_ratio') if isinstance(problem_solving_result, dict) else None,
         'planning_timed_out_ratio': problem_solving_result.get('timed_out') if isinstance(problem_solving_result, dict) else None,
+        **predictive,
     }
 
 
@@ -289,6 +312,7 @@ def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dic
     precision_metrics = ["precision_precs_pos", "precision_precs_neg", "precision_eff_pos", "precision_eff_neg", "precision_overall"]
     recall_metrics = ["recall_precs_pos", "recall_precs_neg", "recall_eff_pos", "recall_eff_neg", "recall_overall"]
     problem_metrics = ["problems_count", "solving_ratio", "false_plans_ratio", "unsolvable_ratio", "planning_timed_out_ratio"]
+    predictive_metrics = ["pred_app_precision", "pred_app_recall", "pred_eff_precision", "pred_eff_recall"]
 
     # Process both result sets and combine with phase labels
     all_results_with_phase = []
@@ -514,11 +538,73 @@ def generate_excel_report(unclean_results: List[dict], cleaned_results: List[dic
 
                 return first_row, last_row, last_col
 
+            def write_pred_table(start_row):
+                """Write predictive power table with mean±std values."""
+                row0, row1, row2 = start_row, start_row + 1, start_row + 2
+
+                sheet.write(row0, 0, "", thin_border)
+                sheet.write(row1, 0, "", thin_border)
+                sheet.write(row2, 0, "Domain", thin_border)
+
+                col = 1
+                metric_spans = {}
+                group_start = col
+
+                for m in predictive_metrics:
+                    metric_start = col
+                    for _alg in algorithms:
+                        col += 1
+                    metric_end = col - 1
+                    metric_spans[m] = (metric_start, metric_end)
+                group_end = col - 1
+
+                sheet.merge_range(row0, group_start, row0, group_end, "PredictivePower", thin_border)
+
+                for m, (c_start, c_end) in metric_spans.items():
+                    sheet.merge_range(row1, c_start, row1, c_end, m, thin_border)
+
+                col_ptr = 1
+                for m in predictive_metrics:
+                    for alg in algorithms:
+                        sheet.write(row2, col_ptr, alg, thin_border)
+                        col_ptr += 1
+
+                # Write data rows with mean±std format
+                for i, dom in enumerate(domains):
+                    r_idx = row2 + 1 + i
+                    sheet.write(r_idx, 0, dom, thin_border)
+                    c = 1
+                    for m in predictive_metrics:
+                        for alg in algorithms:
+                            res = res_map.get((dom, alg), {})
+                            mean_val = clean_excel_value(res.get(m))
+                            std_val = clean_excel_value(res.get(f"{m}_std"))
+                            formatted = format_mean_std(mean_val, std_val)
+                            sheet.write(r_idx, c, formatted, thin_border)
+                            c += 1
+
+                first_row, last_row, last_col = row0, row2 + len(domains), col - 1
+
+                # Thick borders between metrics
+                for _m, (start_c, end_c) in metric_spans.items():
+                    sheet.conditional_format(
+                        first_row, start_c, last_row, start_c,
+                        {"type": "formula", "criteria": "TRUE", "format": thick_left},
+                    )
+                    sheet.conditional_format(
+                        first_row, end_c, last_row, end_c,
+                        {"type": "formula", "criteria": "TRUE", "format": thick_right},
+                    )
+
+                return first_row, last_row, last_col
+
             # Generate tables
             syn_first, syn_last, syn_last_col = write_syn_table(start_row=0)
             gap = 5
             prob_start = syn_last + 1 + gap
             prob_first, prob_last, prob_last_col = write_prob_table(start_row=prob_start)
+            pred_start = prob_last + 1 + gap
+            pred_first, pred_last, pred_last_col = write_pred_table(start_row=pred_start)
 
 
 def generate_plots(unclean_results: List[dict], cleaned_results: List[dict], plots_dir: Path):
@@ -646,6 +732,7 @@ def main(
     max_search_nodes: int = None,
     search_mode: str = "dfs",
     node_choosing_strategy: str = "model_patch_first",
+    conflict_group_strategy: str = "most_observations",
 ):
     """
     Run benchmark experiments.
@@ -691,6 +778,7 @@ def main(
         "max_search_nodes": max_search_nodes,
         "search_mode": search_mode,
         "node_choosing_strategy": node_choosing_strategy,
+        "conflict_group_strategy": conflict_group_strategy,
     }
     run_params_path = evaluation_results_dir / "run_params.json"
     with open(run_params_path, "w") as f:
@@ -754,7 +842,8 @@ def main(
                 f"model_constraint_weight={model_constraint_weight}, "
                 f"max_search_nodes={max_search_nodes if max_search_nodes is not None else 'unlimited'}, "
                 f"search_mode={search_mode}, "
-                f"node_choosing_strategy={node_choosing_strategy}"
+                f"node_choosing_strategy={node_choosing_strategy}, "
+                f"conflict_group_strategy={conflict_group_strategy}"
             )
             print(f"CV folds: {N_FOLDS}")
             print(f"{'=' * 80}\n")
@@ -792,6 +881,7 @@ def main(
                                     max_search_nodes,
                                     search_mode,
                                     node_choosing_strategy,
+                                    conflict_group_strategy,
                                 )
                                 futures.append(future)
 
@@ -887,6 +977,33 @@ def main(
                 print(f"✓ Plots updated with results up to num_trajectories={num_trajectories}")
 
     # =============================================================================
+    # CROSS-FOLD CORRELATION ANALYSIS
+    # =============================================================================
+    print("\n" + "=" * 80)
+    print("CROSS-FOLD CORRELATION ANALYSIS")
+    print("=" * 80)
+
+    for domain_name, bench_name in domains_to_run.items():
+        for dir_name in experiment_data_dirs[domain_name]:
+            data_dir = benchmark_path / 'data' / domain_name / dir_name
+            testing_dir = data_dir / 'testing'
+
+            # Collect all fold work dirs that have correlation_analysis.json
+            fold_dirs = sorted(
+                d for d in testing_dir.iterdir()
+                if d.is_dir() and d.name.startswith("fold")
+                and (d / "correlation_analysis.json").exists()
+            )
+
+            if fold_dirs:
+                corr_output = evaluation_results_dir / f"correlation_{bench_name}"
+                corr_result = aggregate_correlation_tables(fold_dirs, corr_output)
+                print(f"  {bench_name}: {corr_result['n']} data points, "
+                      f"output → {corr_output.relative_to(evaluation_results_dir)}/")
+            else:
+                print(f"  {bench_name}: no per-fold correlation tables found, skipping.")
+
+    # =============================================================================
     # FINAL SUMMARY
     # =============================================================================
 
@@ -907,6 +1024,7 @@ def main(
     print(f"  - Excel report: {xlsx_path}")
     print(f"  - Per-domain CSVs: {csv_unclean}, {csv_cleaned}, {csv_combined}")
     print(f"  - All-domains combined CSV: {csv_all_combined}")
+    print(f"  - Correlation analysis: {evaluation_results_dir / 'correlation_*/'}")
 
 # =============================================================================
 # PLOTTING FUNCTIONS FOR GT INJECTION ANALYSIS
@@ -1407,10 +1525,25 @@ if __name__ == "__main__":
         '--node-choosing-strategy',
         type=str,
         default='model_patch_first',
-        choices=['model_patch_first', 'fluent_patch_first', 'randomized'],
+        choices=['model_patch_first', 'fluent_patch_first', 'fluent_patch_first_then_model', 'randomized'],
         help=(
             'Order strategy for inserting denoising branch children: '
-            '"model_patch_first", "fluent_patch_first", or "randomized"'
+            '"model_patch_first", "fluent_patch_first", '
+            '"fluent_patch_first_then_model" (fluent-first until first solution, then model-first), '
+            'or "randomized"'
+        ),
+    )
+    parser.add_argument(
+        '--conflict-group-strategy',
+        type=str,
+        default='most_observations',
+        choices=['first', 'largest', 'largest_model_patchable', 'most_observations'],
+        help=(
+            'Which conflict group to resolve first at each search node: '
+            '"first" (original: by priority then position), '
+            '"largest" (prefer groups with most conflicts), '
+            '"largest_model_patchable" (prefer largest non-FRAME_AXIOM groups), '
+            '"most_observations" (prefer groups spanning most distinct observations)'
         ),
     )
 
@@ -1456,6 +1589,7 @@ if __name__ == "__main__":
         max_search_nodes=max_search_nodes,
         search_mode=args.search_mode,
         node_choosing_strategy=args.node_choosing_strategy,
+        conflict_group_strategy=args.conflict_group_strategy,
     )
 
 """cli running command:

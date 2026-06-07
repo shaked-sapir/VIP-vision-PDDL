@@ -48,7 +48,7 @@ def save_patched_observations(
             print(f"  Warning: More patched observations ({len(patched_observations)}) than prepared trajectories ({len(prepared_trajectories)})")
             break
 
-        orig_traj_path, orig_masking_path, problem_pddl_path = prepared_trajectories[idx]
+        orig_traj_path, orig_masking_path, problem_pddl_path, *_ = prepared_trajectories[idx]
         problem_name = problem_pddl_path.stem
 
         # Save trajectory file
@@ -112,7 +112,7 @@ def convert_cleaned_dir_to_trajectory_list(
     cleaned_list = []
 
     # Iterate through prepared_trajectories in order to maintain ordering
-    for _, _, problem_pddl_path in prepared_trajectories:
+    for _, _, problem_pddl_path, *_ in prepared_trajectories:
         problem_name = problem_pddl_path.stem
         
         # Find corresponding cleaned trajectory file

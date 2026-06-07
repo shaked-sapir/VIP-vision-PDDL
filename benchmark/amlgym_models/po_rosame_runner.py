@@ -1,4 +1,17 @@
-from amlgym.algorithms.rosame.experiment_runner.rosame_runner import Rosame_Runner
+import sys
+from pathlib import Path
+
+try:
+    from amlgym.algorithms.rosame.experiment_runner.rosame_runner import Rosame_Runner
+except ModuleNotFoundError:
+    # AMLGym's algorithms package imports optional agents at init-time.
+    # If one optional dependency is missing, import ROSAME directly.
+    import amlgym
+
+    rosame_root = Path(amlgym.__file__).resolve().parent / "algorithms" / "rosame"
+    if str(rosame_root) not in sys.path:
+        sys.path.insert(0, str(rosame_root))
+    from experiment_runner.rosame_runner import Rosame_Runner
 
 
 class PORosame_Runner(Rosame_Runner):

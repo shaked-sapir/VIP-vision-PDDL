@@ -5,9 +5,20 @@ Trajectory preparation and management utilities for AMLGym experiments.
 import json
 import shutil
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Set, Tuple
 
 from src.utils.pddl import inject_gt_states_by_percentage, propagate_frame_axioms_selective
+
+
+def _save_gt_indices(path: Path, indices: Set[int]) -> None:
+    path.write_text(json.dumps(sorted(indices)))
+
+
+def load_gt_indices(path: Path) -> Set[int]:
+    """Load GT state indices from a .gt_indices sidecar file."""
+    if not path.exists():
+        return {0}
+    return set(json.loads(path.read_text()))
 
 
 def pregenerate_all_gt_frame_axiom_files(
@@ -59,9 +70,12 @@ def pregenerate_all_gt_frame_axiom_files(
             output_suffix = f"gtrate{gt_rate}_frame_axioms"
             output_traj = prob_dir / f"{problem_name}_{output_suffix}.trajectory"
             output_masking = prob_dir / f"{problem_name}_{output_suffix}.masking_info"
+            output_gt_indices = prob_dir / f"{problem_name}_{output_suffix}.gt_indices"
 
             # Skip if already exists
             if output_traj.exists() and output_masking.exists():
+                if not output_gt_indices.exists():
+                    _save_gt_indices(output_gt_indices, {0} if gt_rate == 0 else set())
                 print(f"    ✓ GT rate {gt_rate}% already exists")
                 continue
 
@@ -85,6 +99,9 @@ def pregenerate_all_gt_frame_axiom_files(
                 shutil.move(final_traj_path, output_traj)
                 shutil.move(final_masking_path, output_masking)
 
+                # Persist GT state indices for downstream conflict search
+                _save_gt_indices(output_gt_indices, gt_state_indices)
+
                 print(f"    ✓ Generated GT rate {gt_rate}%")
 
             except Exception as e:
@@ -100,7 +117,7 @@ def prepare_fold_trajectories(
     selected_problem_dirs: List[Path],
     num_trajectories: int,
     gt_rate: int
-) -> List[Tuple[Path, Path, Path]]:
+) -> List[Tuple[Path, Path, Path, Set[int]]]:
     """
     Load pre-generated GT+frame-axiom trajectory files for a fold.
     Files must have been created by pregenerate_all_gt_frame_axiom_files().
@@ -111,7 +128,7 @@ def prepare_fold_trajectories(
         gt_rate: Percentage of states to inject as GT
 
     Returns:
-        List of tuples: (trajectory_path, masking_path, problem_pddl_path)
+        List of tuples: (trajectory_path, masking_path, problem_pddl_path, gt_state_indices)
     """
     # Select only the first num_trajectories from the pool
     selected_dirs = selected_problem_dirs[:num_trajectories]
@@ -135,6 +152,7 @@ def prepare_fold_trajectories(
         final_traj_path = prob_dir / f"{problem_name}_{pregenerated_suffix}.trajectory"
         final_masking_path = prob_dir / f"{problem_name}_{pregenerated_suffix}.masking_info"
         problem_pddl_path = prob_dir / f"{prob_dir.name}.pddl"
+        gt_indices_path = prob_dir / f"{problem_name}_{pregenerated_suffix}.gt_indices"
 
         # Validate all required files exist
         if not final_traj_path.exists():
@@ -149,7 +167,8 @@ def prepare_fold_trajectories(
             print(f"  Warning: Problem PDDL not found for {prob_dir.name}")
             continue
 
-        prepared_trajectories.append((final_traj_path, final_masking_path, problem_pddl_path))
+        gt_indices = load_gt_indices(gt_indices_path)
+        prepared_trajectories.append((final_traj_path, final_masking_path, problem_pddl_path, gt_indices))
 
     return prepared_trajectories
 
@@ -177,7 +196,7 @@ def setup_algorithm_workspace(
 
     algorithm_traj_paths = []
 
-    for traj_path, masking_path, problem_pddl_path in prepared_trajectories:
+    for traj_path, masking_path, problem_pddl_path, *_ in prepared_trajectories:
         problem_name = problem_pddl_path.stem
 
         # Validate input files before copying
@@ -239,7 +258,7 @@ def save_fold_metadata(
         "trajectories": []
     }
 
-    for traj_path, masking_path, problem_pddl_path in prepared_trajectories:
+    for traj_path, masking_path, problem_pddl_path, *_ in prepared_trajectories:
         metadata["trajectories"].append({
             "problem": problem_pddl_path.stem,
             "trajectory_file": traj_path.name,

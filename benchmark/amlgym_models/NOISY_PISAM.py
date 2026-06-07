@@ -2,16 +2,16 @@ import shutil
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
-from amlgym.algorithms.AlgorithmAdapter import AlgorithmAdapter
+from benchmark.amlgym_models.algorithm_adapter_compat import AlgorithmAdapter
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Observation
 from utilities import NegativePreconditionPolicy
 
 from src.pi_sam import PISAMLearner
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
-from src.pi_sam.plan_denoising.frontier import NodeChoosingStrategy, SearchMode
+from src.pi_sam.plan_denoising.frontier import ConflictGroupStrategy, NodeChoosingStrategy, SearchMode
 from src.utils.masking import load_masked_observation
 
 
@@ -43,13 +43,16 @@ class NOISY_PISAM(AlgorithmAdapter):
     timeout_seconds = 60
     search_mode: SearchMode = SearchMode.ANYTIME_DFS
     node_choosing_strategy: NodeChoosingStrategy = NodeChoosingStrategy.MODEL_PATCH_FIRST
+    conflict_group_strategy: ConflictGroupStrategy = ConflictGroupStrategy.MOST_OBSERVATIONS
     seed = 42
 
     def learn(self,
               domain_path: str,
               trajectory_paths: List[str],
               use_problems: bool = False,
-              with_new_traj: bool = False) -> Tuple[str, list[Observation], dict]:
+              with_new_traj: bool = False,
+              gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None,
+              ) -> Tuple[str, list[Observation], dict]:
         """
         Learns a PDDL action model from:
          (i)    a (possibly empty) input model which is required to specify the predicates and operators signature;
@@ -75,6 +78,7 @@ class NOISY_PISAM(AlgorithmAdapter):
             model_patch_cost=self.model_patch_cost,
             model_constraint_weight=self.model_constraint_weight,
             node_choosing_strategy=self.node_choosing_strategy,
+            conflict_group_strategy=self.conflict_group_strategy,
         )
         # Parse input trajectories
 
@@ -99,7 +103,8 @@ class NOISY_PISAM(AlgorithmAdapter):
         learned_model, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = conflict_search.run(
             observations=masked_observations,
             max_nodes=self.max_search_nodes,
-            timeout_seconds=self.timeout_seconds
+            timeout_seconds=self.timeout_seconds,
+            gt_source_indices_by_obs=gt_source_indices_by_obs,
         )
 
         # TODO: show conflicts and patches at the end of the learning?

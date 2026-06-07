@@ -27,7 +27,7 @@ def load_observations_from_trajectory_list(
     domain = DomainParser(domain_path).parse_domain()
     parser = TrajectoryParser(domain)
     out = []
-    for traj_path, _, _ in trajectory_list:
+    for traj_path, *_ in trajectory_list:
         if not traj_path.exists():
             continue
         try:

@@ -9,7 +9,7 @@ Subclasses must implement three template methods:
 
 from abc import abstractmethod
 from copy import deepcopy
-from typing import List, Set, Dict, Tuple
+from typing import List, Optional, Set, Dict, Tuple
 
 from pddl_plus_parser.models import (
     Observation, State, ActionCall, Predicate, GroundedPredicate, Action,
@@ -84,6 +84,14 @@ class NoisyLearnerMixin:
         self.conflicts: List[Conflict] = []
         self.current_observation_index: int = 0
         self.current_component_index: int = 0
+        # obs_idx -> component indices whose source state is GT. None = only state 0.
+        self.gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None
+
+    def _should_check_frame_axiom(self, obs_idx: int, comp_idx: int) -> bool:
+        """True when the source state of this component is ground truth."""
+        if self.gt_source_indices_by_obs is None:
+            return comp_idx == 0
+        return comp_idx in self.gt_source_indices_by_obs.get(obs_idx, set())
 
     # ------------------------------------------------------------------
     # Patch management
@@ -93,10 +101,12 @@ class NoisyLearnerMixin:
         self,
         fluent_patches: Set[FluentLevelPatch],
         model_patches: Set[ModelLevelPatch],
+        gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None,
     ) -> None:
         self.fluent_patches = fluent_patches
         self.model_patches = model_patches
         self.conflicts = []
+        self.gt_source_indices_by_obs = gt_source_indices_by_obs
 
         self.forbidden_effects.clear()
         self.required_effects.clear()
@@ -293,7 +303,9 @@ class NoisyLearnerMixin:
         all_grounded_must = list(grounded_add_effects) + list(grounded_del_effects)
 
         # PRED_MATCHER_DEBUGGING
-        _diag = action_name == "unstack"
+        # _diag = action_name == "stack"   # commented out to disable stack-specific debug logs
+        # _diag = action_name == "unstack" # commented out to disable unstack-specific debug logs
+        _diag = False
         if _diag:
             print(
                 f"[PRED_MATCHER_DEBUGGING] === handle_effects: {action_name}({', '.join(grounded_action.parameters)}) "
@@ -309,12 +321,13 @@ class NoisyLearnerMixin:
             )
         # END PRED_MATCHER_DEBUGGING
 
-        # Frame-axiom conflicts
-        local_conflicts.extend(
-            self._collect_frame_axiom_conflicts(
-                grounded_action, grounded_add_effects, grounded_del_effects,
+        # Frame-axiom conflicts (only when the source state is GT)
+        if self._should_check_frame_axiom(self.current_observation_index, self.current_component_index):
+            local_conflicts.extend(
+                self._collect_frame_axiom_conflicts(
+                    grounded_action, grounded_add_effects, grounded_del_effects,
+                )
             )
-        )
 
         # History BEFORE this transition
         prior_must_effects: Set[Predicate] = set(observed_action.discrete_effects)
@@ -510,8 +523,9 @@ class NoisyLearnerMixin:
         observations: List[Observation],
         fluent_patches: Set[FluentLevelPatch],
         model_patches: Set[ModelLevelPatch],
+        gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None,
         **kwargs,
     ) -> Tuple[LearnerDomain, List[Conflict], Dict[str, str]]:
-        self.set_patches(fluent_patches, model_patches)
+        self.set_patches(fluent_patches, model_patches, gt_source_indices_by_obs)
         learned_domain, learning_report = self.learn_action_model(observations, **kwargs)
         return learned_domain, self.conflicts, learning_report

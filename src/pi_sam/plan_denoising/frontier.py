@@ -30,7 +30,38 @@ class NodeChoosingStrategy(Enum):
 
     MODEL_PATCH_FIRST = "model_patch_first"
     FLUENT_PATCH_FIRST = "fluent_patch_first"
+    FLUENT_PATCH_FIRST_THEN_MODEL = "fluent_patch_first_then_model"
     RANDOMIZED = "randomized"
+
+
+class ConflictGroupStrategy(Enum):
+    """Policy for choosing which conflict group to resolve at each node expansion.
+
+    FIRST:
+        Original behavior — pick the group whose representative conflict has
+        the lowest (priority, observation_index, component_index). Deterministic
+        but ignores group size.
+
+    LARGEST:
+        Within the same priority tier, prefer the group with the most conflicts.
+        Resolving a large group via model patch eliminates many conflicts at once,
+        reducing tree depth.
+
+    LARGEST_MODEL_PATCHABLE:
+        Like LARGEST, but only counts non-FRAME_AXIOM conflicts in the size
+        (since FRAME_AXIOM has no model-patch branch). Falls back to LARGEST
+        ordering for groups that are entirely FRAME_AXIOM.
+
+    MOST_OBSERVATIONS:
+        Prefer groups whose conflicts span the most distinct observations.
+        Resolving a constraint that conflicts with many different trajectories
+        is more likely to be a genuine model error (vs. a single noisy obs).
+    """
+
+    FIRST = "first"
+    LARGEST = "largest"
+    LARGEST_MODEL_PATCHABLE = "largest_model_patchable"
+    MOST_OBSERVATIONS = "most_observations"
 
 
 @dataclass(order=True)

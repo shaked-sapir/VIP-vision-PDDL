@@ -4,7 +4,7 @@ Learning algorithm wrapper functions for AMLGym experiments.
 
 from copy import deepcopy
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import time
 
@@ -21,7 +21,7 @@ from benchmark.experiment_running_helpers.cleaned_trajectories import save_obser
 from benchmark.experiment_running_helpers.trajectory_utils import setup_algorithm_workspace
 from src.pi_sam import PISAMLearner
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
-from src.pi_sam.plan_denoising.frontier import NodeChoosingStrategy, SearchMode
+from src.pi_sam.plan_denoising.frontier import ConflictGroupStrategy, NodeChoosingStrategy, SearchMode
 from src.utils.masking import load_masked_observation
 
 
@@ -53,18 +53,40 @@ def _resolve_node_choosing_strategy(
         return NodeChoosingStrategy.MODEL_PATCH_FIRST
     if normalized == "fluent_patch_first":
         return NodeChoosingStrategy.FLUENT_PATCH_FIRST
+    if normalized == "fluent_patch_first_then_model":
+        return NodeChoosingStrategy.FLUENT_PATCH_FIRST_THEN_MODEL
     if normalized == "randomized":
         return NodeChoosingStrategy.RANDOMIZED
     raise ValueError(
         "Unsupported node_choosing_strategy "
         f"'{node_choosing_strategy}'. Expected one of: "
-        "model_patch_first, fluent_patch_first, randomized."
+        "model_patch_first, fluent_patch_first, fluent_patch_first_then_model, randomized."
+    )
+
+
+def _resolve_conflict_group_strategy(
+    conflict_group_strategy: str | ConflictGroupStrategy,
+) -> ConflictGroupStrategy:
+    if isinstance(conflict_group_strategy, ConflictGroupStrategy):
+        return conflict_group_strategy
+    normalized = str(conflict_group_strategy).strip().lower()
+    if normalized == "first":
+        return ConflictGroupStrategy.FIRST
+    if normalized == "largest":
+        return ConflictGroupStrategy.LARGEST
+    if normalized == "largest_model_patchable":
+        return ConflictGroupStrategy.LARGEST_MODEL_PATCHABLE
+    if normalized == "most_observations":
+        return ConflictGroupStrategy.MOST_OBSERVATIONS
+    raise ValueError(
+        f"Unsupported conflict_group_strategy '{conflict_group_strategy}'. "
+        "Expected one of: first, largest, largest_model_patchable, most_observations."
     )
 
 
 def _learn_pisam_with_profiling(
     domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler,
-    fold_work_dir=None, prepared_trajectories=None
+    fold_work_dir=None, prepared_trajectories=None, gt_source_indices_by_obs=None
 ):
     """Learn PISAM with detailed profiling."""
     partial_domain = DomainParser(Path(str(domain_ref_path)), partial_parsing=True).parse_domain()
@@ -117,13 +139,17 @@ def _learn_pisam_with_profiling(
             model_patch_cost=learner.model_patch_cost,
             model_constraint_weight=learner.model_constraint_weight,
             node_choosing_strategy=_resolve_node_choosing_strategy(learner.node_choosing_strategy),
+            conflict_group_strategy=_resolve_conflict_group_strategy(
+                getattr(learner, 'conflict_group_strategy', ConflictGroupStrategy.FIRST)
+            ),
             conflict_free_models_dir=conflict_free_models_dir,
             save_t_prime_fn=save_t_prime_fn,
         )
         learned_model, _, _, _, _, report, patched_observations = conflict_search.run(
             observations=masked_observations,
             max_nodes=learner.max_search_nodes,
-            timeout_seconds=learner.timeout_seconds
+            timeout_seconds=learner.timeout_seconds,
+            gt_source_indices_by_obs=gt_source_indices_by_obs,
         )
         model = learned_model.to_pddl()
     else:
@@ -140,7 +166,7 @@ def _learn_pisam_with_profiling(
 def learn_sam_pisam(
     mode: str,
     domain_ref_path: Path,
-    prepared_trajectories: List[Tuple[Path, Path, Path]],
+    prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
     testing_dir: Path,
     is_denoising: bool = False,
     conflict_search_timeout: int = None,
@@ -153,6 +179,7 @@ def learn_sam_pisam(
     max_search_nodes: int = None,
     search_mode: str = "dfs",
     node_choosing_strategy: str = "model_patch_first",
+    conflict_group_strategy: str = "most_observations",
 ) -> Tuple[str, dict, str, any]:
     """
     Learn SAM/PISAM model.
@@ -160,7 +187,7 @@ def learn_sam_pisam(
     Args:
         mode: 'masked' or 'fullyobs'
         domain_ref_path: Path to reference domain PDDL
-        prepared_trajectories: List of (trajectory_path, masking_path, problem_pddl_path)
+        prepared_trajectories: List of (trajectory_path, masking_path, problem_pddl_path, gt_state_indices)
         testing_dir: Working directory
         is_denoising: If True, use NOISY_PISAM/NOISY_SAM (returns learning report and patched observations)
         conflict_search_timeout: Optional timeout in seconds for conflict search (cleaning phase)
@@ -173,6 +200,8 @@ def learn_sam_pisam(
         max_search_nodes: Max denoising conflict-search nodes (None = unlimited)
         search_mode: Conflict-search strategy for denoising ("dfs" or "ucs")
         node_choosing_strategy: Branch insertion ordering strategy in conflict search
+        conflict_group_strategy: Which conflict group to resolve first at each node
+            ("first", "largest", "largest_model_patchable", "most_observations")
 
     Returns:
         Tuple of (model, learning_report, algorithm_name, patched_observations)
@@ -180,6 +209,10 @@ def learn_sam_pisam(
     phase = "cleaned" if is_denoising else "unclean"
     algo_name = 'PISAM' if mode == 'masked' else 'SAM'
     
+    gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = {
+        obs_idx: t[3] for obs_idx, t in enumerate(prepared_trajectories) if len(t) > 3
+    } or None
+
     # Track the actual timeout value used (for cleaned phase only)
     actual_learning_timeout = None
     
@@ -196,16 +229,23 @@ def learn_sam_pisam(
             learner.max_search_nodes = max_search_nodes
             learner.search_mode = _resolve_search_mode(search_mode)
             learner.node_choosing_strategy = _resolve_node_choosing_strategy(node_choosing_strategy)
+            learner.conflict_group_strategy = _resolve_conflict_group_strategy(conflict_group_strategy)
             # Capture actual timeout used (either explicit or default)
             actual_learning_timeout = learner.timeout_seconds
-        
+
         if profiler:
             model, report, patched_observations = _learn_pisam_with_profiling(
                 domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler,
                 fold_work_dir=fold_work_dir, prepared_trajectories=prepared_trajectories,
+                gt_source_indices_by_obs=gt_source_indices_by_obs,
             )
         else:
-            learning_output = learner.learn(str(domain_ref_path), traj_paths, use_problems=False)
+            learn_kwargs = {}
+            if is_denoising:
+                learn_kwargs["gt_source_indices_by_obs"] = gt_source_indices_by_obs
+            learning_output = learner.learn(
+                str(domain_ref_path), traj_paths, use_problems=False, **learn_kwargs,
+            )
             model, patched_observations, report = _parse_learning_output(learning_output, is_denoising)
     else:  # fullyobs
         workspace_name = "noisy_sam" if is_denoising else "sam_unclean"
@@ -221,10 +261,16 @@ def learn_sam_pisam(
             learner.max_search_nodes = max_search_nodes
             learner.search_mode = _resolve_search_mode(search_mode)
             learner.node_choosing_strategy = _resolve_node_choosing_strategy(node_choosing_strategy)
+            learner.conflict_group_strategy = _resolve_conflict_group_strategy(conflict_group_strategy)
             # Capture actual timeout used (either explicit or default)
             actual_learning_timeout = learner.timeout_seconds
-        
-        learning_output = learner.learn(str(domain_ref_path), traj_paths, use_problems=False)
+
+        learn_kwargs = {}
+        if is_denoising:
+            learn_kwargs["gt_source_indices_by_obs"] = gt_source_indices_by_obs
+        learning_output = learner.learn(
+            str(domain_ref_path), traj_paths, use_problems=False, **learn_kwargs,
+        )
         model, patched_observations, report = _parse_learning_output(learning_output, is_denoising)
     
     # Add actual timeout to report if denoising (cleaned phase)
@@ -240,6 +286,9 @@ def learn_sam_pisam(
         report['search_mode'] = _resolve_search_mode(search_mode).value
         report['node_choosing_strategy'] = (
             _resolve_node_choosing_strategy(node_choosing_strategy).value
+        )
+        report['conflict_group_strategy'] = (
+            _resolve_conflict_group_strategy(conflict_group_strategy).value
         )
     
     return model, report, algo_name, patched_observations
