@@ -163,6 +163,12 @@ def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Di
         "search_mode": report.get("search_mode", None),
         "node_choosing_strategy": report.get("node_choosing_strategy", None),
         "conflict_group_strategy": report.get("conflict_group_strategy", None),
+        "fluent_branch_mode": report.get("fluent_branch_mode", None),
+        # Detailed patch info for the final/best model
+        "best_model_constraints": report.get("final_model_constraints", None),
+        "best_fluent_patches": report.get("final_fluent_patches", None),
+        # Summary of all conflict-free solutions found during search
+        "conflict_free_solutions_summary": report.get("conflict_free_solutions_summary", None),
     }
 
     # Add trajectory mapping if provided
@@ -733,6 +739,9 @@ def main(
     search_mode: str = "dfs",
     node_choosing_strategy: str = "model_patch_first",
     conflict_group_strategy: str = "most_observations",
+    fluent_branch_mode: str = "group",
+    experiment_name: str = None,
+    inner_cv: int = 1,
 ):
     """
     Run benchmark experiments.
@@ -745,8 +754,11 @@ def main(
     cleaned_results = []
 
     # Create evaluation results directory
-    evaluation_results_dir = benchmark_path / 'data' / 'evaluation_results'
-    evaluation_results_dir.mkdir(parents=True, exist_ok=True)
+    if experiment_name:
+        evaluation_results_dir = None  # set per-domain inside the loop
+    else:
+        evaluation_results_dir = benchmark_path / 'data' / 'evaluation_results'
+        evaluation_results_dir.mkdir(parents=True, exist_ok=True)
 
     # Select appropriate experiment data directories based on mode
     experiment_data_dirs = experiment_data_dirs_masked if mode == 'masked' else experiment_data_dirs_fullyobs
@@ -761,6 +773,7 @@ def main(
     run_params = {
         "timestamp": datetime.now().isoformat(),
         "mode": mode,
+        "experiment_name": experiment_name,
         "selected_domains": selected_domains if selected_domains is not None else "all",
         "domains_to_run": list(domains_to_run.keys()),
         "experiment_data_dirs": {d: experiment_data_dirs[d] for d in domains_to_run.keys()},
@@ -779,11 +792,14 @@ def main(
         "search_mode": search_mode,
         "node_choosing_strategy": node_choosing_strategy,
         "conflict_group_strategy": conflict_group_strategy,
+        "fluent_branch_mode": fluent_branch_mode,
+        "inner_cv": inner_cv,
     }
-    run_params_path = evaluation_results_dir / "run_params.json"
-    with open(run_params_path, "w") as f:
-        json.dump(run_params, f, indent=2)
-    print(f"Saved run params to: {run_params_path}")
+    if evaluation_results_dir is not None:
+        run_params_path = evaluation_results_dir / "run_params.json"
+        with open(run_params_path, "w") as f:
+            json.dump(run_params, f, indent=2)
+        print(f"Saved run params to: {run_params_path}")
 
     print(f"\n{'='*80}")
     print(f"RUNNING BENCHMARK IN {mode.upper()} MODE")
@@ -796,7 +812,19 @@ def main(
         for dir_name in experiment_data_dirs[domain_name]:
             data_dir = benchmark_path / 'data' / domain_name / dir_name
             trajectories_dir = data_dir / 'training' / 'trajectories'
-            testing_dir = data_dir / 'testing'
+
+            if experiment_name:
+                experiment_root = benchmark_path / 'data' / 'new_experiments' / domain_name / experiment_name
+                testing_dir = experiment_root / 'testing'
+                evaluation_results_dir = experiment_root / 'evaluation_results'
+                evaluation_results_dir.mkdir(parents=True, exist_ok=True)
+                if not (evaluation_results_dir / "run_params.json").exists():
+                    with open(evaluation_results_dir / "run_params.json", "w") as f:
+                        json.dump(run_params, f, indent=2)
+                    print(f"Saved run params to: {evaluation_results_dir / 'run_params.json'}")
+            else:
+                testing_dir = data_dir / 'testing'
+
             testing_dir.mkdir(parents=True, exist_ok=True)
 
             problem_dirs = sorted([d for d in trajectories_dir.iterdir() if d.is_dir()])
@@ -843,7 +871,8 @@ def main(
                 f"max_search_nodes={max_search_nodes if max_search_nodes is not None else 'unlimited'}, "
                 f"search_mode={search_mode}, "
                 f"node_choosing_strategy={node_choosing_strategy}, "
-                f"conflict_group_strategy={conflict_group_strategy}"
+                f"conflict_group_strategy={conflict_group_strategy}, "
+                f"fluent_branch_mode={fluent_branch_mode}"
             )
             print(f"CV folds: {N_FOLDS}")
             print(f"{'=' * 80}\n")
@@ -865,65 +894,87 @@ def main(
                         timeout_info = f"Conflict search timeout: {conflict_timeout}s" if conflict_timeout else "No timeout"
                         print(f"\n{'-'*40}\n{timeout_info}\n{'-'*40}")
 
-                        # Run all folds in parallel for this num_trajectories, gt_rate, and timeout
-                        print(f"  [MAIN] Starting {N_FOLDS} folds in parallel...")
+                        # Determine effective inner CV for this num_trajectories
+                        n_train = max(1, min(int(0.8 * n_problems), n_problems - 1))
+                        effective_inner_cv = inner_cv
+                        if inner_cv > 1 and num_trajectories >= n_train:
+                            print(f"  [INNER-CV] num_trajectories ({num_trajectories}) >= "
+                                  f"train pool ({n_train}), all samples identical — "
+                                  f"falling back to 1 inner fold")
+                            effective_inner_cv = 1
+
+                        # Run all folds (× inner CV sub-folds) in parallel
+                        n_total_jobs = N_FOLDS * effective_inner_cv
+                        inner_cv_tag = f" × {effective_inner_cv} inner CV" if effective_inner_cv > 1 else ""
+                        print(f"  [MAIN] Starting {n_total_jobs} jobs ({N_FOLDS} folds{inner_cv_tag})...")
                         with ProcessPoolExecutor(max_workers=N_FOLDS) as executor:
                             futures = []
                             for fold in range(N_FOLDS):
-                                future = executor.submit(
-                                    run_single_fold,
-                                    fold, problem_dirs, n_problems, num_trajectories,
-                                    gt_rate, domain_ref_path, testing_dir, bench_name, mode,
-                                    evaluate_model, save_learning_metrics,
-                                    conflict_timeout, planning_timeout_seconds,
-                                    fluent_patch_cost, fluent_patch_weight,
-                                    model_patch_cost, model_constraint_weight,
-                                    max_search_nodes,
-                                    search_mode,
-                                    node_choosing_strategy,
-                                    conflict_group_strategy,
-                                )
-                                futures.append(future)
+                                for inner_idx in range(effective_inner_cv):
+                                    inner_fold_idx = inner_idx if effective_inner_cv > 1 else None
+                                    traj_seed = (42 + fold * 1000 + inner_idx) if effective_inner_cv > 1 else None
+                                    future = executor.submit(
+                                        run_single_fold,
+                                        fold, problem_dirs, n_problems, num_trajectories,
+                                        gt_rate, domain_ref_path, testing_dir, bench_name, mode,
+                                        evaluate_model, save_learning_metrics,
+                                        conflict_timeout, planning_timeout_seconds,
+                                        fluent_patch_cost, fluent_patch_weight,
+                                        model_patch_cost, model_constraint_weight,
+                                        max_search_nodes,
+                                        search_mode,
+                                        node_choosing_strategy,
+                                        conflict_group_strategy,
+                                        fluent_branch_mode,
+                                        _inner_fold_idx=inner_fold_idx,
+                                        _trajectory_seed=traj_seed,
+                                    )
+                                    futures.append(future)
 
-                        print(f"  [MAIN] All {N_FOLDS} fold tasks submitted, waiting for completion...")
+                            print(f"  [MAIN] All {n_total_jobs} fold tasks submitted, waiting for completion...")
 
-                        # Wait for all folds to complete and collect results
-                        completed_count = 0
-                        completed_folds = set()
-                        import time
-                        start_time = time.time()
+                            # Wait for all jobs to complete and collect results
+                            completed_count = 0
+                            completed_folds = set()
+                            import time
+                            start_time = time.time()
+                            per_job_timeout = 1800
+                            n_waves = -(-n_total_jobs // N_FOLDS)  # ceil division
+                            batch_timeout = per_job_timeout * n_waves
 
-                        for future in as_completed(futures, timeout=600):  # 10 min timeout per fold batch
-                            try:
-                                completed_count += 1
-                                elapsed = time.time() - start_time
-                                print(f"  [MAIN] Fold {completed_count}/{N_FOLDS} completed after {elapsed:.1f}s, collecting results...")
-                                results_list = future.result(timeout=1800)  # 30 min timeout per fold
+                            for future in as_completed(futures, timeout=batch_timeout):
+                                try:
+                                    completed_count += 1
+                                    elapsed = time.time() - start_time
+                                    print(f"  [MAIN] Job {completed_count}/{n_total_jobs} completed after {elapsed:.1f}s, collecting results...")
+                                    results_list = future.result(timeout=per_job_timeout)
 
-                                # Identify which fold this was from the results
-                                fold_num = results_list[0]['fold'] if results_list else '?'
-                                completed_folds.add(fold_num)
+                                    # Identify which fold this was from the results
+                                    fold_num = results_list[0]['fold'] if results_list else '?'
+                                    inner_id = results_list[0].get('inner_fold_idx', '') if results_list else ''
+                                    completed_folds.add(fold_num)
 
-                                # Separate by phase and remove internal marker
-                                for result in results_list:
-                                    phase = result['_internal_phase']
-                                    if phase == 'unclean':
-                                        unclean_results.append(result)
-                                    else:  # phase == 'cleaned'
-                                        cleaned_results.append(result)
+                                    # Separate by phase
+                                    for result in results_list:
+                                        phase = result['_internal_phase']
+                                        if phase == 'unclean':
+                                            unclean_results.append(result)
+                                        else:
+                                            cleaned_results.append(result)
 
-                                pending_folds = set(range(N_FOLDS)) - completed_folds
-                                print(f"  [MAIN] Fold {fold_num} results processed. Pending: {sorted(pending_folds)}")
-                            except TimeoutError:
-                                print(f"TIMEOUT: Fold {completed_count} exceeded time limit")
-                                print(f"  Completed so far: {completed_count}/{N_FOLDS}")
-                                # Continue to wait for other folds
-                            except Exception as e:
-                                print(f"ERROR in fold {completed_count}: {e}")
-                                import traceback
-                                traceback.print_exc()
+                                    inner_info = f" inner={inner_id}" if inner_id != '' else ""
+                                    print(f"  [MAIN] Fold {fold_num}{inner_info} results processed. "
+                                          f"Jobs done: {completed_count}/{n_total_jobs}")
+                                except TimeoutError:
+                                    print(f"TIMEOUT: Job {completed_count} exceeded time limit")
+                                    print(f"  Completed so far: {completed_count}/{n_total_jobs}")
+                                except Exception as e:
+                                    print(f"ERROR in job {completed_count}: {e}")
+                                    import traceback
+                                    traceback.print_exc()
 
-                        print(f"✓ All {N_FOLDS} folds for num_trajectories={num_trajectories}, gt_rate={gt_rate}%, timeout={conflict_timeout}s completed")
+                        print(f"✓ All {n_total_jobs} jobs for num_trajectories={num_trajectories}, "
+                              f"gt_rate={gt_rate}%, timeout={conflict_timeout}s completed")
 
                         # Write TWO separate CSV files after each timeout completes
                         timeout_suffix = f"_timeout{conflict_timeout}s" if conflict_timeout else "_notimeout"
@@ -985,21 +1036,28 @@ def main(
 
     for domain_name, bench_name in domains_to_run.items():
         for dir_name in experiment_data_dirs[domain_name]:
-            data_dir = benchmark_path / 'data' / domain_name / dir_name
-            testing_dir = data_dir / 'testing'
+            if experiment_name:
+                corr_testing_dir = benchmark_path / 'data' / 'new_experiments' / domain_name / experiment_name / 'testing'
+                corr_eval_dir = benchmark_path / 'data' / 'new_experiments' / domain_name / experiment_name / 'evaluation_results'
+            else:
+                corr_testing_dir = benchmark_path / 'data' / domain_name / dir_name / 'testing'
+                corr_eval_dir = evaluation_results_dir
 
-            # Collect all fold work dirs that have correlation_analysis.json
+            if not corr_testing_dir.exists():
+                print(f"  {bench_name}: testing dir not found, skipping correlation.")
+                continue
+
             fold_dirs = sorted(
-                d for d in testing_dir.iterdir()
+                d for d in corr_testing_dir.iterdir()
                 if d.is_dir() and d.name.startswith("fold")
                 and (d / "correlation_analysis.json").exists()
             )
 
             if fold_dirs:
-                corr_output = evaluation_results_dir / f"correlation_{bench_name}"
+                corr_output = corr_eval_dir / f"correlation_{bench_name}"
                 corr_result = aggregate_correlation_tables(fold_dirs, corr_output)
                 print(f"  {bench_name}: {corr_result['n']} data points, "
-                      f"output → {corr_output.relative_to(evaluation_results_dir)}/")
+                      f"output → {corr_output.name}/")
             else:
                 print(f"  {bench_name}: no per-fold correlation tables found, skipping.")
 
@@ -1008,23 +1066,20 @@ def main(
     # =============================================================================
 
     # Create all-domains combined CSV file
-    csv_all_combined = evaluation_results_dir / "results_all_domains_combined.csv"
-    all_unclean = [dict(r, phase='unclean') for r in unclean_results]
-    all_cleaned = [dict(r, phase='cleaned') for r in cleaned_results]
-    all_combined_data = all_unclean + all_cleaned
-    pd.DataFrame(all_combined_data).to_csv(csv_all_combined, index=False)
+    if evaluation_results_dir is not None:
+        csv_all_combined = evaluation_results_dir / "results_all_domains_combined.csv"
+        all_unclean = [dict(r, phase='unclean') for r in unclean_results]
+        all_cleaned = [dict(r, phase='cleaned') for r in cleaned_results]
+        all_combined_data = all_unclean + all_cleaned
+        pd.DataFrame(all_combined_data).to_csv(csv_all_combined, index=False)
 
     print("\n" + "=" * 80)
     print("ALL EXPERIMENTS COMPLETED")
     print("=" * 80)
     print(f"\nTotal unclean results: {len(unclean_results)}")
     print(f"Total cleaned results: {len(cleaned_results)}")
-    print(f"\nAll evaluation results saved to: {evaluation_results_dir}")
-    print(f"  - Plots: {evaluation_results_dir / 'plots'}")
-    print(f"  - Excel report: {xlsx_path}")
-    print(f"  - Per-domain CSVs: {csv_unclean}, {csv_cleaned}, {csv_combined}")
-    print(f"  - All-domains combined CSV: {csv_all_combined}")
-    print(f"  - Correlation analysis: {evaluation_results_dir / 'correlation_*/'}")
+    if evaluation_results_dir is not None:
+        print(f"\nAll evaluation results saved to: {evaluation_results_dir}")
 
 # =============================================================================
 # PLOTTING FUNCTIONS FOR GT INJECTION ANALYSIS
@@ -1537,13 +1592,46 @@ if __name__ == "__main__":
         '--conflict-group-strategy',
         type=str,
         default='most_observations',
-        choices=['first', 'largest', 'largest_model_patchable', 'most_observations'],
+        choices=['first', 'largest', 'largest_model_patchable', 'most_observations', 'smallest'],
         help=(
             'Which conflict group to resolve first at each search node: '
             '"first" (original: by priority then position), '
             '"largest" (prefer groups with most conflicts), '
             '"largest_model_patchable" (prefer largest non-FRAME_AXIOM groups), '
-            '"most_observations" (prefer groups spanning most distinct observations)'
+            '"most_observations" (prefer groups spanning most distinct observations), '
+            '"smallest" (prefer groups with fewest conflicts — best paired with fluent_patch_first)'
+        ),
+    )
+    parser.add_argument(
+        '--fluent-branch-mode',
+        type=str,
+        default='group',
+        choices=['group', 'single'],
+        help=(
+            'How many fluent patches per data-fix branch: '
+            '"group" (default, all conflicts in the chosen group at once), '
+            '"single" (one patch per branch — finer-grained, avoids inflated cost)'
+        ),
+    )
+    parser.add_argument(
+        '--experiment-name',
+        type=str,
+        default=None,
+        help=(
+            'Self-contained experiment folder name. When set, testing/ and '
+            'evaluation_results/ are created under '
+            'benchmark/data/new_experiments/{domain}/{name}/ '
+            'instead of the default locations.'
+        ),
+    )
+    parser.add_argument(
+        '--inner-cv',
+        type=int,
+        default=1,
+        help=(
+            'Number of random trajectory subgroups per (fold, num_trajectories). '
+            'Default 1 = current behavior (single prefix slice). '
+            'Values > 1 = each inner fold draws an independent random sample.'
         ),
     )
 
@@ -1590,15 +1678,20 @@ if __name__ == "__main__":
         search_mode=args.search_mode,
         node_choosing_strategy=args.node_choosing_strategy,
         conflict_group_strategy=args.conflict_group_strategy,
+        fluent_branch_mode=args.fluent_branch_mode,
+        experiment_name=args.experiment_name,
+        inner_cv=args.inner_cv,
     )
 
 """cli running command:
 python -m benchmark.amlgym_testing \
   --domain blocksworld \
   --mode masked \
-  --learning-timeout-seconds 180 \
+  --learning-timeout-seconds 300 \
   --planning-timeout-seconds 60 \
   --search-mode dfs \
-  --node-choosing-strategy fluent_patch_first \
-  --model-constraint-weight 0.0
+  --node-choosing-strategy model_patch_first \
+  --conflict-group-strategy largest \
+  --model-constraint-weight 0.0 \
+  --experiment-name MW=0__modelFirst__largest__FAfixed
 """

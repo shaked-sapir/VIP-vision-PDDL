@@ -56,12 +56,42 @@ class ConflictGroupStrategy(Enum):
         Prefer groups whose conflicts span the most distinct observations.
         Resolving a constraint that conflicts with many different trajectories
         is more likely to be a genuine model error (vs. a single noisy obs).
+
+    SMALLEST:
+        Prefer the group with the fewest conflicts. A small group means
+        few observations disagree with the current constraint — those few
+        are more likely to be noise, so model-patching (trusting the
+        constraint) is a reasonable fix.  Large groups mean strong sensor
+        consensus against the constraint and should be left for fluent-patching.
     """
 
     FIRST = "first"
     LARGEST = "largest"
     LARGEST_MODEL_PATCHABLE = "largest_model_patchable"
     MOST_OBSERVATIONS = "most_observations"
+    SMALLEST = "smallest"
+
+
+class FluentBranchMode(Enum):
+    """How many fluent patches to apply in each data-fix (Child A) branch.
+
+    GROUP:
+        Original behavior — apply fluent patches for ALL conflicts in the
+        chosen group at once.  Matches the model-fix scope (one constraint
+        resolves the whole group) but inflates Child A's cost, making it
+        easier to prune via branch-and-bound.
+
+    SINGLE:
+        Apply ONE fluent patch per branch (the first novel patch in the
+        group).  The remaining conflicts may re-arise when the child is
+        expanded, leading to deeper but finer-grained search trees.  This
+        avoids over-committing to a high-cost fluent-fix path and lets the
+        search discover that a single data repair can cascade through the
+        sequential effect accumulation and resolve multiple conflicts.
+    """
+
+    GROUP = "group"
+    SINGLE = "single"
 
 
 @dataclass(order=True)

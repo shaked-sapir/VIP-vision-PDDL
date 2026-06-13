@@ -29,6 +29,7 @@ from src.pi_sam.noisy_pisam.typings import (
 )
 from src.pi_sam.plan_denoising.frontier import (
     ConflictGroupStrategy,
+    FluentBranchMode,
     Key,
     NodeChoosingStrategy,
     SearchMode,
@@ -59,6 +60,22 @@ class ConflictDrivenPatchSearchBase(ABC):
       fluent_patches:
           Set[FluentLevelPatch], describing data repairs.
 
+    Branching:
+      At each node the search picks a conflict group (same action +
+      lifted predicate) and creates up to two children:
+
+        Child A (data-fix):  add fluent patch(es) to repair observations.
+        Child B (model-fix): add a model constraint (FORBID/REQUIRE).
+
+      ``fluent_branch_mode`` controls how many fluent patches Child A
+      receives:
+
+        GROUP  (default) — patches for ALL conflicts in the group at once.
+        SINGLE — only the first novel patch; remaining conflicts may
+                 re-arise at deeper nodes, giving a finer-grained search
+                 that avoids inflating Child A's cost and being pruned
+                 prematurely by branch-and-bound.
+
     Subclasses implement ``_create_learner`` to select the SAM-family
     learner (NoisyPisamLearner, NoisySAMLearner, etc.).
     """
@@ -78,6 +95,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         model_constraint_weight: float = 0.0,
         node_choosing_strategy: NodeChoosingStrategy = NodeChoosingStrategy.MODEL_PATCH_FIRST,
         conflict_group_strategy: ConflictGroupStrategy = ConflictGroupStrategy.FIRST,
+        fluent_branch_mode: FluentBranchMode = FluentBranchMode.GROUP,
         **kwargs,
     ):
         if kwargs:
@@ -96,6 +114,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         self.model_constraint_weight = model_constraint_weight
         self.node_choosing_strategy = node_choosing_strategy
         self.conflict_group_strategy = conflict_group_strategy
+        self.fluent_branch_mode = fluent_branch_mode
         self._rng = random.Random(seed)
         self._conflict_free_model_counter = 0
 
@@ -109,6 +128,46 @@ class ConflictDrivenPatchSearchBase(ABC):
             logger.setLevel(logging.DEBUG)
 
         self.logger = logger
+
+    # ------------------------------------------------------------------
+    # Serialization helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _serialize_model_constraints(
+        model_constraints: Dict[Key, PatchOperation],
+    ) -> List[Dict[str, str]]:
+        """Serialize model constraints to a JSON-friendly list of dicts."""
+        result = []
+        for (action_name, part, pbl), op in sorted(
+            model_constraints.items(),
+            key=lambda item: (item[0][0], str(item[0][2])),
+        ):
+            result.append({
+                "action": action_name,
+                "model_part": part.value,
+                "predicate": str(pbl),
+                "operation": op.value,
+            })
+        return result
+
+    @staticmethod
+    def _serialize_fluent_patches(
+        fluent_patches: Set[FluentLevelPatch],
+    ) -> List[Dict]:
+        """Serialize fluent patches to a JSON-friendly list of dicts."""
+        result = []
+        for fp in sorted(
+            fluent_patches,
+            key=lambda p: (p.observation_index, p.component_index, p.state_type, p.fluent),
+        ):
+            result.append({
+                "observation_index": fp.observation_index,
+                "component_index": fp.component_index,
+                "state_type": fp.state_type,
+                "fluent": fp.fluent,
+            })
+        return result
 
     # ------------------------------------------------------------------
     # Abstract — subclasses provide the learner
@@ -165,8 +224,30 @@ class ConflictDrivenPatchSearchBase(ABC):
     # Model / timing persistence
     # ------------------------------------------------------------------
 
+    def _save_patch_details(
+        self,
+        target_dir: Path,
+        model_constraints: Dict[Key, PatchOperation],
+        fluent_patches: Set[FluentLevelPatch],
+        cost: Optional[float] = None,
+    ) -> None:
+        """Write patch_details.json into *target_dir*."""
+        details = {
+            "model_constraint_count": len(model_constraints),
+            "fluent_patch_count": len(fluent_patches),
+            "cost": cost,
+            "model_constraints": self._serialize_model_constraints(model_constraints),
+            "fluent_patches": self._serialize_fluent_patches(fluent_patches),
+        }
+        (target_dir / "patch_details.json").write_text(json.dumps(details, indent=2))
+
     def _save_conflict_free_model(
-        self, domain: LearnerDomain, patched_observations: Optional[List[Observation]] = None,
+        self,
+        domain: LearnerDomain,
+        patched_observations: Optional[List[Observation]] = None,
+        model_constraints: Optional[Dict[Key, PatchOperation]] = None,
+        fluent_patches: Optional[Set[FluentLevelPatch]] = None,
+        cost: Optional[float] = None,
     ) -> None:
         if self.conflict_free_models_dir is None:
             return
@@ -178,10 +259,17 @@ class ConflictDrivenPatchSearchBase(ABC):
         (model_dir / "model.pddl").write_text(domain.to_pddl())
         if patched_observations and self.save_t_prime_fn:
             self.save_t_prime_fn(patched_observations, model_dir / "final_observations")
+        if model_constraints is not None and fluent_patches is not None:
+            self._save_patch_details(model_dir, model_constraints, fluent_patches, cost)
         self.logger.info(f"Saved conflict-free model {idx} to {model_dir}")
 
     def _save_final_model(
-        self, domain: LearnerDomain, patched_observations: Optional[List[Observation]] = None,
+        self,
+        domain: LearnerDomain,
+        patched_observations: Optional[List[Observation]] = None,
+        model_constraints: Optional[Dict[Key, PatchOperation]] = None,
+        fluent_patches: Optional[Set[FluentLevelPatch]] = None,
+        cost: Optional[float] = None,
     ) -> None:
         if self.conflict_free_models_dir is None:
             return
@@ -191,6 +279,8 @@ class ConflictDrivenPatchSearchBase(ABC):
         (final_dir / "model.pddl").write_text(domain.to_pddl())
         if patched_observations and self.save_t_prime_fn:
             self.save_t_prime_fn(patched_observations, final_dir / "final_observations")
+        if model_constraints is not None and fluent_patches is not None:
+            self._save_patch_details(final_dir, model_constraints, fluent_patches, cost)
         self.logger.info(f"Saved final model (no conflict-free) to {final_dir}")
 
     def _write_node_expansion_times(
@@ -227,6 +317,17 @@ class ConflictDrivenPatchSearchBase(ABC):
             "node_expansion_times": node_expansion_times,
         }
         out_path.write_text(json.dumps(payload, indent=2))
+
+    def _write_conflict_free_solutions_log(
+        self, solutions_log: List[Dict],
+    ) -> None:
+        """Write the full conflict-free solutions log to disk."""
+        if self.conflict_free_models_dir is None:
+            return
+        out_dir = self.conflict_free_models_dir.parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / "conflict_free_solutions_log.json"
+        out_path.write_text(json.dumps(solutions_log, indent=2))
 
     # ------------------------------------------------------------------
     # Public API
@@ -289,6 +390,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         best_report: Dict[str, str] = {}
         best_cost: float = float("inf")
         conflict_free_count: int = 0
+        conflict_free_solutions_log: List[Dict] = []
 
         while frontier:
             # --- Termination checks ---
@@ -357,7 +459,23 @@ class ConflictDrivenPatchSearchBase(ABC):
                 patched_obs = self._apply_patches_to_observations(
                     observations, node.fluent_patches,
                 )
-                self._save_conflict_free_model(domain, patched_obs)
+                self._save_conflict_free_model(
+                    domain, patched_obs,
+                    model_constraints=node.model_constraints,
+                    fluent_patches=node.fluent_patches,
+                    cost=current_cost,
+                )
+                conflict_free_solutions_log.append({
+                    "index": conflict_free_count - 1,
+                    "cost": current_cost,
+                    "depth": node.depth,
+                    "nodes_expanded_so_far": nodes_expanded,
+                    "wall_time_so_far": round(time.time() - start_time, 2),
+                    "fluent_patch_count": len(node.fluent_patches),
+                    "model_constraint_count": len(node.model_constraints),
+                    "model_constraints": self._serialize_model_constraints(node.model_constraints),
+                    "fluent_patches": self._serialize_fluent_patches(node.fluent_patches),
+                })
 
                 if current_cost < best_cost:
                     best_domain = domain
@@ -381,7 +499,11 @@ class ConflictDrivenPatchSearchBase(ABC):
             conflict_groups = self._group_conflicts(conflicts)
             group = self._choose_conflict_group(conflict_groups)
 
-            # Child A: DATA-FIX (fluent patches for all conflicts in the group)
+            # Child A: DATA-FIX
+            # In GROUP mode (default), apply fluent patches for ALL conflicts
+            # in the group at once.  In SINGLE mode, apply only the first
+            # novel patch — remaining conflicts may re-arise at deeper nodes,
+            # yielding a finer-grained (and potentially cheaper) search.
             child_a_model_constraints = dict(node.model_constraints)
             child_a_fluent_patches = set(node.fluent_patches)
             changed = False
@@ -390,6 +512,8 @@ class ConflictDrivenPatchSearchBase(ABC):
                 if fp not in child_a_fluent_patches:
                     child_a_fluent_patches.add(fp)
                     changed = True
+                    if self.fluent_branch_mode == FluentBranchMode.SINGLE:
+                        break
 
             child_a_node: Optional[SearchNode] = None
             child_b_node: Optional[SearchNode] = None
@@ -472,6 +596,15 @@ class ConflictDrivenPatchSearchBase(ABC):
                 model_patch_cost=self.model_patch_cost,
                 model_constraint_weight=self.model_constraint_weight,
                 conflict_free_model_count=conflict_free_count,
+                # Detailed patch info for the final/best model
+                final_model_constraints=self._serialize_model_constraints(final_constraints),
+                final_fluent_patches=self._serialize_fluent_patches(final_fluent_patches),
+                # Summary of all conflict-free solutions found (without full patch lists)
+                conflict_free_solutions_summary=[
+                    {k: v for k, v in sol.items()
+                     if k not in ("model_constraints", "fluent_patches")}
+                    for sol in conflict_free_solutions_log
+                ],
             )
         )
 
@@ -479,12 +612,18 @@ class ConflictDrivenPatchSearchBase(ABC):
             observations, final_fluent_patches,
         )
         if conflict_free_count == 0:
-            self._save_final_model(final_domain, patched_obs)
+            self._save_final_model(
+                final_domain, patched_obs,
+                model_constraints=final_constraints,
+                fluent_patches=final_fluent_patches,
+                cost=final_cost,
+            )
         self._write_node_expansion_times(
             node_expansion_times,
             self.search_mode,
             self.node_choosing_strategy,
         )
+        self._write_conflict_free_solutions_log(conflict_free_solutions_log)
 
         return (
             final_domain,
@@ -566,6 +705,11 @@ class ConflictDrivenPatchSearchBase(ABC):
             # Prefer groups spanning the most distinct observations.
             return min(groups, key=self._group_score_most_observations)
 
+        if strategy == ConflictGroupStrategy.SMALLEST:
+            # Prefer the smallest group — fewest conflicts = weakest evidence
+            # against the constraint, most likely to be noise.
+            return min(groups, key=self._group_score_smallest)
+
         raise ValueError(f"Unknown conflict_group_strategy: {strategy}")
 
     # -- Scoring helpers (lower = chosen first) ----------------------------
@@ -628,6 +772,18 @@ class ConflictDrivenPatchSearchBase(ABC):
             -n_distinct_obs,
             -len(g),  # secondary: total size
             rep.observation_index,
+        )
+
+    @staticmethod
+    def _group_score_smallest(g: List[Conflict]) -> Tuple[int, int, int, int]:
+        """Prefer smallest group — few conflicts = weak evidence against the
+        constraint, likely noise.  Positive len(g) so min-sort picks smallest."""
+        rep = ConflictDrivenPatchSearchBase._group_representative(g)
+        return (
+            int(ConflictDrivenPatchSearchBase._conflict_priority(rep)),
+            len(g),  # positive: smaller group wins
+            rep.observation_index,
+            rep.component_index,
         )
 
     # ------------------------------------------------------------------

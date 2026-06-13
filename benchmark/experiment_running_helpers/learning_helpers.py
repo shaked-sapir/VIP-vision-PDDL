@@ -21,7 +21,7 @@ from benchmark.experiment_running_helpers.cleaned_trajectories import save_obser
 from benchmark.experiment_running_helpers.trajectory_utils import setup_algorithm_workspace
 from src.pi_sam import PISAMLearner
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
-from src.pi_sam.plan_denoising.frontier import ConflictGroupStrategy, NodeChoosingStrategy, SearchMode
+from src.pi_sam.plan_denoising.frontier import ConflictGroupStrategy, FluentBranchMode, NodeChoosingStrategy, SearchMode
 from src.utils.masking import load_masked_observation
 
 
@@ -78,9 +78,27 @@ def _resolve_conflict_group_strategy(
         return ConflictGroupStrategy.LARGEST_MODEL_PATCHABLE
     if normalized == "most_observations":
         return ConflictGroupStrategy.MOST_OBSERVATIONS
+    if normalized == "smallest":
+        return ConflictGroupStrategy.SMALLEST
     raise ValueError(
         f"Unsupported conflict_group_strategy '{conflict_group_strategy}'. "
-        "Expected one of: first, largest, largest_model_patchable, most_observations."
+        "Expected one of: first, largest, largest_model_patchable, most_observations, smallest."
+    )
+
+
+def _resolve_fluent_branch_mode(
+    fluent_branch_mode: str | FluentBranchMode,
+) -> FluentBranchMode:
+    if isinstance(fluent_branch_mode, FluentBranchMode):
+        return fluent_branch_mode
+    normalized = str(fluent_branch_mode).strip().lower()
+    if normalized == "group":
+        return FluentBranchMode.GROUP
+    if normalized == "single":
+        return FluentBranchMode.SINGLE
+    raise ValueError(
+        f"Unsupported fluent_branch_mode '{fluent_branch_mode}'. "
+        "Expected one of: group, single."
     )
 
 
@@ -142,6 +160,9 @@ def _learn_pisam_with_profiling(
             conflict_group_strategy=_resolve_conflict_group_strategy(
                 getattr(learner, 'conflict_group_strategy', ConflictGroupStrategy.FIRST)
             ),
+            fluent_branch_mode=_resolve_fluent_branch_mode(
+                getattr(learner, 'fluent_branch_mode', FluentBranchMode.GROUP)
+            ),
             conflict_free_models_dir=conflict_free_models_dir,
             save_t_prime_fn=save_t_prime_fn,
         )
@@ -180,6 +201,7 @@ def learn_sam_pisam(
     search_mode: str = "dfs",
     node_choosing_strategy: str = "model_patch_first",
     conflict_group_strategy: str = "most_observations",
+    fluent_branch_mode: str = "group",
 ) -> Tuple[str, dict, str, any]:
     """
     Learn SAM/PISAM model.
@@ -201,7 +223,9 @@ def learn_sam_pisam(
         search_mode: Conflict-search strategy for denoising ("dfs" or "ucs")
         node_choosing_strategy: Branch insertion ordering strategy in conflict search
         conflict_group_strategy: Which conflict group to resolve first at each node
-            ("first", "largest", "largest_model_patchable", "most_observations")
+            ("first", "largest", "largest_model_patchable", "most_observations", "smallest")
+        fluent_branch_mode: How many fluent patches per data-fix branch
+            ("group" = all in group, "single" = one at a time)
 
     Returns:
         Tuple of (model, learning_report, algorithm_name, patched_observations)
@@ -230,6 +254,7 @@ def learn_sam_pisam(
             learner.search_mode = _resolve_search_mode(search_mode)
             learner.node_choosing_strategy = _resolve_node_choosing_strategy(node_choosing_strategy)
             learner.conflict_group_strategy = _resolve_conflict_group_strategy(conflict_group_strategy)
+            learner.fluent_branch_mode = _resolve_fluent_branch_mode(fluent_branch_mode)
             # Capture actual timeout used (either explicit or default)
             actual_learning_timeout = learner.timeout_seconds
 
@@ -262,6 +287,7 @@ def learn_sam_pisam(
             learner.search_mode = _resolve_search_mode(search_mode)
             learner.node_choosing_strategy = _resolve_node_choosing_strategy(node_choosing_strategy)
             learner.conflict_group_strategy = _resolve_conflict_group_strategy(conflict_group_strategy)
+            learner.fluent_branch_mode = _resolve_fluent_branch_mode(fluent_branch_mode)
             # Capture actual timeout used (either explicit or default)
             actual_learning_timeout = learner.timeout_seconds
 
@@ -289,6 +315,9 @@ def learn_sam_pisam(
         )
         report['conflict_group_strategy'] = (
             _resolve_conflict_group_strategy(conflict_group_strategy).value
+        )
+        report['fluent_branch_mode'] = (
+            _resolve_fluent_branch_mode(fluent_branch_mode).value
         )
     
     return model, report, algo_name, patched_observations

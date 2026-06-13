@@ -95,6 +95,9 @@ def run_single_fold(
     search_mode: str = "dfs",
     node_choosing_strategy: str = "model_patch_first",
     conflict_group_strategy: str = "most_observations",
+    fluent_branch_mode: str = "group",
+    _inner_fold_idx: int = None,
+    _trajectory_seed: int = None,
 ) -> List[dict]:
     """
     Run a single fold experiment with specified number of trajectories and GT rate.
@@ -121,18 +124,29 @@ def run_single_fold(
         search_mode: Conflict-search strategy for denoising ("dfs" or "ucs").
         node_choosing_strategy: Conflict-search branch insertion ordering strategy.
         conflict_group_strategy: Which conflict group to resolve first at each node
-            ("first", "largest", "largest_model_patchable", "most_observations").
+            ("first", "largest", "largest_model_patchable", "most_observations", "smallest").
+        fluent_branch_mode: How many fluent patches per data-fix branch
+            ("group" = all in group, "single" = one at a time).
+        _inner_fold_idx: When set, this fold is an inner CV sub-fold.
+            Output goes to fold_work_dir/inner_{idx}/ and the result dicts
+            include an 'inner_fold_idx' key.
+        _trajectory_seed: Custom seed for trajectory sampling (used by inner CV
+            to get independent random subgroups). When None, the original
+            fixed-seed prefix-slice behaviour is used.
 
     Returns:
         List of 4 dicts with results for: unclean SAM/PISAM, unclean ROSAME, cleaned SAM/PISAM, cleaned ROSAME
     """
-    print(f"[PID {os.getpid()}] Fold {fold}, num_trajs={num_trajectories}, gt_rate={gt_rate}%, mode={mode}")
+    inner_tag = f", inner={_inner_fold_idx}" if _inner_fold_idx is not None else ""
+    print(f"[PID {os.getpid()}] Fold {fold}, num_trajs={num_trajectories}, gt_rate={gt_rate}%, mode={mode}{inner_tag}")
 
     # Initialize profiling
     profiler = TimingProfiler()
 
     # Setup
     fold_work_dir = testing_dir / f"fold{fold}_numtrajs{num_trajectories}_gtrate{gt_rate}"
+    if _inner_fold_idx is not None:
+        fold_work_dir = fold_work_dir / f"inner_{_inner_fold_idx}"
     fold_work_dir.mkdir(parents=True, exist_ok=True)
     original_cwd = os.getcwd()
     os.chdir(fold_work_dir)
@@ -164,10 +178,18 @@ def run_single_fold(
         train_problem_dirs = [problem_dirs[i] for i in train_idx]
         test_problem_dirs = [problem_dirs[i] for i in test_idx]
 
-        # Pool size = 0.8 * total problems (same as train size), so we can use up to that many trajectories
-        random.seed(42 + fold)
-        num_trajectories_pool = n_train  # 0.8 * n_problems
-        selected_pool = random.sample(train_problem_dirs, min(num_trajectories_pool, len(train_problem_dirs)))
+        # Trajectory selection: either independent random sample (inner CV) or
+        # original fixed-seed prefix-slice behaviour.
+        if _trajectory_seed is not None:
+            random.seed(_trajectory_seed)
+            selected_pool = random.sample(
+                train_problem_dirs,
+                min(num_trajectories, len(train_problem_dirs)),
+            )
+        else:
+            random.seed(42 + fold)
+            num_trajectories_pool = n_train
+            selected_pool = random.sample(train_problem_dirs, min(num_trajectories_pool, len(train_problem_dirs)))
 
         # Load pre-generated trajectories
         print(f"  Loading {num_trajectories} pre-generated trajectories with gt_rate={gt_rate}%...")
@@ -255,6 +277,7 @@ def run_single_fold(
                 search_mode=search_mode,
                 node_choosing_strategy=node_choosing_strategy,
                 conflict_group_strategy=conflict_group_strategy,
+                fluent_branch_mode=fluent_branch_mode,
             )
         print(f"  [PHASE 1] SAM/PISAM learning done, saving metrics...")
         save_learning_metrics_func(fold_work_dir, sam_report)
@@ -282,7 +305,7 @@ def run_single_fold(
         rosame_algo_name = 'PO_ROSAME' if mode == 'masked' else 'ROSAME'
         with profiler.time_operation(f"learning_rosame_unclean_{rosame_algo_name}"):
             rosame_unclean_model, rosame_report, rosame_algo_name = learn_rosame(
-                mode, domain_ref_path, prepared_trajectories, testing_dir, "rosame_unclean", profiler=profiler
+                mode, domain_ref_path, prepared_trajectories, fold_work_dir, "rosame_unclean", profiler=profiler
             )
         print(f"  [PHASE 1] ROSAME learning done, saving metrics...")
         save_learning_metrics_func(fold_work_dir, rosame_report)
@@ -340,6 +363,7 @@ def run_single_fold(
                     search_mode=search_mode,
                     node_choosing_strategy=node_choosing_strategy,
                     conflict_group_strategy=conflict_group_strategy,
+                    fluent_branch_mode=fluent_branch_mode,
                 )
             print(f"  [PHASE 2] Denoising complete, saving metrics...")
             save_learning_metrics_func(fold_work_dir, denoising_report)
@@ -454,7 +478,7 @@ def run_single_fold(
                         print(f"  [PHASE 2] Starting ROSAME learning on cleaned trajectories...")
                         with profiler.time_operation(f"learning_rosame_cleaned_{rosame_algo_name}"):
                             rosame_cleaned_model, rosame_cleaned_report, rosame_cleaned_algo_name = learn_rosame(
-                                mode, domain_ref_path, cleaned_trajectories, testing_dir, "rosame_cleaned", profiler=profiler
+                                mode, domain_ref_path, cleaned_trajectories, fold_work_dir, "rosame_cleaned", profiler=profiler
                             )
                         print(f"  [PHASE 2] Cleaned ROSAME learning done...")
                         
@@ -572,8 +596,12 @@ def run_single_fold(
         timing_plot_path = fold_work_dir / "timing_report.png"
         profiler.plot_timing_report(timing_plot_path)
         
-        print(f"  [FOLD COMPLETE] Returning 4 results for fold {fold}")
-        return [unclean_sam_result, unclean_rosame_result, cleaned_sam_result, cleaned_rosame_result]
+        fold_results = [unclean_sam_result, unclean_rosame_result, cleaned_sam_result, cleaned_rosame_result]
+        if _inner_fold_idx is not None:
+            for r in fold_results:
+                r['inner_fold_idx'] = _inner_fold_idx
+        print(f"  [FOLD COMPLETE] Returning 4 results for fold {fold}{inner_tag}")
+        return fold_results
 
     finally:
         os.chdir(original_cwd)

@@ -58,7 +58,8 @@ def evaluate_and_build_result(
     """
     if model:
         print(f"  [DEBUG] Evaluating {model_name} ({phase})...")
-        temp_path = testing_dir / f'{model_name}_{phase}_{bench_name}_fold{fold}.pddl'
+        temp_dir = fold_work_dir if fold_work_dir else testing_dir
+        temp_path = temp_dir / f'{model_name}_{phase}_{bench_name}_fold{fold}.pddl'
         temp_path.write_text(model)
 
         # Save learned domain to fold directory

@@ -1,0 +1,495 @@
+{
+  "model_constraint_count": 10,
+  "fluent_patch_count": 71,
+  "cost": 71.0,
+  "model_constraints": [
+    {
+      "action": "pick_up",
+      "model_part": "eff",
+      "predicate": "not clear(?x)",
+      "operation": "require"
+    },
+    {
+      "action": "stack",
+      "model_part": "eff",
+      "predicate": "clear(?x)",
+      "operation": "forbid"
+    },
+    {
+      "action": "stack",
+      "model_part": "eff",
+      "predicate": "not clear(?y)",
+      "operation": "forbid"
+    },
+    {
+      "action": "stack",
+      "model_part": "eff",
+      "predicate": "on(?x, ?y)",
+      "operation": "forbid"
+    },
+    {
+      "action": "stack",
+      "model_part": "eff",
+      "predicate": "on(?y, ?x)",
+      "operation": "require"
+    },
+    {
+      "action": "stack",
+      "model_part": "eff",
+      "predicate": "ontable(?x)",
+      "operation": "require"
+    },
+    {
+      "action": "stack",
+      "model_part": "eff",
+      "predicate": "ontable(?y)",
+      "operation": "forbid"
+    },
+    {
+      "action": "unstack",
+      "model_part": "eff",
+      "predicate": "clear(?y)",
+      "operation": "forbid"
+    },
+    {
+      "action": "unstack",
+      "model_part": "eff",
+      "predicate": "not clear(?y)",
+      "operation": "forbid"
+    },
+    {
+      "action": "unstack",
+      "model_part": "eff",
+      "predicate": "ontable(?y)",
+      "operation": "require"
+    }
+  ],
+  "fluent_patches": [
+    {
+      "observation_index": 0,
+      "component_index": 4,
+      "state_type": "next",
+      "fluent": "(clear e)"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 4,
+      "state_type": "next",
+      "fluent": "(not (on f e))"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 7,
+      "state_type": "next",
+      "fluent": "(clear c)"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 10,
+      "state_type": "next",
+      "fluent": "(clear c)"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 10,
+      "state_type": "next",
+      "fluent": "(not (clear d))"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 10,
+      "state_type": "next",
+      "fluent": "(not (on d c))"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 10,
+      "state_type": "next",
+      "fluent": "(ontable d)"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 12,
+      "state_type": "next",
+      "fluent": "(clear b)"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 12,
+      "state_type": "next",
+      "fluent": "(not (on c b))"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 13,
+      "state_type": "next",
+      "fluent": "(clear a)"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 14,
+      "state_type": "next",
+      "fluent": "(clear a)"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 14,
+      "state_type": "next",
+      "fluent": "(not (clear b))"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 14,
+      "state_type": "next",
+      "fluent": "(not (on b a))"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 14,
+      "state_type": "next",
+      "fluent": "(not (ontable a))"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 14,
+      "state_type": "next",
+      "fluent": "(not (ontable b))"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 14,
+      "state_type": "next",
+      "fluent": "(on a b)"
+    },
+    {
+      "observation_index": 0,
+      "component_index": 14,
+      "state_type": "next",
+      "fluent": "(ontable b)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 1,
+      "state_type": "next",
+      "fluent": "(clear c)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 1,
+      "state_type": "next",
+      "fluent": "(not (ontable c))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 5,
+      "state_type": "next",
+      "fluent": "(not (clear e))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 5,
+      "state_type": "next",
+      "fluent": "(not (ontable e))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 7,
+      "state_type": "next",
+      "fluent": "(clear f)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 9,
+      "state_type": "next",
+      "fluent": "(clear f)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 9,
+      "state_type": "next",
+      "fluent": "(not (clear f))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 10,
+      "state_type": "next",
+      "fluent": "(clear f)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 10,
+      "state_type": "next",
+      "fluent": "(not (clear a))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 10,
+      "state_type": "next",
+      "fluent": "(not (on a f))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 10,
+      "state_type": "next",
+      "fluent": "(on f a)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 11,
+      "state_type": "next",
+      "fluent": "(clear e)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 11,
+      "state_type": "next",
+      "fluent": "(not (clear e))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 12,
+      "state_type": "next",
+      "fluent": "(clear e)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 12,
+      "state_type": "next",
+      "fluent": "(not (ontable e))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 12,
+      "state_type": "next",
+      "fluent": "(not (ontable f))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 13,
+      "state_type": "next",
+      "fluent": "(clear d)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 13,
+      "state_type": "next",
+      "fluent": "(not (clear d))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 14,
+      "state_type": "next",
+      "fluent": "(clear d)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 14,
+      "state_type": "next",
+      "fluent": "(not (on e d))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 15,
+      "state_type": "next",
+      "fluent": "(clear c)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 15,
+      "state_type": "next",
+      "fluent": "(not (clear c))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 16,
+      "state_type": "next",
+      "fluent": "(clear c)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 16,
+      "state_type": "next",
+      "fluent": "(not (clear d))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 16,
+      "state_type": "next",
+      "fluent": "(ontable d)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 17,
+      "state_type": "next",
+      "fluent": "(clear b)"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 17,
+      "state_type": "next",
+      "fluent": "(not (clear b))"
+    },
+    {
+      "observation_index": 1,
+      "component_index": 18,
+      "state_type": "next",
+      "fluent": "(not (ontable c))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 0,
+      "state_type": "next",
+      "fluent": "(clear e)"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 0,
+      "state_type": "next",
+      "fluent": "(not (clear e))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 1,
+      "state_type": "next",
+      "fluent": "(clear e)"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 1,
+      "state_type": "next",
+      "fluent": "(not (clear f))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 1,
+      "state_type": "next",
+      "fluent": "(not (on f e))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 1,
+      "state_type": "next",
+      "fluent": "(not (ontable e))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 1,
+      "state_type": "next",
+      "fluent": "(on e f)"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 2,
+      "state_type": "next",
+      "fluent": "(clear d)"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 2,
+      "state_type": "next",
+      "fluent": "(not (clear d))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 3,
+      "state_type": "next",
+      "fluent": "(clear d)"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 3,
+      "state_type": "next",
+      "fluent": "(not (on e d))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 3,
+      "state_type": "next",
+      "fluent": "(not (ontable d))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 3,
+      "state_type": "next",
+      "fluent": "(not (ontable e))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 3,
+      "state_type": "next",
+      "fluent": "(on d e)"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 4,
+      "state_type": "next",
+      "fluent": "(clear b)"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 4,
+      "state_type": "next",
+      "fluent": "(not (clear b))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 5,
+      "state_type": "next",
+      "fluent": "(clear b)"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 5,
+      "state_type": "next",
+      "fluent": "(not (clear c))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 5,
+      "state_type": "next",
+      "fluent": "(not (ontable b))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 6,
+      "state_type": "next",
+      "fluent": "(clear a)"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 6,
+      "state_type": "next",
+      "fluent": "(not (clear a))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 7,
+      "state_type": "next",
+      "fluent": "(clear a)"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 7,
+      "state_type": "next",
+      "fluent": "(not (on b a))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 7,
+      "state_type": "next",
+      "fluent": "(not (ontable a))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 7,
+      "state_type": "next",
+      "fluent": "(not (ontable b))"
+    },
+    {
+      "observation_index": 2,
+      "component_index": 7,
+      "state_type": "next",
+      "fluent": "(on a b)"
+    }
+  ]
+}
