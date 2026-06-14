@@ -8,11 +8,13 @@ Subclasses must implement three template methods:
 """
 
 from abc import abstractmethod
+from collections import defaultdict
 from copy import deepcopy
-from typing import List, Optional, Set, Dict, Tuple
+from pddl_plus_parser.models.observation import ObservedComponent
+from typing import DefaultDict, Dict, List, Optional, Set, Tuple
 
 from pddl_plus_parser.models import (
-    Observation, State, ActionCall, Predicate, GroundedPredicate, Action,
+    Observation, ObservedComponent, State, ActionCall, Predicate, GroundedPredicate, Action,
 )
 from sam_learning.core import LearnerDomain
 
@@ -86,6 +88,11 @@ class NoisyLearnerMixin:
         self.current_component_index: int = 0
         # obs_idx -> component indices whose source state is GT. None = only state 0.
         self.gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None
+        # Pre-grouped fluent patches by (obs_idx, comp_idx). Built once in
+        # set_patches() so that apply_fluent_patches() can iterate directly
+        # without regrouping on every call — this enables the lazy deep-copy
+        # optimization where only targeted components are copied.
+        self._patches_by_comp: DefaultDict[Tuple[int, int], List[FluentLevelPatch]] = defaultdict(list)
 
     def _should_check_frame_axiom(self, obs_idx: int, comp_idx: int) -> bool:
         """True when the source state of this component is ground truth."""
@@ -118,38 +125,87 @@ class NoisyLearnerMixin:
                 else:  # REQUIRE
                     self.required_effects.setdefault(patch.action_name, set()).add(patch.pbl)
 
+        self._patches_by_comp.clear()
+        for patch in fluent_patches:
+            self._patches_by_comp[(patch.observation_index, patch.component_index)].append(patch)
+
     # ------------------------------------------------------------------
     # Fluent-level patches
     # ------------------------------------------------------------------
 
     def apply_fluent_patches(self, observations: List[Observation]) -> List[Observation]:
-        patched_observations = deepcopy(observations)
+        """Return observations with fluent flips applied, deep-copying only the flipped state(s).
 
-        for patch in self.fluent_patches:
-            obs_idx = patch.observation_index
-            comp_idx = patch.component_index
-            try:
-                if not (0 <= obs_idx < len(patched_observations)):
-                    self.logger.warning(f"Fluent patch with invalid observation index: {patch}")
-                    continue
+        Correctness invariant: after mask_observation(), comp[i].next_state IS
+        comp[i+1].previous_state. We preserve this via re-linking (co-patched) or
+        lightweight ObservedComponent wrappers (unpatched neighbor).
+        """
+        if not self._patches_by_comp:
+            return observations
 
-                obs = patched_observations[obs_idx]
-                if not (0 <= comp_idx < len(obs.components)):
-                    self.logger.warning(f"Fluent patch with invalid component index: {patch}")
-                    continue
+        patched = {(o, c) for o, c in self._patches_by_comp
+                   if 0 <= o < len(observations) and 0 <= c < len(observations[o].components)}
+        if not patched:
+            return observations
 
-                comp = obs.components[comp_idx]
+        result = list(observations)
 
-                if patch.state_type == "next":
-                    if comp.next_state is not None:
-                        self._flip_fluent_in_state(comp.next_state, patch.fluent)
-                else:  # "prev"
-                    if comp.previous_state is not None:
-                        self._flip_fluent_in_state(comp.previous_state, patch.fluent)
-            except ValueError as ve:
-                self.logger.warning(f"{ve} [{obs_idx}][{comp_idx}], Full Patch: {patch}")
+        # Shallow-copy affected observations; selectively deep-copy only flipped state(s).
+        for obs_idx, comp_idx in patched:
+            if result[obs_idx] is observations[obs_idx]:
+                obs_copy = Observation()
+                obs_copy.grounded_objects = observations[obs_idx].grounded_objects
+                obs_copy.components = list(observations[obs_idx].components)
+                result[obs_idx] = obs_copy
+
+            patches = self._patches_by_comp[(obs_idx, comp_idx)]
+            old = observations[obs_idx].components[comp_idx]
+            has_neighbor = (obs_idx, comp_idx + 1) in patched or (obs_idx, comp_idx - 1) in patched
+            copy_next = has_neighbor or any(p.state_type == "next" for p in patches)
+            copy_prev = has_neighbor or any(p.state_type == "prev" for p in patches)
+
+            result[obs_idx].components[comp_idx] = ObservedComponent(
+                previous_state=deepcopy(old.previous_state) if copy_prev else old.previous_state,
+                call=old.grounded_action_call,
+                next_state=deepcopy(old.next_state) if copy_next else old.next_state,
+                is_successful=old.is_successful,
+            )
+
+        # Re-link co-patched neighbors that shared a boundary before copying (O(P)).
+        for obs_idx, comp_idx in patched:
+            adj = comp_idx + 1
+            if (obs_idx, adj) in patched and adj < len(result[obs_idx].components):
+                if observations[obs_idx].components[comp_idx].next_state is \
+                   observations[obs_idx].components[adj].previous_state:
+                    result[obs_idx].components[adj].previous_state = \
+                        result[obs_idx].components[comp_idx].next_state
+
+        # Apply flips, then wrap unpatched neighbors whose boundary was mutated.
+        for (obs_idx, comp_idx), patches in self._patches_by_comp.items():
+            if (obs_idx, comp_idx) not in patched:
                 continue
-        return patched_observations
+            comp = result[obs_idx].components[comp_idx]
+            obs, orig = result[obs_idx], observations[obs_idx]
+
+            for patch in patches:
+                target = comp.next_state if patch.state_type == "next" else comp.previous_state
+                if target is not None:
+                    self._flip_fluent_in_state(target, patch.fluent)
+
+            if comp_idx + 1 < len(obs.components) and (obs_idx, comp_idx + 1) not in patched:
+                if orig.components[comp_idx].next_state is orig.components[comp_idx + 1].previous_state:
+                    neighbor = obs.components[comp_idx + 1]
+                    obs.components[comp_idx + 1] = ObservedComponent(
+                        previous_state=comp.next_state, call=neighbor.grounded_action_call,
+                        next_state=neighbor.next_state, is_successful=neighbor.is_successful)
+            if comp_idx - 1 >= 0 and (obs_idx, comp_idx - 1) not in patched:
+                if orig.components[comp_idx].previous_state is orig.components[comp_idx - 1].next_state:
+                    neighbor = obs.components[comp_idx - 1]
+                    obs.components[comp_idx - 1] = ObservedComponent(
+                        previous_state=neighbor.previous_state, call=neighbor.grounded_action_call,
+                        next_state=comp.previous_state, is_successful=neighbor.is_successful)
+
+        return result
 
     def _flip_fluent_in_state(self, state: State, fluent_str: str) -> None:
         """Flip fluent_str in the given state.
