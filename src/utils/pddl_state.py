@@ -8,6 +8,8 @@ from pddl_plus_parser.models import (
     GroundedPredicate, State, Domain,
 )
 
+from src.action_model.pddl2gym_parser import negate_str_predicate
+
 
 # ============================================================================
 # State predicate accessors
@@ -23,6 +25,41 @@ def get_state_unmasked_predicates(state: State) -> Set[GroundedPredicate]:
 
 def get_state_masked_predicates(state: State) -> Set[GroundedPredicate]:
     return {pred for pred in get_state_grounded_predicates(state) if pred.is_masked}
+
+
+def flip_fluent_in_state(state: State, fluent_str: str) -> None:
+    """Flip the polarity of a grounded fluent in-place.
+
+    Searches for the predicate whose untyped_representation matches fluent_str
+    (or its negation) and toggles its is_positive flag.
+
+    Args:
+        state: The state whose predicate to flip.
+        fluent_str: Grounded fluent string, e.g. "(holding a)" or "(not (holding a))".
+
+    Raises:
+        ValueError: If the fluent cannot be found in the state.
+    """
+    candidates = {fluent_str, negate_str_predicate(fluent_str)}
+
+    for gp in get_state_grounded_predicates(state):
+        if gp.untyped_representation not in candidates:
+            continue
+
+        base_key = (
+            gp.lifted_untyped_representation
+            if gp.is_positive
+            else negate_str_predicate(gp.lifted_untyped_representation)
+        )
+
+        for p in state.state_predicates[base_key]:
+            if p.untyped_representation in candidates:
+                p.is_positive = not p.is_positive
+                return
+
+    raise ValueError(
+        f"Could not find fluent '{fluent_str}' or its negation to flip in state"
+    )
 
 
 def state_positive_set(state: State, unmasked_only: bool = False) -> Set[str]:
@@ -66,6 +103,30 @@ def compare_observations(obs_pred: Observation, obs_gt: Observation, unmasked_on
 # Observation utilities
 # ============================================================================
 
+def copy_state(state: State) -> State:
+    """Copy a state, preserving the ``is_masked`` flag on every predicate.
+
+    ``State.copy()`` from pddl_plus_parser drops ``is_masked``; this
+    function creates new ``GroundedPredicate`` objects that carry the flag
+    over.  The ``signature`` and ``object_mapping`` dicts are shared (they
+    are never mutated in learner paths).
+
+    Args:
+        state: The state to copy.
+
+    Returns:
+        A new ``State`` with independent predicate objects.
+    """
+    copied_predicates = {
+        key: {
+            GroundedPredicate(p.name, p.signature, p.object_mapping, p.is_positive, p.is_masked)
+            for p in preds
+        }
+        for key, preds in state.state_predicates.items()
+    }
+    return State(copied_predicates, state.state_fluents, is_init=state.is_init)
+
+
 def copy_observation(observation: Observation) -> Observation:
     """Creates a deep copy of the given Observation object."""
     copied_observation = Observation()
@@ -82,6 +143,43 @@ def copy_observation(observation: Observation) -> Observation:
         name: obj.copy() for name, obj in observation.grounded_objects.items()
     }
     return copied_observation
+
+
+def copy_observation_linked(observation: Observation) -> Observation:
+    """Copy an observation while maintaining the shared-state invariant.
+
+    The standard ``copy_observation`` copies each state independently,
+    breaking the invariant ``comp[i].next_state is comp[i+1].previous_state``.
+    This function produces N+1 state copies and re-links them so that
+    consecutive components share the same boundary state object — required
+    by ``apply_fluent_patches`` in the noisy learner.
+
+    Args:
+        observation: The source observation.
+
+    Returns:
+        A new ``Observation`` with N+1 linked state copies.
+    """
+    if not observation.components:
+        linked = Observation()
+        linked.grounded_objects = dict(observation.grounded_objects)
+        return linked
+
+    # Build N+1 independent state copies.
+    state_copies = [copy_state(observation.components[0].previous_state)]
+    for component in observation.components:
+        state_copies.append(copy_state(component.next_state))
+
+    linked = Observation()
+    linked.grounded_objects = dict(observation.grounded_objects)
+    for i, component in enumerate(observation.components):
+        linked.components.append(ObservedComponent(
+            previous_state=state_copies[i],
+            call=component.grounded_action_call,
+            next_state=state_copies[i + 1],
+            is_successful=component.is_successful,
+        ))
+    return linked
 
 
 def observations_equal(obs1: Observation, obs2: Observation) -> bool:

@@ -9,7 +9,6 @@ Subclasses must implement three template methods:
 
 from abc import abstractmethod
 from collections import defaultdict
-from copy import deepcopy
 from pddl_plus_parser.models.observation import ObservedComponent
 from typing import DefaultDict, Dict, List, Optional, Set, Tuple
 
@@ -18,7 +17,6 @@ from pddl_plus_parser.models import (
 )
 from sam_learning.core import LearnerDomain
 
-from src.action_model.pddl2gym_parser import negate_str_predicate
 from src.pi_sam.noisy_pisam.typings import (
     ParameterBoundLiteral,
     ModelLevelPatch,
@@ -28,7 +26,12 @@ from src.pi_sam.noisy_pisam.typings import (
     ConflictType,
     Conflict,
 )
-from src.utils.pddl import get_state_grounded_predicates
+from src.utils.pddl import get_state_grounded_predicates, flip_fluent_in_state, copy_state
+
+
+def _copy_state(state: State) -> State:
+    """Delegate to the shared ``copy_state`` utility in ``pddl_state``."""
+    return copy_state(state)
 
 
 class NoisyLearnerMixin:
@@ -165,9 +168,9 @@ class NoisyLearnerMixin:
             copy_prev = has_neighbor or any(p.state_type == "prev" for p in patches)
 
             result[obs_idx].components[comp_idx] = ObservedComponent(
-                previous_state=deepcopy(old.previous_state) if copy_prev else old.previous_state,
+                previous_state=_copy_state(old.previous_state) if copy_prev else old.previous_state,
                 call=old.grounded_action_call,
-                next_state=deepcopy(old.next_state) if copy_next else old.next_state,
+                next_state=_copy_state(old.next_state) if copy_next else old.next_state,
                 is_successful=old.is_successful,
             )
 
@@ -213,26 +216,7 @@ class NoisyLearnerMixin:
         Subclasses may override to handle missing fluents differently
         (e.g. closed-world creation).
         """
-        candidates = {fluent_str, negate_str_predicate(fluent_str)}
-
-        for gp in get_state_grounded_predicates(state):
-            if gp.untyped_representation not in candidates:
-                continue
-
-            base_key = (
-                gp.lifted_untyped_representation
-                if gp.is_positive
-                else negate_str_predicate(gp.lifted_untyped_representation)
-            )
-
-            for p in state.state_predicates[base_key]:
-                if p.untyped_representation in candidates:
-                    p.is_positive = not p.is_positive
-                    return
-
-        raise ValueError(
-            f"Could not find fluent {fluent_str} or its negation to flip in state"
-        )
+        flip_fluent_in_state(state, fluent_str)
 
     # ------------------------------------------------------------------
     # Helpers

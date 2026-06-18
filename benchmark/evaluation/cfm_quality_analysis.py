@@ -41,7 +41,6 @@ METRICS = [
     ("solving_ratio", "Problem solving ratio"),
 ]
 
-MIN_INSTANCES_FOR_DISPLAY = 3  # skip CFM indices with fewer instances
 
 
 # ── Data loading ────────────────────────────────────────────────────────────
@@ -102,46 +101,67 @@ def compute_consecutive_diffs(
 
 # ── Plotting ────────────────────────────────────────────────────────────────
 
+def _cfm_count_histogram(all_instances: List[List[Dict]]) -> Dict[int, int]:
+    """Return {total_cfm_count: number_of_instances_with_that_count}."""
+    hist: Dict[int, int] = defaultdict(int)
+    for cfms in all_instances:
+        hist[len(cfms)] += 1
+    return dict(hist)
+
+
 def plot_cfm_quality(
     diffs_by_index: Dict[int, List[float]],
+    cfm_histogram: Dict[int, int],
     metric_name: str,
     metric_label: str,
     output_path: Path,
-    min_instances: int = MIN_INSTANCES_FOR_DISPLAY,
 ) -> None:
     """Create a dual-axis plot:
-      - Left Y-axis (bars):    number of instances at each CFM index
-      - Right Y-axis (boxplot): distribution of differences
+      - Left Y-axis (lines): two count trends —
+          (a) instances with >= i+2 CFMs (sample size for the boxplot at that x)
+          (b) instances with exactly N total CFMs (histogram)
+      - Right Y-axis (boxplot): distribution of consecutive differences
 
     A horizontal dashed line at y=0 on the right axis marks no-improvement.
     """
-    # Filter to indices with enough instances
-    indices = sorted(i for i, diffs in diffs_by_index.items()
-                     if len(diffs) >= min_instances)
+    # Use the full range of indices present in diffs (no min_instances cutoff).
+    indices = sorted(diffs_by_index.keys())
     if not indices:
-        print(f"  [SKIP] {metric_name}: no CFM index has >= {min_instances} instances")
+        print(f"  [SKIP] {metric_name}: no consecutive pairs found")
         return
 
-    counts = [len(diffs_by_index[i]) for i in indices]
+    # "At least" counts: how many instances contributed to each transition's boxplot.
+    at_least_counts = [len(diffs_by_index[i]) for i in indices]
     diff_data = [diffs_by_index[i] for i in indices]
     x_positions = np.arange(len(indices))
     x_labels = [str(i + 1) for i in indices]  # 1-indexed for display
 
-    fig, ax_bar = plt.subplots(figsize=(max(8, len(indices) * 0.8 + 2), 5))
-    ax_box = ax_bar.twinx()
+    # "Exact" counts: instances whose total CFM count == i+2
+    # (i.e., their LAST transition is at index i).
+    exact_counts = [cfm_histogram.get(i + 2, 0) for i in indices]
 
-    # ── Bars (left axis): instance count ──
-    bar_color = "#B5D4F4"
-    bars = ax_bar.bar(x_positions, counts, width=0.6, color=bar_color,
-                      edgecolor="#85B7EB", alpha=0.6, zorder=2, label="Instance count")
-    # Label each bar
-    for rect, c in zip(bars, counts):
-        ax_bar.text(rect.get_x() + rect.get_width() / 2, rect.get_height() + 0.3,
-                    str(c), ha="center", va="bottom", fontsize=8, color="#185FA5")
+    fig, ax_count = plt.subplots(figsize=(max(8, len(indices) * 0.8 + 2), 5))
+    ax_box = ax_count.twinx()
 
-    ax_bar.set_ylabel("Number of instances", color="#185FA5", fontsize=11)
-    ax_bar.tick_params(axis="y", labelcolor="#185FA5")
-    ax_bar.set_ylim(0, max(counts) * 1.3)
+    # ── Lines (left axis): instance counts ──
+    # "At least" trend
+    ax_count.plot(x_positions, at_least_counts, color="#185FA5", linewidth=1.8,
+                  marker="o", markersize=5, zorder=5, label="Instances with ≥ N CFMs")
+    for x, c in zip(x_positions, at_least_counts):
+        ax_count.annotate(str(c), (x, c), textcoords="offset points",
+                          xytext=(0, 8), ha="center", fontsize=7, color="#185FA5")
+
+    # "Exact" histogram trend
+    ax_count.plot(x_positions, exact_counts, color="#2EA043", linewidth=1.8,
+                  marker="s", markersize=5, zorder=5, label="Instances with exactly N CFMs")
+    for x, c in zip(x_positions, exact_counts):
+        if c > 0:
+            ax_count.annotate(str(c), (x, c), textcoords="offset points",
+                              xytext=(0, -12), ha="center", fontsize=7, color="#2EA043")
+
+    ax_count.set_ylabel("Number of instances", fontsize=11)
+    all_counts = at_least_counts + exact_counts
+    ax_count.set_ylim(0, max(all_counts) * 1.3 if all_counts else 1)
 
     # ── Boxplot (right axis): difference distribution ──
     bp = ax_box.boxplot(
@@ -172,24 +192,26 @@ def plot_cfm_quality(
     ax_box.tick_params(axis="y", labelcolor="#A32D2D")
 
     # ── Common ──
-    ax_bar.set_xlabel("CFM index i  (transition from CFM_i → CFM_{i+1})", fontsize=11)
-    ax_bar.set_xticks(x_positions)
-    ax_bar.set_xticklabels(x_labels)
+    ax_count.set_xlabel("CFM index i  (transition from CFM_i → CFM_{i+1})", fontsize=11)
+    ax_count.set_xticks(x_positions)
+    ax_count.set_xticklabels(x_labels)
     fig.suptitle(f"CFM quality progression — {metric_label}", fontsize=13, y=0.98)
 
     # Legend
-    from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor=bar_color, edgecolor="#85B7EB", alpha=0.6,
-              label="Instance count (left axis)"),
+        Line2D([0], [0], color="#185FA5", marker="o", markersize=5,
+               label="Instances with ≥ N CFMs (left)"),
+        Line2D([0], [0], color="#2EA043", marker="s", markersize=5,
+               label="Instances with exactly N CFMs (left)"),
         Patch(facecolor="#FCEBEB", edgecolor="#E24B4A",
-              label="Diff distribution (right axis)"),
+              label="Diff distribution (right)"),
         Line2D([0], [0], marker="D", color="#E24B4A", linestyle="--",
                markerfacecolor="#E24B4A", markersize=5, label="Mean diff"),
     ]
-    ax_bar.legend(handles=legend_elements, loc="upper right", fontsize=8,
-                  framealpha=0.9)
+    ax_count.legend(handles=legend_elements, loc="upper right", fontsize=7,
+                    framealpha=0.9)
 
     fig.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
@@ -207,10 +229,6 @@ def main():
         "experiment_root",
         type=str,
         help="Path to experiment config dir (contains testing/ and evaluation_results/).",
-    )
-    parser.add_argument(
-        "--min-instances", type=int, default=MIN_INSTANCES_FOR_DISPLAY,
-        help=f"Skip CFM indices with fewer instances (default: {MIN_INSTANCES_FOR_DISPLAY}).",
     )
     args = parser.parse_args()
 
@@ -241,6 +259,10 @@ def main():
         print("No instances with multiple CFMs found. Nothing to plot.")
         sys.exit(0)
 
+    # Histogram: how many instances have exactly N CFMs
+    cfm_histogram = _cfm_count_histogram(all_instances)
+    print(f"CFM count distribution: {dict(sorted(cfm_histogram.items()))}")
+
     # ── Per-metric analysis ──
     for metric_key, metric_label in METRICS:
         print(f"\nMetric: {metric_label}")
@@ -251,8 +273,7 @@ def main():
 
         output_path = output_dir / f"{metric_key}_cfm_improvement.png"
         plot_cfm_quality(
-            diffs, metric_key, metric_label, output_path,
-            min_instances=args.min_instances,
+            diffs, cfm_histogram, metric_key, metric_label, output_path,
         )
 
     print(f"\nAll plots saved to: {output_dir}")

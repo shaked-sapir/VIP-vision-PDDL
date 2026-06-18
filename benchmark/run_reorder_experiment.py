@@ -7,15 +7,16 @@ This tests whether trajectory ORDER within a solving subgroup affects the
 conflict search's ability to find solving models.
 
 Usage (from the VIP-vision-PDDL directory):
-    python -m benchmark.run_reorder_experiment
+    python -m benchmark.run_reorder_experiment [--testing-dir PATH]
 
-Output goes to:
+Default output:
     benchmark/data/new_experiments/blocksworld/TO=300__largest__cv5/testing/
         fold0_numtrajs3_gtrate0/inner_99/
 
 Compare with inner_0 (same trajectories, different order).
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -58,6 +59,19 @@ INNER_FOLD_IDX = 99  # distinct from existing inner_0..inner_4
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Reorder experiment for trajectory order sensitivity.")
+    parser.add_argument(
+        "--testing-dir", type=Path, default=TESTING_DIR,
+        help=f"Output testing directory (default: {TESTING_DIR})",
+    )
+    parser.add_argument(
+        "--fluent-branch-mode", choices=["group", "single"], default="group",
+        help="How many fluent patches per data-fix branch (default: group)",
+    )
+    args = parser.parse_args()
+    testing_dir = args.testing_dir.resolve()
+    fluent_branch_mode = args.fluent_branch_mode
+
     # Resolve problem directories (same as amlgym_testing.py line 827)
     problem_dirs = sorted([d for d in TRAJECTORIES_DIR.iterdir() if d.is_dir()])
     n_problems = len(problem_dirs)
@@ -74,7 +88,8 @@ def main():
     print(f"  Inner idx:    {INNER_FOLD_IDX}")
     print(f"  Timeout:      {CONFLICT_SEARCH_TIMEOUT}s")
     print(f"  Strategy:     {CONFLICT_GROUP_STRATEGY} / {NODE_CHOOSING_STRATEGY}")
-    print(f"  Output:       fold0_numtrajs3_gtrate0/inner_{INNER_FOLD_IDX}/")
+    print(f"  Branch mode:  {fluent_branch_mode}")
+    print(f"  Output:       {testing_dir}/fold0_numtrajs3_gtrate0/inner_{INNER_FOLD_IDX}/")
     print(f"{'='*70}\n")
 
     # Verify seed produces the expected order
@@ -100,7 +115,7 @@ def main():
         num_trajectories=NUM_TRAJECTORIES,
         gt_rate=GT_RATE,
         domain_ref_path=DOMAIN_REF_PATH,
-        testing_dir=TESTING_DIR,
+        testing_dir=testing_dir,
         bench_name=DOMAIN_NAME,
         mode=MODE,
         evaluate_model_func=evaluate_model,
@@ -115,6 +130,7 @@ def main():
         search_mode=SEARCH_MODE,
         node_choosing_strategy=NODE_CHOOSING_STRATEGY,
         conflict_group_strategy=CONFLICT_GROUP_STRATEGY,
+        fluent_branch_mode=fluent_branch_mode,
         _inner_fold_idx=INNER_FOLD_IDX,
         _trajectory_seed=TRAJECTORY_SEED,
     )
@@ -130,9 +146,9 @@ def main():
         print(f"  {phase}: solving={solving}, false_plans={false_plans}")
 
     # Quick comparison pointer
-    output_dir = TESTING_DIR / f"fold0_numtrajs3_gtrate0" / f"inner_{INNER_FOLD_IDX}"
+    output_dir = testing_dir / f"fold0_numtrajs3_gtrate0" / f"inner_{INNER_FOLD_IDX}"
     print(f"\nOutput saved to: {output_dir}")
-    print(f"Compare with:    {TESTING_DIR / 'fold0_numtrajs3_gtrate0' / 'inner_0'}")
+    print(f"Compare with:    {testing_dir / 'fold0_numtrajs3_gtrate0' / 'inner_0'}")
 
 
 if __name__ == "__main__":

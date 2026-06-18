@@ -51,9 +51,9 @@ experiment_data_dirs_fullyobs = {
 
 domain_name_mappings = {
     'blocksworld': 'blocksworld',
-    # 'hanoi': 'hanoi',
-    # 'n_puzzle_typed': 'npuzzle',
-    # 'maze': 'maze',
+    'hanoi': 'hanoi',
+    'n_puzzle_typed': 'npuzzle',
+    'maze': 'maze',
 }
 
 domain_properties = {
