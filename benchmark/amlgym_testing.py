@@ -741,7 +741,6 @@ def main(
     conflict_group_strategy: str = "most_observations",
     fluent_branch_mode: str = "group",
     experiment_name: str = None,
-    inner_cv: int = 1,
 ):
     """
     Run benchmark experiments.
@@ -793,7 +792,6 @@ def main(
         "node_choosing_strategy": node_choosing_strategy,
         "conflict_group_strategy": conflict_group_strategy,
         "fluent_branch_mode": fluent_branch_mode,
-        "inner_cv": inner_cv,
     }
     if evaluation_results_dir is not None:
         run_params_path = evaluation_results_dir / "run_params.json"
@@ -894,42 +892,27 @@ def main(
                         timeout_info = f"Conflict search timeout: {conflict_timeout}s" if conflict_timeout else "No timeout"
                         print(f"\n{'-'*40}\n{timeout_info}\n{'-'*40}")
 
-                        # Determine effective inner CV for this num_trajectories
-                        n_train = max(1, min(int(0.8 * n_problems), n_problems - 1))
-                        effective_inner_cv = inner_cv
-                        if inner_cv > 1 and num_trajectories >= n_train:
-                            print(f"  [INNER-CV] num_trajectories ({num_trajectories}) >= "
-                                  f"train pool ({n_train}), all samples identical — "
-                                  f"falling back to 1 inner fold")
-                            effective_inner_cv = 1
-
-                        # Run all folds (× inner CV sub-folds) in parallel
-                        n_total_jobs = N_FOLDS * effective_inner_cv
-                        inner_cv_tag = f" × {effective_inner_cv} inner CV" if effective_inner_cv > 1 else ""
-                        print(f"  [MAIN] Starting {n_total_jobs} jobs ({N_FOLDS} folds{inner_cv_tag})...")
+                        # Run all folds in parallel
+                        n_total_jobs = N_FOLDS
+                        print(f"  [MAIN] Starting {n_total_jobs} fold jobs...")
                         with ProcessPoolExecutor(max_workers=N_FOLDS) as executor:
                             futures = []
                             for fold in range(N_FOLDS):
-                                for inner_idx in range(effective_inner_cv):
-                                    inner_fold_idx = inner_idx if effective_inner_cv > 1 else None
-                                    traj_seed = (42 + fold * 1000 + inner_idx) if effective_inner_cv > 1 else None
-                                    future = executor.submit(
-                                        run_single_fold,
-                                        fold, problem_dirs, n_problems, num_trajectories,
-                                        gt_rate, domain_ref_path, testing_dir, bench_name, mode,
-                                        evaluate_model, save_learning_metrics,
-                                        conflict_timeout, planning_timeout_seconds,
-                                        fluent_patch_cost, fluent_patch_weight,
-                                        model_patch_cost, model_constraint_weight,
-                                        max_search_nodes,
-                                        search_mode,
-                                        node_choosing_strategy,
-                                        conflict_group_strategy,
-                                        fluent_branch_mode,
-                                        _inner_fold_idx=inner_fold_idx,
-                                        _trajectory_seed=traj_seed,
-                                    )
-                                    futures.append(future)
+                                future = executor.submit(
+                                    run_single_fold,
+                                    fold, problem_dirs, n_problems, num_trajectories,
+                                    gt_rate, domain_ref_path, testing_dir, bench_name, mode,
+                                    evaluate_model, save_learning_metrics,
+                                    conflict_timeout, planning_timeout_seconds,
+                                    fluent_patch_cost, fluent_patch_weight,
+                                    model_patch_cost, model_constraint_weight,
+                                    max_search_nodes,
+                                    search_mode,
+                                    node_choosing_strategy,
+                                    conflict_group_strategy,
+                                    fluent_branch_mode,
+                                )
+                                futures.append(future)
 
                             print(f"  [MAIN] All {n_total_jobs} fold tasks submitted, waiting for completion...")
 
@@ -939,8 +922,7 @@ def main(
                             import time
                             start_time = time.time()
                             per_job_timeout = 1800
-                            n_waves = -(-n_total_jobs // N_FOLDS)  # ceil division
-                            batch_timeout = per_job_timeout * n_waves
+                            batch_timeout = per_job_timeout
 
                             for future in as_completed(futures, timeout=batch_timeout):
                                 try:
@@ -949,9 +931,7 @@ def main(
                                     print(f"  [MAIN] Job {completed_count}/{n_total_jobs} completed after {elapsed:.1f}s, collecting results...")
                                     results_list = future.result(timeout=per_job_timeout)
 
-                                    # Identify which fold this was from the results
                                     fold_num = results_list[0]['fold'] if results_list else '?'
-                                    inner_id = results_list[0].get('inner_fold_idx', '') if results_list else ''
                                     completed_folds.add(fold_num)
 
                                     # Separate by phase
@@ -962,8 +942,7 @@ def main(
                                         else:
                                             cleaned_results.append(result)
 
-                                    inner_info = f" inner={inner_id}" if inner_id != '' else ""
-                                    print(f"  [MAIN] Fold {fold_num}{inner_info} results processed. "
+                                    print(f"  [MAIN] Fold {fold_num} results processed. "
                                           f"Jobs done: {completed_count}/{n_total_jobs}")
                                 except TimeoutError:
                                     print(f"TIMEOUT: Job {completed_count} exceeded time limit")
@@ -1624,16 +1603,6 @@ if __name__ == "__main__":
             'instead of the default locations.'
         ),
     )
-    parser.add_argument(
-        '--inner-cv',
-        type=int,
-        default=1,
-        help=(
-            'Number of random trajectory subgroups per (fold, num_trajectories). '
-            'Default 1 = current behavior (single prefix slice). '
-            'Values > 1 = each inner fold draws an independent random sample.'
-        ),
-    )
 
     args = parser.parse_args()
 
@@ -1680,7 +1649,6 @@ if __name__ == "__main__":
         conflict_group_strategy=args.conflict_group_strategy,
         fluent_branch_mode=args.fluent_branch_mode,
         experiment_name=args.experiment_name,
-        inner_cv=args.inner_cv,
     )
 
 """cli running command:

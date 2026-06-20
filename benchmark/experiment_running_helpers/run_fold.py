@@ -10,7 +10,7 @@ import random
 import shutil
 import time
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import Dict, List, Optional, Tuple
 
 from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 
@@ -96,8 +96,8 @@ def run_single_fold(
     node_choosing_strategy: str = "model_patch_first",
     conflict_group_strategy: str = "most_observations",
     fluent_branch_mode: str = "group",
-    _inner_fold_idx: int = None,
-    _trajectory_seed: int = None,
+    trajectory_seed: Optional[int] = None,
+    output_subdir: Optional[str] = None,
 ) -> List[dict]:
     """
     Run a single fold experiment with specified number of trajectories and GT rate.
@@ -127,26 +127,23 @@ def run_single_fold(
             ("first", "largest", "largest_model_patchable", "most_observations", "smallest").
         fluent_branch_mode: How many fluent patches per data-fix branch
             ("group" = all in group, "single" = one at a time).
-        _inner_fold_idx: When set, this fold is an inner CV sub-fold.
-            Output goes to fold_work_dir/inner_{idx}/ and the result dicts
-            include an 'inner_fold_idx' key.
-        _trajectory_seed: Custom seed for trajectory sampling (used by inner CV
-            to get independent random subgroups). When None, the original
-            fixed-seed prefix-slice behaviour is used.
+        trajectory_seed: Optional override for trajectory-pool sampling seed.
+            When None, uses the default ``42 + fold`` behaviour.
+        output_subdir: Optional subdirectory under the fold work dir for
+            one-off experiment variants (e.g. reorder tests).
 
     Returns:
         List of 4 dicts with results for: unclean SAM/PISAM, unclean ROSAME, cleaned SAM/PISAM, cleaned ROSAME
     """
-    inner_tag = f", inner={_inner_fold_idx}" if _inner_fold_idx is not None else ""
-    print(f"[PID {os.getpid()}] Fold {fold}, num_trajs={num_trajectories}, gt_rate={gt_rate}%, mode={mode}{inner_tag}")
+    print(f"[PID {os.getpid()}] Fold {fold}, num_trajs={num_trajectories}, gt_rate={gt_rate}%, mode={mode}")
 
     # Initialize profiling
     profiler = TimingProfiler()
 
     # Setup
     fold_work_dir = testing_dir / f"fold{fold}_numtrajs{num_trajectories}_gtrate{gt_rate}"
-    if _inner_fold_idx is not None:
-        fold_work_dir = fold_work_dir / f"inner_{_inner_fold_idx}"
+    if output_subdir is not None:
+        fold_work_dir = fold_work_dir / output_subdir
     fold_work_dir.mkdir(parents=True, exist_ok=True)
     original_cwd = os.getcwd()
     os.chdir(fold_work_dir)
@@ -178,18 +175,14 @@ def run_single_fold(
         train_problem_dirs = [problem_dirs[i] for i in train_idx]
         test_problem_dirs = [problem_dirs[i] for i in test_idx]
 
-        # Trajectory selection: either independent random sample (inner CV) or
-        # original fixed-seed prefix-slice behaviour.
-        if _trajectory_seed is not None:
-            random.seed(_trajectory_seed)
+        random.seed(trajectory_seed if trajectory_seed is not None else 42 + fold)
+        if trajectory_seed is not None:
             selected_pool = random.sample(
                 train_problem_dirs,
                 min(num_trajectories, len(train_problem_dirs)),
             )
         else:
-            random.seed(42 + fold)
-            num_trajectories_pool = n_train
-            selected_pool = random.sample(train_problem_dirs, min(num_trajectories_pool, len(train_problem_dirs)))
+            selected_pool = random.sample(train_problem_dirs, min(n_train, len(train_problem_dirs)))
 
         # Load pre-generated trajectories
         print(f"  Loading {num_trajectories} pre-generated trajectories with gt_rate={gt_rate}%...")
@@ -597,10 +590,7 @@ def run_single_fold(
         profiler.plot_timing_report(timing_plot_path)
         
         fold_results = [unclean_sam_result, unclean_rosame_result, cleaned_sam_result, cleaned_rosame_result]
-        if _inner_fold_idx is not None:
-            for r in fold_results:
-                r['inner_fold_idx'] = _inner_fold_idx
-        print(f"  [FOLD COMPLETE] Returning 4 results for fold {fold}{inner_tag}")
+        print(f"  [FOLD COMPLETE] Returning 4 results for fold {fold}")
         return fold_results
 
     finally:

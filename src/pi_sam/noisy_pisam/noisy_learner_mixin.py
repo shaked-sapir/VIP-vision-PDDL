@@ -97,6 +97,12 @@ class NoisyLearnerMixin:
         # optimization where only targeted components are copied.
         self._patches_by_comp: DefaultDict[Tuple[int, int], List[FluentLevelPatch]] = defaultdict(list)
 
+    def _should_check_frame_axiom(self, obs_idx: int, comp_idx: int) -> bool:
+        """True when the source state of this component is ground truth."""
+        if self.gt_source_indices_by_obs is None:
+            return comp_idx == 0
+        return comp_idx in self.gt_source_indices_by_obs.get(obs_idx, set())
+
     # ------------------------------------------------------------------
     # Patch management
     # ------------------------------------------------------------------
@@ -277,11 +283,18 @@ class NoisyLearnerMixin:
         grounded_action: ActionCall,
         grounded_add_effects: Set[GroundedPredicate],
         grounded_del_effects: Set[GroundedPredicate],
+        source_is_gt: bool = True,
     ) -> List[Conflict]:
         """Detect frame-axiom violations for a single transition.
 
         A violation arises when a fluent changes truth value but none of its
         objects appear among the action's parameters.
+
+        Args:
+            source_is_gt: Whether the source (prev) state of this transition
+                is ground truth. Carried on each Conflict so the search can
+                decide its branching strategy (single-child for GT, two-child
+                for non-GT).
         """
         action_name = grounded_action.name
         action_objs = set(grounded_action.parameters)
@@ -310,6 +323,7 @@ class NoisyLearnerMixin:
                 component_index=self.current_component_index,
                 grounded_fluent=gp.untyped_representation,
                 frame_is_add=frame_is_add,
+                source_is_gt=source_is_gt,
             )
             local_conflicts.append(conflict)
 
@@ -355,10 +369,15 @@ class NoisyLearnerMixin:
             )
         # END PRED_MATCHER_DEBUGGING
 
-        # Frame-axiom conflicts (checked at every transition)
+        # Frame-axiom conflicts (at every transition; source_is_gt tag drives
+        # the search's branching strategy: single-child for GT, two-child for non-GT)
+        source_is_gt = self._should_check_frame_axiom(
+            self.current_observation_index, self.current_component_index
+        )
         local_conflicts.extend(
             self._collect_frame_axiom_conflicts(
                 grounded_action, grounded_add_effects, grounded_del_effects,
+                source_is_gt=source_is_gt,
             )
         )
 

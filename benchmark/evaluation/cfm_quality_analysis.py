@@ -46,12 +46,7 @@ METRICS = [
 # ── Data loading ────────────────────────────────────────────────────────────
 
 def find_instance_dirs(testing_dir: Path) -> List[Path]:
-    """Return all instance directories that contain all_solutions_metrics.json.
-
-    Handles two layouts:
-      - With inner CV:  testing/foldX_numtrajsY_gtrateZ/inner_N/
-      - Without inner CV: testing/foldX_numtrajsY_gtrateZ/
-    """
+    """Return all instance directories that contain all_solutions_metrics.json."""
     instances = []
     for metrics_file in testing_dir.rglob("all_solutions_metrics.json"):
         instances.append(metrics_file.parent)

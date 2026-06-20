@@ -152,12 +152,14 @@ class Conflict:
     component_index: int
     grounded_fluent: str
     frame_is_add: Optional[bool] = None
+    source_is_gt: bool = True  # Whether the source (prev) state of this transition is ground truth.
 
     def __str__(self) -> str:
         extra = ""
         if self.conflict_type == ConflictType.FRAME_AXIOM and self.frame_is_add is not None:
             kind = "add" if self.frame_is_add else "del"
-            extra = f", frame_change={kind}"
+            gt_tag = "GT" if self.source_is_gt else "non-GT"
+            extra = f", frame_change={kind}, src={gt_tag}"
         return (
             f"Conflict({self.conflict_type.value}: {self.grounded_fluent} vs {self.pbl} "
             f"in {self.action_name} at obs[{self.observation_index}][{self.component_index}]{extra})"

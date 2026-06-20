@@ -527,9 +527,10 @@ class ConflictDrivenPatchSearchBase(ABC):
                     fluent_patches=child_a_fluent_patches,
                 )
 
-            # Child B: MODEL-FIX (only for non-frame-axiom conflicts)
+            # Child B
             rep_conflict = group[0]
             if rep_conflict.conflict_type not in {ConflictType.FRAME_AXIOM}:
+                # MODEL-FIX: constrain the model (only for non-frame-axiom conflicts)
                 new_constraints = self._build_model_patch(
                     rep_conflict, dict(node.model_constraints),
                 )
@@ -541,6 +542,30 @@ class ConflictDrivenPatchSearchBase(ABC):
                         model_constraints=new_constraints,
                         fluent_patches=child_b_fluent_patches,
                     )
+            elif not rep_conflict.source_is_gt:
+                # FRAME-AXIOM at non-GT state: Child B = fix prev_state
+                # (trust post-state).  Child A already fixes next_state
+                # (trust pre-state).  Both branches are data-fixes because
+                # frame axioms have no model-level resolution.
+                child_b_fluent_patches = set(node.fluent_patches)
+                child_b_changed = False
+                for c in group:
+                    fp = self._build_frame_axiom_prev_patch(c)
+                    if fp not in child_b_fluent_patches:
+                        child_b_fluent_patches.add(fp)
+                        child_b_changed = True
+                        if self.fluent_branch_mode == FluentBranchMode.SINGLE:
+                            break
+                if child_b_changed:
+                    child_b_fluent_patches = self._dedup_patches(child_b_fluent_patches)
+                    child_b_node = SearchNode(
+                        cost=self._compute_cost(child_b_fluent_patches, dict(node.model_constraints)),
+                        depth=node.depth + 1,
+                        model_constraints=dict(node.model_constraints),
+                        fluent_patches=child_b_fluent_patches,
+                    )
+            # else: FRAME-AXIOM at GT state — no Child B (pre-state is ground
+            # truth, so the only valid fix is on the next_state via Child A).
 
             ordered_children = self._ordered_children_for_frontier(
                 fluent_child=child_a_node,
@@ -800,6 +825,20 @@ class ConflictDrivenPatchSearchBase(ABC):
             observation_index=conflict.observation_index,
             component_index=conflict.component_index,
             state_type=state_type,
+            fluent=conflict.grounded_fluent,
+        )
+
+    @staticmethod
+    def _build_frame_axiom_prev_patch(conflict: Conflict) -> FluentLevelPatch:
+        """Build a prev-state fluent patch for a frame-axiom conflict.
+
+        Used as Child B when the source state is non-GT: trust the post-state
+        and fix the pre-state instead.
+        """
+        return FluentLevelPatch(
+            observation_index=conflict.observation_index,
+            component_index=conflict.component_index,
+            state_type="prev",
             fluent=conflict.grounded_fluent,
         )
 

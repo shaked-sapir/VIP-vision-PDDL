@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Reorder experiment: run fold 0 with trajectories [problem7, problem6, problem3]
-instead of the original inner_0 order [problem3, problem7, problem6].
+instead of the default order [problem3, problem7, problem6].
 
 This tests whether trajectory ORDER within a solving subgroup affects the
 conflict search's ability to find solving models.
@@ -11,9 +11,7 @@ Usage (from the VIP-vision-PDDL directory):
 
 Default output:
     benchmark/data/new_experiments/blocksworld/TO=300__largest__cv5/testing/
-        fold0_numtrajs3_gtrate0/inner_99/
-
-Compare with inner_0 (same trajectories, different order).
+        fold0_numtrajs3_gtrate0/reorder_seed619/
 """
 
 import argparse
@@ -39,7 +37,7 @@ NUM_TRAJECTORIES = 3
 GT_RATE = 0
 MODE = "masked"
 
-# Denoising / search params (from learning_metrics.json of inner_0)
+# Denoising / search params (from learning_metrics.json of fold0_numtrajs3)
 CONFLICT_SEARCH_TIMEOUT = 300
 PLANNING_TIMEOUT = 60
 FLUENT_PATCH_COST = 1.0
@@ -53,9 +51,9 @@ CONFLICT_GROUP_STRATEGY = "largest"
 
 # Reorder parameters
 # seed 619 → random.sample(train_problem_dirs, 3) = [problem7, problem6, problem3]
-# (verified: seed 42 gave inner_0's [problem3, problem7, problem6])
+# (verified: seed 42+fold gave default [problem3, problem7, problem6])
 TRAJECTORY_SEED = 619
-INNER_FOLD_IDX = 99  # distinct from existing inner_0..inner_4
+OUTPUT_SUBDIR = "reorder_seed619"
 
 
 def main():
@@ -78,18 +76,18 @@ def main():
 
     print(f"{'='*70}")
     print(f"REORDER EXPERIMENT: trajectories [problem7, problem6, problem3]")
-    print(f"  (inner_0 used [problem3, problem7, problem6])")
+    print(f"  (default fold0 used [problem3, problem7, problem6])")
     print(f"{'='*70}")
     print(f"  Domain:       {DOMAIN_NAME}")
     print(f"  Fold:         {FOLD}")
     print(f"  Num trajs:    {NUM_TRAJECTORIES}")
     print(f"  GT rate:      {GT_RATE}%")
     print(f"  Traj seed:    {TRAJECTORY_SEED}")
-    print(f"  Inner idx:    {INNER_FOLD_IDX}")
+    print(f"  Output subdir:{OUTPUT_SUBDIR}")
     print(f"  Timeout:      {CONFLICT_SEARCH_TIMEOUT}s")
     print(f"  Strategy:     {CONFLICT_GROUP_STRATEGY} / {NODE_CHOOSING_STRATEGY}")
     print(f"  Branch mode:  {fluent_branch_mode}")
-    print(f"  Output:       {testing_dir}/fold0_numtrajs3_gtrate0/inner_{INNER_FOLD_IDX}/")
+    print(f"  Output:       {testing_dir}/fold0_numtrajs3_gtrate0/{OUTPUT_SUBDIR}/")
     print(f"{'='*70}\n")
 
     # Verify seed produces the expected order
@@ -131,8 +129,8 @@ def main():
         node_choosing_strategy=NODE_CHOOSING_STRATEGY,
         conflict_group_strategy=CONFLICT_GROUP_STRATEGY,
         fluent_branch_mode=fluent_branch_mode,
-        _inner_fold_idx=INNER_FOLD_IDX,
-        _trajectory_seed=TRAJECTORY_SEED,
+        trajectory_seed=TRAJECTORY_SEED,
+        output_subdir=OUTPUT_SUBDIR,
     )
 
     # Print summary
@@ -145,10 +143,9 @@ def main():
         false_plans = r.get("false_plans_ratio", None)
         print(f"  {phase}: solving={solving}, false_plans={false_plans}")
 
-    # Quick comparison pointer
-    output_dir = testing_dir / f"fold0_numtrajs3_gtrate0" / f"inner_{INNER_FOLD_IDX}"
+    output_dir = testing_dir / "fold0_numtrajs3_gtrate0" / OUTPUT_SUBDIR
     print(f"\nOutput saved to: {output_dir}")
-    print(f"Compare with:    {testing_dir / 'fold0_numtrajs3_gtrate0' / 'inner_0'}")
+    print(f"Compare with:    {testing_dir / 'fold0_numtrajs3_gtrate0'}")
 
 
 if __name__ == "__main__":
