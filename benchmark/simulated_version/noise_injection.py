@@ -19,11 +19,7 @@ from pddl_plus_parser.models import Observation
 from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
 from src.pi_sam.predicate_masking import PredicateMasker
 from src.pi_sam.predicate_noising import PredicateNoiser
-from src.utils.pddl_state import (
-    copy_observation_linked,
-    flip_fluent_in_state,
-    get_state_unmasked_predicates,
-)
+from src.utils.pddl_state import copy_observation_linked, flip_fluent_in_state
 
 
 def create_bounded_noisy_observation(
@@ -65,12 +61,11 @@ def create_bounded_noisy_observation(
 
     for state_idx, state in enumerate(states):
         # Step 1: apply masking — sets is_masked=True on selected predicates.
-        masked_predicates = masker.mask_state(state)
+        masked_predicates, unmasked_predicates = masker.mask_state(state)
         masking_info.append(masked_predicates)
 
         # Step 2: select a subset of the *unmasked* predicates to flip.
-        unmasked = get_state_unmasked_predicates(state)
-        to_flip = noiser.noise(unmasked)
+        to_flip = noiser.noise(unmasked_predicates)
 
         # Determine the (comp_idx, state_type) coordinates for patch recording.
         if state_idx == 0:

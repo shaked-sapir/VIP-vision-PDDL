@@ -94,6 +94,8 @@ class PercentageMaskingStrategy(MaskingStrategy):
     def mask(self, predicates: set[GroundedPredicate], masking_ratio: float = 0.75,
              *args, **kwargs) -> Tuple[set[GroundedPredicate], set[GroundedPredicate]]:
         print(f"using {self.name} masking strategy with ratio {masking_ratio}")
+        if not predicates or masking_ratio == 0:
+            return set(), set(predicates)
         sample_size = max(1, round(len(predicates) * masking_ratio))  # Ensure at least 1 element if p > 0
         sample = set(random.sample(list(predicates), sample_size))
         for predicate in sample:

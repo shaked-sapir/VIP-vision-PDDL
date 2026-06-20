@@ -97,12 +97,6 @@ class NoisyLearnerMixin:
         # optimization where only targeted components are copied.
         self._patches_by_comp: DefaultDict[Tuple[int, int], List[FluentLevelPatch]] = defaultdict(list)
 
-    def _should_check_frame_axiom(self, obs_idx: int, comp_idx: int) -> bool:
-        """True when the source state of this component is ground truth."""
-        if self.gt_source_indices_by_obs is None:
-            return comp_idx == 0
-        return comp_idx in self.gt_source_indices_by_obs.get(obs_idx, set())
-
     # ------------------------------------------------------------------
     # Patch management
     # ------------------------------------------------------------------
@@ -361,13 +355,12 @@ class NoisyLearnerMixin:
             )
         # END PRED_MATCHER_DEBUGGING
 
-        # Frame-axiom conflicts (only when the source state is GT)
-        if self._should_check_frame_axiom(self.current_observation_index, self.current_component_index):
-            local_conflicts.extend(
-                self._collect_frame_axiom_conflicts(
-                    grounded_action, grounded_add_effects, grounded_del_effects,
-                )
+        # Frame-axiom conflicts (checked at every transition)
+        local_conflicts.extend(
+            self._collect_frame_axiom_conflicts(
+                grounded_action, grounded_add_effects, grounded_del_effects,
             )
+        )
 
         # History BEFORE this transition
         prior_must_effects: Set[Predicate] = set(observed_action.discrete_effects)

@@ -80,7 +80,7 @@ class PercentageNoisingStrategy(NoisingStrategy):
               noise_ratio: float = 0.1,
               *args, **kwargs) -> Set[GroundedPredicate]:
         print(f"using {self.name} noising strategy with ratio {noise_ratio}")
-        if not predicates:
+        if not predicates or noise_ratio == 0:
             return set()
         sample_size = max(1, round(len(predicates) * noise_ratio))
         return set(random.sample(list(predicates), sample_size))

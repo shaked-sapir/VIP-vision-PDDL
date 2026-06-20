@@ -1,5 +1,5 @@
 import random
-from typing import Set, List, Tuple
+from typing import List, Set, Tuple
 
 from pddl_plus_parser.models import GroundedPredicate, Observation, State
 
@@ -50,16 +50,19 @@ class PredicateMasker:
         random.seed(self.seed)  # Ensures reproducibility of masking
         return self.masking_strategies[self._masking_strategy].mask(predicates, **self._masking_kwargs)
 
-    def mask_state(self, state: State) -> Set[GroundedPredicate]:
+    def mask_state(self, state: State) -> Tuple[Set[GroundedPredicate], Set[GroundedPredicate]]:
         """
-        Masks the predicates in the state based on the masking strategy.
+        Mask predicates in *state* according to the configured strategy.
 
-        :param state: The state containing predicates to be masked.
-        :return: The state with masked predicates and the set of masked predicates.
+        Selected predicates are marked in-place (``is_masked=True`` on the
+        state's ``GroundedPredicate`` objects).
+
+        :param state: The state whose predicates should be masked.
+        :return: ``(masked_predicates, unmasked_predicates)`` after applying
+            the strategy.
         """
         grounded_predicates = get_state_grounded_predicates(state)
-        masked_predicates, unmasked_predicates = self.mask(grounded_predicates)
-        return masked_predicates
+        return self.mask(grounded_predicates)
 
     def mask_observation(self, observation: Observation) -> List[set[GroundedPredicate]]:
         """
@@ -72,10 +75,12 @@ class PredicateMasker:
         """
 
         # Mask the initial state
-        masking_info = [self.mask_state(observation.components[0].previous_state)]
+        masked, _ = self.mask_state(observation.components[0].previous_state)
+        masking_info = [masked]
 
         # Mask the next state for each component in the observation
         for i in range(len(observation.components)):
-            masking_info.append(self.mask_state(observation.components[i].next_state))
+            masked, _ = self.mask_state(observation.components[i].next_state)
+            masking_info.append(masked)
 
         return masking_info

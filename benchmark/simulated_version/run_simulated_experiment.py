@@ -15,8 +15,8 @@ Usage example
     python -m benchmark.simulated_version.run_simulated_experiment \\
         --domain  path/to/domain.pddl \\
         --trajectories path/to/traj0.trajectory path/to/traj1.trajectory \\
-        --masking-ratio 0.4 \\
-        --noise-ratio 0.15
+        --masking-strategy percentage --masking-p 0.4 \\
+        --noising-strategy random    --noising-p 0.15
 """
 
 import argparse
@@ -44,6 +44,22 @@ from src.utils.pddl_state import ground_observation_completely
 
 
 # ---------------------------------------------------------------------------
+# Strategy → kwarg helpers
+# ---------------------------------------------------------------------------
+
+def _masking_kwargs(strategy: MaskingType, p: float) -> dict:
+    if strategy == MaskingType.RANDOM:
+        return {"masking_proba": p}
+    return {"masking_ratio": p}
+
+
+def _noising_kwargs(strategy: NoisingType, p: float) -> dict:
+    if strategy == NoisingType.RANDOM:
+        return {"noise_proba": p}
+    return {"noise_ratio": p}
+
+
+# ---------------------------------------------------------------------------
 # GT observation loading
 # ---------------------------------------------------------------------------
 
@@ -59,9 +75,11 @@ def load_gt_observation(trajectory_path: Path, domain):
 
 def run_simulated_experiment(
     domain_path: Path,
-    trajectory_paths: List[Path],
-    masking_ratio: float = 0.4,
-    noise_ratio: float = 0.15,
+    gt_trajectory_paths: List[Path],
+    masking_strategy: MaskingType = MaskingType.PERCENTAGE,
+    masking_p: float = 0.4,
+    noising_strategy: NoisingType = NoisingType.PERCENTAGE,
+    noising_p: float = 0.15,
     seed: int = 42,
     timeout_seconds: int = 60,
     max_search_nodes: int = None,
@@ -70,9 +88,11 @@ def run_simulated_experiment(
 
     Args:
         domain_path: Path to the PDDL domain file.
-        trajectory_paths: Paths to fully ground-truth ``.trajectory`` files.
-        masking_ratio: Fraction of fluents per state to mask (hide).
-        noise_ratio: Fraction of *unmasked* fluents per state to flip.
+        gt_trajectory_paths: Paths to fully ground-truth ``.trajectory`` files.
+        masking_strategy: Which masking strategy to use (RANDOM or PERCENTAGE).
+        masking_p: The probability / ratio parameter for the masking strategy.
+        noising_strategy: Which noising strategy to use (RANDOM or PERCENTAGE).
+        noising_p: The probability / ratio parameter for the noising strategy.
         seed: Random seed passed to both masker and noiser.
         timeout_seconds: Conflict-search timeout per run.
         max_search_nodes: Optional cap on search nodes explored.
@@ -81,20 +101,22 @@ def run_simulated_experiment(
 
     masker = PredicateMasker(
         seed=seed,
-        masking_strategy=MaskingType.PERCENTAGE,
-        masking_kwargs={"masking_ratio": masking_ratio},
+        masking_strategy=masking_strategy,
+        masking_kwargs=_masking_kwargs(masking_strategy, masking_p),
     )
     noiser = PredicateNoiser(
         seed=seed,
-        noising_strategy=NoisingType.PERCENTAGE,
-        noising_kwargs={"noise_ratio": noise_ratio},
+        noising_strategy=noising_strategy,
+        noising_kwargs=_noising_kwargs(noising_strategy, noising_p),
     )
 
     noisy_observations = []
     ground_truth_flips: Set[FluentLevelPatch] = set()
 
-    print(f"\n=== Noise injection (masking={masking_ratio:.0%}, noise={noise_ratio:.0%}) ===")
-    for obs_idx, traj_path in enumerate(trajectory_paths):
+    print(f"\n=== Noise injection "
+          f"(masking={masking_strategy.value}, p={masking_p:.0%} | "
+          f"noising={noising_strategy.value}, p={noising_p:.0%}) ===")
+    for obs_idx, traj_path in enumerate(gt_trajectory_paths):
         gt_obs = load_gt_observation(traj_path, domain)
         noisy_obs, _masking_info, flips = create_bounded_noisy_observation(
             gt_obs, masker, noiser, obs_idx=obs_idx
@@ -159,10 +181,17 @@ def _parse_args() -> argparse.Namespace:
                         help="Path to the PDDL domain file.")
     parser.add_argument("--trajectories", required=True, nargs="+", type=Path,
                         help="Paths to fully ground-truth .trajectory files.")
-    parser.add_argument("--masking-ratio", type=float, default=0.4,
-                        help="Fraction of fluents per state to mask (default: 0.4).")
-    parser.add_argument("--noise-ratio", type=float, default=0.15,
-                        help="Fraction of unmasked fluents per state to flip (default: 0.15).")
+    _masking_choices = [MaskingType.RANDOM, MaskingType.PERCENTAGE]
+    parser.add_argument("--masking-strategy", type=MaskingType, default=MaskingType.PERCENTAGE,
+                        choices=_masking_choices, metavar="STRATEGY",
+                        help="Masking strategy: 'random' or 'percentage' (default: percentage).")
+    parser.add_argument("--masking-p", type=float, default=0.4,
+                        help="Probability / ratio for the masking strategy (default: 0.4).")
+    parser.add_argument("--noising-strategy", type=NoisingType, default=NoisingType.PERCENTAGE,
+                        choices=list(NoisingType), metavar="STRATEGY",
+                        help="Noising strategy: 'random' or 'percentage' (default: percentage).")
+    parser.add_argument("--noising-p", type=float, default=0.15,
+                        help="Probability / ratio for the noising strategy (default: 0.15).")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--timeout", type=int, default=60,
                         help="Conflict-search timeout in seconds (default: 60).")
@@ -175,9 +204,11 @@ if __name__ == "__main__":
     args = _parse_args()
     run_simulated_experiment(
         domain_path=args.domain,
-        trajectory_paths=args.trajectories,
-        masking_ratio=args.masking_ratio,
-        noise_ratio=args.noise_ratio,
+        gt_trajectory_paths=args.trajectories,
+        masking_strategy=args.masking_strategy,
+        masking_p=args.masking_p,
+        noising_strategy=args.noising_strategy,
+        noising_p=args.noising_p,
         seed=args.seed,
         timeout_seconds=args.timeout,
         max_search_nodes=args.max_nodes,
