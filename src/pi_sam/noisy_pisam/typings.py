@@ -132,8 +132,8 @@ class ConflictType(Enum):
 
 class ConflictPriority(IntEnum):
     """Smaller = higher priority."""
-    EFFECT = 0
-    FRAME_AXIOM = 1
+    EFFECT = 1
+    FRAME_AXIOM = 0
     OTHER = 2
 
 
