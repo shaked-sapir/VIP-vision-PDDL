@@ -26,7 +26,7 @@ from src.pi_sam.noisy_pisam.typings import (
     ConflictType,
     Conflict,
 )
-from src.utils.pddl import get_state_grounded_predicates, flip_fluent_in_state, copy_state, find_predicate_negation
+from src.utils.pddl import get_state_grounded_predicates, flip_fluent_in_state, copy_state
 
 
 def _copy_state(state: State) -> State:
@@ -281,31 +281,23 @@ class NoisyLearnerMixin:
     def _collect_frame_axiom_conflicts(
         self,
         grounded_action: ActionCall,
-        previous_state: State,
-        next_state: State,
+        grounded_add_effects: Set[GroundedPredicate],
+        grounded_del_effects: Set[GroundedPredicate],
         source_is_gt: bool = True,
     ) -> List[Conflict]:
         """Detect frame-axiom violations for a single transition.
 
-        Computes its own raw state diff (decoupled from PI-SAM effect extraction)
-        so that ALL fluent changes are checked — not just those passing the strict
-        effect filters.
+        Checks only fluents that PI-SAM already identified as add/del effects,
+        so violations are grounded in the same effect extraction logic used
+        for the rest of learning.
 
         A violation arises when a fluent changes truth value but none of its
         objects appear among the action's parameters.
 
-        Masking rules:
-        - A fluent change is flagged ONLY if the fluent is unmasked on the side
-          where we observe it.
-        - AND its counterpart (negation) in the other state is either absent
-          (CWA: was false, so the change is real) or exists and is unmasked
-          (confirmed change).
-        - If the counterpart exists but IS masked → skip (uncertain change).
-
         Args:
             grounded_action: The grounded action at this transition.
-            previous_state: The pre-state of the transition.
-            next_state: The post-state of the transition.
+            grounded_add_effects: Add effects extracted by PI-SAM for this transition.
+            grounded_del_effects: Delete effects extracted by PI-SAM for this transition.
             source_is_gt: Whether the source (prev) state of this transition
                 is ground truth. Carried on each Conflict so the search can
                 decide its branching strategy (single-child for GT, two-child
@@ -315,38 +307,12 @@ class NoisyLearnerMixin:
         action_objs = set(grounded_action.parameters)
         local_conflicts: List[Conflict] = []
 
-        prev_preds = get_state_grounded_predicates(previous_state)
-        next_preds = get_state_grounded_predicates(next_state)
-
-        # --- Add-like changes: in next but not in prev (positive, unmasked) ---
-        for gp in next_preds.difference(prev_preds):
-            if not gp.is_positive:
-                continue
-            if gp.is_masked:
-                continue
-            # Check counterpart (negation) in prev_state
-            prev_neg = find_predicate_negation(prev_preds, gp)
-            if prev_neg is not None and prev_neg.is_masked:
-                continue  # uncertain — prev side is masked
-            # Change is confirmed (prev_neg absent → CWA false, or present+unmasked)
+        for gp, frame_is_add in (
+            [(g, True) for g in grounded_add_effects] +
+            [(g, False) for g in grounded_del_effects]
+        ):
             self._maybe_add_frame_conflict(
-                gp, action_name, action_objs, frame_is_add=True,
-                source_is_gt=source_is_gt, local_conflicts=local_conflicts,
-            )
-
-        # --- Del-like changes: in prev but not in next (positive, unmasked) ---
-        for gp in prev_preds.difference(next_preds):
-            if not gp.is_positive:
-                continue
-            if gp.is_masked:
-                continue
-            # Check counterpart (negation) in next_state
-            next_neg = find_predicate_negation(next_preds, gp)
-            if next_neg is not None and next_neg.is_masked:
-                continue  # uncertain — next side is masked
-            # Change is confirmed (next_neg absent → CWA false, or present+unmasked)
-            self._maybe_add_frame_conflict(
-                gp, action_name, action_objs, frame_is_add=False,
+                gp, action_name, action_objs, frame_is_add=frame_is_add,
                 source_is_gt=source_is_gt, local_conflicts=local_conflicts,
             )
 
@@ -413,7 +379,7 @@ class NoisyLearnerMixin:
         )
         local_conflicts.extend(
             self._collect_frame_axiom_conflicts(
-                grounded_action, previous_state, next_state,
+                grounded_action, grounded_add_effects, grounded_del_effects,
                 source_is_gt=source_is_gt,
             )
         )

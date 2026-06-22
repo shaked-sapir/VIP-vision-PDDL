@@ -104,40 +104,47 @@ def _resolve_fluent_branch_mode(
 
 def _learn_pisam_with_profiling(
     domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler,
-    fold_work_dir=None, prepared_trajectories=None, gt_source_indices_by_obs=None
+    fold_work_dir=None, prepared_trajectories=None, gt_source_indices_by_obs=None,
+    pre_built_observations=None,
 ):
-    """Learn PISAM with detailed profiling."""
+    """Learn PISAM with detailed profiling.
+
+    Args:
+        pre_built_observations: Optional list of pre-built Observation objects.
+            When provided, file loading from traj_paths is skipped entirely.
+    """
     partial_domain = DomainParser(Path(str(domain_ref_path)), partial_parsing=True).parse_domain()
-    masked_observations = []
-    
-    for traj_idx, traj_path_str in enumerate(traj_paths):
-        traj_path = Path(traj_path_str)
-        masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
-        
-        if not masking_info_path.exists():
-            continue
-        
-        def timing_callback(step_name, elapsed):
+
+    if pre_built_observations is not None:
+        masked_observations = pre_built_observations
+    else:
+        masked_observations = []
+        for traj_idx, traj_path_str in enumerate(traj_paths):
+            traj_path = Path(traj_path_str)
+            masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
+
+            if not masking_info_path.exists():
+                continue
+
+            def timing_callback(step_name, elapsed):
+                profiler.add_detailed_timing(
+                    f"sam_pisam_trajectory_processing_{phase}",
+                    step_name, elapsed,
+                    {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
+                )
+
+            start_load = time.perf_counter()
+            masked_obs = load_masked_observation(traj_path, masking_info_path, partial_domain, timing_callback=timing_callback)
+            load_elapsed = time.perf_counter() - start_load
+
             profiler.add_detailed_timing(
-                f"sam_pisam_trajectory_processing_{phase}",
-                step_name, elapsed,
+                f"sam_pisam_trajectory_loading_{phase}",
+                'load_masked_observation_total',
+                load_elapsed,
                 {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
             )
-        
-        # Measure total time for load_masked_observation for each trajectory
-        start_load = time.perf_counter()
-        masked_obs = load_masked_observation(traj_path, masking_info_path, partial_domain, timing_callback=timing_callback)
-        load_elapsed = time.perf_counter() - start_load
-        
-        # Record total time for loading this trajectory
-        profiler.add_detailed_timing(
-            f"sam_pisam_trajectory_loading_{phase}",
-            'load_masked_observation_total',
-            load_elapsed,
-            {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
-        )
-        
-        masked_observations.append(masked_obs)
+
+            masked_observations.append(masked_obs)
     
     start_learn = time.perf_counter()
     
@@ -180,7 +187,8 @@ def _learn_pisam_with_profiling(
         patched_observations = None
         report = {}
     
-    profiler.add_timing(f"learning_process_{algo_name}_{phase}", time.perf_counter() - start_learn)
+    if profiler:
+        profiler.add_timing(f"learning_process_{algo_name}_{phase}", time.perf_counter() - start_learn)
     return model, report, patched_observations
 
 
@@ -202,6 +210,8 @@ def learn_sam_pisam(
     node_choosing_strategy: str = "model_patch_first",
     conflict_group_strategy: str = "most_observations",
     fluent_branch_mode: str = "group",
+    pre_built_observations: Optional[list] = None,
+    gt_source_indices_override: Optional[Dict[int, Set[int]]] = None,
 ) -> Tuple[str, dict, str, any]:
     """
     Learn SAM/PISAM model.
@@ -226,16 +236,24 @@ def learn_sam_pisam(
             ("first", "largest", "largest_model_patchable", "most_observations", "smallest")
         fluent_branch_mode: How many fluent patches per data-fix branch
             ("group" = all in group, "single" = one at a time)
+        pre_built_observations: Optional list of pre-built Observation objects.
+            When provided, file-based loading is skipped entirely (simulated data mode).
+        gt_source_indices_override: Optional explicit gt_source_indices_by_obs dict.
+            When provided, overrides the indices extracted from prepared_trajectories.
 
     Returns:
         Tuple of (model, learning_report, algorithm_name, patched_observations)
     """
     phase = "cleaned" if is_denoising else "unclean"
     algo_name = 'PISAM' if mode == 'masked' else 'SAM'
-    
-    gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = {
-        obs_idx: t[3] for obs_idx, t in enumerate(prepared_trajectories) if len(t) > 3
-    } or None
+
+    # Determine GT source indices: explicit override takes priority
+    if gt_source_indices_override is not None:
+        gt_source_indices_by_obs = gt_source_indices_override
+    else:
+        gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = {
+            obs_idx: t[3] for obs_idx, t in enumerate(prepared_trajectories) if len(t) > 3
+        } or None
 
     # Track the actual timeout value used (for cleaned phase only)
     actual_learning_timeout = None
@@ -258,11 +276,14 @@ def learn_sam_pisam(
             # Capture actual timeout used (either explicit or default)
             actual_learning_timeout = learner.timeout_seconds
 
-        if profiler:
+        if profiler or pre_built_observations is not None:
+            # Use direct learning path (required when observations are pre-built;
+            # also used when profiler is available for detailed timing).
             model, report, patched_observations = _learn_pisam_with_profiling(
                 domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler,
                 fold_work_dir=fold_work_dir, prepared_trajectories=prepared_trajectories,
                 gt_source_indices_by_obs=gt_source_indices_by_obs,
+                pre_built_observations=pre_built_observations,
             )
         else:
             learn_kwargs = {}
