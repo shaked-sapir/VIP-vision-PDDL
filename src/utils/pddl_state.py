@@ -1,7 +1,7 @@
 """Core state, observation, predicate, and grounding utilities."""
 
 import itertools
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Optional, Set, Tuple
 
 from pddl_plus_parser.models import (
     Observation, ObservedComponent, Predicate, PDDLObject,
@@ -60,6 +60,28 @@ def flip_fluent_in_state(state: State, fluent_str: str) -> None:
     raise ValueError(
         f"Could not find fluent '{fluent_str}' or its negation to flip in state"
     )
+
+
+def find_predicate_negation(
+    predicate_set: Set[GroundedPredicate], predicate: GroundedPredicate,
+) -> "Optional[GroundedPredicate]":
+    """Find the negated version of a predicate in a set, or None.
+
+    Matches by name and object_mapping with opposite is_positive polarity.
+
+    Args:
+        predicate_set: The set of predicates to search.
+        predicate: The predicate whose negation to find.
+
+    Returns:
+        The negated counterpart if found, else None.
+    """
+    for p in predicate_set:
+        if (p.name == predicate.name
+                and p.object_mapping == predicate.object_mapping
+                and p.is_positive != predicate.is_positive):
+            return p
+    return None
 
 
 def state_positive_set(state: State, unmasked_only: bool = False) -> Set[str]:

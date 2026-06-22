@@ -26,7 +26,7 @@ from src.pi_sam.noisy_pisam.typings import (
     ConflictType,
     Conflict,
 )
-from src.utils.pddl import get_state_grounded_predicates, flip_fluent_in_state, copy_state
+from src.utils.pddl import get_state_grounded_predicates, flip_fluent_in_state, copy_state, find_predicate_negation
 
 
 def _copy_state(state: State) -> State:
@@ -281,16 +281,31 @@ class NoisyLearnerMixin:
     def _collect_frame_axiom_conflicts(
         self,
         grounded_action: ActionCall,
-        grounded_add_effects: Set[GroundedPredicate],
-        grounded_del_effects: Set[GroundedPredicate],
+        previous_state: State,
+        next_state: State,
         source_is_gt: bool = True,
     ) -> List[Conflict]:
         """Detect frame-axiom violations for a single transition.
 
+        Computes its own raw state diff (decoupled from PI-SAM effect extraction)
+        so that ALL fluent changes are checked — not just those passing the strict
+        effect filters.
+
         A violation arises when a fluent changes truth value but none of its
         objects appear among the action's parameters.
 
+        Masking rules:
+        - A fluent change is flagged ONLY if the fluent is unmasked on the side
+          where we observe it.
+        - AND its counterpart (negation) in the other state is either absent
+          (CWA: was false, so the change is real) or exists and is unmasked
+          (confirmed change).
+        - If the counterpart exists but IS masked → skip (uncertain change).
+
         Args:
+            grounded_action: The grounded action at this transition.
+            previous_state: The pre-state of the transition.
+            next_state: The post-state of the transition.
             source_is_gt: Whether the source (prev) state of this transition
                 is ground truth. Carried on each Conflict so the search can
                 decide its branching strategy (single-child for GT, two-child
@@ -300,34 +315,75 @@ class NoisyLearnerMixin:
         action_objs = set(grounded_action.parameters)
         local_conflicts: List[Conflict] = []
 
-        for gp, frame_is_add in (
-            [(g, False) for g in grounded_del_effects] +
-            [(g, True) for g in grounded_add_effects]
-        ):
-            gp_objs = set(gp.object_mapping.values())
-            if len(gp_objs) == 0:
-                continue
-            if gp_objs <= action_objs:
-                continue
+        prev_preds = get_state_grounded_predicates(previous_state)
+        next_preds = get_state_grounded_predicates(next_state)
 
-            pbl = ParameterBoundLiteral(
-                predicate_name=gp.name,
-                parameters=tuple(),
-                is_positive=gp.is_positive,
+        # --- Add-like changes: in next but not in prev (positive, unmasked) ---
+        for gp in next_preds.difference(prev_preds):
+            if not gp.is_positive:
+                continue
+            if gp.is_masked:
+                continue
+            # Check counterpart (negation) in prev_state
+            prev_neg = find_predicate_negation(prev_preds, gp)
+            if prev_neg is not None and prev_neg.is_masked:
+                continue  # uncertain — prev side is masked
+            # Change is confirmed (prev_neg absent → CWA false, or present+unmasked)
+            self._maybe_add_frame_conflict(
+                gp, action_name, action_objs, frame_is_add=True,
+                source_is_gt=source_is_gt, local_conflicts=local_conflicts,
             )
-            conflict = Conflict(
-                action_name=action_name,
-                pbl=pbl,
-                conflict_type=ConflictType.FRAME_AXIOM,
-                observation_index=self.current_observation_index,
-                component_index=self.current_component_index,
-                grounded_fluent=gp.untyped_representation,
-                frame_is_add=frame_is_add,
-                source_is_gt=source_is_gt,
+
+        # --- Del-like changes: in prev but not in next (positive, unmasked) ---
+        for gp in prev_preds.difference(next_preds):
+            if not gp.is_positive:
+                continue
+            if gp.is_masked:
+                continue
+            # Check counterpart (negation) in next_state
+            next_neg = find_predicate_negation(next_preds, gp)
+            if next_neg is not None and next_neg.is_masked:
+                continue  # uncertain — next side is masked
+            # Change is confirmed (next_neg absent → CWA false, or present+unmasked)
+            self._maybe_add_frame_conflict(
+                gp, action_name, action_objs, frame_is_add=False,
+                source_is_gt=source_is_gt, local_conflicts=local_conflicts,
             )
-            local_conflicts.append(conflict)
 
         return local_conflicts
+
+    def _maybe_add_frame_conflict(
+        self,
+        gp: GroundedPredicate,
+        action_name: str,
+        action_objs: Set[str],
+        frame_is_add: bool,
+        source_is_gt: bool,
+        local_conflicts: List[Conflict],
+    ) -> None:
+        """Add a frame-axiom conflict if the fluent's objects are not a subset of the action's."""
+        gp_objs = set(gp.object_mapping.values())
+        if len(gp_objs) == 0:
+            return
+        if gp_objs <= action_objs:
+            return
+
+        pbl = ParameterBoundLiteral(
+            predicate_name=gp.name,
+            parameters=tuple(),
+            is_positive=gp.is_positive,
+        )
+        conflict = Conflict(
+            action_name=action_name,
+            pbl=pbl,
+            conflict_type=ConflictType.FRAME_AXIOM,
+            observation_index=self.current_observation_index,
+            component_index=self.current_component_index,
+            grounded_fluent=gp.untyped_representation,
+            frame_is_add=frame_is_add,
+            source_is_gt=source_is_gt,
+        )
+        local_conflicts.append(conflict)
 
     # ------------------------------------------------------------------
     # Effect handling with conflict detection
@@ -350,25 +406,6 @@ class NoisyLearnerMixin:
         )
         all_grounded_must = list(grounded_add_effects) + list(grounded_del_effects)
 
-        # PRED_MATCHER_DEBUGGING
-        # _diag = action_name == "stack"   # commented out to disable stack-specific debug logs
-        # _diag = action_name == "unstack" # commented out to disable unstack-specific debug logs
-        _diag = False
-        if _diag:
-            print(
-                f"[PRED_MATCHER_DEBUGGING] === handle_effects: {action_name}({', '.join(grounded_action.parameters)}) "
-                f"obs={self.current_observation_index} comp={self.current_component_index} ==="
-            )
-            print(
-                f"[PRED_MATCHER_DEBUGGING] grounded_add_effects: "
-                f"{[gp.untyped_representation for gp in grounded_add_effects]}"
-            )
-            print(
-                f"[PRED_MATCHER_DEBUGGING] grounded_del_effects: "
-                f"{[gp.untyped_representation for gp in grounded_del_effects]}"
-            )
-        # END PRED_MATCHER_DEBUGGING
-
         # Frame-axiom conflicts (at every transition; source_is_gt tag drives
         # the search's branching strategy: single-child for GT, two-child for non-GT)
         source_is_gt = self._should_check_frame_axiom(
@@ -376,7 +413,7 @@ class NoisyLearnerMixin:
         )
         local_conflicts.extend(
             self._collect_frame_axiom_conflicts(
-                grounded_action, grounded_add_effects, grounded_del_effects,
+                grounded_action, previous_state, next_state,
                 source_is_gt=source_is_gt,
             )
         )
@@ -387,30 +424,9 @@ class NoisyLearnerMixin:
             self.cannot_be_effect.get(action_name, set())
         )
 
-        # PRED_MATCHER_DEBUGGING
-        if _diag:
-            print(
-                f"[PRED_MATCHER_DEBUGGING] prior_must_effects (discrete_effects): "
-                f"{[str(p) for p in prior_must_effects]}"
-            )
-            print(
-                f"[PRED_MATCHER_DEBUGGING] prior_cannot_effects: "
-                f"{[str(p) for p in prior_cannot_effects]}"
-            )
-        # END PRED_MATCHER_DEBUGGING
-
         # (2a) DATA-ONLY: prior cannot_be_effect + new must-be-effect
         for gp in all_grounded_must:
             possible_lifted = self.matcher.get_possible_literal_matches(grounded_action, [gp])
-
-            # PRED_MATCHER_DEBUGGING
-            if _diag:
-                self.logger.debug(
-                    f"[PRED_MATCHER_DEBUGGING] (2a) gp={gp.untyped_representation} "
-                    f"possible_lifted={[str(p) for p in possible_lifted]} "
-                    f"hits={[str(p) for p in possible_lifted if p in prior_cannot_effects]}"
-                )
-            # END PRED_MATCHER_DEBUGGING
 
             for lifted_gp in possible_lifted:
                 if lifted_gp in prior_cannot_effects:
@@ -443,26 +459,9 @@ class NoisyLearnerMixin:
             prev_preds, next_preds,
         )
 
-        # PRED_MATCHER_DEBUGGING
-        if _diag:
-            print(
-                f"[PRED_MATCHER_DEBUGGING] cannot_be_effects: "
-                f"{[gp.untyped_representation for gp in cannot_be_effects]}"
-            )
-        # END PRED_MATCHER_DEBUGGING
-
         # (2b) DATA-ONLY: prior must-be-effect + new cannot-be-effect
         for gp in cannot_be_effects:
             possible_lifted = self.matcher.get_possible_literal_matches(grounded_action, [gp])
-
-            # PRED_MATCHER_DEBUGGING
-            if _diag:
-                self.logger.debug(
-                    f"[PRED_MATCHER_DEBUGGING] (2b) gp={gp.untyped_representation} "
-                    f"possible_lifted={[str(p) for p in possible_lifted]} "
-                    f"hits={[str(p) for p in possible_lifted if p in prior_must_effects]}"
-                )
-            # END PRED_MATCHER_DEBUGGING
 
             for lifted_gp in possible_lifted:
                 if lifted_gp in prior_must_effects:
@@ -496,30 +495,8 @@ class NoisyLearnerMixin:
                         grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
                     ))
 
-        # PRED_MATCHER_DEBUGGING
-        if _diag:
-            print(
-                f"[PRED_MATCHER_DEBUGGING] local_conflicts found: {len(local_conflicts)}"
-            )
-            for c in local_conflicts:
-                print(f"[PRED_MATCHER_DEBUGGING]   conflict: {c}")  # PRED_MATCHER_DEBUGGING
-        # END PRED_MATCHER_DEBUGGING
-
         self.conflicts.extend(local_conflicts)
         self._delegate_handle_effects(grounded_action, previous_state, next_state)
-
-        # PRED_MATCHER_DEBUGGING
-        if _diag:
-            print(
-                f"[PRED_MATCHER_DEBUGGING] AFTER delegate: discrete_effects for {action_name}: "
-                f"{[str(p) for p in observed_action.discrete_effects]}"
-            )
-            print(
-                f"[PRED_MATCHER_DEBUGGING] AFTER delegate: cannot_be_effect for {action_name}: "
-                f"{[str(p) for p in self.cannot_be_effect.get(action_name, set())]}"
-            )
-            print(f"[PRED_MATCHER_DEBUGGING] === END {action_name} ===")  # PRED_MATCHER_DEBUGGING
-        # END PRED_MATCHER_DEBUGGING
 
     # ------------------------------------------------------------------
     # Learning loop with index tracking

@@ -127,10 +127,10 @@ def run_simulated_experiment(
 
     print(f"Total ground-truth flips: {len(ground_truth_flips)}")
 
-    # All component indices are GT sources (every state originated from GT).
+    # Only the initial state (t=0) is trusted as GT — matches gtrate0 benchmark
+    # behavior.  Synthetic masking/noise breaks all later states.
     gt_source_indices_by_obs: Dict[int, Set[int]] = {
-        obs_idx: set(range(len(obs.components)))
-        for obs_idx, obs in enumerate(noisy_observations)
+        obs_idx: {0} for obs_idx in range(len(noisy_observations))
     }
 
     print("\n=== Running conflict-driven patch search ===")
@@ -140,7 +140,7 @@ def run_simulated_experiment(
         seed=seed,
         search_mode=SearchMode.ANYTIME_DFS,
         node_choosing_strategy=NodeChoosingStrategy.MODEL_PATCH_FIRST,
-        conflict_group_strategy=ConflictGroupStrategy.MOST_OBSERVATIONS,
+        conflict_group_strategy=ConflictGroupStrategy.LARGEST,
     )
 
     _model, _conflicts, _model_constraints, proposed_patches, _cost, _report, _patched = (

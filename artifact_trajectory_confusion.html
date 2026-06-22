@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trajectory Confusion Matrix Generator</title>
+<style>
+:root { color-scheme: light; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fafafa; color: #1a1a1a; padding: 20px; line-height: 1.6; }
+h1 { font-size: 1.4em; margin-bottom: 4px; color: #1a1a1a; }
+.subtitle { color: #666; font-size: 0.9em; margin-bottom: 20px; }
+.card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 1.1em; margin-bottom: 8px; color: #333; }
+.card h3 { font-size: 0.95em; margin-bottom: 6px; color: #555; margin-top: 12px; }
+code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', 'Fira Code', monospace; }
+pre { background: #1e1e1e; color: #d4d4d4; padding: 14px; border-radius: 6px; overflow-x: auto; font-size: 0.82em; line-height: 1.5; font-family: 'SF Mono', 'Fira Code', monospace; margin-top: 8px; }
+pre .comment { color: #6a9955; }
+pre .flag { color: #569cd6; }
+pre .string { color: #ce9178; }
+pre .keyword { color: #c586c0; }
+pre .func { color: #dcdcaa; }
+ul { padding-left: 20px; margin-top: 6px; }
+li { margin-bottom: 4px; font-size: 0.9em; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.78em; font-weight: 600; margin-right: 4px; }
+.tag-pre { background: #e3f2fd; color: #1565c0; }
+.tag-add { background: #e8f5e9; color: #2e7d32; }
+.tag-del { background: #fce4ec; color: #c62828; }
+.tag-fa  { background: #fff3e0; color: #e65100; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+.stat { text-align: center; padding: 12px; }
+.stat .num { font-size: 1.6em; font-weight: 700; color: #4472C4; }
+.stat .label { font-size: 0.8em; color: #666; }
+.copy-btn { background: #4472C4; color: #fff; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.82em; margin-top: 8px; }
+.copy-btn:hover { background: #3461a8; }
+.copy-btn:active { background: #2a4f8a; }
+.copied { background: #2e7d32 !important; }
+.divider { border: none; border-top: 1px solid #e0e0e0; margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<h1>Trajectory Confusion Matrix Generator</h1>
+<p class="subtitle">Compare noisy (gtrate0) vs ground-truth (gtrate100) trajectories and produce per-action confusion matrices + frame axiom violation analysis.</p>
+
+<div class="card">
+  <h2>Quick Start</h2>
+  <pre id="cli-usage"><span class="comment"># Generate spreadsheet for any domain</span>
+python generate_trajectory_confusion_spreadsheet.py \
+  <span class="flag">--base</span> <span class="string">benchmark/data/blocksworld/.../training/trajectories/</span> \
+  <span class="flag">--domain-pddl</span> <span class="string">src/domains/blocks/blocks.pddl</span> \
+  <span class="flag">--output</span> <span class="string">blocks_confusion.xlsx</span> \
+  <span class="flag">--title</span> <span class="string">"BLOCKSWORLD"</span></pre>
+  <button class="copy-btn" onclick="copyCmd(this)">Copy command</button>
+</div>
+
+<div class="grid">
+  <div class="card stat"><div class="num">4</div><div class="label">CLI Arguments</div></div>
+  <div class="card stat"><div class="num">~650</div><div class="label">Lines of Python</div></div>
+</div>
+
+<div class="card">
+  <h2>What It Produces</h2>
+  <p style="font-size:0.9em; margin-bottom:8px;">An Excel workbook with one sheet per action + a frame axiom violations sheet:</p>
+  <ul>
+    <li><span class="tag tag-pre">PRE</span> Preconditions checked in <strong>prev_state</strong> (should be present)</li>
+    <li><span class="tag tag-add">ADD</span> Add effects checked in <strong>next_state</strong> (should be present)</li>
+    <li><span class="tag tag-del">DEL</span> Delete effects checked in <strong>next_state</strong> (should be absent)</li>
+    <li><span class="tag tag-fa">FA</span> Frame axiom violations: fluents differing from GT whose objects are <em>not</em> a subset of action params</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>Arguments</h2>
+  <table style="width:100%; font-size:0.88em; border-collapse:collapse;">
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px;"><code>--base</code></td><td style="padding:6px;">Path to trajectories dir containing <code>problem0/</code>, <code>problem1/</code>, etc.</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px;"><code>--domain-pddl</code></td><td style="padding:6px;">Path to the ground-truth domain PDDL file</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px;"><code>--output</code></td><td style="padding:6px;">Output <code>.xlsx</code> file path</td></tr>
+    <tr><td style="padding:6px;"><code>--title</code></td><td style="padding:6px;">Optional domain title for sheet headers (default: inferred from PDDL filename)</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Programmatic Usage</h2>
+  <pre><span class="keyword">from</span> pathlib <span class="keyword">import</span> Path
+<span class="keyword">from</span> generate_trajectory_confusion_spreadsheet <span class="keyword">import</span> (
+    <span class="func">parse_domain_pddl</span>, <span class="func">process_domain</span>
+)
+
+action_model = <span class="func">parse_domain_pddl</span>(Path(<span class="string">"domain.pddl"</span>))
+<span class="func">process_domain</span>(
+    base_path=Path(<span class="string">"trajectories/"</span>),
+    output_path=Path(<span class="string">"output.xlsx"</span>),
+    action_model=action_model,
+    domain_title=<span class="string">"My Domain"</span>,
+)</pre>
+</div>
+
+<div class="card">
+  <h2>Key Functions</h2>
+  <table style="width:100%; font-size:0.88em; border-collapse:collapse;">
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px;"><code>parse_trajectory()</code></td><td style="padding:6px;">Parse <code>.trajectory</code> file into states + actions</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px;"><code>parse_domain_pddl()</code></td><td style="padding:6px;">Auto-extract action models from PDDL (balanced-paren parser)</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px;"><code>compute_confusion()</code></td><td style="padding:6px;">TP/FP/FN/TN per lifted fluent per problem</td></tr>
+    <tr style="border-bottom:1px solid #eee;"><td style="padding:6px;"><code>compute_fa_violations()</code></td><td style="padding:6px;">Detect frame axiom violations per transition</td></tr>
+    <tr><td style="padding:6px;"><code>process_domain()</code></td><td style="padding:6px;">End-to-end pipeline: parse &rarr; compute &rarr; write Excel</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Generated Spreadsheets</h2>
+  <p style="font-size:0.9em;">The following were generated with this script:</p>
+  <hr class="divider">
+  <h3>Blocksworld</h3>
+  <p style="font-size:0.85em; color:#555;">Actions: pick_up, put_down, stack, unstack &mdash; <code>blocks_trajectory_gt_confusion.xlsx</code></p>
+  <h3>Hanoi</h3>
+  <p style="font-size:0.85em; color:#555;">Actions: move_disc_disc, move_disc_peg, move_peg_disc, move_peg_peg &mdash; <code>hanoi_trajectory_gt_confusion.xlsx</code></p>
+  <h3>N-Puzzle</h3>
+  <p style="font-size:0.85em; color:#555;">Actions: move &mdash; <code>n_puzzle_trajectory_gt_confusion.xlsx</code></p>
+</div>
+
+<div class="card">
+  <h2>Implementation Notes</h2>
+  <ul>
+    <li><strong>PDDL parser</strong> uses balanced-paren matching, correctly handles nested <code>(not (pred ?args))</code></li>
+    <li><strong>Hyphen normalization</strong>: action names like <code>pick-up</code> are normalized to <code>pick_up</code> to match trajectory format</li>
+    <li><strong>Trajectory parser</strong> strips only the outer closing paren of <code>(:state ...)</code> blocks (avoids the <code>rstrip(')')</code> bug that ate the last fluent)</li>
+    <li><strong>FA detection</strong>: a fluent counts as an FA violation only if its objects are NOT a subset of the action's parameters</li>
+  </ul>
+</div>
+
+<script>
+function copyCmd(btn) {
+  const cmd = `python generate_trajectory_confusion_spreadsheet.py \\
+  --base benchmark/data/blocksworld/.../training/trajectories/ \\
+  --domain-pddl src/domains/blocks/blocks.pddl \\
+  --output blocks_confusion.xlsx \\
+  --title "BLOCKSWORLD"`;
+  navigator.clipboard.writeText(cmd).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy command'; btn.classList.remove('copied'); }, 1500);
+  }).catch(() => { btn.textContent = 'Copy failed'; });
+}
+</script>
+
+</body>
+</html>

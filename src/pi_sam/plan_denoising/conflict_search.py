@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+from collections import defaultdict
 import statistics
 import time
 from abc import ABC, abstractmethod
@@ -853,22 +854,78 @@ class ConflictDrivenPatchSearchBase(ABC):
 
     @staticmethod
     def _dedup_patches(patches: Set[FluentLevelPatch]) -> Set[FluentLevelPatch]:
-        """Remove (next at (obs,comp), prev at (obs,comp+1)) pairs with same fluent."""
+        """Remove contradictory and redundant fluent patches.
+
+        Two levels of dedup:
+        1. Same-state opposite-polarity: two patches at the same
+           (obs, comp, state_type, normalized_fluent) with different fluent
+           strings (e.g. "(clear b)" and "(not (clear b))") cancel each
+           other — two flips = no change. Remove both.
+        2. Cross-component shared-state: a patch at (comp=i, next) and
+           (comp=i+1, prev) target the same physical state. If they share
+           the same normalized_fluent, remove both.
+        """
+        # --- Level 1: same-state opposite-polarity cancellation ---
+        # Patches are in a Set, so at most 2 patches can share the same
+        # (obs, comp, state_type, normalized_fluent): one with the positive
+        # fluent string and one with the negated form. Both toggle the same
+        # predicate, so applying both = no change. Cancel them.
+        groups: dict[tuple, list[FluentLevelPatch]] = defaultdict(list)
+        for p in patches:
+            key = (p.observation_index, p.component_index,
+                   p.state_type, p.normalized_fluent)
+            groups[key].append(p)
+
+        remove: Set[FluentLevelPatch] = set()
+        surviving = set()
+        for key, group in groups.items():
+            if len(group) == 1:
+                surviving.add(group[0])
+            elif len(group) == 2 and group[0].fluent != group[1].fluent:
+                # Opposite polarities — they cancel, remove both
+                remove.update(group)
+            else:
+                # Shouldn't happen (set guarantees no exact duplicates),
+                # but keep one defensively.
+                surviving.add(group[0])
+
+        # --- Level 2: cross-component shared-state cancellation ---
         next_p = {
             (p.observation_index, p.component_index, p.normalized_fluent): p
-            for p in patches if p.state_type == "next"
+            for p in surviving if p.state_type == "next"
         }
         prev_p = {
             (p.observation_index, p.component_index, p.normalized_fluent): p
-            for p in patches if p.state_type == "prev"
+            for p in surviving if p.state_type == "prev"
         }
-        remove: Set[FluentLevelPatch] = set()
         for (obs, comp, fluent), p_next in next_p.items():
             p_prev = prev_p.get((obs, comp + 1, fluent))
             if p_prev:
                 remove.add(p_next)
                 remove.add(p_prev)
-        return {p for p in patches if p not in remove}
+
+        return {p for p in surviving if p not in remove}
+
+    # # --- ORIGINAL _dedup_patches (cross-component only, no same-state
+    # #     opposite-polarity cancellation). Uncomment to revert. ---
+    # @staticmethod
+    # def _dedup_patches(patches: Set[FluentLevelPatch]) -> Set[FluentLevelPatch]:
+    #     """Remove (next at (obs,comp), prev at (obs,comp+1)) pairs with same fluent."""
+    #     next_p = {
+    #         (p.observation_index, p.component_index, p.normalized_fluent): p
+    #         for p in patches if p.state_type == "next"
+    #     }
+    #     prev_p = {
+    #         (p.observation_index, p.component_index, p.normalized_fluent): p
+    #         for p in patches if p.state_type == "prev"
+    #     }
+    #     remove: Set[FluentLevelPatch] = set()
+    #     for (obs, comp, fluent), p_next in next_p.items():
+    #         p_prev = prev_p.get((obs, comp + 1, fluent))
+    #         if p_prev:
+    #             remove.add(p_next)
+    #             remove.add(p_prev)
+    #     return {p for p in patches if p not in remove}
 
     def _build_model_patch(
         self,
