@@ -19,7 +19,11 @@ from benchmark.experiment_running_helpers.post_process_gt_metrics import run_pos
 from benchmark.experiment_running_helpers.learning_helpers import learn_rosame, learn_sam_pisam
 from benchmark.experiment_running_helpers.profiling import TimingProfiler
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
-from benchmark.experiment_running_helpers.simulated_data_utils import prepare_simulated_observations
+from benchmark.experiment_running_helpers.simulated_data_utils import (
+    build_gt_trajectory_lookup,
+    prepare_simulated_observations,
+    select_simulated_gt_trajectories,
+)
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt, load_learning_metrics
 from benchmark.experiment_running_helpers.trajectory_utils import prepare_fold_trajectories, save_fold_metadata, update_fold_metadata
 from benchmark.evaluation.test_states_generator import generate_predictive_power_test_states
@@ -208,10 +212,16 @@ def run_single_fold(
         simulated_gt_indices = None
 
         if use_simulated:
-            # Simulated mode: select GT trajectories for this fold, then inject noise
-            gt_pool = simulated_gt_trajectories  # user provides explicit list
-            selected_gt = gt_pool[:num_trajectories]
-            print(f"  [SIMULATED] Loading {len(selected_gt)} GT trajectories + injecting noise...")
+            # Simulated mode: same CV train-pool sampling as file-based mode,
+            # then map each selected problem dir to its GT trajectory path.
+            gt_lookup = build_gt_trajectory_lookup(simulated_gt_trajectories)
+            selected_gt = select_simulated_gt_trajectories(
+                selected_pool, num_trajectories, gt_lookup,
+            )
+            print(
+                f"  [SIMULATED] Loading {len(selected_gt)} GT trajectories "
+                f"({', '.join(p.parent.name for p in selected_gt)}) + injecting noise..."
+            )
             with profiler.time_operation("prepare_simulated_observations"):
                 simulated_observations, simulated_gt_indices = prepare_simulated_observations(
                     domain_path=domain_ref_path,

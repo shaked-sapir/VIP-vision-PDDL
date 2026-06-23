@@ -33,6 +33,7 @@ from benchmark.experiment_running_helpers.reporting import (
 # =============================================================================
 
 benchmark_path = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark")
+project_root = benchmark_path.parent
 print_metrics()
 
 # Global lock for thread-safe evaluation (AMLGym SimpleDomainReader is not thread-safe)
@@ -334,7 +335,21 @@ def main(
     from src.pi_sam.noising import NoisingType
 
     use_simulated = simulated_gt_trajectories is not None
-    simulated_gt_paths = [Path(p) for p in simulated_gt_trajectories] if use_simulated else None
+    simulated_gt_paths = None
+    if use_simulated:
+        simulated_gt_paths = []
+        for p in simulated_gt_trajectories:
+            path = Path(p).expanduser()
+            if not path.is_absolute():
+                path = project_root / path
+            path = path.resolve()
+            simulated_gt_paths.append(path)
+        missing = [p for p in simulated_gt_paths if not p.exists()]
+        if missing:
+            raise FileNotFoundError(
+                "Simulated GT trajectory file(s) not found:\n"
+                + "\n".join(f"  - {p}" for p in missing)
+            )
     unclean_results = []
     cleaned_results = []
 
@@ -602,17 +617,21 @@ def main(
                 completed_numtrajs = sorted(set(r['num_trajectories'] for r in unclean_results))
                 print(f"  Completed num_trajectories so far: {completed_numtrajs}")
 
-                # Generate GT injection analysis plots
-                print(f"\n{'='*60}")
-                print(f"GENERATING GT INJECTION PLOTS")
-                print(f"{'='*60}")
-                generate_gt_injection_plots(csv_combined, evaluation_results_dir, bench_name)
-                
-                # Generate stacked solving rate plots
-                print(f"\n{'='*60}")
-                print(f"GENERATING STACKED SOLVING RATE PLOTS")
-                print(f"{'='*60}")
-                plot_stacked_solving_rate(csv_combined, evaluation_results_dir, bench_name)
+                domain_results = [r for r in unclean_results + cleaned_results if r['domain'] == bench_name]
+                if not domain_results:
+                    print(f"\nWarning: No results collected for {bench_name} at num_trajectories={num_trajectories}; skipping plots")
+                else:
+                    # Generate GT injection analysis plots
+                    print(f"\n{'='*60}")
+                    print(f"GENERATING GT INJECTION PLOTS")
+                    print(f"{'='*60}")
+                    generate_gt_injection_plots(csv_combined, evaluation_results_dir, bench_name)
+
+                    # Generate stacked solving rate plots
+                    print(f"\n{'='*60}")
+                    print(f"GENERATING STACKED SOLVING RATE PLOTS")
+                    print(f"{'='*60}")
+                    plot_stacked_solving_rate(csv_combined, evaluation_results_dir, bench_name)
 
                 # Generate plots after each num_trajectories
                 plots_dir = evaluation_results_dir / "plots"

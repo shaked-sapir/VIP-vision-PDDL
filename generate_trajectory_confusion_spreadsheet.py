@@ -183,9 +183,33 @@ def ground_fluent(pred_name: str, roles: list, bindings: dict) -> str:
     return f"{pred_name} {' '.join(args)}" if args else pred_name
 
 
+def _has_complementary_swap(pred_name: str, ground_args: list, error_type: str,
+                            noisy_state: set, gt_state: set) -> bool:
+    """Check if a complementary swap exists for this binary predicate grounding.
+
+    A swap occurs when this grounding has an error (FP or FN) and another
+    grounding of the same predicate — sharing at least one argument — has the
+    complementary error type.
+    """
+    fp_fluents = noisy_state - gt_state   # present in noisy, absent in GT
+    fn_fluents = gt_state - noisy_state   # present in GT, absent in noisy
+    target_set = fn_fluents if error_type == "FP" else fp_fluents
+
+    ground_args_set = set(ground_args)
+    for f in target_set:
+        f_parts = f.split()
+        if f_parts[0] != pred_name:
+            continue
+        f_args = f_parts[1:]
+        if set(f_args) & ground_args_set:  # shares at least one argument
+            return True
+    return False
+
+
 def compute_confusion(noisy_states, gt_states, actions, action_model):
     result = defaultdict(
-        lambda: defaultdict(lambda: defaultdict(lambda: {"TP": 0, "FP": 0, "FN": 0, "TN": 0}))
+        lambda: defaultdict(lambda: defaultdict(
+            lambda: {"TP": 0, "FP": 0, "FN": 0, "TN": 0, "SW": 0}))
     )
     action_counts = defaultdict(int)
 
@@ -200,47 +224,58 @@ def compute_confusion(noisy_states, gt_states, actions, action_model):
         prev_n, prev_g = noisy_states[i], gt_states[i]
         next_n, next_g = noisy_states[i + 1], gt_states[i + 1]
 
+        def _classify_and_record(cat, pred_name, roles, noisy_state, gt_state):
+            g = ground_fluent(pred_name, roles, bindings)
+            lifted = f"{pred_name}({','.join(roles)})"
+            in_n, in_g = g in noisy_state, g in gt_state
+            is_binary = len(roles) >= 2
+
+            if cat == "DEL":
+                if not in_g and not in_n:
+                    result[action_name][cat][lifted]["TN"] += 1
+                elif in_n and not in_g:
+                    result[action_name][cat][lifted]["FP"] += 1
+                    if is_binary:
+                        g_args = g.split()[1:]
+                        if _has_complementary_swap(pred_name, g_args, "FP", noisy_state, gt_state):
+                            result[action_name][cat][lifted]["SW"] += 1
+                elif in_g and not in_n:
+                    result[action_name][cat][lifted]["FN"] += 1
+                    if is_binary:
+                        g_args = g.split()[1:]
+                        if _has_complementary_swap(pred_name, g_args, "FN", noisy_state, gt_state):
+                            result[action_name][cat][lifted]["SW"] += 1
+                else:
+                    result[action_name][cat][lifted]["TP"] += 1
+            else:
+                if in_g and in_n:
+                    result[action_name][cat][lifted]["TP"] += 1
+                elif in_n:
+                    result[action_name][cat][lifted]["FP"] += 1
+                    if is_binary:
+                        g_args = g.split()[1:]
+                        if _has_complementary_swap(pred_name, g_args, "FP", noisy_state, gt_state):
+                            result[action_name][cat][lifted]["SW"] += 1
+                elif in_g:
+                    result[action_name][cat][lifted]["FN"] += 1
+                    if is_binary:
+                        g_args = g.split()[1:]
+                        if _has_complementary_swap(pred_name, g_args, "FN", noisy_state, gt_state):
+                            result[action_name][cat][lifted]["SW"] += 1
+                else:
+                    result[action_name][cat][lifted]["TN"] += 1
+
         # Preconditions: check prev_state
         for pred_name, roles in model["preconditions"]:
-            g = ground_fluent(pred_name, roles, bindings)
-            lifted = f"{pred_name}({','.join(roles)})"
-            in_n, in_g = g in prev_n, g in prev_g
-            if in_g and in_n:
-                result[action_name]["PRE"][lifted]["TP"] += 1
-            elif in_n:
-                result[action_name]["PRE"][lifted]["FP"] += 1
-            elif in_g:
-                result[action_name]["PRE"][lifted]["FN"] += 1
-            else:
-                result[action_name]["PRE"][lifted]["TN"] += 1
+            _classify_and_record("PRE", pred_name, roles, prev_n, prev_g)
 
-        # Add effects: check next_state (should be present)
+        # Add effects: check next_state
         for pred_name, roles in model["add_effects"]:
-            g = ground_fluent(pred_name, roles, bindings)
-            lifted = f"{pred_name}({','.join(roles)})"
-            in_n, in_g = g in next_n, g in next_g
-            if in_g and in_n:
-                result[action_name]["ADD"][lifted]["TP"] += 1
-            elif in_n:
-                result[action_name]["ADD"][lifted]["FP"] += 1
-            elif in_g:
-                result[action_name]["ADD"][lifted]["FN"] += 1
-            else:
-                result[action_name]["ADD"][lifted]["TN"] += 1
+            _classify_and_record("ADD", pred_name, roles, next_n, next_g)
 
-        # Del effects: check next_state (should be absent)
+        # Del effects: check next_state
         for pred_name, roles in model["del_effects"]:
-            g = ground_fluent(pred_name, roles, bindings)
-            lifted = f"{pred_name}({','.join(roles)})"
-            in_n, in_g = g in next_n, g in next_g
-            if not in_g and not in_n:
-                result[action_name]["DEL"][lifted]["TN"] += 1
-            elif in_n and not in_g:
-                result[action_name]["DEL"][lifted]["FP"] += 1
-            elif in_g and not in_n:
-                result[action_name]["DEL"][lifted]["FN"] += 1
-            else:
-                result[action_name]["DEL"][lifted]["TP"] += 1
+            _classify_and_record("DEL", pred_name, roles, next_n, next_g)
 
     return result, action_counts
 
@@ -297,6 +332,7 @@ _FA_FILL = PatternFill("solid", fgColor="FCE4EC")
 _CLEAN_FILL = PatternFill("solid", fgColor="E8F5E9")
 _SUMMARY_FILL = PatternFill("solid", fgColor="FFF3E0")
 _WARN_FILL = PatternFill("solid", fgColor="FFF9C4")
+_NA_FILL = PatternFill("solid", fgColor="D9D9D9")
 _THIN_BORDER = Border(
     left=Side(style="thin"),
     right=Side(style="thin"),
@@ -359,6 +395,7 @@ def build_action_sheet(ws, action_name, model, problems, per_problem_confusion, 
             for c in ["A", "B"]:
                 _style_cell(ws, f"{c}{row}", _DATA_FONT, None, _CENTER, _THIN_BORDER)
 
+            is_binary = len(roles) >= 2
             for pi, prob in enumerate(problems):
                 if prob not in per_problem_confusion:
                     continue
@@ -366,11 +403,15 @@ def build_action_sheet(ws, action_name, model, problems, per_problem_confusion, 
                 n = per_problem_action_counts.get(prob, {}).get(action_name, 0)
                 if n == 0:
                     ws[f"{cl}{row}"] = "N/A"
+                    _style_cell(ws, f"{cl}{row}", _DATA_FONT, _NA_FILL, _CENTER, _THIN_BORDER)
                 else:
                     cm = per_problem_confusion[prob][action_name][cat][lifted]
-                    ws[f"{cl}{row}"] = f"TP={cm['TP']} FP={cm['FP']}\nFN={cm['FN']} TN={cm['TN']}"
+                    cell_text = f"TP={cm['TP']} FP={cm['FP']}\nFN={cm['FN']} TN={cm['TN']}"
+                    if is_binary:
+                        cell_text += f"\nSW={cm['SW']}"
+                    ws[f"{cl}{row}"] = cell_text
                     ws[f"{cl}{row}"].fill = _WARN_FILL if (cm["FP"] > 0 or cm["FN"] > 0) else _CLEAN_FILL
-                _style_cell(ws, f"{cl}{row}", _DATA_FONT, None, _CENTER, _THIN_BORDER)
+                    _style_cell(ws, f"{cl}{row}", _DATA_FONT, None, _CENTER, _THIN_BORDER)
             row += 1
         row += 1  # blank row between sections
 
@@ -387,6 +428,8 @@ def build_action_sheet(ws, action_name, model, problems, per_problem_confusion, 
         ws[f"{cl}{row}"].font = Font(name="Arial", bold=True, size=10)
         ws[f"{cl}{row}"].alignment = _CENTER
         ws[f"{cl}{row}"].border = _THIN_BORDER
+        if n == 0:
+            ws[f"{cl}{row}"].fill = _NA_FILL
 
     # Column widths
     ws.column_dimensions["A"].width = 6
@@ -421,6 +464,7 @@ def build_fa_sheet(ws, domain_title, problems, all_fa_results):
         ("E", "FA violations"),
         ("F", "Non-FA errors"),
         ("G", "FA %"),
+        ("H", "Non-FA %"),
     ]:
         ws[f"{cl}{row}"] = h
         _style_cell(ws, f"{cl}{row}", _HEADER_FONT_WHITE, _HEADER_FILL, _CENTER, _THIN_BORDER)
@@ -436,7 +480,8 @@ def build_fa_sheet(ws, domain_title, problems, all_fa_results):
         te = sum(r["total_errors_in_next"] for r in results)
         tf = sum(r["fa_count"] for r in results)
         nf = te - tf
-        fp = tf / te * 100 if te > 0 else 0
+        fa_pct = tf / te * 100 if te > 0 else 0
+        nfa_pct = nf / te * 100 if te > 0 else 0
 
         ws[f"A{row}"] = prob
         ws[f"A{row}"].font = Font(name="Arial", bold=True, size=10)
@@ -445,8 +490,9 @@ def build_fa_sheet(ws, domain_title, problems, all_fa_results):
         ws[f"D{row}"] = te
         ws[f"E{row}"] = tf
         ws[f"F{row}"] = nf
-        ws[f"G{row}"] = f"{fp:.1f}%"
-        for c in ["A", "B", "C", "D", "E", "F", "G"]:
+        ws[f"G{row}"] = f"{fa_pct:.1f}%"
+        ws[f"H{row}"] = f"{nfa_pct:.1f}%"
+        for c in ["A", "B", "C", "D", "E", "F", "G", "H"]:
             _style_cell(ws, f"{c}{row}", _DATA_FONT, None, _CENTER, _THIN_BORDER)
             if tf > 10:
                 ws[f"{c}{row}"].fill = _FA_FILL
@@ -462,7 +508,9 @@ def build_fa_sheet(ws, domain_title, problems, all_fa_results):
         ws[f"{c}{row}"].font = Font(name="Arial", bold=True, size=10)
     ws[f"G{row}"] = f'=IF(D{row}>0,TEXT(E{row}/D{row}*100,"0.0")&"%","0%")'
     ws[f"G{row}"].font = Font(name="Arial", bold=True, size=10)
-    for c in ["A", "B", "C", "D", "E", "F", "G"]:
+    ws[f"H{row}"] = f'=IF(D{row}>0,TEXT(F{row}/D{row}*100,"0.0")&"%","0%")'
+    ws[f"H{row}"].font = Font(name="Arial", bold=True, size=10)
+    for c in ["A", "B", "C", "D", "E", "F", "G", "H"]:
         ws[f"{c}{row}"].fill = _SUMMARY_FILL
         ws[f"{c}{row}"].alignment = _CENTER
         ws[f"{c}{row}"].border = _THIN_BORDER
@@ -541,19 +589,60 @@ def build_fa_sheet(ws, domain_title, problems, all_fa_results):
 
 
 # =============================================================================
+# GT state simulation from action model
+# =============================================================================
+
+def simulate_gt_states(init_state: set, actions: list, action_model: dict) -> list:
+    """Simulate ground-truth states by applying action effects from init_state.
+
+    Args:
+        init_state: Set of fluent strings for the initial state.
+        actions: List of grounded action strings (e.g. "move_up player-1 loc-5-4 loc-5-5").
+        action_model: Dict from parse_domain_pddl().
+
+    Returns:
+        List of N+1 state sets: [init, after_action_0, after_action_1, ...].
+    """
+    states = [init_state]
+    current = set(init_state)
+
+    for action_str in actions:
+        parts = action_str.split()
+        action_name = parts[0]
+        action_args = parts[1:]
+        model = action_model[action_name]
+        bindings = dict(zip(model["params"], action_args))
+
+        # Apply delete effects first, then add effects
+        for pred_name, roles in model["del_effects"]:
+            g = ground_fluent(pred_name, roles, bindings)
+            current.discard(g)
+
+        for pred_name, roles in model["add_effects"]:
+            g = ground_fluent(pred_name, roles, bindings)
+            current.add(g)
+
+        states.append(set(current))
+
+    return states
+
+
+# =============================================================================
 # Main pipeline
 # =============================================================================
 
-def process_domain(base_path: Path, output_path: Path, action_model: dict, domain_title: str):
+def process_domain(base_path: Path, output_path: Path, action_model: dict,
+                   domain_title: str, single_trajectory: bool = False):
     """End-to-end: parse trajectories, compute metrics, write Excel.
 
     Args:
-        base_path: Directory containing problem subdirs, each with
-                   problemN_gtrate0_frame_axioms.trajectory and
-                   problemN_gtrate100_frame_axioms.trajectory.
+        base_path: Directory containing problem subdirs.
         output_path: Where to write the .xlsx file.
         action_model: Dict from parse_domain_pddl() or hand-coded.
         domain_title: Human-readable domain name for sheet headers.
+        single_trajectory: If True, expect a single ``problemN.trajectory``
+            per problem dir (noisy only). GT states are simulated from the
+            init state using the action model.
     """
     problems = sorted(
         [d.name for d in base_path.iterdir() if d.is_dir()],
@@ -565,15 +654,23 @@ def process_domain(base_path: Path, output_path: Path, action_model: dict, domai
     all_fa_results = {}
 
     for prob in problems:
-        noisy_path = base_path / prob / f"{prob}_gtrate0_frame_axioms.trajectory"
-        gt_path = base_path / prob / f"{prob}_gtrate100_frame_axioms.trajectory"
-        if not noisy_path.exists() or not gt_path.exists():
-            continue
-        noisy_states, noisy_actions = parse_trajectory(noisy_path)
-        gt_states, gt_actions = parse_trajectory(gt_path)
-        if noisy_actions != gt_actions:
-            print(f"WARNING: action mismatch in {prob}, skipping")
-            continue
+        if single_trajectory:
+            noisy_path = base_path / prob / f"{prob}.trajectory"
+            if not noisy_path.exists():
+                continue
+            noisy_states, noisy_actions = parse_trajectory(noisy_path)
+            gt_states = simulate_gt_states(noisy_states[0], noisy_actions, action_model)
+        else:
+            noisy_path = base_path / prob / f"{prob}_gtrate0_frame_axioms.trajectory"
+            gt_path = base_path / prob / f"{prob}_gtrate100_frame_axioms.trajectory"
+            if not noisy_path.exists() or not gt_path.exists():
+                continue
+            noisy_states, noisy_actions = parse_trajectory(noisy_path)
+            gt_states, gt_actions = parse_trajectory(gt_path)
+            if noisy_actions != gt_actions:
+                print(f"WARNING: action mismatch in {prob}, skipping")
+                continue
+
         confusion, counts = compute_confusion(noisy_states, gt_states, noisy_actions, action_model)
         per_problem_confusion[prob] = confusion
         per_problem_action_counts[prob] = counts
@@ -631,6 +728,11 @@ def main():
         "--title", type=str, default=None,
         help="Domain title for sheet headers (default: inferred from PDDL filename)",
     )
+    parser.add_argument(
+        "--single-trajectory", action="store_true",
+        help="Each problem dir has a single problemN.trajectory (noisy only). "
+             "GT states are simulated from the init state using the domain model.",
+    )
     args = parser.parse_args()
 
     action_model = parse_domain_pddl(args.domain_pddl)
@@ -645,7 +747,8 @@ def main():
         print(f"  {an}: params={am['params']}, "
               f"pre={len(am['preconditions'])}, add={len(am['add_effects'])}, del={len(am['del_effects'])}")
 
-    process_domain(args.base, args.output, action_model, title)
+    process_domain(args.base, args.output, action_model, title,
+                   single_trajectory=args.single_trajectory)
 
 
 if __name__ == "__main__":

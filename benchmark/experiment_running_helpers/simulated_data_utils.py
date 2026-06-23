@@ -47,6 +47,37 @@ def load_gt_observation(trajectory_path: Path, domain) -> Observation:
 
 
 # ---------------------------------------------------------------------------
+# CV-aligned trajectory selection
+# ---------------------------------------------------------------------------
+
+def build_gt_trajectory_lookup(gt_trajectory_paths: List[Path]) -> Dict[str, Path]:
+    """Map problem directory name (e.g. ``problem3``) → GT trajectory path."""
+    lookup: Dict[str, Path] = {}
+    for path in gt_trajectory_paths:
+        lookup[path.parent.name] = path
+    return lookup
+
+
+def select_simulated_gt_trajectories(
+    selected_problem_dirs: List[Path],
+    num_trajectories: int,
+    gt_trajectory_lookup: Dict[str, Path],
+) -> List[Path]:
+    """Pick GT trajectories matching the fold's CV-sampled training pool."""
+    selected: List[Path] = []
+    for prob_dir in selected_problem_dirs[:num_trajectories]:
+        gt_path = gt_trajectory_lookup.get(prob_dir.name)
+        if gt_path is None:
+            available = ", ".join(sorted(gt_trajectory_lookup))
+            raise FileNotFoundError(
+                f"No simulated GT trajectory for {prob_dir.name}. "
+                f"Available: {available}"
+            )
+        selected.append(gt_path)
+    return selected
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 

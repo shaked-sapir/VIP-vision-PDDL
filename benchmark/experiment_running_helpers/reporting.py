@@ -7,7 +7,7 @@ on DataFrames, CSV paths, or result dicts.
 
 from collections import defaultdict
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -46,6 +46,26 @@ def format_mean_std(mean_val, std_val) -> str:
         return f"{mean_val:.3f}"
 
     return f"{mean_val:.3f}±{std_val:.3f}"
+
+
+def _load_results_csv_or_none(results_csv_path: Path, context: str) -> Optional[pd.DataFrame]:
+    """Load a results CSV, returning None when the file is missing or empty."""
+    path = Path(results_csv_path)
+    if not path.exists():
+        print(f"Warning: {context}: results file not found ({path}), skipping")
+        return None
+    if path.stat().st_size == 0:
+        print(f"Warning: {context}: results file is empty ({path}), skipping")
+        return None
+    try:
+        df = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        print(f"Warning: {context}: no columns in results file ({path}), skipping")
+        return None
+    if df.empty:
+        print(f"Warning: {context}: results file has no rows ({path}), skipping")
+        return None
+    return df
 
 
 # =============================================================================
@@ -692,7 +712,9 @@ def plot_metric_vs_gt_rate_by_num_trajectories(results_df, metric_name, output_d
 
 def generate_gt_injection_plots(results_csv_path, output_dir, domain_name):
     """Generate all GT injection analysis plots for a domain."""
-    df = pd.read_csv(results_csv_path)
+    df = _load_results_csv_or_none(results_csv_path, "GT injection plots")
+    if df is None:
+        return
 
     if 'gt_rate' not in df.columns:
         print(f"Warning: No 'gt_rate' column in {results_csv_path}, skipping GT injection plots")
@@ -723,7 +745,9 @@ def generate_gt_injection_plots(results_csv_path, output_dir, domain_name):
 
 def plot_stacked_solving_rate(results_csv_path, output_dir, domain_name):
     """Generate stacked area charts showing solving rate over number of trajectories."""
-    df = pd.read_csv(results_csv_path)
+    df = _load_results_csv_or_none(results_csv_path, "stacked solving rate plots")
+    if df is None:
+        return
 
     required_cols = ['algorithm', 'num_trajectories', 'gt_rate', 'solving_ratio',
                      'false_plans_ratio', 'unsolvable_ratio', '_internal_phase']
