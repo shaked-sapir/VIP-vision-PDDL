@@ -4,8 +4,12 @@ Pipeline
 --------
 Given a fully ground-truth observation, this module produces a degraded
 copy by:
-  1. Masking a subset of fluents (making them invisible to the learner).
-  2. Flipping the polarity of a subset of the *remaining* (visible) fluents.
+  1. Leaving the initial state (t=0) untouched — trusted GT, matching
+     ``gt_rate=0`` file-based experiments.
+  2. Masking a subset of fluents in all later states (making them invisible
+     to the learner).
+  3. Flipping the polarity of a subset of the *remaining* (visible) fluents
+     in those later states.
 
 The exact set of injected flips is returned as ``set[FluentLevelPatch]``,
 which is the same type the conflict search produces, so precision/recall
@@ -30,6 +34,9 @@ def create_bounded_noisy_observation(
 ) -> Tuple[Observation, List[Set], Set[FluentLevelPatch]]:
     """Inject bounded masking and polarity noise into a GT observation.
 
+    The initial state (index 0) is preserved as ground truth: no masking and
+    no polarity flips are applied there.  All subsequent states are degraded.
+
     Args:
         gt_observation: A fully ground-truth observation (no masking applied).
         masker: Configured masker that decides which fluents to hide.
@@ -41,13 +48,16 @@ def create_bounded_noisy_observation(
     Returns:
         A three-tuple:
           - ``noisy_obs``: Deep copy of the observation with masking and
-            polarity flips applied.  Consecutive components share the same
-            boundary state object (shared-state invariant is preserved).
+            polarity flips applied to states t>=1 only.  Consecutive components
+            share the same boundary state object (shared-state invariant is
+            preserved).
           - ``masking_info``: ``list[set[GroundedPredicate]]`` with one entry
             per state (N+1 total), matching the format of ``save_masking_info``.
+            The entry for the initial state is always empty.
           - ``ground_truth_flips``: ``set[FluentLevelPatch]`` recording every
-            injected polarity flip.  Compare this against the conflict search's
-            proposed patches to compute precision/recall.
+            injected polarity flip (never on the initial state).  Compare this
+            against the conflict search's proposed patches to compute
+            precision/recall.
     """
     noisy_obs = copy_observation_linked(gt_observation)
 
@@ -60,6 +70,11 @@ def create_bounded_noisy_observation(
     ground_truth_flips: Set[FluentLevelPatch] = set()
 
     for state_idx, state in enumerate(states):
+        if state_idx == 0:
+            # Initial state is trusted GT (same as gt_rate=0 file-based runs).
+            masking_info.append(set())
+            continue
+
         # Step 1: apply masking — sets is_masked=True on selected predicates.
         masked_predicates, unmasked_predicates = masker.mask_state(state)
         masking_info.append(masked_predicates)
@@ -67,11 +82,7 @@ def create_bounded_noisy_observation(
         # Step 2: select a subset of the *unmasked* predicates to flip.
         to_flip = noiser.noise(unmasked_predicates)
 
-        # Determine the (comp_idx, state_type) coordinates for patch recording.
-        if state_idx == 0:
-            comp_idx, state_type = 0, "prev"
-        else:
-            comp_idx, state_type = state_idx - 1, "next"
+        comp_idx, state_type = state_idx - 1, "next"
 
         for pred in to_flip:
             fluent_str = pred.untyped_representation

@@ -111,7 +111,8 @@ def prepare_simulated_observations(
             masking and noise applied.
           - ``gt_source_indices_by_obs``: Dict mapping each observation index
             to the set of component indices whose source state is ground truth.
-            In simulated mode only the initial state (index 0) is GT.
+            In simulated mode only the initial state (index 0) is GT — it is
+            also left unmasked and un-noised in the observation data.
     """
     domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
 
@@ -140,7 +141,7 @@ def prepare_simulated_observations(
         observations.append(noisy_obs)
         print(f"  trajectory {obs_idx} ({traj_path.name}): {len(flips)} fluents flipped")
 
-    # Only the initial state (t=0) is trusted as GT in simulated mode
+    # Only component 0's source state (t=0) is GT — preserved above, not corrupted.
     gt_source_indices_by_obs: Dict[int, Set[int]] = {
         obs_idx: {0} for obs_idx in range(len(observations))
     }

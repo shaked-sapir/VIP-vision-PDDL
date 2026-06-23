@@ -17,7 +17,10 @@ from benchmark.amlgym_models.PISAM import PISAM
 from benchmark.amlgym_models.PO_ROSAME import PO_ROSAME
 from benchmark.amlgym_models.ROSAME import ROSAME
 from benchmark.amlgym_models.SAM import SAM
-from benchmark.experiment_running_helpers.cleaned_trajectories import save_observations_to_dir
+from benchmark.experiment_running_helpers.cleaned_trajectories import (
+    save_fold_observations,
+    save_observations_to_dir,
+)
 from benchmark.experiment_running_helpers.trajectory_utils import setup_algorithm_workspace
 from src.pi_sam import PISAMLearner
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
@@ -146,6 +149,16 @@ def _learn_pisam_with_profiling(
 
             masked_observations.append(masked_obs)
     
+    if is_denoising and fold_work_dir is not None and prepared_trajectories and masked_observations:
+        original_obs_dir = fold_work_dir / "original_observations"
+        save_fold_observations(
+            masked_observations,
+            prepared_trajectories,
+            original_obs_dir,
+            observation_prefix="original_observation",
+        )
+        print(f"  [PHASE 2] Saved {len(masked_observations)} original observations to {original_obs_dir.name}/")
+
     start_learn = time.perf_counter()
     
     if is_denoising:

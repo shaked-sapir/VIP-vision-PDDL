@@ -3,11 +3,60 @@ Cleaned trajectory handling utilities for AMLGym experiments.
 """
 
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Set, Tuple
 
-from pddl_plus_parser.lisp_parsers import DomainParser
-from src.utils.masking import load_masking_info, save_masking_info
+from pddl_plus_parser.models import Observation
+
+from src.utils.masking import save_masking_info
 from src.utils.pddl import observation_to_trajectory_file
+from src.utils.pddl_state import get_state_masked_predicates
+
+
+def extract_masking_info_from_observation(observation: Observation) -> List[Set]:
+    """Extract per-state masked predicate sets from an in-memory observation."""
+    states = [observation.components[0].previous_state] + [
+        comp.next_state for comp in observation.components
+    ]
+    return [get_state_masked_predicates(state) for state in states]
+
+
+def save_fold_observations(
+    observations: List[Observation],
+    prepared_trajectories: List[Tuple[Path, Path, Path]],
+    output_dir: Path,
+    observation_prefix: str,
+) -> None:
+    """Save observations as trajectory + masking_info files under *output_dir*.
+
+    Masking is extracted from each observation's ``is_masked`` flags so the
+    saved files reflect exactly what was passed to conflict search (file-based
+    or simulated).
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for idx, obs in enumerate(observations):
+        if idx >= len(prepared_trajectories):
+            print(
+                f"  Warning: More observations ({len(observations)}) than "
+                f"prepared trajectories ({len(prepared_trajectories)})"
+            )
+            break
+
+        _, _, problem_pddl_path, *_ = prepared_trajectories[idx]
+        problem_name = problem_pddl_path.stem
+        out_name = f"{observation_prefix}_{problem_name}"
+        traj_file = output_dir / f"{out_name}.trajectory"
+        observation_to_trajectory_file(obs, traj_file)
+
+        if not traj_file.exists():
+            print(f"  ERROR: Failed to write trajectory file: {traj_file}")
+            continue
+        if traj_file.stat().st_size == 0:
+            print(f"  ERROR: Trajectory file is EMPTY: {traj_file}")
+            continue
+
+        masking_info = extract_masking_info_from_observation(obs)
+        save_masking_info(output_dir, out_name, masking_info)
 
 
 def save_observations_to_dir(
@@ -29,67 +78,23 @@ def save_patched_observations(
     patched_observations,
     prepared_trajectories: List[Tuple[Path, Path, Path]],
     output_dir: Path,
-    domain_path: Path
+    domain_path: Path,
 ) -> None:
     """
     Save patched observations from denoiser to trajectory files.
 
     Args:
         patched_observations: List of Observation objects from NOISY_SAM/NOISY_PISAM
-        prepared_trajectories: Original trajectories (to match observations to problems and get masking)
+        prepared_trajectories: Original trajectories (to match observations to problems)
         output_dir: Directory to save final observations (e.g., fold_work_dir / "final_observations")
-        domain_path: Path to domain PDDL file
+        domain_path: Unused; kept for call-site compatibility.
     """
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # For each observation, save it as a trajectory file
-    for idx, obs in enumerate(patched_observations):
-        if idx >= len(prepared_trajectories):
-            print(f"  Warning: More patched observations ({len(patched_observations)}) than prepared trajectories ({len(prepared_trajectories)})")
-            break
-
-        orig_traj_path, orig_masking_path, problem_pddl_path, *_ = prepared_trajectories[idx]
-        problem_name = problem_pddl_path.stem
-
-        # Save trajectory file
-        out_name = f"final_observation_{problem_name}"
-        traj_file = output_dir / f"{out_name}.trajectory"
-        observation_to_trajectory_file(obs, traj_file)
-
-        # Validate trajectory file was written correctly
-        if not traj_file.exists():
-            print(f"  ERROR: Failed to write trajectory file: {traj_file}")
-            continue
-        if traj_file.stat().st_size == 0:
-            print(f"  ERROR: Trajectory file is EMPTY: {traj_file}")
-            continue
-
-        # Load and save masking info
-        # The patched observation should maintain the same masking structure
-        if orig_masking_path.exists():
-            try:
-                domain = DomainParser(domain_path).parse_domain()
-                masking_info = load_masking_info(orig_masking_path, domain)
-
-                # Adjust masking info to match patched observation length if needed
-                obs_length = len(obs.components) + 1  # +1 for initial state
-                if len(masking_info) != obs_length:
-                    # Extend or trim masking info to match observation
-                    if len(masking_info) < obs_length:
-                        masking_info.extend([set()] * (obs_length - len(masking_info)))
-                    else:
-                        masking_info = masking_info[:obs_length]
-
-                save_masking_info(output_dir, out_name, masking_info)
-            except Exception as e:
-                print(f"  Warning: Could not process masking info for {problem_name}: {e}")
-                # Create empty masking (fully observable)
-                masking_info = [set()] * (len(obs.components) + 1)
-                save_masking_info(output_dir, out_name, masking_info)
-        else:
-            # Create empty masking (fully observable)
-            masking_info = [set()] * (len(obs.components) + 1)
-            save_masking_info(output_dir, out_name, masking_info)
+    save_fold_observations(
+        patched_observations,
+        prepared_trajectories,
+        output_dir,
+        observation_prefix="final_observation",
+    )
 
 
 def convert_cleaned_dir_to_trajectory_list(
