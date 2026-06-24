@@ -6,7 +6,9 @@ from typing import List
 from benchmark.amlgym_models.algorithm_adapter_compat import AlgorithmAdapter
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 
-from benchmark.amlgym_models.po_rosame_runner import PORosame_Runner
+
+from amlgym.algorithms.rosame.experiment_runner.rosame_runner import Rosame_Runner
+
 
 # Add project root to path for our masking utilities
 project_root = Path(__file__).parent.parent.parent
@@ -62,7 +64,7 @@ class ROSAME(AlgorithmAdapter):
         :return: a string representing the learned PDDL model
         """
         partial_domain = DomainParser(Path(domain_path), partial_parsing=True).parse_domain()
-        rosame = PORosame_Runner(domain_path)
+        rosame = Rosame_Runner(domain_path)
 
         if use_problems:
             allowed_observations = [TrajectoryParser(partial_domain).parse_trajectory(Path(traj_path))

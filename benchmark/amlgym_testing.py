@@ -1,8 +1,7 @@
 import argparse
 import json
-import os
 import time
-from collections import defaultdict
+import random
 from concurrent.futures import as_completed, ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -18,12 +17,8 @@ from benchmark.evaluation.correlation_analysis import aggregate_correlation_tabl
 from benchmark.experiment_running_helpers.run_fold import run_single_fold
 from benchmark.experiment_running_helpers.trajectory_utils import pregenerate_all_gt_frame_axiom_files
 from benchmark.experiment_running_helpers.reporting import (
-    metric_cols,
-    format_mean_std,
     generate_excel_report,
     generate_plots,
-    plot_metric_vs_num_trajectories_by_gt_rate,
-    plot_metric_vs_gt_rate_by_num_trajectories,
     generate_gt_injection_plots,
     plot_stacked_solving_rate,
 )
@@ -90,7 +85,6 @@ NUM_TRAJECTORIES_POOL = 8  # Typical value (0.8*10); actual pool is 0.8*n_proble
 # GT_RATE_PERCENTAGES = [0, 10, 25, 50, 75, 100]  # Percentage of states to inject as GT (0 = only initial state)
 GT_RATE_PERCENTAGES = [0]  # Percentage of states to inject as GT (0 = only initial state)
 FRAME_AXIOM_MODE = "after_gt_only"  # "after_gt_only" or "all_states"
-CONFLICT_SEARCH_TIMEOUTS = [180]  # Time limits in seconds for conflict search (cleaning phase). Can specify multiple values.
 PLANNING_TIMEOUT = 60  # Timeout in seconds for planning during evaluation
 FLUENT_PATCH_COST = 1.0
 FLUENT_PATCH_WEIGHT = 1.0
@@ -98,57 +92,9 @@ MODEL_PATCH_COST = 1.0
 MODEL_CONSTRAINT_WEIGHT = 0.0
 MAX_SEARCH_NODES = None
 
-# metric_cols imported from benchmark.experiment_running_helpers.reporting
-
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
-
-def convert_pddl_hyphens_to_underscores(pddl_file_path: Path) -> None:
-    """
-    Convert all PDDL identifiers (object names, predicate names) from hyphens to underscores.
-
-    This function works for ANY PDDL problem file, regardless of domain.
-    It replaces all hyphens with underscores in PDDL identifiers while preserving:
-    - Comments
-    - Strings
-    - PDDL keywords (define, domain, problem, :objects, :init, :goal, etc.)
-
-    Examples of conversions:
-    - Object names: player-1 → player_1, loc-3-4 → loc_3_4, disc-1 → disc_1
-    - Predicate names: move-dir-up → move_dir_up, on-table → on_table, is-goal → is_goal
-    - Any identifier: my-custom-object → my_custom_object
-
-    Args:
-        pddl_file_path: Path to the PDDL problem file to convert
-
-    Returns:
-        None (modifies file in-place)
-    """
-    import re
-
-    # Read the file
-    with open(pddl_file_path, 'r') as f:
-        content = f.read()
-
-    # Replace all hyphens with underscores in PDDL identifiers
-    # Pattern explanation:
-    # - \b([a-zA-Z][a-zA-Z0-9_-]*-[a-zA-Z0-9_-]*)\b matches any word that:
-    #   * Starts with a letter (PDDL requirement)
-    #   * Contains at least one hyphen
-    #   * May contain letters, digits, underscores, and hyphens
-    #   * Is bounded by word boundaries (spaces, parens, etc.)
-    # - Lambda function replaces all hyphens in the matched identifier with underscores
-    content = re.sub(
-        r'\b([a-zA-Z][a-zA-Z0-9_-]*-[a-zA-Z0-9_-]*)\b',
-        lambda m: m.group(1).replace('-', '_'),
-        content
-    )
-
-    # Write back to the same file
-    with open(pddl_file_path, 'w') as f:
-        f.write(content)
-
 
 
 def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Dict[str, str] = None) -> dict:
@@ -205,9 +151,6 @@ def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[s
     """
     # NOTE: evaluation_lock is a threading lock, but we use ProcessPoolExecutor,
     # so it doesn't prevent race conditions across processes.
-
-    import time
-    import random
 
     def _time_metric(metric_name, func):
         """Helper to time a metric computation."""
@@ -315,8 +258,11 @@ def main(
     # --- Simulated data source ---
     simulated_gt_trajectories: List[str] = None,
     simulated_masking_p: float = 0.4,
+    simulated_masking_strategy: str = "percentage",
     simulated_noising_p: float = 0.15,
+    simulated_noising_strategy: str = "percentage",
     simulated_seed: int = 42,
+    baselines: list = None,
 ):
     """
     Run benchmark experiments.
@@ -382,7 +328,6 @@ def main(
         "gt_rate_percentages": GT_RATE_PERCENTAGES,
         "frame_axiom_mode": FRAME_AXIOM_MODE,
         "learning_timeout_seconds": learning_timeout_seconds,
-        "conflict_search_timeouts": CONFLICT_SEARCH_TIMEOUTS,
         "planning_timeout_seconds": planning_timeout_seconds,
         "fluent_patch_cost": fluent_patch_cost,
         "fluent_patch_weight": fluent_patch_weight,
@@ -393,10 +338,13 @@ def main(
         "node_choosing_strategy": node_choosing_strategy,
         "conflict_group_strategy": conflict_group_strategy,
         "fluent_branch_mode": fluent_branch_mode,
+        "baselines": [r.display_name for r in baselines] if baselines else [],
         "simulated_mode": use_simulated,
         "simulated_gt_trajectories": [str(p) for p in simulated_gt_paths] if use_simulated else None,
         "simulated_masking_p": simulated_masking_p if use_simulated else None,
+        "simulated_masking_strategy": simulated_masking_strategy if use_simulated else None,
         "simulated_noising_p": simulated_noising_p if use_simulated else None,
+        "simulated_noising_strategy": simulated_noising_strategy if use_simulated else None,
         "simulated_seed": simulated_seed if use_simulated else None,
     }
     if evaluation_results_dir is not None:
@@ -465,7 +413,7 @@ def main(
             print(f"Number of trajectories: {NUM_TRAJECTORIES_LIST}")
             print(f"GT rates: {GT_RATE_PERCENTAGES}")
             print(f"Frame axiom mode: {FRAME_AXIOM_MODE}")
-            print(f"Conflict search timeouts: {CONFLICT_SEARCH_TIMEOUTS}")
+            print(f"Learning timeout: {learning_timeout_seconds}s")
             print(f"Planning timeout: {planning_timeout_seconds}s")
             print(
                 f"Denoising params: fluent_cost={fluent_patch_cost}, "
@@ -496,112 +444,109 @@ def main(
                     gt_info = f"GT rate: {gt_rate}%" if gt_rate > 0 else "Baseline (GT only at t=0)"
                     print(f"\n{'-'*60}\n{gt_info}\n{'-'*60}")
 
-                    for conflict_timeout in CONFLICT_SEARCH_TIMEOUTS:
-                        timeout_info = f"Conflict search timeout: {conflict_timeout}s" if conflict_timeout else "No timeout"
-                        print(f"\n{'-'*40}\n{timeout_info}\n{'-'*40}")
-
-                        # Run all folds in parallel
-                        n_total_jobs = N_FOLDS
-                        print(f"  [MAIN] Starting {n_total_jobs} fold jobs...")
-                        with ProcessPoolExecutor(max_workers=N_FOLDS) as executor:
-                            futures = []
-                            for fold in range(N_FOLDS):
-                                fold_kwargs = dict(
-                                    fold=fold,
-                                    problem_dirs=problem_dirs,
-                                    n_problems=n_problems,
-                                    num_trajectories=num_trajectories,
-                                    gt_rate=gt_rate,
-                                    domain_ref_path=domain_ref_path,
-                                    testing_dir=testing_dir,
-                                    bench_name=bench_name,
-                                    mode=mode,
-                                    evaluate_model_func=evaluate_model,
-                                    save_learning_metrics_func=save_learning_metrics,
-                                    conflict_search_timeout=conflict_timeout,
-                                    planning_timeout=planning_timeout_seconds,
-                                    fluent_patch_cost=fluent_patch_cost,
-                                    fluent_patch_weight=fluent_patch_weight,
-                                    model_patch_cost=model_patch_cost,
-                                    model_constraint_weight=model_constraint_weight,
-                                    max_search_nodes=max_search_nodes,
-                                    search_mode=search_mode,
-                                    node_choosing_strategy=node_choosing_strategy,
-                                    conflict_group_strategy=conflict_group_strategy,
-                                    fluent_branch_mode=fluent_branch_mode,
+                    # Run all folds in parallel
+                    n_total_jobs = N_FOLDS
+                    print(f"  [MAIN] Starting {n_total_jobs} fold jobs...")
+                    with ProcessPoolExecutor(max_workers=N_FOLDS) as executor:
+                        futures = []
+                        for fold in range(N_FOLDS):
+                            fold_kwargs = dict(
+                                fold=fold,
+                                problem_dirs=problem_dirs,
+                                n_problems=n_problems,
+                                num_trajectories=num_trajectories,
+                                gt_rate=gt_rate,
+                                domain_ref_path=domain_ref_path,
+                                testing_dir=testing_dir,
+                                bench_name=bench_name,
+                                mode=mode,
+                                evaluate_model_func=evaluate_model,
+                                save_learning_metrics_func=save_learning_metrics,
+                                conflict_search_timeout=learning_timeout_seconds,
+                                planning_timeout=planning_timeout_seconds,
+                                fluent_patch_cost=fluent_patch_cost,
+                                fluent_patch_weight=fluent_patch_weight,
+                                model_patch_cost=model_patch_cost,
+                                model_constraint_weight=model_constraint_weight,
+                                max_search_nodes=max_search_nodes,
+                                search_mode=search_mode,
+                                node_choosing_strategy=node_choosing_strategy,
+                                conflict_group_strategy=conflict_group_strategy,
+                                fluent_branch_mode=fluent_branch_mode,
+                                baselines=baselines,
+                            )
+                            if use_simulated:
+                                fold_kwargs.update(
+                                    simulated_gt_trajectories=simulated_gt_paths,
+                                    simulated_masking_strategy=MaskingType(simulated_masking_strategy),
+                                    simulated_masking_p=simulated_masking_p,
+                                    simulated_noising_strategy=NoisingType(simulated_noising_strategy),
+                                    simulated_noising_p=simulated_noising_p,
+                                    simulated_seed=simulated_seed,
                                 )
-                                if use_simulated:
-                                    fold_kwargs.update(
-                                        simulated_gt_trajectories=simulated_gt_paths,
-                                        simulated_masking_strategy=MaskingType.PERCENTAGE,
-                                        simulated_masking_p=simulated_masking_p,
-                                        simulated_noising_strategy=NoisingType.PERCENTAGE,
-                                        simulated_noising_p=simulated_noising_p,
-                                        simulated_seed=simulated_seed,
-                                    )
-                                future = executor.submit(run_single_fold, **fold_kwargs)
-                                futures.append(future)
+                            future = executor.submit(run_single_fold, **fold_kwargs)
+                            futures.append(future)
 
-                            print(f"  [MAIN] All {n_total_jobs} fold tasks submitted, waiting for completion...")
+                        print(f"  [MAIN] All {n_total_jobs} fold tasks submitted, waiting for completion...")
 
-                            # Wait for all jobs to complete and collect results
-                            completed_count = 0
-                            completed_folds = set()
-                            import time
-                            start_time = time.time()
-                            per_job_timeout = 1800
-                            batch_timeout = per_job_timeout
+                        # Wait for all jobs to complete and collect results
+                        completed_count = 0
+                        completed_folds = set()
+                        import time
+                        start_time = time.time()
+                        per_job_timeout = 1800
+                        batch_timeout = per_job_timeout
 
-                            for future in as_completed(futures, timeout=batch_timeout):
-                                try:
-                                    completed_count += 1
-                                    elapsed = time.time() - start_time
-                                    print(f"  [MAIN] Job {completed_count}/{n_total_jobs} completed after {elapsed:.1f}s, collecting results...")
-                                    results_list = future.result(timeout=per_job_timeout)
+                        for future in as_completed(futures, timeout=batch_timeout):
+                            try:
+                                completed_count += 1
+                                elapsed = time.time() - start_time
+                                print(f"  [MAIN] Job {completed_count}/{n_total_jobs} completed after {elapsed:.1f}s, collecting results...")
+                                results_list = future.result(timeout=per_job_timeout)
 
-                                    fold_num = results_list[0]['fold'] if results_list else '?'
-                                    completed_folds.add(fold_num)
+                                fold_num = results_list[0]['fold'] if results_list else '?'
+                                completed_folds.add(fold_num)
 
-                                    # Separate by phase
-                                    for result in results_list:
-                                        phase = result['_internal_phase']
-                                        if phase == 'unclean':
-                                            unclean_results.append(result)
-                                        else:
-                                            cleaned_results.append(result)
+                                # Separate by phase
+                                for result in results_list:
+                                    phase = result['_internal_phase']
+                                    if phase == 'unclean':
+                                        unclean_results.append(result)
+                                    else:
+                                        cleaned_results.append(result)
 
-                                    print(f"  [MAIN] Fold {fold_num} results processed. "
-                                          f"Jobs done: {completed_count}/{n_total_jobs}")
-                                except TimeoutError:
-                                    print(f"TIMEOUT: Job {completed_count} exceeded time limit")
-                                    print(f"  Completed so far: {completed_count}/{n_total_jobs}")
-                                except Exception as e:
-                                    print(f"ERROR in job {completed_count}: {e}")
-                                    import traceback
-                                    traceback.print_exc()
+                                print(f"  [MAIN] Fold {fold_num} results processed. "
+                                      f"Jobs done: {completed_count}/{n_total_jobs}")
+                            except TimeoutError:
+                                print(f"TIMEOUT: Job {completed_count} exceeded time limit")
+                                print(f"  Completed so far: {completed_count}/{n_total_jobs}")
+                            except Exception as e:
+                                print(f"ERROR in job {completed_count}: {e}")
+                                import traceback
+                                traceback.print_exc()
 
-                        print(f"✓ All {n_total_jobs} jobs for num_trajectories={num_trajectories}, "
-                              f"gt_rate={gt_rate}%, timeout={conflict_timeout}s completed")
+                    print(f"✓ All {n_total_jobs} jobs for num_trajectories={num_trajectories}, "
+                          f"gt_rate={gt_rate}% completed")
 
-                        # Write TWO separate CSV files after each timeout completes
-                        timeout_suffix = f"_timeout{conflict_timeout}s" if conflict_timeout else "_notimeout"
-                        csv_unclean = evaluation_results_dir / f"results_{bench_name}_unclean{timeout_suffix}.csv"
-                        csv_cleaned = evaluation_results_dir / f"results_{bench_name}{timeout_suffix}.csv"
+                    # Write CSV files
+                    timeout_suffix = f"_timeout{learning_timeout_seconds}s"
+                    csv_unclean = evaluation_results_dir / f"results_{bench_name}_unclean{timeout_suffix}.csv"
+                    csv_cleaned = evaluation_results_dir / f"results_{bench_name}{timeout_suffix}.csv"
 
-                        pd.DataFrame(unclean_results).to_csv(csv_unclean, index=False)
-                        pd.DataFrame(cleaned_results).to_csv(csv_cleaned, index=False)
+                    pd.DataFrame(unclean_results).to_csv(csv_unclean, index=False)
+                    pd.DataFrame(cleaned_results).to_csv(csv_cleaned, index=False)
 
-                        # Create combined CSV (unclean + cleaned results)
-                        csv_combined = evaluation_results_dir / f"results_{bench_name}_combined{timeout_suffix}.csv"
+                    # Create combined CSV (unclean + cleaned results)
+                    csv_combined = evaluation_results_dir / f"results_{bench_name}_combined{timeout_suffix}.csv"
 
-                        # Filter results for this domain
-                        domain_results = [r for r in unclean_results + cleaned_results if r['domain'] == bench_name]
-                        pd.DataFrame(domain_results).to_csv(csv_combined, index=False)
+                    # Filter results for this domain
+                    domain_results = [r for r in unclean_results + cleaned_results if r['domain'] == bench_name]
+                    pd.DataFrame(domain_results).to_csv(csv_combined, index=False)
 
-                        print(f"\n✓ Results for timeout={conflict_timeout}s written:")
-                        print(f"  - Unclean: {csv_unclean}")
-                        print(f"  - Cleaned: {csv_cleaned}")
-                        print(f"  - Combined: {csv_combined}")
+                    print(f"\n✓ Results written:")
+                    print(f"  - Unclean: {csv_unclean}")
+                    print(f"  - Cleaned: {csv_cleaned}")
+                    print(f"  - Combined: {csv_combined}")
 
                 print(f"\n✓ All folds for num_trajectories={num_trajectories} completed")
 
@@ -698,7 +643,7 @@ if __name__ == "__main__":
                        help='Domain to run (blocksworld, hanoi, n_puzzle_typed, maze, or "all" for all domains)')
     parser.add_argument('--mode', type=str, default='masked', choices=['masked', 'fullyobs'],
                        help='Mode to run: "masked" (PISAM/PO_ROSAME) or "fullyobs" (SAM/ROSAME)')
-    parser.add_argument('--learning-timeout-seconds', type=int, default=CONFLICT_SEARCH_TIMEOUTS[0],
+    parser.add_argument('--learning-timeout-seconds', type=int, default=180,
                         help='Timeout in seconds for denoising conflict search')
     parser.add_argument('--planning-timeout-seconds', type=int, default=PLANNING_TIMEOUT,
                         help='Timeout in seconds for planning during evaluation')
@@ -777,10 +722,30 @@ if __name__ == "__main__":
     )
     parser.add_argument('--simulated-masking-p', type=float, default=0.4,
                         help='Masking probability for simulated mode (default: 0.4)')
+    parser.add_argument('--simulated-masking-strategy', type=str, default='percentage',
+                        choices=['percentage', 'random'],
+                        help='Masking strategy for simulated mode (default: percentage)')
     parser.add_argument('--simulated-noising-p', type=float, default=0.15,
                         help='Noising probability for simulated mode (default: 0.15)')
+    parser.add_argument('--simulated-noising-strategy', type=str, default='percentage',
+                        choices=['percentage', 'random'],
+                        help='Noising strategy for simulated mode (default: percentage)')
     parser.add_argument('--simulated-seed', type=int, default=42,
                         help='Random seed for simulated noise injection (default: 42)')
+
+    # --- Pluggable baselines ---
+    parser.add_argument(
+        '--baselines',
+        type=str,
+        nargs='*',
+        default=['rosame'],
+        help=(
+            'Baseline algorithms to run alongside SAM/PISAM. '
+            'Pass algorithm family names (e.g., "rosame"). '
+            'Use --baselines with no arguments to run NO baselines. '
+            'Default: rosame.'
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -797,8 +762,6 @@ if __name__ == "__main__":
     if args.model_constraint_weight < 0:
         parser.error("--model-constraint-weight must be >= 0")
 
-    # CLI controls a single timeout value for this run.
-    CONFLICT_SEARCH_TIMEOUTS = [args.learning_timeout_seconds]
     max_search_nodes = None if args.max_search_nodes <= 0 else args.max_search_nodes
 
     # Determine which domains to run
@@ -811,6 +774,14 @@ if __name__ == "__main__":
             print(f"Available domains: {list(domain_properties.keys())}")
             exit(1)
         selected_domains = [args.domain]
+
+    # Instantiate baseline runners
+    from benchmark.baselines import get_baselines
+    baseline_runners = get_baselines(args.baselines) if args.baselines else []
+    if baseline_runners:
+        print(f"Baselines: {', '.join(r.display_name for r in baseline_runners)}")
+    else:
+        print("Baselines: NONE (only SAM/PISAM will run)")
 
     main(
         selected_domains=selected_domains,
@@ -829,8 +800,11 @@ if __name__ == "__main__":
         experiment_name=args.experiment_name,
         simulated_gt_trajectories=args.simulated_gt_trajectories,
         simulated_masking_p=args.simulated_masking_p,
+        simulated_masking_strategy=args.simulated_masking_strategy,
         simulated_noising_p=args.simulated_noising_p,
+        simulated_noising_strategy=args.simulated_noising_strategy,
         simulated_seed=args.simulated_seed,
+        baselines=baseline_runners,
     )
 
 """cli running command:

@@ -80,6 +80,74 @@ def check_trajectories_equal(
     return True
 
 
+def _run_baselines_phase(
+    baselines,
+    mode: str,
+    phase: str,
+    domain_ref_path: Path,
+    trajectories: List[Tuple[Path, Path, Path]],
+    fold_work_dir: Path,
+    bench_name: str,
+    fold: int,
+    num_trajectories: int,
+    gt_rate: int,
+    test_problem_paths: List[str],
+    evaluate_model_func,
+    null_metrics: dict,
+    testing_dir: Path,
+    total_transitions: int,
+    total_gt_transitions: int,
+    conflict_search_timeout: int,
+    planning_timeout: int,
+    profiler,
+    test_states_path_str: str,
+    save_learning_metrics_func,
+) -> List[dict]:
+    """Run all applicable baseline runners for a given phase and return result dicts."""
+    results = []
+    if not baselines:
+        return results
+
+    for runner in baselines:
+        if not runner.supports_mode(mode):
+            continue
+
+        algo_name = runner.name
+        workspace_label = f"{algo_name.lower()}_{phase}"
+        print(f"  [{phase.upper()}] Starting {runner.display_name} learning...")
+
+        with profiler.time_operation(f"learning_{workspace_label}"):
+            model, extra_info = runner.learn(
+                mode=mode,
+                domain_path=domain_ref_path,
+                prepared_trajectories=trajectories,
+                work_dir=fold_work_dir,
+                timeout_seconds=conflict_search_timeout or 60,
+                profiler=profiler,
+            )
+
+        # Baselines don't produce our learning_metrics JSON, so pass empty
+        baseline_learning_metrics = {}
+
+        print(f"  [{phase.upper()}] Evaluating {runner.display_name} model...")
+        with profiler.time_operation(f"metrics_checking_{workspace_label}"):
+            result = evaluate_and_build_result(
+                model, algo_name, bench_name, fold, num_trajectories, gt_rate,
+                test_problem_paths, phase, domain_ref_path, testing_dir,
+                evaluate_model_func, null_metrics, fold_work_dir,
+                total_transitions=total_transitions,
+                total_gt_transitions=total_gt_transitions,
+                learning_metrics=baseline_learning_metrics,
+                conflict_search_timeout=conflict_search_timeout,
+                planning_timeout=planning_timeout,
+                profiler=profiler,
+                test_states_path=test_states_path_str,
+            )
+        results.append(result)
+
+    return results
+
+
 def run_single_fold(
     fold: int,
     problem_dirs: List[Path],
@@ -105,6 +173,8 @@ def run_single_fold(
     fluent_branch_mode: str = "group",
     trajectory_seed: Optional[int] = None,
     output_subdir: Optional[str] = None,
+    # --- Pluggable baselines ---
+    baselines: Optional[list] = None,
     # --- Simulated data source parameters ---
     simulated_gt_trajectories: Optional[List[Path]] = None,
     simulated_masking_strategy: MaskingType = MaskingType.PERCENTAGE,
@@ -137,17 +207,13 @@ def run_single_fold(
         max_search_nodes: Max conflict-search nodes in denoising phase (None = unlimited).
         search_mode: Conflict-search strategy for denoising ("dfs" or "ucs").
         node_choosing_strategy: Conflict-search branch insertion ordering strategy.
-        conflict_group_strategy: Which conflict group to resolve first at each node
-            ("first", "largest", "largest_model_patchable", "most_observations", "smallest").
-        fluent_branch_mode: How many fluent patches per data-fix branch
-            ("group" = all in group, "single" = one at a time).
+        conflict_group_strategy: Which conflict group to resolve first at each node.
+        fluent_branch_mode: How many fluent patches per data-fix branch.
         trajectory_seed: Optional override for trajectory-pool sampling seed.
-            When None, uses the default ``42 + fold`` behaviour.
-        output_subdir: Optional subdirectory under the fold work dir for
-            one-off experiment variants (e.g. reorder tests).
+        output_subdir: Optional subdirectory under the fold work dir.
+        baselines: Optional list of BaselineRunner instances to run alongside
+            our algorithm. When None or empty, only SAM/PISAM is run.
         simulated_gt_trajectories: Optional list of GT trajectory file paths.
-            When provided, trajectories are loaded from these files and synthetic
-            masking + noise is applied in memory instead of using pre-generated files.
         simulated_masking_strategy: Masking strategy for simulated mode.
         simulated_masking_p: Masking probability/ratio for simulated mode.
         simulated_noising_strategy: Noising strategy for simulated mode.
@@ -155,9 +221,17 @@ def run_single_fold(
         simulated_seed: Random seed for simulated noise injection.
 
     Returns:
-        List of 4 dicts with results for: unclean SAM/PISAM, unclean ROSAME, cleaned SAM/PISAM, cleaned ROSAME
+        List of result dicts. Always includes unclean SAM/PISAM and cleaned
+        SAM/PISAM results. Baseline results are appended when baselines are
+        provided and support the current mode.
     """
+    if baselines is None:
+        baselines = []
+
     print(f"[PID {os.getpid()}] Fold {fold}, num_trajs={num_trajectories}, gt_rate={gt_rate}%, mode={mode}")
+    if baselines:
+        baseline_names = [r.display_name for r in baselines if r.supports_mode(mode)]
+        print(f"  Baselines: {', '.join(baseline_names) if baseline_names else '(none for this mode)'}")
 
     # Initialize profiling
     profiler = TimingProfiler()
@@ -171,10 +245,9 @@ def run_single_fold(
     os.chdir(fold_work_dir)
 
     # Copy domain reference file to fold directory to avoid race conditions
-    # Each fold gets its own copy so SimpleDomainReader doesn't conflict
     local_domain_ref = fold_work_dir / "domain_reference.pddl"
     shutil.copy2(domain_ref_path, local_domain_ref)
-    domain_ref_path = local_domain_ref  # Use local copy for all evaluations
+    domain_ref_path = local_domain_ref
 
     null_metrics = {k: None for k in ['precision_precs_pos', 'precision_precs_neg',
                     'precision_eff_pos', 'precision_eff_neg', 'precision_overall',
@@ -212,8 +285,6 @@ def run_single_fold(
         simulated_gt_indices = None
 
         if use_simulated:
-            # Simulated mode: same CV train-pool sampling as file-based mode,
-            # then map each selected problem dir to its GT trajectory path.
             gt_lookup = build_gt_trajectory_lookup(simulated_gt_trajectories)
             selected_gt = select_simulated_gt_trajectories(
                 selected_pool, num_trajectories, gt_lookup,
@@ -232,18 +303,13 @@ def run_single_fold(
                     noising_p=simulated_noising_p,
                     seed=simulated_seed + fold,
                 )
-            # Build minimal prepared_trajectories tuples from GT paths
-            # (needed by downstream: save_patched_observations, save_fold_metadata, etc.)
             prepared_trajectories = []
             for gt_path in selected_gt:
-                # Each GT trajectory maps to (traj_path, masking_path, problem_pddl_path, gt_indices)
-                # masking_path won't exist on disk — downstream code handles this gracefully
                 fake_masking = gt_path.parent / f"{gt_path.stem}.masking_info"
                 problem_pddl = gt_path.parent / f"{gt_path.parent.name}.pddl"
                 prepared_trajectories.append((gt_path, fake_masking, problem_pddl, {0}))
             print(f"  ✓ Simulated {len(simulated_observations)} noisy observations")
         else:
-            # File-based mode: load pre-generated trajectories from disk
             print(f"  Loading {num_trajectories} pre-generated trajectories with gt_rate={gt_rate}%...")
             with profiler.time_operation("prepare_fold_trajectories"):
                 prepared_trajectories = prepare_fold_trajectories(
@@ -256,15 +322,13 @@ def run_single_fold(
 
         print(f"  ✓ Prepared {len(prepared_trajectories)} trajectories")
 
-        # Build test problem paths - use same naming convention as prepare_fold_trajectories
+        # Build test problem paths
         test_problem_paths = []
         for d in test_problem_dirs:
-            # Use consistent naming: {problem_dir_name}.pddl
             problem_pddl_path = d / f"{d.name}.pddl"
             if problem_pddl_path.exists():
                 test_problem_paths.append(str(problem_pddl_path))
             else:
-                # Fallback: try glob if standard naming not found
                 pddl_files = list(d.glob("*.pddl"))
                 if pddl_files:
                     test_problem_paths.append(str(pddl_files[0]))
@@ -306,6 +370,27 @@ def run_single_fold(
             )
         print(f"  [STATS] Unclean phase: {total_transitions_unclean} transitions, {total_gt_transitions_unclean} GT states")
 
+        # Common kwargs for _run_baselines_phase
+        baseline_common = dict(
+            baselines=baselines,
+            mode=mode,
+            domain_ref_path=domain_ref_path,
+            fold_work_dir=fold_work_dir,
+            bench_name=bench_name,
+            fold=fold,
+            num_trajectories=num_trajectories,
+            gt_rate=gt_rate,
+            test_problem_paths=test_problem_paths,
+            evaluate_model_func=evaluate_model_func,
+            null_metrics=null_metrics,
+            testing_dir=testing_dir,
+            conflict_search_timeout=conflict_search_timeout,
+            planning_timeout=planning_timeout,
+            profiler=profiler,
+            test_states_path_str=test_states_path_str,
+            save_learning_metrics_func=save_learning_metrics_func,
+        )
+
         # ==================================================
         # PHASE 1: UNCLEAN (learning on prepared trajectories)
         # ==================================================
@@ -336,7 +421,6 @@ def run_single_fold(
         print(f"  [PHASE 1] SAM/PISAM learning done, saving metrics...")
         save_learning_metrics_func(fold_work_dir, sam_report)
         
-        # Load learning metrics for SAM/PISAM
         sam_learning_metrics = load_learning_metrics(fold_work_dir, 'unclean', sam_algo_name)
         
         print(f"  [PHASE 1] Evaluating SAM/PISAM model...")
@@ -354,50 +438,26 @@ def run_single_fold(
                 test_states_path=test_states_path_str,
             )
 
-        # Learn ROSAME
-        print(f"  [PHASE 1] Starting ROSAME learning...")
-        rosame_algo_name = 'PO_ROSAME' if mode == 'masked' else 'ROSAME'
-        with profiler.time_operation(f"learning_rosame_unclean_{rosame_algo_name}"):
-            rosame_unclean_model, rosame_report, rosame_algo_name = learn_rosame(
-                mode, domain_ref_path, prepared_trajectories, fold_work_dir, "rosame_unclean", profiler=profiler
-            )
-        print(f"  [PHASE 1] ROSAME learning done, saving metrics...")
-        save_learning_metrics_func(fold_work_dir, rosame_report)
-        
-        # Load learning metrics for ROSAME (usually empty, but check anyway)
-        rosame_learning_metrics = load_learning_metrics(fold_work_dir, 'unclean', rosame_algo_name)
-        
-        print(f"  [PHASE 1] Evaluating ROSAME model...")
-        with profiler.time_operation("metrics_checking_rosame_unclean"):
-            unclean_rosame_result = evaluate_and_build_result(
-                rosame_unclean_model, rosame_algo_name, bench_name, fold, num_trajectories, gt_rate,
-                test_problem_paths, 'unclean', domain_ref_path, testing_dir,
-                evaluate_model_func, null_metrics, fold_work_dir,
-                total_transitions=total_transitions_unclean,
-                total_gt_transitions=total_gt_transitions_unclean,
-                learning_metrics=rosame_learning_metrics,
-                conflict_search_timeout=conflict_search_timeout,
-                planning_timeout=planning_timeout,
-                profiler=profiler,
-                test_states_path=test_states_path_str,
-            )
+        # Run baselines on unclean trajectories
+        unclean_baseline_results = _run_baselines_phase(
+            phase='unclean',
+            trajectories=prepared_trajectories,
+            total_transitions=total_transitions_unclean,
+            total_gt_transitions=total_gt_transitions_unclean,
+            **baseline_common,
+        )
 
         # ==================================================
         # PHASE 2: CLEANED (denoising with NOISY_PISAM/NOISY_SAM)
         # ==================================================
         print(f"  [PHASE 2] Denoising and re-learning...")
         
-        # Default cleaned-phase transition stats for error/fallback paths.
-        # If denoising succeeds, these may be recomputed/overridden below.
         total_transitions_cleaned = total_transitions_unclean
         total_gt_transitions_cleaned = total_gt_transitions_unclean
 
-        # Initialize comparison flags
         cleaned_equals_unclean_pisam = None
-        cleaned_equals_unclean_rosame = None
 
         try:
-            # Learn with denoiser (NOISY_PISAM/NOISY_SAM) - returns patched observations!
             print(f"  [PHASE 2] Starting denoising (NOISY_SAM/NOISY_PISAM)...")
             if conflict_search_timeout is not None:
                 print(f"  [PHASE 2] Using conflict search timeout: {conflict_search_timeout}s")
@@ -424,11 +484,8 @@ def run_single_fold(
             print(f"  [PHASE 2] Denoising complete, saving metrics...")
             save_learning_metrics_func(fold_work_dir, denoising_report)
             
-            # Load learning metrics for denoising (cleaning phase)
             denoising_learning_metrics = load_learning_metrics(fold_work_dir, 'cleaned', denoiser_algo_name)
             
-            # For cleaned phase, we still use the same trajectories (before cleaning)
-            # So transitions count is the same, but we track cleaning metrics separately
             total_transitions_cleaned = total_transitions_unclean
             total_gt_transitions_cleaned = total_gt_transitions_unclean
 
@@ -448,18 +505,18 @@ def run_single_fold(
                     test_states_path=test_states_path_str,
                 )
 
-            # Check if cleaned and unclean trajectories are the same for PISAM/SAM
+            # Check if cleaned and unclean trajectories are the same
             cleaned_equals_unclean_pisam = check_trajectories_equal(
                 prepared_trajectories, patched_observations, domain_ref_path, is_patched_observations=True
             )
             if cleaned_equals_unclean_pisam is not None:
                 if cleaned_equals_unclean_pisam:
                     print(f"  [PHASE 2] ⚠️  WARNING: Cleaned and unclean trajectories are EQUAL for {denoiser_algo_name}!")
-                    print(f"  [PHASE 2] ⚠️  This means the denoiser did not modify the trajectories.")
                 else:
                     print(f"  [PHASE 2] ✓ Cleaned and unclean trajectories are DIFFERENT for {denoiser_algo_name}")
 
-            # SAVE patched observations to disk for ROSAME to use
+            # SAVE patched observations to disk for baselines to use
+            cleaned_baseline_results = []
             if patched_observations is not None:
                 print(f"  [PHASE 2] Saving {len(patched_observations)} patched observations to disk...")
                 final_observations_dir = fold_work_dir / "final_observations"
@@ -467,7 +524,6 @@ def run_single_fold(
                     patched_observations, prepared_trajectories, final_observations_dir, domain_ref_path
                 )
                 print(f"  [PHASE 2] Patched observations saved")
-                # Post-process: T vs GT and T' vs GT metrics per conflict-free model (no GT in conflict search)
                 run_post_process_gt_metrics(fold_work_dir, prepared_trajectories, domain_ref_path, gt_rate)
 
                 # Evaluate ALL conflict-free models (multi-solution evaluation)
@@ -485,125 +541,43 @@ def run_single_fold(
                         )
                     print(f"  [MULTI-EVAL] Evaluated {len(all_solutions_results)} solutions")
 
-                    # Build correlation table (join AMLGym metrics with fluent-change metrics)
                     with profiler.time_operation("build_correlation_table"):
                         build_correlation_table(fold_work_dir)
 
-            # Re-learn ROSAME on PATCHED OBSERVATIONS from denoiser
-            if patched_observations is not None:
-                print(f"  [PHASE 2] Learning ROSAME on patched observations from denoiser...")
-                final_observations_dir = fold_work_dir / "final_observations"
-
-                if final_observations_dir.exists():
-                    print(f"  [PHASE 2] Converting patched observations to trajectory list...")
-                    # Convert patched observations (saved to disk) to trajectory list format
-                    # Returns: List[Tuple[traj_path, masking_path, problem_pddl_path]]
+                # Run baselines on cleaned trajectories
+                if baselines and final_observations_dir.exists():
                     cleaned_trajectories = convert_cleaned_dir_to_trajectory_list(
                         final_observations_dir, prepared_trajectories
                     )
-                    print(f"  [PHASE 2] Converted {len(cleaned_trajectories)} cleaned trajectories")
-
                     if cleaned_trajectories:
-                        # Check if cleaned and unclean trajectories are the same for ROSAME
-                        cleaned_equals_unclean_rosame = check_trajectories_equal(
+                        # Check equality for metadata
+                        cleaned_equals_unclean_baselines = check_trajectories_equal(
                             prepared_trajectories, cleaned_trajectories, domain_ref_path, is_patched_observations=False
                         )
-                        if cleaned_equals_unclean_rosame is not None:
-                            if cleaned_equals_unclean_rosame:
-                                print(f"  [PHASE 2] ⚠️  WARNING: Cleaned and unclean trajectories are EQUAL for {rosame_algo_name}!")
-                                print(f"  [PHASE 2] ⚠️  This means the denoiser did not modify the trajectories.")
-                            else:
-                                print(f"  [PHASE 2] ✓ Cleaned and unclean trajectories are DIFFERENT for {rosame_algo_name}")
-                        
-                        # Update fold metadata with comparison results
                         update_fold_metadata(
                             fold_work_dir,
                             cleaned_equals_unclean_pisam=cleaned_equals_unclean_pisam,
-                            cleaned_equals_unclean_rosame=cleaned_equals_unclean_rosame
+                            cleaned_equals_unclean_rosame=cleaned_equals_unclean_baselines,
                         )
-                        
-                        # Count transitions for cleaned trajectories (used for ROSAME learning)
-                        # Note: cleaned trajectories still use the same gt_rate as they were created from the same original trajectories
+
                         with profiler.time_operation("count_total_transitions_and_gt_cleaned"):
-                            total_transitions_cleaned_rosame, total_gt_transitions_cleaned_rosame = count_total_transitions_and_gt(
+                            total_transitions_cleaned_bl, total_gt_transitions_cleaned_bl = count_total_transitions_and_gt(
                                 cleaned_trajectories, domain_ref_path, gt_rate
                             )
-                        print(f"  [STATS] Cleaned ROSAME phase: {total_transitions_cleaned_rosame} transitions, {total_gt_transitions_cleaned_rosame} GT states")
-                        
-                        # Learn ROSAME on cleaned trajectories from denoiser
-                        print(f"  [PHASE 2] Starting ROSAME learning on cleaned trajectories...")
-                        with profiler.time_operation(f"learning_rosame_cleaned_{rosame_algo_name}"):
-                            rosame_cleaned_model, rosame_cleaned_report, rosame_cleaned_algo_name = learn_rosame(
-                                mode, domain_ref_path, cleaned_trajectories, fold_work_dir, "rosame_cleaned", profiler=profiler
-                            )
-                        print(f"  [PHASE 2] Cleaned ROSAME learning done...")
-                        
-                        # Load learning metrics for cleaned ROSAME
-                        rosame_cleaned_learning_metrics = load_learning_metrics(fold_work_dir, 'cleaned', rosame_cleaned_algo_name)
 
-                        print(f"  [PHASE 2] Evaluating cleaned ROSAME model...")
-                        with profiler.time_operation("metrics_checking_rosame_cleaned"):
-                            cleaned_rosame_result = evaluate_and_build_result(
-                                rosame_cleaned_model, rosame_cleaned_algo_name, bench_name, fold,
-                                num_trajectories, gt_rate, test_problem_paths, 'cleaned',
-                                domain_ref_path, testing_dir, evaluate_model_func, null_metrics, fold_work_dir,
-                                total_transitions=total_transitions_cleaned_rosame,
-                                total_gt_transitions=total_gt_transitions_cleaned_rosame,
-                                learning_metrics=rosame_cleaned_learning_metrics,
-                                conflict_search_timeout=conflict_search_timeout,
-                                planning_timeout=planning_timeout,
-                                profiler=profiler,
-                                test_states_path=test_states_path_str,
-                            )
-                    else:
-                        print(f"  Warning: No cleaned trajectories found in {final_observations_dir}")
-                        cleaned_rosame_result = evaluate_and_build_result(
-                            None, rosame_algo_name, bench_name, fold,
-                            num_trajectories, gt_rate, test_problem_paths, 'cleaned',
-                            domain_ref_path, testing_dir, evaluate_model_func, null_metrics, fold_work_dir,
-                            total_transitions=total_transitions_cleaned,
-                            total_gt_transitions=total_gt_transitions_cleaned,
-                            learning_metrics={},
-                            conflict_search_timeout=conflict_search_timeout,
-                            planning_timeout=planning_timeout,
-                            profiler=profiler,
-                            test_states_path=test_states_path_str,
+                        cleaned_baseline_results = _run_baselines_phase(
+                            phase='cleaned',
+                            trajectories=cleaned_trajectories,
+                            total_transitions=total_transitions_cleaned_bl,
+                            total_gt_transitions=total_gt_transitions_cleaned_bl,
+                            **baseline_common,
                         )
-                else:
-                    print(f"  Warning: final_observations directory does not exist")
-                    cleaned_rosame_result = evaluate_and_build_result(
-                        None, rosame_algo_name, bench_name, fold,
-                        num_trajectories, gt_rate, test_problem_paths, 'cleaned',
-                        domain_ref_path, testing_dir, evaluate_model_func, null_metrics, fold_work_dir,
-                        total_transitions=total_transitions_cleaned,
-                        total_gt_transitions=total_gt_transitions_cleaned,
-                        learning_metrics={},
-                        conflict_search_timeout=conflict_search_timeout,
-                        planning_timeout=planning_timeout,
-                        profiler=profiler,
-                        test_states_path=test_states_path_str,
-                    )
-            else:
-                print(f"  Warning: No patched observations returned from denoiser")
-                cleaned_rosame_result = evaluate_and_build_result(
-                    None, rosame_algo_name, bench_name, fold,
-                    num_trajectories, gt_rate, test_problem_paths, 'cleaned',
-                    domain_ref_path, testing_dir, evaluate_model_func, null_metrics, fold_work_dir,
-                    total_transitions=total_transitions_cleaned,
-                    total_gt_transitions=total_gt_transitions_cleaned,
-                    learning_metrics={},
-                    conflict_search_timeout=conflict_search_timeout,
-                    planning_timeout=planning_timeout,
-                    profiler=profiler,
-                    test_states_path=test_states_path_str,
-                )
 
         except Exception as e:
             print(f"  ERROR in denoising phase: {e}")
             import traceback
             traceback.print_exc()
 
-            # Return null results on failure - using uniform interface
             cleaned_sam_result = evaluate_and_build_result(
                 None, sam_algo_name, bench_name, fold, num_trajectories, gt_rate,
                 test_problem_paths, 'cleaned', domain_ref_path, testing_dir,
@@ -616,31 +590,17 @@ def run_single_fold(
                 profiler=profiler,
                 test_states_path=test_states_path_str,
             )
-            cleaned_rosame_result = evaluate_and_build_result(
-                None, rosame_algo_name, bench_name, fold, num_trajectories, gt_rate,
-                test_problem_paths, 'cleaned', domain_ref_path, testing_dir,
-                evaluate_model_func, null_metrics, fold_work_dir,
-                total_transitions=total_transitions_cleaned,
-                total_gt_transitions=total_gt_transitions_cleaned,
-                learning_metrics={},
-                conflict_search_timeout=conflict_search_timeout,
-                planning_timeout=planning_timeout,
-                profiler=profiler,
-                test_states_path=test_states_path_str,
-            )
+            cleaned_baseline_results = []
 
-        # Update fold metadata with comparison results (if not already updated)
-        # This handles the case where cleaned phase failed or had no patched observations
+        # Update fold metadata (if not already updated)
         metadata_path = fold_work_dir / "fold_info.json"
         if metadata_path.exists():
             with open(metadata_path, 'r') as f:
                 existing_metadata = json.load(f)
-            if 'cleaned_equals_unclean_pisam' not in existing_metadata or 'cleaned_equals_unclean_rosame' not in existing_metadata:
-                # Only update if we have values that weren't already set
+            if 'cleaned_equals_unclean_pisam' not in existing_metadata:
                 update_fold_metadata(
                     fold_work_dir,
                     cleaned_equals_unclean_pisam=cleaned_equals_unclean_pisam if 'cleaned_equals_unclean_pisam' in locals() else None,
-                    cleaned_equals_unclean_rosame=cleaned_equals_unclean_rosame if 'cleaned_equals_unclean_rosame' in locals() else None
                 )
         
         # Save detailed timing report
@@ -648,12 +608,12 @@ def run_single_fold(
         profiler.save_report(timing_report_path)
         print(f"  [FOLD COMPLETE] Timing report saved to {timing_report_path.name}")
         
-        # Generate timing visualization plot
         timing_plot_path = fold_work_dir / "timing_report.png"
         profiler.plot_timing_report(timing_plot_path)
         
-        fold_results = [unclean_sam_result, unclean_rosame_result, cleaned_sam_result, cleaned_rosame_result]
-        print(f"  [FOLD COMPLETE] Returning 4 results for fold {fold}")
+        # Build results list: always SAM results first, then baselines
+        fold_results = [unclean_sam_result] + unclean_baseline_results + [cleaned_sam_result] + cleaned_baseline_results
+        print(f"  [FOLD COMPLETE] Returning {len(fold_results)} results for fold {fold}")
         return fold_results
 
     finally:
