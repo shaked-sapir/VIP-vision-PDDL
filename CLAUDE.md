@@ -163,6 +163,21 @@ Do **not** duplicate trajectory pipeline logic — `ImageTrajectoryHandler` hand
 
 ---
 
+## Git Workflow — Feature Branches
+
+When asked to implement a feature in a new branch:
+
+1. **Never switch the current working directory's branch.** The user operates parallel Cloud instances on the original branch and must not be disrupted.
+2. Use `git worktree add` to check out the new branch in a sibling directory:
+   ```bash
+   git worktree add ../VIP-vision-PDDL-<feature-name> <new-branch-name>
+   ```
+3. Implement the feature entirely inside the worktree directory (`../VIP-vision-PDDL-<feature-name>/`).
+4. Never run `git checkout` or `git switch` in the main working directory as part of a feature branch workflow.
+5. When done, inform the user of the worktree path and branch name so they can review or merge.
+
+---
+
 ## What Not To Do
 
 - Do not import from `benchmark/` into `src/` — benchmark depends on src, not the reverse.
