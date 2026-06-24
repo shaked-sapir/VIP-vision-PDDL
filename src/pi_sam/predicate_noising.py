@@ -31,6 +31,7 @@ class PredicateNoiser:
         noising_kwargs: dict = None,
     ) -> None:
         self.seed = seed
+        self._call_count: int = 0
         self.set_noising_strategy(
             noising_strategy,
             **(noising_kwargs or self._default_params_for(noising_strategy)),
@@ -55,10 +56,16 @@ class PredicateNoiser:
         self._noising_kwargs = kwargs or self._default_params_for(noising_strategy)
         self._strategies[noising_strategy].validate_strategy_kwargs(self._noising_kwargs)
 
+    def reset(self) -> None:
+        """Reset the internal call counter so the next noise() call reproduces the original sequence."""
+        self._call_count = 0
+
     def noise(self, predicates: Set[GroundedPredicate]) -> Set[GroundedPredicate]:
         """Return the subset of predicates selected for flipping.
 
-        Uses a fixed seed for reproducibility.
+        Uses a derived seed (base seed + call counter) so each invocation
+        produces different random draws while remaining reproducible
+        across runs.
 
         Args:
             predicates: Candidate predicates (typically the unmasked
@@ -67,5 +74,6 @@ class PredicateNoiser:
         Returns:
             The subset selected for polarity flipping.
         """
-        random.seed(self.seed)
+        random.seed(self.seed + self._call_count)
+        self._call_count += 1
         return self._strategies[self._noising_strategy].noise(predicates, **self._noising_kwargs)

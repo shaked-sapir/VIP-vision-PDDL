@@ -108,6 +108,22 @@ def _positive_gym_literals(state) -> Set[str]:
     }
 
 
+def _positive_unmasked_gym_literals(state) -> Set[str]:
+    """Like ``_positive_gym_literals`` but excludes masked predicates.
+
+    In file-based trajectories masked predicates are absent from the file,
+    so ``_positive_gym_literals`` implicitly ignores them.  For in-memory
+    observations where ``is_masked=True`` predicates are still present in
+    the State object, use this variant to get equivalent behaviour.
+    """
+    return {
+        _gp_to_gym(p)
+        for preds in state.state_predicates.values()
+        for p in preds
+        if p.is_positive and not p.is_masked
+    }
+
+
 def _is_frame_literal(gym_lit: str, action_objs: Set[str]) -> bool:
     pddl_pred_str = parse_gym_to_pddl_literal(gym_lit)
     objs = _pddl_objs(pddl_pred_str)
@@ -252,6 +268,65 @@ def propagate_frame_axioms_in_trajectory(
 
     out_name = trajectory_path.stem + "_frame_closed"
     return _save_trajectory_and_return(out_steps, masking, out_name, trajectory_path.parent, masking_info_path.parent)
+
+
+def propagate_frame_axioms_in_memory(
+    observation: Observation,
+    masking_info: List[Set[GroundedPredicate]],
+    gt_state_indices: Set[int],
+) -> int:
+    """Apply frame-axiom propagation in-place on an in-memory observation.
+
+    Mirrors the logic of ``propagate_frame_axioms_selective`` but operates
+    directly on Observation and masking_info objects instead of files.
+    Only transitions whose source state index is in *gt_state_indices* are
+    processed (matching the ``after_gt_only`` mode).
+
+    Args:
+        observation: The observation to modify in-place.
+        masking_info: Per-state masking sets (mutated in-place).
+        gt_state_indices: Set of state indices considered ground truth.
+            Propagation is applied at transitions whose **source** state
+            index is in this set (e.g., ``{0}`` propagates only at
+            transition 0 → 1).
+
+    Returns:
+        The number of fluents corrected by frame-axiom propagation.
+    """
+    from src.utils.pddl_state import flip_fluent_in_state
+
+    total_corrections = 0
+    # Init state is GT and unmasked — use full positive literals.
+    curr = _positive_gym_literals(observation.components[0].previous_state)
+
+    for i, comp in enumerate(observation.components):
+        # Use unmasked variant: in-memory states still contain masked
+        # predicates (with is_masked=True), but the file-based pipeline
+        # implicitly drops them during serialization/re-parse.  Using
+        # the unmasked variant keeps the two pipelines equivalent.
+        nxt = _positive_unmasked_gym_literals(comp.next_state)
+
+        if i in gt_state_indices:
+            action_objs = _pddl_objs(str(comp.grounded_action_call))
+            next_idx = i + 1
+            to_add, to_remove = _compute_frame_diff(
+                curr, nxt, action_objs, masking_info, next_idx, consider_masking=True,
+            )
+
+            # Apply corrections in-place on the actual State object
+            for gym_lit in to_add | to_remove:
+                pddl_lit = parse_gym_to_pddl_literal(gym_lit)
+                flip_fluent_in_state(comp.next_state, pddl_lit)
+
+            _update_masking(masking_info, next_idx, to_add | to_remove)
+            total_corrections += len(to_add) + len(to_remove)
+
+            # Update nxt for the next iteration's curr
+            nxt = _positive_unmasked_gym_literals(comp.next_state)
+
+        curr = nxt
+
+    return total_corrections
 
 
 def propagate_frame_axioms_selective(

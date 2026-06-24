@@ -10,6 +10,8 @@ copy by:
      to the learner).
   3. Flipping the polarity of a subset of the *remaining* (visible) fluents
      in those later states.
+  4. Applying selective frame-axiom propagation from GT states (matching
+     the non-simulated preprocessing pipeline).
 
 The exact set of injected flips is returned as ``set[FluentLevelPatch]``,
 which is the same type the conflict search produces, so precision/recall
@@ -24,6 +26,7 @@ from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
 from src.pi_sam.predicate_masking import PredicateMasker
 from src.pi_sam.predicate_noising import PredicateNoiser
 from src.utils.pddl_state import copy_observation_linked, flip_fluent_in_state
+from src.utils.pddl_trajectory import propagate_frame_axioms_in_memory
 
 
 def create_bounded_noisy_observation(
@@ -93,5 +96,12 @@ def create_bounded_noisy_observation(
                 state_type=state_type,
                 fluent=fluent_str,
             ))
+
+    # Step 3: frame-axiom propagation from GT states (state 0 only for
+    # gtrate0), matching the non-simulated preprocessing pipeline.
+    gt_state_indices = {0}
+    fa_corrections = propagate_frame_axioms_in_memory(
+        noisy_obs, masking_info, gt_state_indices,
+    )
 
     return noisy_obs, masking_info, ground_truth_flips

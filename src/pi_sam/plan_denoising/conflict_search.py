@@ -231,12 +231,16 @@ class ConflictDrivenPatchSearchBase(ABC):
         model_constraints: Dict[Key, PatchOperation],
         fluent_patches: Set[FluentLevelPatch],
         cost: Optional[float] = None,
+        wall_time: Optional[float] = None,
+        nodes_expanded: Optional[int] = None,
     ) -> None:
         """Write patch_details.json into *target_dir*."""
         details = {
             "model_constraint_count": len(model_constraints),
             "fluent_patch_count": len(fluent_patches),
             "cost": cost,
+            "wall_time_seconds": wall_time,
+            "nodes_expanded": nodes_expanded,
             "model_constraints": self._serialize_model_constraints(model_constraints),
             "fluent_patches": self._serialize_fluent_patches(fluent_patches),
         }
@@ -249,6 +253,8 @@ class ConflictDrivenPatchSearchBase(ABC):
         model_constraints: Optional[Dict[Key, PatchOperation]] = None,
         fluent_patches: Optional[Set[FluentLevelPatch]] = None,
         cost: Optional[float] = None,
+        wall_time: Optional[float] = None,
+        nodes_expanded: Optional[int] = None,
     ) -> None:
         if self.conflict_free_models_dir is None:
             return
@@ -261,7 +267,10 @@ class ConflictDrivenPatchSearchBase(ABC):
         if patched_observations and self.save_t_prime_fn:
             self.save_t_prime_fn(patched_observations, model_dir / "final_observations")
         if model_constraints is not None and fluent_patches is not None:
-            self._save_patch_details(model_dir, model_constraints, fluent_patches, cost)
+            self._save_patch_details(
+                model_dir, model_constraints, fluent_patches, cost,
+                wall_time=wall_time, nodes_expanded=nodes_expanded,
+            )
         self.logger.info(f"Saved conflict-free model {idx} to {model_dir}")
 
     def _save_final_model(
@@ -271,6 +280,8 @@ class ConflictDrivenPatchSearchBase(ABC):
         model_constraints: Optional[Dict[Key, PatchOperation]] = None,
         fluent_patches: Optional[Set[FluentLevelPatch]] = None,
         cost: Optional[float] = None,
+        wall_time: Optional[float] = None,
+        nodes_expanded: Optional[int] = None,
     ) -> None:
         if self.conflict_free_models_dir is None:
             return
@@ -281,7 +292,10 @@ class ConflictDrivenPatchSearchBase(ABC):
         if patched_observations and self.save_t_prime_fn:
             self.save_t_prime_fn(patched_observations, final_dir / "final_observations")
         if model_constraints is not None and fluent_patches is not None:
-            self._save_patch_details(final_dir, model_constraints, fluent_patches, cost)
+            self._save_patch_details(
+                final_dir, model_constraints, fluent_patches, cost,
+                wall_time=wall_time, nodes_expanded=nodes_expanded,
+            )
         self.logger.info(f"Saved final model (no conflict-free) to {final_dir}")
 
     def _write_node_expansion_times(
@@ -465,6 +479,8 @@ class ConflictDrivenPatchSearchBase(ABC):
                     model_constraints=node.model_constraints,
                     fluent_patches=node.fluent_patches,
                     cost=current_cost,
+                    wall_time=round(time.time() - start_time, 2),
+                    nodes_expanded=nodes_expanded,
                 )
                 conflict_free_solutions_log.append({
                     "index": conflict_free_count - 1,
@@ -643,6 +659,8 @@ class ConflictDrivenPatchSearchBase(ABC):
                 model_constraints=final_constraints,
                 fluent_patches=final_fluent_patches,
                 cost=final_cost,
+                wall_time=round(total_time, 2),
+                nodes_expanded=nodes_expanded,
             )
         self._write_node_expansion_times(
             node_expansion_times,

@@ -23,6 +23,7 @@ class PredicateMasker:
     def __init__(self, seed: int = 42, masking_strategy: MaskingType = MaskingType.RANDOM,
                  masking_kwargs: dict = None):
         self.seed = seed
+        self._call_count: int = 0
         # TODO: consider making the kwargs with * as I did with the sam_learning
         self.set_masking_strategy(masking_strategy, **(masking_kwargs or self._default_params_for(masking_strategy)))
 
@@ -46,8 +47,13 @@ class PredicateMasker:
         self._masking_kwargs = kwargs or self._default_params_for(masking_strategy)
         self.masking_strategies[masking_strategy].validate_strategy_kwargs(self._masking_kwargs)
 
+    def reset(self) -> None:
+        """Reset the internal call counter so the next mask() call reproduces the original sequence."""
+        self._call_count = 0
+
     def mask(self, predicates: set[GroundedPredicate]) -> Tuple[set[GroundedPredicate], set[GroundedPredicate]]:
-        random.seed(self.seed)  # Ensures reproducibility of masking
+        random.seed(self.seed + self._call_count)
+        self._call_count += 1
         return self.masking_strategies[self._masking_strategy].mask(predicates, **self._masking_kwargs)
 
     def mask_state(self, state: State) -> Tuple[Set[GroundedPredicate], Set[GroundedPredicate]]:

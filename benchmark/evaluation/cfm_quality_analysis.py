@@ -70,6 +70,26 @@ def load_cfm_metrics(instance_dir: Path) -> List[Dict]:
 
 # ── Analysis ────────────────────────────────────────────────────────────────
 
+def compute_absolute_values(
+    all_instances: List[List[Dict]],
+    metric_key: str,
+) -> Dict[int, List[float]]:
+    """For each CFM index i, collect the raw metric value across all instances
+    that have at least i+1 models.
+
+    Returns: {i: [value_instance_1, value_instance_2, ...]}
+    """
+    values_by_index: Dict[int, List[float]] = defaultdict(list)
+
+    for cfms in all_instances:
+        for i, cfm in enumerate(cfms):
+            val = cfm.get(metric_key)
+            if val is not None:
+                values_by_index[i].append(val)
+
+    return dict(values_by_index)
+
+
 def compute_consecutive_diffs(
     all_instances: List[List[Dict]],
     metric_key: str,
@@ -104,109 +124,129 @@ def _cfm_count_histogram(all_instances: List[List[Dict]]) -> Dict[int, int]:
     return dict(hist)
 
 
+def _make_boxplot(ax, data, positions, color_main, color_fill, color_flier):
+    """Draw a boxplot with means connected by a dashed line.
+
+    Returns the boxplot artist dict.
+    """
+    bp = ax.boxplot(
+        data,
+        positions=positions,
+        widths=0.4,
+        patch_artist=True,
+        showmeans=True,
+        meanprops=dict(marker="D", markerfacecolor=color_main, markeredgecolor=color_main,
+                       markersize=4.5),
+        medianprops=dict(color=color_main, linewidth=1.5),
+        boxprops=dict(facecolor=color_fill, edgecolor=color_main, linewidth=1),
+        whiskerprops=dict(color=color_main, linewidth=1),
+        capprops=dict(color=color_main, linewidth=1),
+        flierprops=dict(marker="o", markerfacecolor=color_flier, markeredgecolor=color_main,
+                        markersize=3.5),
+        zorder=3,
+    )
+    means = [np.mean(d) if d else float("nan") for d in data]
+    ax.plot(positions, means, color=color_main, linewidth=1.2, linestyle="--",
+            alpha=0.6, zorder=4)
+    return bp
+
+
 def plot_cfm_quality(
+    abs_by_index: Dict[int, List[float]],
     diffs_by_index: Dict[int, List[float]],
     cfm_histogram: Dict[int, int],
     metric_name: str,
     metric_label: str,
     output_path: Path,
 ) -> None:
-    """Create a dual-axis plot:
-      - Left Y-axis (lines): two count trends —
-          (a) instances with >= i+2 CFMs (sample size for the boxplot at that x)
-          (b) instances with exactly N total CFMs (histogram)
-      - Right Y-axis (boxplot): distribution of consecutive differences
+    """Three-panel stacked figure (shared x-axis, no twin axes):
 
-    A horizontal dashed line at y=0 on the right axis marks no-improvement.
+    1. Top strip  – instance-count lines (≥ N CFMs, exactly N CFMs).
+    2. Middle     – boxplots of absolute metric values per CFM index.
+    3. Bottom     – boxplots of consecutive diffs (CFM_i − CFM_{i-1}).
     """
-    # Use the full range of indices present in diffs (no min_instances cutoff).
-    indices = sorted(diffs_by_index.keys())
-    if not indices:
-        print(f"  [SKIP] {metric_name}: no consecutive pairs found")
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    all_indices = sorted(set(abs_by_index.keys()) | set(diffs_by_index.keys()))
+    if not all_indices:
+        print(f"  [SKIP] {metric_name}: no data found")
         return
 
-    # "At least" counts: how many instances contributed to each transition's boxplot.
-    at_least_counts = [len(diffs_by_index[i]) for i in indices]
-    diff_data = [diffs_by_index[i] for i in indices]
-    x_positions = np.arange(len(indices))
-    x_labels = [str(i + 1) for i in indices]  # 1-indexed for display
+    x_positions = np.arange(len(all_indices))
+    x_labels = [str(i + 1) for i in all_indices]  # 1-indexed
 
-    # "Exact" counts: instances whose total CFM count == i+2
-    # (i.e., their LAST transition is at index i).
-    exact_counts = [cfm_histogram.get(i + 2, 0) for i in indices]
+    # ── Prepare data ──
+    abs_data = [abs_by_index.get(i, []) for i in all_indices]
+    abs_counts = [len(abs_by_index.get(i, [])) for i in all_indices]
 
-    fig, ax_count = plt.subplots(figsize=(max(8, len(indices) * 0.8 + 2), 5))
-    ax_box = ax_count.twinx()
+    # Shift diffs: key j stores CFM_{j+1}−CFM_j → plot at index j+1.
+    shifted_diffs: Dict[int, List[float]] = {j + 1: v for j, v in diffs_by_index.items()}
+    diff_data = [shifted_diffs.get(i, []) for i in all_indices]
 
-    # ── Lines (left axis): instance counts ──
-    # "At least" trend
-    ax_count.plot(x_positions, at_least_counts, color="#185FA5", linewidth=1.8,
+    # Exact-count histogram: instances whose total CFM count == i+1.
+    exact_counts = [cfm_histogram.get(i + 1, 0) for i in all_indices]
+
+    # ── Figure layout ──
+    fig_width = max(8, len(all_indices) * 0.75 + 2)
+    fig, (ax_count, ax_abs, ax_diff) = plt.subplots(
+        3, 1,
+        figsize=(fig_width, 9),
+        sharex=True,
+        gridspec_kw={"height_ratios": [1, 2.5, 2.5], "hspace": 0.08},
+    )
+
+    # ============== TOP STRIP — instance counts ==============
+    ax_count.plot(x_positions, abs_counts, color="#185FA5", linewidth=1.8,
                   marker="o", markersize=5, zorder=5, label="Instances with ≥ N CFMs")
-    for x, c in zip(x_positions, at_least_counts):
+    for x, c in zip(x_positions, abs_counts):
         ax_count.annotate(str(c), (x, c), textcoords="offset points",
-                          xytext=(0, 8), ha="center", fontsize=7, color="#185FA5")
+                          xytext=(0, 7), ha="center", fontsize=6.5, color="#185FA5")
 
-    # "Exact" histogram trend
     ax_count.plot(x_positions, exact_counts, color="#2EA043", linewidth=1.8,
                   marker="s", markersize=5, zorder=5, label="Instances with exactly N CFMs")
     for x, c in zip(x_positions, exact_counts):
         if c > 0:
             ax_count.annotate(str(c), (x, c), textcoords="offset points",
-                              xytext=(0, -12), ha="center", fontsize=7, color="#2EA043")
+                              xytext=(0, -11), ha="center", fontsize=6.5, color="#2EA043")
 
-    ax_count.set_ylabel("Number of instances", fontsize=11)
-    all_counts = at_least_counts + exact_counts
-    ax_count.set_ylim(0, max(all_counts) * 1.3 if all_counts else 1)
+    ax_count.set_ylabel("# instances", fontsize=9)
+    all_counts = abs_counts + exact_counts
+    ax_count.set_ylim(0, max(all_counts) * 1.4 if all_counts else 1)
+    ax_count.legend(loc="upper right", fontsize=7, framealpha=0.9)
+    ax_count.set_title(f"CFM quality progression — {metric_label}", fontsize=12, pad=8)
 
-    # ── Boxplot (right axis): difference distribution ──
-    bp = ax_box.boxplot(
-        diff_data,
-        positions=x_positions,
-        widths=0.35,
-        patch_artist=True,
-        showmeans=True,
-        meanprops=dict(marker="D", markerfacecolor="#E24B4A", markeredgecolor="#E24B4A",
-                       markersize=5),
-        medianprops=dict(color="#A32D2D", linewidth=1.5),
-        boxprops=dict(facecolor="#FCEBEB", edgecolor="#E24B4A", linewidth=1),
-        whiskerprops=dict(color="#A32D2D", linewidth=1),
-        capprops=dict(color="#A32D2D", linewidth=1),
-        flierprops=dict(marker="o", markerfacecolor="#F09595", markeredgecolor="#E24B4A",
-                        markersize=4),
-        zorder=3,
-    )
+    # ============== MIDDLE — absolute metric values ==============
+    _make_boxplot(ax_abs, abs_data, x_positions,
+                  color_main="#1B6DB5", color_fill="#D6E9F8", color_flier="#7CBAE5")
 
-    # Connect means with a line
-    means = [np.mean(d) for d in diff_data]
-    ax_box.plot(x_positions, means, color="#E24B4A", linewidth=1.5, linestyle="--",
-                alpha=0.7, zorder=4)
+    ax_abs.set_ylabel(metric_label, fontsize=10)
 
-    ax_box.axhline(y=0, color="#888780", linestyle=":", linewidth=1, zorder=1)
-    ax_box.set_ylabel(f"Diff: CFM(i+1) − CFM(i)  [{metric_label}]",
-                      color="#A32D2D", fontsize=10)
-    ax_box.tick_params(axis="y", labelcolor="#A32D2D")
-
-    # ── Common ──
-    ax_count.set_xlabel("CFM index i  (transition from CFM_i → CFM_{i+1})", fontsize=11)
-    ax_count.set_xticks(x_positions)
-    ax_count.set_xticklabels(x_labels)
-    fig.suptitle(f"CFM quality progression — {metric_label}", fontsize=13, y=0.98)
-
-    # Legend
-    from matplotlib.lines import Line2D
-    from matplotlib.patches import Patch
-    legend_elements = [
-        Line2D([0], [0], color="#185FA5", marker="o", markersize=5,
-               label="Instances with ≥ N CFMs (left)"),
-        Line2D([0], [0], color="#2EA043", marker="s", markersize=5,
-               label="Instances with exactly N CFMs (left)"),
-        Patch(facecolor="#FCEBEB", edgecolor="#E24B4A",
-              label="Diff distribution (right)"),
-        Line2D([0], [0], marker="D", color="#E24B4A", linestyle="--",
-               markerfacecolor="#E24B4A", markersize=5, label="Mean diff"),
+    legend_abs = [
+        Patch(facecolor="#D6E9F8", edgecolor="#1B6DB5", label="Value distribution"),
+        Line2D([0], [0], marker="D", color="#1B6DB5", linestyle="--",
+               markerfacecolor="#1B6DB5", markersize=4.5, label="Mean value"),
     ]
-    ax_count.legend(handles=legend_elements, loc="upper right", fontsize=7,
-                    framealpha=0.9)
+    ax_abs.legend(handles=legend_abs, loc="lower left", fontsize=7, framealpha=0.9)
+
+    # ============== BOTTOM — diffs ==============
+    _make_boxplot(ax_diff, diff_data, x_positions,
+                  color_main="#A32D2D", color_fill="#FCEBEB", color_flier="#F09595")
+
+    ax_diff.axhline(y=0, color="#888780", linestyle=":", linewidth=0.8, zorder=1)
+    ax_diff.set_ylabel(f"Diff (CFM_i − CFM_{{i−1}})", fontsize=10)
+
+    legend_diff = [
+        Patch(facecolor="#FCEBEB", edgecolor="#A32D2D", label="Diff distribution"),
+        Line2D([0], [0], marker="D", color="#A32D2D", linestyle="--",
+               markerfacecolor="#A32D2D", markersize=4.5, label="Mean diff"),
+    ]
+    ax_diff.legend(handles=legend_diff, loc="lower left", fontsize=7, framealpha=0.9)
+
+    # ── Shared x-axis ──
+    ax_diff.set_xlabel("CFM index", fontsize=11)
+    ax_diff.set_xticks(x_positions)
+    ax_diff.set_xticklabels(x_labels)
 
     fig.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
@@ -261,14 +301,15 @@ def main():
     # ── Per-metric analysis ──
     for metric_key, metric_label in METRICS:
         print(f"\nMetric: {metric_label}")
+        abs_vals = compute_absolute_values(all_instances, metric_key)
         diffs = compute_consecutive_diffs(multi_cfm, metric_key)
-        if not diffs:
-            print(f"  [SKIP] No consecutive pairs found for {metric_key}")
+        if not abs_vals and not diffs:
+            print(f"  [SKIP] No data found for {metric_key}")
             continue
 
         output_path = output_dir / f"{metric_key}_cfm_improvement.png"
         plot_cfm_quality(
-            diffs, cfm_histogram, metric_key, metric_label, output_path,
+            abs_vals, diffs, cfm_histogram, metric_key, metric_label, output_path,
         )
 
     print(f"\nAll plots saved to: {output_dir}")
