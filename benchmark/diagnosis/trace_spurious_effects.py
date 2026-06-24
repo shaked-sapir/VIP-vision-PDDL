@@ -7,6 +7,8 @@ tracing to identify the root cause of a spurious learned effect.
 Pipeline stages:
   Stage 0 — Load fold_info.json and reconstruct the canonical observation order.
   Stage 1 — Load and reconstruct masked observations (in fold_info order).
+  Stage 1b — (optional) Apply CFM-specific fluent patches to reconstruct the exact observations
+             that PI-SAM saw when a specific conflict-free model (CFM) was produced.
   Stage 2 — Trajectory-level attribution: which trajectories "voted" the predicate into effects.
   Stage 3 — PI-SAM hypothesis evolution: snapshot effects/cannot_be_effect after every component.
   Stage 4 — Conflict search analysis: saved learning_metrics.json + optional --retrace.
@@ -19,12 +21,17 @@ Usage:
         --traj-base benchmark/data/blocksworld/.../training/trajectories \\
         --action    stack \\
         --predicate "(on-table ?x)" \\
+        [--cfm-index 3] \\
         [--retrace]
 
 Notes:
   - --traj-base is the directory that contains one subdirectory per problem
     (e.g. problem3/, problem7/, …), each holding the .trajectory and .masking_info files.
   - The processing order is taken directly from fold_info.json's "trajectories" array.
+  - --cfm-index N restricts the analysis to the exact observations PI-SAM saw when CFM #N was
+    produced. It reads conflict_free_models/conflict_free_model_N/patch_details.json from the
+    fold directory and applies those fluent patches on top of the masked originals before
+    running Stages 2 and 3. Without this flag, Stages 2 and 3 run on the raw originals.
   - No files in src/ are modified; tracing is done via a local subclass of PISAMLearner.
 """
 
@@ -70,6 +77,8 @@ class VoteRecord:
     masked_in_prev: bool
     masked_in_next: bool
     spurious_vote: bool          # True when predicate appears as add-effect diff
+    is_first_encounter: bool     # True when this is the first time the action is seen (add_new_action);
+                                 # this component initialises the hypothesis, it does not refine it.
 
 
 @dataclass
@@ -106,6 +115,11 @@ class DiagnosisReport:
     target_predicate: str
     fold_dir: str
     observations_order: List[str]           # problem names in processing order
+
+    # CFM scope (Stage 1b)
+    cfm_index: Optional[int]                # None = raw originals; N = scoped to CFM #N
+    cfm_model_constraints: Optional[List[Dict]]   # model constraints active at CFM #N
+    cfm_fluent_patch_count: Optional[int]         # how many fluent patches were applied
 
     # Stage 2
     vote_table: List[VoteRecord]
@@ -193,17 +207,130 @@ def load_observations_in_order(
         obs = load_masked_observation(traj_path, masking_path, domain)
         observations.append((problem, obs))
         n_components = len(obs.components)
-        all_preds = get_state_grounded_predicates(obs.components[0].previous_state)
+        # Collect the N+1 distinct states (init + one next_state per component).
+        # Using next_state for all components avoids double-counting shared boundaries.
+        all_states = (
+            [obs.components[0].previous_state]
+            + [comp.next_state for comp in obs.components]
+        )
         n_masked_states = sum(
-            1 for comp in obs.components
-            if len(get_state_masked_predicates(comp.previous_state)) > 0
-               or len(get_state_masked_predicates(comp.next_state)) > 0
+            1 for s in all_states if len(get_state_masked_predicates(s)) > 0
         )
         print(
             f"  Loaded obs[{len(observations) - 1}] problem={problem} | "
-            f"components={n_components} | masked_states≈{n_masked_states}"
+            f"components={n_components} | masked_states={n_masked_states}"
         )
     return observations
+
+
+# ===========================================================================
+# Stage 1b — CFM-specific fluent patch loading and application
+# ===========================================================================
+
+def load_cfm_patch_details(fold_dir: Path, cfm_index: int) -> Dict:
+    """
+    Load patch_details.json for a specific conflict-free model.
+
+    Args:
+        fold_dir:   Path to the fold directory (contains conflict_free_models/).
+        cfm_index:  Zero-based index of the CFM to load (e.g. 3 → conflict_free_model_3/).
+
+    Returns:
+        Parsed patch_details dict with keys: model_constraints, fluent_patches, cost, …
+
+    Raises:
+        FileNotFoundError: if the patch_details.json for the requested CFM is absent.
+    """
+    patch_path = fold_dir / "conflict_free_models" / f"conflict_free_model_{cfm_index}" / "patch_details.json"
+    if not patch_path.exists():
+        raise FileNotFoundError(
+            f"patch_details.json not found for CFM {cfm_index}: {patch_path}\n"
+            f"Available CFMs: {sorted(p.name for p in (fold_dir / 'conflict_free_models').iterdir() if p.is_dir()) if (fold_dir / 'conflict_free_models').exists() else 'conflict_free_models/ directory not found'}"
+        )
+    with open(patch_path) as f:
+        return json.load(f)
+
+
+def apply_cfm_fluent_patches(
+    observations: List[Tuple[str, Observation]],
+    patch_details: Dict,
+) -> List[Tuple[str, Observation]]:
+    """
+    Apply the fluent patches from a CFM's patch_details.json to the masked observations,
+    reproducing the exact observation set that PI-SAM received when that CFM was produced.
+
+    Each fluent patch flips a single grounded predicate in a specific (obs, comp, state) location.
+    This mirrors what ConflictDrivenPatchSearch._apply_patches_to_observations() does internally
+    during the search, using the same flip_fluent_in_state utility.
+
+    Args:
+        observations:   Ordered (problem, masked_observation) pairs (Stage 1 output).
+        patch_details:  Parsed patch_details.json dict for the target CFM.
+
+    Returns:
+        New ordered (problem, patched_observation) pairs with fluent patches applied.
+        The originals are not modified.
+    """
+    from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
+    from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
+    from copy import deepcopy
+
+    raw_patches = patch_details.get("fluent_patches", [])
+    if not raw_patches:
+        print("  No fluent patches in patch_details — observations unchanged.")
+        return list(observations)
+
+    fluent_patch_set: Set[FluentLevelPatch] = set()
+    for fp in raw_patches:
+        fluent_patch_set.add(FluentLevelPatch(
+            observation_index=fp["observation_index"],
+            component_index=fp["component_index"],
+            state_type=fp["state_type"],
+            fluent=fp["fluent"],
+        ))
+
+    # We need a NoisyPisamLearner instance only to call set_patches + apply_fluent_patches.
+    # It will not be used for learning — we discard it after patch application.
+    # A minimal domain deepcopy is enough; the learner is stateless w.r.t. the domain here.
+    from pddl_plus_parser.models import Domain as _Domain
+    # Build a throwaway domain by deep-copying the first observation's domain objects.
+    # In practice we only need the mixin's apply_fluent_patches which does not touch domain.
+    # We pass a sentinel None and guard with a try/except in case __init__ requires a domain.
+    obs_list = [obs for _, obs in observations]
+
+    try:
+        # NoisyPisamLearner requires a Domain — load a fresh one from the caller's domain_path
+        # is not available here, so we use a lightweight approach: instantiate the mixin path
+        # via the noisy_learner_mixin directly.
+        from src.pi_sam.noisy_pisam.noisy_learner_mixin import NoisyLearnerMixin
+
+        class _PatchApplier(NoisyLearnerMixin):
+            """Minimal stub — only set_patches + apply_fluent_patches are used."""
+
+            def __init__(self):
+                # Initialise the mixin's state dictionaries so set_patches() can call .clear().
+                self._init_noisy_fields()
+
+            # NoisyLearnerMixin's abstract methods are never called here.
+            def _extract_discrete_effects(self, prev_preds, next_preds):  # type: ignore[override]
+                raise NotImplementedError
+
+            def _extract_cannot_be_effects(self, prev_preds, next_preds):  # type: ignore[override]
+                raise NotImplementedError
+
+            def _delegate_handle_effects(self, grounded_action, previous_state, next_state):  # type: ignore[override]
+                raise NotImplementedError
+
+        applier = _PatchApplier()
+        applier.set_patches(fluent_patches=fluent_patch_set, model_patches=set())
+        patched_obs_list = applier.apply_fluent_patches(obs_list)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to apply fluent patches via NoisyLearnerMixin: {exc}\n"
+            "Ensure NoisyLearnerMixin.set_patches / apply_fluent_patches signatures have not changed."
+        ) from exc
+
+    return [(problem, patched_obs) for (problem, _), patched_obs in zip(observations, patched_obs_list)]
 
 
 # ===========================================================================
@@ -211,8 +338,13 @@ def load_observations_in_order(
 # ===========================================================================
 
 def _predicate_name_from_lifted(lifted_str: str) -> str:
-    """Extract predicate name from a lifted string like '(on-table ?x)' → 'on-table'."""
-    return lifted_str.strip("()").split()[0].lstrip("not (").strip()
+    """Extract predicate name from a lifted string like '(on-table ?x)' or '(not (on-table ?x))' → 'on-table'."""
+    s = lifted_str.strip()
+    # Handle negative form: (not (predicate-name ...))
+    if s.startswith("(not "):
+        s = s[5:].strip()
+    # Strip outer parens and take the first token
+    return s.strip("()").split()[0]
 
 
 def _lifted_matches_grounded(lifted_pred: Predicate, target_pred_name: str) -> bool:
@@ -242,6 +374,9 @@ def compute_vote_table(
         List of VoteRecord, one per relevant component.
     """
     records: List[VoteRecord] = []
+    # Track whether the target action has been seen before across all observations,
+    # mirroring PI-SAM's observed_actions list so we can flag add_new_action components.
+    target_action_seen: bool = False
 
     for obs_idx, (problem, obs) in enumerate(ordered_observations):
         for comp_idx, component in enumerate(obs.components):
@@ -254,23 +389,22 @@ def compute_vote_table(
             prev_preds = get_state_grounded_predicates(component.previous_state)
             next_preds = get_state_grounded_predicates(component.next_state)
 
-            # Raw diff (same logic as extract_discrete_effects_partial_observability)
+            # Diff as PI-SAM sees it (masked instances already filtered out).
             grounded_add, grounded_del = extract_discrete_effects_partial_observability(
                 prev_preds, next_preds
             )
 
-            # Check masking status for the target predicate specifically
-            target_in_prev_masked = any(
-                p.is_masked and p.name == target_predicate_name
-                for p in prev_preds
+            # Find the specific voted grounded instance (matched by object_mapping).
+            voted_add = next(
+                (p for p in grounded_add if p.name == target_predicate_name), None
             )
-            target_in_next_masked = any(
-                p.is_masked and p.name == target_predicate_name
-                for p in next_preds
+            voted_del = next(
+                (p for p in grounded_del if p.name == target_predicate_name), None
             )
+            voted = voted_add or voted_del
 
-            in_add = any(p.name == target_predicate_name for p in grounded_add)
-            in_del = any(p.name == target_predicate_name for p in grounded_del)
+            in_add = voted_add is not None
+            in_del = voted_del is not None
 
             if in_add:
                 direction = "add"
@@ -278,6 +412,32 @@ def compute_vote_table(
                 direction = "delete"
             else:
                 direction = "none"
+
+            # Masking check: look up the exact same grounded instance (by object_mapping)
+            # in prev/next state to see if it was masked there.
+            # Note: extract_discrete_effects_partial_observability already excludes masked
+            # instances, so voted itself is never masked — but its counterpart in the
+            # other state might be (e.g. the negation in prev was masked).
+            def _is_masked_in(preds: Set, name: str, obj_mapping: dict) -> bool:
+                return any(
+                    p.is_masked and p.name == name and p.object_mapping == obj_mapping
+                    for p in preds
+                )
+
+            if voted is not None:
+                target_in_prev_masked = _is_masked_in(prev_preds, voted.name, voted.object_mapping)
+                target_in_next_masked = _is_masked_in(next_preds, voted.name, voted.object_mapping)
+            else:
+                # Predicate not in diff at all — check if any grounding of it is masked.
+                target_in_prev_masked = any(
+                    p.is_masked and p.name == target_predicate_name for p in prev_preds
+                )
+                target_in_next_masked = any(
+                    p.is_masked and p.name == target_predicate_name for p in next_preds
+                )
+
+            is_first = not target_action_seen
+            target_action_seen = True  # mark seen after first encounter
 
             records.append(VoteRecord(
                 obs_idx=obs_idx,
@@ -288,6 +448,7 @@ def compute_vote_table(
                 masked_in_prev=target_in_prev_masked,
                 masked_in_next=target_in_next_masked,
                 spurious_vote=in_add,
+                is_first_encounter=is_first,
             ))
 
     return records
@@ -427,79 +588,119 @@ def analyse_saved_metrics(
     fold_dir: Path,
     target_action: str,
     target_predicate_name: str,
+    cfm_index: Optional[int] = None,
 ) -> Optional[ConflictSearchAnalysis]:
     """
-    Parse the saved learning_metrics.json in *fold_dir* and report whether
-    the conflict search ever targeted the spurious predicate.
+    Analyse the saved patch data for the conflict search and report whether
+    the target predicate was addressed.
 
-    Returns None if no metrics file is found.
+    When *cfm_index* is given, reads patch_details.json for that specific CFM
+    (the exact constraints/patches active when that model was produced).
+    Otherwise reads learning_metrics.json, which holds the overall best/final
+    solution selected by the search.
+
+    Returns None if the relevant file is not found.
     """
-    metrics_path = fold_dir / "learning_metrics.json"
-    if not metrics_path.exists():
-        return None
+    if cfm_index is not None:
+        # --- CFM-scoped: read patch_details.json for this specific model ---
+        patch_path = (
+            fold_dir / "conflict_free_models"
+            / f"conflict_free_model_{cfm_index}" / "patch_details.json"
+        )
+        if not patch_path.exists():
+            return None
+        with open(patch_path) as f:
+            patch_data = json.load(f)
 
-    with open(metrics_path) as f:
-        metrics = json.load(f)
+        constraints: List[Dict] = patch_data.get("model_constraints") or []
+        fluent_patches_list: List[Dict] = patch_data.get("fluent_patches") or []
+        cfm_cost: Optional[float] = patch_data.get("cost")
+        source_label = f"CFM #{cfm_index} patch_details.json"
 
-    best_constraints: List[Dict] = metrics.get("best_model_constraints") or []
-    best_fluent_patches: List[Dict] = metrics.get("best_fluent_patches") or []
+        # Cost parameters are not stored in patch_details — use None.
+        model_forbid_cost: Optional[float] = None
+        fluent_patch_cost: Optional[float] = (
+            float(cfm_cost) if cfm_cost is not None else None
+        )
+
+    else:
+        # --- Global best: read learning_metrics.json ---
+        metrics_path = fold_dir / "learning_metrics.json"
+        if not metrics_path.exists():
+            return None
+        with open(metrics_path) as f:
+            metrics = json.load(f)
+
+        constraints = metrics.get("best_model_constraints") or []
+        fluent_patches_list = metrics.get("best_fluent_patches") or []
+        source_label = "learning_metrics.json (global best/final solution)"
+
+        # Reconstruct costs from stored config params.
+        model_patch_cost_val = float(metrics.get("model_patch_cost") or 1.0)
+        model_constraint_weight_val = float(metrics.get("model_constraint_weight") or 0.0)
+        fp_cost_val = float(metrics.get("fluent_patch_cost") or 1.0)
+        fp_weight_val = float(metrics.get("fluent_patch_weight") or 1.0)
+
+        model_forbid_cost = (
+            model_constraint_weight_val * model_patch_cost_val * len(constraints)
+            if constraints else None
+        )
+        fluent_patch_cost = (
+            fp_weight_val * fp_cost_val * len(fluent_patches_list)
+            if fluent_patches_list else None
+        )
 
     # Look for a FORBID effect constraint on our action+predicate.
     forbid_entries = [
-        c for c in best_constraints
+        c for c in constraints
         if (c.get("action") == target_action
             and c.get("model_part") == "eff"
             and c.get("operation") == "forbid"
             and target_predicate_name in c.get("predicate", ""))
     ]
+    # Look for a REQUIRE effect constraint on our action+predicate.
+    require_entries = [
+        c for c in constraints
+        if (c.get("action") == target_action
+            and c.get("model_part") == "eff"
+            and c.get("operation") == "require"
+            and target_predicate_name in c.get("predicate", ""))
+    ]
 
     model_forbid_generated = len(forbid_entries) > 0
-    model_forbid_cost: Optional[float] = None
+    model_require_generated = len(require_entries) > 0
 
-    # Reconstruct cost from metrics config if the FORBID was applied.
-    if model_forbid_generated:
-        model_patch_cost = metrics.get("model_patch_cost", 1.0) or 1.0
-        model_constraint_weight = metrics.get("model_constraint_weight", 0.0) or 0.0
-        n_constraints = len(best_constraints)
-        model_forbid_cost = model_constraint_weight * model_patch_cost * n_constraints
-
-    # Fluent patch cost for competing patches.
-    fluent_patch_cost: Optional[float] = None
-    if best_fluent_patches:
-        fp_cost = metrics.get("fluent_patch_cost", 1.0) or 1.0
-        fp_weight = metrics.get("fluent_patch_weight", 1.0) or 1.0
-        fluent_patch_cost = fp_weight * fp_cost * len(best_fluent_patches)
-
-    # Determine if any conflict group formed at all for the action.
-    # The metrics don't store individual conflict groups, only the best solution's patches.
-    # We infer: if any constraint or fluent patch mentions the action, a group likely formed.
     action_mentioned_in_constraints = any(
-        c.get("action") == target_action for c in best_constraints
+        c.get("action") == target_action for c in constraints
     )
     action_mentioned_in_patches = any(
-        # Fluent patches don't carry an action name directly — they carry obs/comp/state/fluent.
-        # We can check if the predicate name appears in the fluent string.
         target_predicate_name in str(fp.get("fluent", ""))
-        for fp in best_fluent_patches
+        for fp in fluent_patches_list
     )
     conflict_group_formed = action_mentioned_in_constraints or action_mentioned_in_patches
 
-    notes: List[str] = []
-    if not best_constraints and not best_fluent_patches:
-        notes.append("No best_model_constraints or best_fluent_patches saved — search may not have run or found no solution.")
+    notes: List[str] = [f"Source: {source_label}"]
+    if not constraints and not fluent_patches_list:
+        notes.append("No constraints or patches found — search may not have run or found no solution.")
     if not conflict_group_formed:
         notes.append(
             f"No constraint or patch mentioning action '{target_action}' found — "
             "the conflict search may not have encountered a conflict for this action."
         )
+    if model_require_generated:
+        notes.append(
+            f"A REQUIRE-effect constraint for '{target_predicate_name}' is active at this CFM — "
+            "the search actively required this predicate as an effect at this node."
+        )
     if model_forbid_generated:
         notes.append(
-            f"A FORBID-effect constraint for '{target_predicate_name}' WAS present in the best solution."
+            f"A FORBID-effect constraint for '{target_predicate_name}' is active — "
+            "the search ruled this predicate out as an effect at this node."
         )
-    elif not model_forbid_generated and conflict_group_formed:
+    if not model_forbid_generated and not model_require_generated and conflict_group_formed:
         notes.append(
-            f"Conflict group for '{target_action}' formed, but no FORBID-effect for '{target_predicate_name}' "
-            "in the best solution — data-fix (fluent patches) was preferred or the predicate was not conflicted."
+            f"Conflict group for '{target_action}' formed, but no FORBID or REQUIRE constraint "
+            f"for '{target_predicate_name}' — data-fix (fluent patches) was used instead."
         )
 
     return ConflictSearchAnalysis(
@@ -508,8 +709,8 @@ def analyse_saved_metrics(
         model_forbid_generated=model_forbid_generated,
         model_forbid_cost=model_forbid_cost,
         competing_fluent_patch_cost=fluent_patch_cost,
-        best_model_constraints=best_constraints,
-        best_fluent_patches=best_fluent_patches,
+        best_model_constraints=constraints,
+        best_fluent_patches=fluent_patches_list,
         notes=notes,
     )
 
@@ -656,9 +857,10 @@ def _derive_verdict(
     vote_table: List[VoteRecord],
     snapshots: List[HypothesisSnapshot],
     conflict: Optional[ConflictSearchAnalysis],
+    cfm_index: Optional[int] = None,
 ) -> str:
     """Produce a short human-readable verdict from the collected evidence."""
-    votes = [v for v in vote_table if v.spurious_vote]
+    votes = [v for v in vote_table if v.spurious_vote and not v.is_first_encounter]
     masked_votes = [v for v in votes if v.masked_in_prev or v.masked_in_next]
     clean_votes = [v for v in votes if not v.masked_in_prev and not v.masked_in_next]
 
@@ -696,23 +898,39 @@ def _derive_verdict(
             f"via {first_intro.event}."
         )
 
+    scope = f"CFM #{cfm_index}" if cfm_index is not None else "the global best solution"
     if conflict is None:
         lines.append("No conflict-search metrics available (was denoising run?).")
     elif not conflict.conflict_group_formed:
         lines.append(
-            "The conflict search did NOT form a conflict group for this action/predicate. "
-            "The spurious effect was never challenged during denoising."
+            f"The conflict search did NOT form a conflict group for this action/predicate in {scope}. "
+            "The spurious effect was never challenged at this search node."
         )
-    elif not conflict.model_forbid_generated:
+    elif conflict.model_forbid_generated:
         lines.append(
-            "A conflict group formed, but no FORBID-effect patch was chosen — "
-            "data-level fluent patches were preferred (lower cost)."
+            f"A FORBID-effect constraint is active in {scope} — "
+            "the search ruled the predicate out as an effect at this node, yet it still appeared. "
+            "This is contradictory: check whether the observations fed to PI-SAM at this node "
+            "still produced the add-effect diff despite the constraint."
+        )
+    elif hasattr(conflict, 'model_require_generated') and conflict.model_require_generated:
+        lines.append(
+            f"A REQUIRE-effect constraint for this predicate is active in {scope} — "
+            "the search explicitly required it as an effect, which explains its presence."
         )
     else:
-        lines.append(
-            "A FORBID-effect model constraint WAS applied in the best solution, "
-            "yet the effect still appears — check whether a different CFM was selected."
-        )
+        # Check notes for require signal since model_require_generated is not in the dataclass
+        require_note = any("REQUIRE-effect" in n for n in (conflict.notes or []))
+        if require_note:
+            lines.append(
+                f"A REQUIRE-effect constraint for this predicate is active in {scope} — "
+                "the search explicitly required it as an effect, which explains its presence."
+            )
+        else:
+            lines.append(
+                f"A conflict group formed in {scope}, but no FORBID or REQUIRE constraint for this predicate — "
+                "data-level fluent patches were used instead of a model constraint."
+            )
 
     return " | ".join(lines)
 
@@ -725,9 +943,11 @@ def build_report(
     vote_table: List[VoteRecord],
     snapshots: List[HypothesisSnapshot],
     conflict: Optional[ConflictSearchAnalysis],
+    cfm_index: Optional[int] = None,
+    patch_details: Optional[Dict] = None,
 ) -> DiagnosisReport:
     """Assemble a DiagnosisReport from stage outputs."""
-    votes = [v for v in vote_table if v.spurious_vote]
+    votes = [v for v in vote_table if v.spurious_vote and not v.is_first_encounter]
     masked_votes = [v for v in votes if v.masked_in_prev or v.masked_in_next]
 
     first_intro = next(
@@ -735,13 +955,22 @@ def build_report(
     )
     ever_in_cannot_be = any(s.target_in_cannot_be for s in snapshots)
 
-    verdict = _derive_verdict(vote_table, snapshots, conflict)
+    verdict = _derive_verdict(vote_table, snapshots, conflict, cfm_index=cfm_index)
+
+    cfm_model_constraints: Optional[List[Dict]] = None
+    cfm_fluent_patch_count: Optional[int] = None
+    if patch_details is not None:
+        cfm_model_constraints = patch_details.get("model_constraints")
+        cfm_fluent_patch_count = len(patch_details.get("fluent_patches", []))
 
     return DiagnosisReport(
         target_action=target_action,
         target_predicate=target_predicate,
         fold_dir=str(fold_dir),
         observations_order=observations_order,
+        cfm_index=cfm_index,
+        cfm_model_constraints=cfm_model_constraints,
+        cfm_fluent_patch_count=cfm_fluent_patch_count,
         vote_table=vote_table,
         total_votes=len(votes),
         masked_votes=len(masked_votes),
@@ -766,6 +995,16 @@ def print_human_report(report: DiagnosisReport) -> None:
     print(f"  Fold dir:   {report.fold_dir}")
     print(sep)
 
+    if report.cfm_index is not None:
+        print(f"\n[Scope: CFM #{report.cfm_index}]")
+        print(f"  Fluent patches applied to observations : {report.cfm_fluent_patch_count}")
+        print(f"  Model constraints active at this CFM  : {len(report.cfm_model_constraints or [])}")
+        if report.cfm_model_constraints:
+            for mc in report.cfm_model_constraints:
+                print(f"    {mc.get('operation'):>6}  {mc.get('model_part')} of {mc.get('action'):<20s}  {mc.get('predicate')}")
+    else:
+        print(f"\n[Scope: raw masked originals (no --cfm-index)]")
+
     print("\n[Processing order]")
     for i, prob in enumerate(report.observations_order):
         print(f"  obs[{i}]: {prob}")
@@ -774,15 +1013,21 @@ def print_human_report(report: DiagnosisReport) -> None:
     if not report.vote_table:
         print(f"  Action '{report.target_action}' was never fired in any observation.")
     else:
-        header = f"  {'obs':>4}  {'problem':<12}  {'comp':>4}  {'in_diff':>7}  {'dir':>6}  {'masked_prev':>11}  {'masked_next':>11}  {'vote':>5}"
+        header = f"  {'obs':>4}  {'problem':<12}  {'comp':>4}  {'in_diff':>7}  {'dir':>6}  {'masked_prev':>11}  {'masked_next':>11}  {'vote':>5}  note"
         print(header)
-        print(f"  {'-'*65}")
+        print(f"  {'-'*80}")
         for v in report.vote_table:
+            if v.is_first_encounter:
+                note = "FIRST ENCOUNTER (add_new_action — initialises hypothesis, does not vote)"
+                vote_str = "n/a"
+            else:
+                note = ""
+                vote_str = "YES" if v.spurious_vote else "no"
             print(
                 f"  {v.obs_idx:>4}  {v.problem:<12}  {v.comp_idx:>4}  "
                 f"{str(v.predicate_in_diff):>7}  {v.diff_direction:>6}  "
                 f"{str(v.masked_in_prev):>11}  {str(v.masked_in_next):>11}  "
-                f"{'YES' if v.spurious_vote else 'no':>5}"
+                f"{vote_str:>5}  {note}"
             )
         print(f"\n  Total spurious votes : {report.total_votes}")
         print(f"  Masked-state votes   : {report.masked_votes}")
@@ -892,6 +1137,17 @@ def parse_args() -> argparse.Namespace:
         help="Lifted predicate to trace, e.g. '(on-table ?x)'. Only the predicate name is used for matching.",
     )
     parser.add_argument(
+        "--cfm-index", type=int, default=None, metavar="N",
+        help=(
+            "Zero-based index of the conflict-free model to analyse (e.g. --cfm-index 3). "
+            "When set, the script loads conflict_free_models/conflict_free_model_N/patch_details.json "
+            "from the fold directory and applies those fluent patches on top of the masked originals "
+            "before running Stages 2 and 3. This reconstructs the exact observations PI-SAM saw "
+            "when that specific CFM was produced. Without this flag, Stages 2 and 3 run on the "
+            "raw (unpatched) masked originals."
+        ),
+    )
+    parser.add_argument(
         "--retrace", action="store_true", default=False,
         help="Re-run the conflict search with tracing hooks (slow). Default: analyse saved learning_metrics.json only.",
     )
@@ -911,6 +1167,7 @@ def main() -> None:
     target_action: str = args.action.strip()
     target_predicate: str = args.predicate.strip()
     target_predicate_name: str = _predicate_name_from_lifted(target_predicate)
+    cfm_index: Optional[int] = args.cfm_index
 
     print(f"\nDiagnosing spurious effect:")
     print(f"  Action:    {target_action}")
@@ -918,6 +1175,8 @@ def main() -> None:
     print(f"  Fold dir:  {fold_dir}")
     print(f"  Domain:    {domain_path}")
     print(f"  Traj base: {traj_base}")
+    if cfm_index is not None:
+        print(f"  CFM index: {cfm_index}  (analysis scoped to observations at CFM #{cfm_index})")
 
     # ------------------------------------------------------------------
     # Stage 0 — Load fold metadata
@@ -935,6 +1194,21 @@ def main() -> None:
     # Domain is re-loaded fresh for each stage that mutates it.
     domain_for_loading = DomainParser(domain_path, partial_parsing=True).parse_domain()
     ordered_observations = load_observations_in_order(ordered_paths, domain_for_loading)
+
+    # ------------------------------------------------------------------
+    # Stage 1b — (optional) Apply CFM-specific fluent patches
+    # ------------------------------------------------------------------
+    if cfm_index is not None:
+        print(f"\n[Stage 1b] Loading patch_details.json for CFM #{cfm_index} and applying fluent patches …")
+        patch_details = load_cfm_patch_details(fold_dir, cfm_index)
+        n_fluent = len(patch_details.get("fluent_patches", []))
+        n_model = len(patch_details.get("model_constraints", []))
+        print(f"  CFM #{cfm_index}: cost={patch_details.get('cost')}, "
+              f"fluent_patches={n_fluent}, model_constraints={n_model}")
+        ordered_observations = apply_cfm_fluent_patches(ordered_observations, patch_details)
+        print(f"  Fluent patches applied — Stages 2 and 3 now run on CFM #{cfm_index} observations.")
+    else:
+        patch_details = None
 
     # ------------------------------------------------------------------
     # Stage 2 — Trajectory attribution
@@ -975,10 +1249,13 @@ def main() -> None:
             target_action, target_predicate_name,
         )
     else:
-        print(f"\n[Stage 4] Analysing saved learning_metrics.json …")
-        conflict = analyse_saved_metrics(fold_dir, target_action, target_predicate_name)
+        if cfm_index is not None:
+            print(f"\n[Stage 4] Analysing patch_details.json for CFM #{cfm_index} …")
+        else:
+            print(f"\n[Stage 4] Analysing saved learning_metrics.json (global best solution) …")
+        conflict = analyse_saved_metrics(fold_dir, target_action, target_predicate_name, cfm_index=cfm_index)
         if conflict is None:
-            print("  learning_metrics.json not found — skipping conflict search analysis.")
+            print("  Metrics file not found — skipping conflict search analysis.")
 
     # ------------------------------------------------------------------
     # Stage 5 — Report
@@ -992,13 +1269,16 @@ def main() -> None:
         vote_table=vote_table,
         snapshots=snapshots,
         conflict=conflict,
+        cfm_index=cfm_index,
+        patch_details=patch_details,
     )
 
     print_human_report(report)
 
     # Save JSON report.
     safe_pred = target_predicate_name.replace("-", "_").replace("?", "").replace("(", "").replace(")", "")
-    output_path = args.output or (fold_dir / f"diagnosis_{target_action}_{safe_pred}.json")
+    cfm_suffix = f"_cfm{cfm_index}" if cfm_index is not None else ""
+    output_path = args.output or (fold_dir / f"diagnosis_{target_action}_{safe_pred}{cfm_suffix}.json")
     save_json_report(report, output_path)
 
 
