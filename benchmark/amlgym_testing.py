@@ -317,6 +317,7 @@ def main(
     simulated_masking_p: float = 0.4,
     simulated_noising_p: float = 0.15,
     simulated_seed: int = 42,
+    baselines: list = None,
 ):
     """
     Run benchmark experiments.
@@ -393,6 +394,7 @@ def main(
         "node_choosing_strategy": node_choosing_strategy,
         "conflict_group_strategy": conflict_group_strategy,
         "fluent_branch_mode": fluent_branch_mode,
+        "baselines": [r.display_name for r in baselines] if baselines else [],
         "simulated_mode": use_simulated,
         "simulated_gt_trajectories": [str(p) for p in simulated_gt_paths] if use_simulated else None,
         "simulated_masking_p": simulated_masking_p if use_simulated else None,
@@ -529,6 +531,7 @@ def main(
                                     node_choosing_strategy=node_choosing_strategy,
                                     conflict_group_strategy=conflict_group_strategy,
                                     fluent_branch_mode=fluent_branch_mode,
+                                    baselines=baselines,
                                 )
                                 if use_simulated:
                                     fold_kwargs.update(
@@ -782,6 +785,20 @@ if __name__ == "__main__":
     parser.add_argument('--simulated-seed', type=int, default=42,
                         help='Random seed for simulated noise injection (default: 42)')
 
+    # --- Pluggable baselines ---
+    parser.add_argument(
+        '--baselines',
+        type=str,
+        nargs='*',
+        default=['rosame'],
+        help=(
+            'Baseline algorithms to run alongside SAM/PISAM. '
+            'Pass algorithm family names (e.g., "rosame"). '
+            'Use --baselines with no arguments to run NO baselines. '
+            'Default: rosame.'
+        ),
+    )
+
     args = parser.parse_args()
 
     if args.learning_timeout_seconds <= 0:
@@ -812,6 +829,14 @@ if __name__ == "__main__":
             exit(1)
         selected_domains = [args.domain]
 
+    # Instantiate baseline runners
+    from benchmark.baselines import get_baselines
+    baseline_runners = get_baselines(args.baselines) if args.baselines else []
+    if baseline_runners:
+        print(f"Baselines: {', '.join(r.display_name for r in baseline_runners)}")
+    else:
+        print("Baselines: NONE (only SAM/PISAM will run)")
+
     main(
         selected_domains=selected_domains,
         mode=args.mode,
@@ -831,6 +856,7 @@ if __name__ == "__main__":
         simulated_masking_p=args.simulated_masking_p,
         simulated_noising_p=args.simulated_noising_p,
         simulated_seed=args.simulated_seed,
+        baselines=baseline_runners,
     )
 
 """cli running command:
