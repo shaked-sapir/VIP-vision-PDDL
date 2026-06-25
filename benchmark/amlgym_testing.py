@@ -11,6 +11,7 @@ from typing import List, Dict
 import pandas as pd
 from amlgym.metrics import print_metrics, syntactic_precision, syntactic_recall, problem_solving
 
+from benchmark.baselines import get_baselines
 from benchmark.evaluation.predictive_metrics import evaluate_predictive_power
 from benchmark.evaluation.correlation_analysis import aggregate_correlation_tables
 
@@ -22,6 +23,8 @@ from benchmark.experiment_running_helpers.reporting import (
     generate_gt_injection_plots,
     plot_stacked_solving_rate,
 )
+from src.pi_sam.masking import MaskingType
+from src.pi_sam.noising import NoisingType
 
 # =============================================================================
 # CONFIG & PATHS
@@ -95,6 +98,37 @@ MAX_SEARCH_NODES = None
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+
+def _resolve_experiment_paths(
+    domain_name: str,
+    dir_name: str,
+    experiment_name: str | None,
+    default_evaluation_results_dir: Path | None,
+) -> tuple[Path, Path, Path, Path | None]:
+    """Return (data_dir, trajectories_dir, testing_dir, evaluation_results_dir)."""
+    data_dir = benchmark_path / 'data' / domain_name / dir_name
+    trajectories_dir = data_dir / 'training' / 'trajectories'
+
+    if experiment_name:
+        experiment_root = benchmark_path / 'data' / 'new_experiments' / domain_name / experiment_name
+        return data_dir, trajectories_dir, experiment_root / 'testing', experiment_root / 'evaluation_results'
+
+    return data_dir, trajectories_dir, data_dir / 'testing', default_evaluation_results_dir
+
+
+def _save_run_params(path: Path, run_params: dict, *, skip_if_exists: bool = False) -> None:
+    """Write run_params.json, optionally skipping if the file already exists."""
+    if skip_if_exists and path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(run_params, f, indent=2)
+    print(f"Saved run params to: {path}")
+
+
+def _results_for_domain(results: List[dict], display_domain_name: str) -> List[dict]:
+    return [r for r in results if r['domain'] == display_domain_name]
 
 
 def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Dict[str, str] = None) -> dict:
@@ -176,12 +210,9 @@ def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[s
 
             # Run all evaluations together - if any fail, retry all
             # Profile each metric computation separately
-            precision = _time_metric('syntactic_precision',
-                lambda: syntactic_precision(model_path, str(domain_ref_path)))
-            recall = _time_metric('syntactic_recall',
-                lambda: syntactic_recall(model_path, str(domain_ref_path)))
-            problem_solving_result = _time_metric('problem_solving',
-                lambda: problem_solving(model_path, str(domain_ref_path), test_problems, timeout=planning_timeout))
+            precision = _time_metric('syntactic_precision', lambda: syntactic_precision(model_path, str(domain_ref_path)))
+            recall = _time_metric('syntactic_recall', lambda: syntactic_recall(model_path, str(domain_ref_path)))
+            problem_solving_result = _time_metric('problem_solving', lambda: problem_solving(model_path, str(domain_ref_path), test_problems, timeout=planning_timeout))
 
             # Success - break out of retry loop
             break
@@ -194,8 +225,8 @@ def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[s
                 try:
                     if Path(clean_file).exists():
                         Path(clean_file).unlink()
-                except:
-                    pass
+                except OSError as cleanup_err:
+                    print(f"Warning: failed to remove stale clean file {clean_file}: {cleanup_err}")
                 continue
             else:
                 # Final attempt failed - return null metrics
@@ -206,9 +237,7 @@ def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[s
 
     # Predictive power metrics (applicability + predicted effects)
     if test_states_path:
-        predictive = evaluate_predictive_power(
-            model_path, str(domain_ref_path), test_states_path, test_problems,
-        )
+        predictive = evaluate_predictive_power(model_path, str(domain_ref_path), test_states_path, test_problems)
     else:
         predictive = {
             "pred_app_precision": None,
@@ -277,9 +306,6 @@ def main(
         simulated_noising_p: Noising probability for simulated mode (default: 0.15).
         simulated_seed: Random seed for simulated noise injection (default: 42).
     """
-    from src.pi_sam.masking import MaskingType
-    from src.pi_sam.noising import NoisingType
-
     use_simulated = simulated_gt_trajectories is not None
     simulated_gt_paths = None
     if use_simulated:
@@ -348,34 +374,20 @@ def main(
         "simulated_seed": simulated_seed if use_simulated else None,
     }
     if evaluation_results_dir is not None:
-        run_params_path = evaluation_results_dir / "run_params.json"
-        with open(run_params_path, "w") as f:
-            json.dump(run_params, f, indent=2)
-        print(f"Saved run params to: {run_params_path}")
+        _save_run_params(evaluation_results_dir / "run_params.json", run_params)
 
     print(f"\n{'='*80}")
     print(f"RUNNING BENCHMARK IN {mode.upper()} MODE")
     print(f"Domains: {list(domains_to_run.keys())}")
     print(f"{'='*80}\n")
 
-    for domain_name, bench_name in domains_to_run.items():
+    for domain_name, display_domain_name in domains_to_run.items():
         domain_ref_path = domain_properties[domain_name]["domain_path"]
 
         for dir_name in experiment_data_dirs[domain_name]:
-            data_dir = benchmark_path / 'data' / domain_name / dir_name
-            trajectories_dir = data_dir / 'training' / 'trajectories'
-
+            data_dir, trajectories_dir, testing_dir, evaluation_results_dir = _resolve_experiment_paths(domain_name, dir_name, experiment_name, evaluation_results_dir)
             if experiment_name:
-                experiment_root = benchmark_path / 'data' / 'new_experiments' / domain_name / experiment_name
-                testing_dir = experiment_root / 'testing'
-                evaluation_results_dir = experiment_root / 'evaluation_results'
-                evaluation_results_dir.mkdir(parents=True, exist_ok=True)
-                if not (evaluation_results_dir / "run_params.json").exists():
-                    with open(evaluation_results_dir / "run_params.json", "w") as f:
-                        json.dump(run_params, f, indent=2)
-                    print(f"Saved run params to: {evaluation_results_dir / 'run_params.json'}")
-            else:
-                testing_dir = data_dir / 'testing'
+                _save_run_params(evaluation_results_dir / "run_params.json", run_params, skip_if_exists=True)
 
             testing_dir.mkdir(parents=True, exist_ok=True)
 
@@ -383,7 +395,7 @@ def main(
             n_problems = len(problem_dirs)
 
             if n_problems < 2:
-                raise ValueError(f"Domain {bench_name} has too few problems ({n_problems}) for 80/20 CV.")
+                raise ValueError(f"Domain {display_domain_name} has too few problems ({n_problems}) for 80/20 CV.")
 
             # Validate all problem directories have PDDL files BEFORE starting experiments
             print(f"Validating {n_problems} problem directories...")
@@ -399,7 +411,7 @@ def main(
 
             if invalid_dirs:
                 raise ValueError(
-                    f"Domain {bench_name} has {len(invalid_dirs)} problem directories without PDDL files:\n"
+                    f"Domain {display_domain_name} has {len(invalid_dirs)} problem directories without PDDL files:\n"
                     f"  {invalid_dirs}\n"
                     f"All problem directories must contain a PDDL file for CV to work correctly.\n"
                     f"Expected naming: {{problem_dir_name}}/{{problem_dir_name}}.pddl"
@@ -408,7 +420,7 @@ def main(
             print(f"✓ All {n_problems} problem directories validated")
 
             print(f"\n{'=' * 80}")
-            print(f"Domain: {bench_name} | data dir: {dir_name}")
+            print(f"Domain: {display_domain_name} | data dir: {dir_name}")
             print(f"Total problems: {n_problems}")
             print(f"Number of trajectories: {NUM_TRAJECTORIES_LIST}")
             print(f"GT rates: {GT_RATE_PERCENTAGES}")
@@ -432,9 +444,7 @@ def main(
             # PRE-GENERATE all GT+frame-axiom files before experiments
             # (skipped in simulated mode — noise is injected in memory)
             if not use_simulated:
-                pregenerate_all_gt_frame_axiom_files(
-                    problem_dirs, domain_ref_path, GT_RATE_PERCENTAGES, FRAME_AXIOM_MODE
-                )
+                pregenerate_all_gt_frame_axiom_files(problem_dirs, domain_ref_path, GT_RATE_PERCENTAGES, FRAME_AXIOM_MODE)
 
             # NEW: Iterate over number of trajectories instead of trajectory sizes
             for num_trajectories in NUM_TRAJECTORIES_LIST:
@@ -458,7 +468,7 @@ def main(
                                 gt_rate=gt_rate,
                                 domain_ref_path=domain_ref_path,
                                 testing_dir=testing_dir,
-                                bench_name=bench_name,
+                                bench_name=display_domain_name,
                                 mode=mode,
                                 evaluate_model_func=evaluate_model,
                                 save_learning_metrics_func=save_learning_metrics,
@@ -491,11 +501,9 @@ def main(
 
                         # Wait for all jobs to complete and collect results
                         completed_count = 0
-                        completed_folds = set()
-                        import time
                         start_time = time.time()
-                        per_job_timeout = 1800
-                        batch_timeout = per_job_timeout
+                        per_job_timeout = learning_timeout_seconds * 2  # 2x the learning timeout to account for the cleaning phase and other overheads
+                        batch_timeout = n_total_jobs * per_job_timeout
 
                         for future in as_completed(futures, timeout=batch_timeout):
                             try:
@@ -505,7 +513,6 @@ def main(
                                 results_list = future.result(timeout=per_job_timeout)
 
                                 fold_num = results_list[0]['fold'] if results_list else '?'
-                                completed_folds.add(fold_num)
 
                                 # Separate by phase
                                 for result in results_list:
@@ -515,8 +522,7 @@ def main(
                                     else:
                                         cleaned_results.append(result)
 
-                                print(f"  [MAIN] Fold {fold_num} results processed. "
-                                      f"Jobs done: {completed_count}/{n_total_jobs}")
+                                print(f"  [MAIN] Fold {fold_num} results processed. Jobs done: {completed_count}/{n_total_jobs}")
                             except TimeoutError:
                                 print(f"TIMEOUT: Job {completed_count} exceeded time limit")
                                 print(f"  Completed so far: {completed_count}/{n_total_jobs}")
@@ -525,23 +531,19 @@ def main(
                                 import traceback
                                 traceback.print_exc()
 
-                    print(f"✓ All {n_total_jobs} jobs for num_trajectories={num_trajectories}, "
-                          f"gt_rate={gt_rate}% completed")
+                    print(f"✓ All {n_total_jobs} jobs for num_trajectories={num_trajectories}, gt_rate={gt_rate}% completed")
 
                     # Write CSV files
                     timeout_suffix = f"_timeout{learning_timeout_seconds}s"
-                    csv_unclean = evaluation_results_dir / f"results_{bench_name}_unclean{timeout_suffix}.csv"
-                    csv_cleaned = evaluation_results_dir / f"results_{bench_name}{timeout_suffix}.csv"
+                    csv_unclean = evaluation_results_dir / f"results_{display_domain_name}_unclean{timeout_suffix}.csv"
+                    csv_cleaned = evaluation_results_dir / f"results_{display_domain_name}{timeout_suffix}.csv"
 
                     pd.DataFrame(unclean_results).to_csv(csv_unclean, index=False)
                     pd.DataFrame(cleaned_results).to_csv(csv_cleaned, index=False)
 
                     # Create combined CSV (unclean + cleaned results)
-                    csv_combined = evaluation_results_dir / f"results_{bench_name}_combined{timeout_suffix}.csv"
-
-                    # Filter results for this domain
-                    domain_results = [r for r in unclean_results + cleaned_results if r['domain'] == bench_name]
-                    pd.DataFrame(domain_results).to_csv(csv_combined, index=False)
+                    csv_combined = evaluation_results_dir / f"results_{display_domain_name}_combined{timeout_suffix}.csv"
+                    pd.DataFrame(_results_for_domain(unclean_results + cleaned_results, display_domain_name)).to_csv(csv_combined, index=False)
 
                     print(f"\n✓ Results written:")
                     print(f"  - Unclean: {csv_unclean}")
@@ -562,21 +564,21 @@ def main(
                 completed_numtrajs = sorted(set(r['num_trajectories'] for r in unclean_results))
                 print(f"  Completed num_trajectories so far: {completed_numtrajs}")
 
-                domain_results = [r for r in unclean_results + cleaned_results if r['domain'] == bench_name]
+                domain_results = _results_for_domain(unclean_results + cleaned_results, display_domain_name)
                 if not domain_results:
-                    print(f"\nWarning: No results collected for {bench_name} at num_trajectories={num_trajectories}; skipping plots")
+                    print(f"\nWarning: No results collected for {display_domain_name} at num_trajectories={num_trajectories}; skipping plots")
                 else:
                     # Generate GT injection analysis plots
                     print(f"\n{'='*60}")
                     print(f"GENERATING GT INJECTION PLOTS")
                     print(f"{'='*60}")
-                    generate_gt_injection_plots(csv_combined, evaluation_results_dir, bench_name)
+                    generate_gt_injection_plots(csv_combined, evaluation_results_dir, display_domain_name)
 
                     # Generate stacked solving rate plots
                     print(f"\n{'='*60}")
                     print(f"GENERATING STACKED SOLVING RATE PLOTS")
                     print(f"{'='*60}")
-                    plot_stacked_solving_rate(csv_combined, evaluation_results_dir, bench_name)
+                    plot_stacked_solving_rate(csv_combined, evaluation_results_dir, display_domain_name)
 
                 # Generate plots after each num_trajectories
                 plots_dir = evaluation_results_dir / "plots"
@@ -590,17 +592,12 @@ def main(
     print("CROSS-FOLD CORRELATION ANALYSIS")
     print("=" * 80)
 
-    for domain_name, bench_name in domains_to_run.items():
+    for domain_name, display_domain_name in domains_to_run.items():
         for dir_name in experiment_data_dirs[domain_name]:
-            if experiment_name:
-                corr_testing_dir = benchmark_path / 'data' / 'new_experiments' / domain_name / experiment_name / 'testing'
-                corr_eval_dir = benchmark_path / 'data' / 'new_experiments' / domain_name / experiment_name / 'evaluation_results'
-            else:
-                corr_testing_dir = benchmark_path / 'data' / domain_name / dir_name / 'testing'
-                corr_eval_dir = evaluation_results_dir
+            _, _, corr_testing_dir, corr_eval_dir = _resolve_experiment_paths(domain_name, dir_name, experiment_name, evaluation_results_dir)
 
             if not corr_testing_dir.exists():
-                print(f"  {bench_name}: testing dir not found, skipping correlation.")
+                print(f"  {display_domain_name}: testing dir not found, skipping correlation.")
                 continue
 
             fold_dirs = sorted(
@@ -610,12 +607,11 @@ def main(
             )
 
             if fold_dirs:
-                corr_output = corr_eval_dir / f"correlation_{bench_name}"
+                corr_output = corr_eval_dir / f"correlation_{display_domain_name}"
                 corr_result = aggregate_correlation_tables(fold_dirs, corr_output)
-                print(f"  {bench_name}: {corr_result['n']} data points, "
-                      f"output → {corr_output.name}/")
+                print(f"  {display_domain_name}: {corr_result['n']} data points, output → {corr_output.name}/")
             else:
-                print(f"  {bench_name}: no per-fold correlation tables found, skipping.")
+                print(f"  {display_domain_name}: no per-fold correlation tables found, skipping.")
 
     # =============================================================================
     # FINAL SUMMARY
@@ -741,9 +737,8 @@ if __name__ == "__main__":
         default=['rosame'],
         help=(
             'Baseline algorithms to run alongside SAM/PISAM. '
-            'Pass algorithm family names (e.g., "rosame"). '
-            'Use --baselines with no arguments to run NO baselines. '
-            'Default: rosame.'
+            'Pass one or more names (e.g. "rosame"). '
+            'Use "none" to skip all baselines. Default: rosame.'
         ),
     )
 
@@ -775,9 +770,16 @@ if __name__ == "__main__":
             exit(1)
         selected_domains = [args.domain]
 
-    # Instantiate baseline runners
-    from benchmark.baselines import get_baselines
-    baseline_runners = get_baselines(args.baselines) if args.baselines else []
+    if not args.baselines:
+        parser.error("--baselines requires a value (e.g. 'rosame', or 'none' to skip baselines)")
+    if len(args.baselines) == 1 and args.baselines[0].lower() == 'none':
+        baseline_names = []
+    elif any(name.lower() == 'none' for name in args.baselines):
+        parser.error("Cannot combine 'none' with other baseline names")
+    else:
+        baseline_names = args.baselines
+
+    baseline_runners = get_baselines(baseline_names) if baseline_names else []
     if baseline_runners:
         print(f"Baselines: {', '.join(r.display_name for r in baseline_runners)}")
     else:
@@ -806,16 +808,3 @@ if __name__ == "__main__":
         simulated_seed=args.simulated_seed,
         baselines=baseline_runners,
     )
-
-"""cli running command:
-python -m benchmark.amlgym_testing \
-  --domain blocksworld \
-  --mode masked \
-  --learning-timeout-seconds 300 \
-  --planning-timeout-seconds 60 \
-  --search-mode dfs \
-  --node-choosing-strategy model_patch_first \
-  --conflict-group-strategy largest \
-  --model-constraint-weight 0.0 \
-  --experiment-name MW=0__modelFirst__largest__FAfixed
-"""
