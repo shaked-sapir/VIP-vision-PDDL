@@ -23,7 +23,7 @@ Pipeline stages:
              that PI-SAM saw when a specific conflict-free model (CFM) was produced.
   Stage 2 — Trajectory-level attribution: vote table showing per-component evidence.
   Stage 3 — PI-SAM hypothesis evolution: snapshot effects/cannot_be_effect after every component.
-  Stage 4 — Conflict search analysis: saved learning_metrics.json + optional --retrace.
+  Stage 4 — Conflict search analysis: saved learning_metrics.json.
   Stage 5 — Final report (JSON + human-readable summary printed to stdout).
 
 Usage:
@@ -35,8 +35,6 @@ Usage:
         --predicate "(on-table ?x)" \\
         [--mode spurious|missing] \\
         [--cfm-index 3] \\
-        [--retrace]
-
 Notes:
   - --traj-base is the directory that contains one subdirectory per problem
     (e.g. problem3/, problem7/, …), each holding the .trajectory and .masking_info files.
@@ -46,6 +44,8 @@ Notes:
     fold directory and applies those fluent patches on top of the masked originals before
     running Stages 2 and 3. Without this flag, Stages 2 and 3 run on the raw originals.
   - No files in src/ are modified; tracing is done via a local subclass of PISAMLearner.
+  - For full search tree tracing, use retrace_search.py (produces search_trace.json for
+    visualize_trace.py).
 """
 
 import argparse
@@ -856,122 +856,6 @@ def analyse_saved_metrics(
     )
 
 
-def retrace_conflict_search(
-    ordered_observations: List[Tuple[str, Observation]],
-    fold_dir: Path,
-    domain: Domain,
-    target_action: str,
-    target_predicate_name: str,
-) -> ConflictSearchAnalysis:
-    """
-    Re-run ConflictDrivenPatchSearch with a tracing subclass to capture full
-    branching history for the target predicate.
-
-    Reads search parameters from learning_metrics.json to reproduce the original run.
-    Falls back to defaults if the metrics file is absent.
-    """
-    from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
-    from src.pi_sam.plan_denoising.frontier import (
-        SearchMode, NodeChoosingStrategy, ConflictGroupStrategy, FluentBranchMode,
-    )
-
-    # Load original search parameters from saved metrics if available.
-    metrics_path = fold_dir / "learning_metrics.json"
-    params: Dict = {}
-    if metrics_path.exists():
-        with open(metrics_path) as f:
-            params = json.load(f)
-
-    _MODE_MAP = {
-        "anytime_dfs": SearchMode.ANYTIME_DFS,
-        "ucs": SearchMode.UCS,
-    }
-    _NODE_MAP = {
-        "model_patch_first": NodeChoosingStrategy.MODEL_PATCH_FIRST,
-        "fluent_patch_first": NodeChoosingStrategy.FLUENT_PATCH_FIRST,
-        "fluent_patch_first_then_model": NodeChoosingStrategy.FLUENT_PATCH_FIRST_THEN_MODEL,
-        "randomized": NodeChoosingStrategy.RANDOMIZED,
-    }
-    _GROUP_MAP = {
-        "first": ConflictGroupStrategy.FIRST,
-        "largest": ConflictGroupStrategy.LARGEST,
-        "largest_model_patchable": ConflictGroupStrategy.LARGEST_MODEL_PATCHABLE,
-        "most_observations": ConflictGroupStrategy.MOST_OBSERVATIONS,
-        "smallest": ConflictGroupStrategy.SMALLEST,
-    }
-    _FLUENT_MAP = {
-        "group": FluentBranchMode.GROUP,
-        "single": FluentBranchMode.SINGLE,
-    }
-
-    search_mode = _MODE_MAP.get(
-        str(params.get("search_mode", "")).lower(), SearchMode.ANYTIME_DFS
-    )
-    node_choosing = _NODE_MAP.get(
-        str(params.get("node_choosing_strategy", "")).lower(),
-        NodeChoosingStrategy.MODEL_PATCH_FIRST,
-    )
-    conflict_group = _GROUP_MAP.get(
-        str(params.get("conflict_group_strategy", "")).lower(),
-        ConflictGroupStrategy.FIRST,
-    )
-    fluent_branch = _FLUENT_MAP.get(
-        str(params.get("fluent_branch_mode", "")).lower(),
-        FluentBranchMode.GROUP,
-    )
-    fluent_patch_cost = float(params.get("fluent_patch_cost") or 1.0)
-    fluent_patch_weight = float(params.get("fluent_patch_weight") or 1.0)
-    model_patch_cost = float(params.get("model_patch_cost") or 1.0)
-    model_constraint_weight = float(params.get("model_constraint_weight") or 0.0)
-    timeout_seconds = int(params.get("actual_timeout_seconds") or 60)
-    max_nodes = params.get("max_search_nodes")
-
-    searcher = ConflictDrivenPatchSearch(
-        partial_domain_template=domain,
-        search_mode=search_mode,
-        fluent_patch_cost=fluent_patch_cost,
-        fluent_patch_weight=fluent_patch_weight,
-        model_patch_cost=model_patch_cost,
-        model_constraint_weight=model_constraint_weight,
-        node_choosing_strategy=node_choosing,
-        conflict_group_strategy=conflict_group,
-        fluent_branch_mode=fluent_branch,
-    )
-
-    obs_list = [obs for _, obs in ordered_observations]
-    (learned_model, _, final_constraints, final_fluent_patches, _, report, _) = searcher.run(
-        observations=obs_list,
-        max_nodes=max_nodes,
-        timeout_seconds=timeout_seconds,
-    )
-
-    best_constraints = report.get("final_model_constraints") or []
-    best_fluent_patches_list = report.get("final_fluent_patches") or []
-
-    forbid_entries = [
-        c for c in best_constraints
-        if (c.get("action") == target_action
-            and c.get("model_part") == "eff"
-            and c.get("operation") == "forbid"
-            and target_predicate_name in c.get("predicate", ""))
-    ]
-
-    notes: List[str] = ["Retrace completed."]
-
-    return ConflictSearchAnalysis(
-        metrics_found=True,
-        conflict_group_formed=any(
-            c.get("action") == target_action for c in best_constraints
-        ),
-        model_forbid_generated=len(forbid_entries) > 0,
-        model_forbid_cost=None,
-        competing_fluent_patch_cost=None,
-        best_model_constraints=best_constraints,
-        best_fluent_patches=best_fluent_patches_list,
-        notes=notes,
-    )
-
-
 # ===========================================================================
 # Stage 5 — Assemble report and render
 # ===========================================================================
@@ -1424,10 +1308,6 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--retrace", action="store_true", default=False,
-        help="Re-run the conflict search with tracing hooks (slow). Default: analyse saved learning_metrics.json only.",
-    )
-    parser.add_argument(
         "--output", type=Path, default=None,
         help="Optional path to write the JSON diagnosis report. Defaults to <fold-dir>/diagnosis_<action>_<pred>.json.",
     )
@@ -1527,21 +1407,13 @@ def main() -> None:
     # Stage 4 — Conflict search analysis
     # ------------------------------------------------------------------
     conflict: Optional[ConflictSearchAnalysis] = None
-    if args.retrace:
-        print(f"\n[Stage 4] Re-running conflict search with tracing (--retrace) …")
-        domain_for_retrace = DomainParser(domain_path, partial_parsing=True).parse_domain()
-        conflict = retrace_conflict_search(
-            ordered_observations, fold_dir, domain_for_retrace,
-            target_action, target_predicate_name,
-        )
+    if cfm_index is not None:
+        print(f"\n[Stage 4] Analysing patch_details.json for CFM #{cfm_index} …")
     else:
-        if cfm_index is not None:
-            print(f"\n[Stage 4] Analysing patch_details.json for CFM #{cfm_index} …")
-        else:
-            print(f"\n[Stage 4] Analysing saved learning_metrics.json (global best solution) …")
-        conflict = analyse_saved_metrics(fold_dir, target_action, target_predicate_name, cfm_index=cfm_index)
-        if conflict is None:
-            print("  Metrics file not found — skipping conflict search analysis.")
+        print(f"\n[Stage 4] Analysing saved learning_metrics.json (global best solution) …")
+    conflict = analyse_saved_metrics(fold_dir, target_action, target_predicate_name, cfm_index=cfm_index)
+    if conflict is None:
+        print("  Metrics file not found — skipping conflict search analysis.")
 
     # ------------------------------------------------------------------
     # Stage 5 — Report

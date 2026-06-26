@@ -24,6 +24,7 @@ from src.pi_sam.noisy_pisam.typings import (
     FluentLevelPatch,
     ModelLevelPatch,
     ModelPart,
+    NodeExpansionEvent,
     PatchOperation,
     ParameterBoundLiteral,
     ConflictPriority,
@@ -345,6 +346,57 @@ class ConflictDrivenPatchSearchBase(ABC):
         out_path.write_text(json.dumps(solutions_log, indent=2))
 
     # ------------------------------------------------------------------
+    # Callback support
+    # ------------------------------------------------------------------
+
+    def _fire_node_event(
+        self,
+        callback: Callable[[NodeExpansionEvent], None],
+        node: SearchNode,
+        node_index: int,
+        conflicts: List[Conflict],
+        chosen_group: Optional[List[Conflict]] = None,
+        child_a: Optional[SearchNode] = None,
+        child_b: Optional[SearchNode] = None,
+        cfm_index: Optional[int] = None,
+    ) -> None:
+        """Build a NodeExpansionEvent and fire the callback."""
+        child_a_desc = None
+        child_b_desc = None
+        if child_a is not None:
+            new_fp = child_a.fluent_patches - node.fluent_patches
+            child_a_desc = f"fluent-fix: +{len(new_fp)} patch(es): {[str(p) for p in new_fp]}"
+        if child_b is not None:
+            new_mc = {k: v for k, v in child_b.model_constraints.items() if k not in node.model_constraints}
+            new_fp_b = child_b.fluent_patches - node.fluent_patches
+            if new_mc:
+                child_b_desc = f"model-fix: {[f'{v.value} {k[2]} in {k[1].value} of {k[0]}' for k, v in new_mc.items()]}"
+            elif new_fp_b:
+                child_b_desc = f"frame-axiom prev-fix: +{len(new_fp_b)} patch(es): {[str(p) for p in new_fp_b]}"
+
+        event = NodeExpansionEvent(
+            node_index=node_index,
+            depth=node.depth,
+            cost=node.cost,
+            model_constraints=tuple(
+                f"{v.value} {k[2]} in {k[1].value} of {k[0]}"
+                for k, v in node.model_constraints.items()
+            ),
+            fluent_patches=tuple(str(p) for p in node.fluent_patches),
+            conflicts=tuple(conflicts),
+            is_conflict_free=not conflicts,
+            chosen_group=tuple(chosen_group) if chosen_group else None,
+            parent_index=node.parent_index,
+            branch_type=node.branch_type,
+            cfm_index=cfm_index,
+            child_fluent_fix=child_a_desc,
+            child_model_fix=child_b_desc,
+            child_fluent_cost=child_a.cost if child_a else None,
+            child_model_cost=child_b.cost if child_b else None,
+        )
+        callback(event)
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -356,6 +408,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         initial_fluent_patches: Optional[Set[FluentLevelPatch]] = None,
         timeout_seconds: int = 60,
         gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None,
+        on_node_expanded: Optional[Callable[[NodeExpansionEvent], None]] = None,
     ) -> Tuple[
         LearnerDomain,
         List[Conflict],
@@ -507,6 +560,12 @@ class ConflictDrivenPatchSearchBase(ABC):
                         f"nodes_expanded={nodes_expanded}, depth={node.depth}"
                     )
 
+                if on_node_expanded is not None:
+                    self._fire_node_event(
+                        on_node_expanded, node, nodes_expanded - 1, [],
+                        cfm_index=conflict_free_count - 1,
+                    )
+
                 if self.search_mode == SearchMode.UCS:
                     terminated_by = "solution_found_ucs"
                     break
@@ -535,6 +594,8 @@ class ConflictDrivenPatchSearchBase(ABC):
             child_a_node: Optional[SearchNode] = None
             child_b_node: Optional[SearchNode] = None
 
+            current_node_index = nodes_expanded - 1
+
             if changed:
                 child_a_fluent_patches = self._dedup_patches(child_a_fluent_patches)
                 child_a_node = SearchNode(
@@ -542,6 +603,8 @@ class ConflictDrivenPatchSearchBase(ABC):
                     depth=node.depth + 1,
                     model_constraints=child_a_model_constraints,
                     fluent_patches=child_a_fluent_patches,
+                    parent_index=current_node_index,
+                    branch_type="fluent_fix",
                 )
 
             # Child B
@@ -558,6 +621,8 @@ class ConflictDrivenPatchSearchBase(ABC):
                         depth=node.depth + 1,
                         model_constraints=new_constraints,
                         fluent_patches=child_b_fluent_patches,
+                        parent_index=current_node_index,
+                        branch_type="model_fix",
                     )
             elif not rep_conflict.source_is_gt:
                 # FRAME-AXIOM at non-GT state: Child B = fix prev_state
@@ -580,6 +645,8 @@ class ConflictDrivenPatchSearchBase(ABC):
                         depth=node.depth + 1,
                         model_constraints=dict(node.model_constraints),
                         fluent_patches=child_b_fluent_patches,
+                        parent_index=current_node_index,
+                        branch_type="frame_axiom_prev_fix",
                     )
             # else: FRAME-AXIOM at GT state — no Child B (pre-state is ground
             # truth, so the only valid fix is on the next_state via Child A).
@@ -593,6 +660,12 @@ class ConflictDrivenPatchSearchBase(ABC):
                 ordered_children = list(reversed(ordered_children))
             for child in ordered_children:
                 frontier.push(child)
+
+            if on_node_expanded is not None:
+                self._fire_node_event(
+                    on_node_expanded, node, nodes_expanded - 1, conflicts,
+                    chosen_group=group, child_a=child_a_node, child_b=child_b_node,
+                )
 
         # ------------------------------------------------------------------
         # Build final result

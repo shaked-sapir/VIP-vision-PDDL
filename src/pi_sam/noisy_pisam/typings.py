@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, IntEnum
-from typing import Tuple, Optional
+from typing import Dict, FrozenSet, List, Tuple, Optional
 
 from pddl_plus_parser.models import Predicate
 
@@ -167,3 +167,27 @@ class Conflict:
 
     def __repr__(self) -> str:
         return self.__str__()
+
+
+@dataclass(frozen=True)
+class NodeExpansionEvent:
+    """Payload delivered to the on_node_expanded callback during conflict search.
+
+    Captures the full state of one search-node expansion: what patches were active,
+    what conflicts were found, and what branching decision was made.
+    """
+    node_index: int
+    depth: int
+    cost: float
+    model_constraints: Tuple[str, ...]
+    fluent_patches: Tuple[str, ...]
+    conflicts: Tuple[Conflict, ...]
+    is_conflict_free: bool
+    chosen_group: Optional[Tuple[Conflict, ...]] = None
+    parent_index: Optional[int] = None
+    branch_type: Optional[str] = None
+    cfm_index: Optional[int] = None
+    child_fluent_fix: Optional[str] = None
+    child_model_fix: Optional[str] = None
+    child_fluent_cost: Optional[float] = None
+    child_model_cost: Optional[float] = None

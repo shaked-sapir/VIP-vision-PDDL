@@ -7,7 +7,7 @@ import itertools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from src.pi_sam.noisy_pisam.typings import (
     FluentLevelPatch,
@@ -104,6 +104,8 @@ class SearchNode:
     depth: int
     model_constraints: Dict[Key, PatchOperation] = field(compare=False)
     fluent_patches: Set[FluentLevelPatch] = field(compare=False)
+    parent_index: Optional[int] = field(default=None, compare=False)
+    branch_type: Optional[str] = field(default=None, compare=False)
 
 
 class Frontier(ABC):
