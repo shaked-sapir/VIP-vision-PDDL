@@ -1,15 +1,27 @@
 """
-trace_spurious_effects.py — Diagnose why a lifted predicate ended up in an action's effects.
+trace_spurious_effects.py — Diagnose why a lifted predicate ended up in (or is missing from)
+a learned action's effects.
 
 Given an existing fold's data, this script replays the full learning pipeline with fine-grained
-tracing to identify the root cause of a spurious learned effect.
+tracing to identify the root cause of a spurious or missing learned effect.
+
+Two modes (--mode):
+  spurious (default) — traces why a predicate was INCORRECTLY ADDED to an action's effects.
+  missing            — traces why a predicate EXPECTED by the GT model is ABSENT from an
+                       action's effects. For each component where the target action fires, the
+                       script checks three sub-cases:
+                         (a) Predicate not in raw state diff at all (noise/trajectory problem).
+                         (b) Predicate was in diff but filtered out because it was masked in
+                             the next state (or its negation was masked in the prev state).
+                         (c) Predicate appeared in the diff but was later removed by
+                             cannot_be_effect (a previous observation put it in the forbidden set).
 
 Pipeline stages:
   Stage 0 — Load fold_info.json and reconstruct the canonical observation order.
   Stage 1 — Load and reconstruct masked observations (in fold_info order).
   Stage 1b — (optional) Apply CFM-specific fluent patches to reconstruct the exact observations
              that PI-SAM saw when a specific conflict-free model (CFM) was produced.
-  Stage 2 — Trajectory-level attribution: which trajectories "voted" the predicate into effects.
+  Stage 2 — Trajectory-level attribution: vote table showing per-component evidence.
   Stage 3 — PI-SAM hypothesis evolution: snapshot effects/cannot_be_effect after every component.
   Stage 4 — Conflict search analysis: saved learning_metrics.json + optional --retrace.
   Stage 5 — Final report (JSON + human-readable summary printed to stdout).
@@ -21,6 +33,7 @@ Usage:
         --traj-base benchmark/data/blocksworld/.../training/trajectories \\
         --action    stack \\
         --predicate "(on-table ?x)" \\
+        [--mode spurious|missing] \\
         [--cfm-index 3] \\
         [--retrace]
 
@@ -68,7 +81,29 @@ from utilities import NegativePreconditionPolicy
 
 @dataclass
 class VoteRecord:
-    """One row in the Stage-2 vote table."""
+    """One row in the Stage-2 vote table.
+
+    Shared fields:
+        obs_idx, problem, comp_idx — provenance.
+        predicate_in_diff — whether the predicate appeared in the raw state diff (as add or delete).
+        diff_direction — "add", "delete", or "none".
+        masked_in_prev, masked_in_next — masking status of the specific grounded instance.
+        is_first_encounter — True when this is the first time the action is seen (add_new_action).
+
+    spurious mode only:
+        spurious_vote — True when predicate appears as an add-effect in the diff.
+
+    missing mode only:
+        missing_reason — one of:
+            "not_in_diff"  — predicate absent from raw diff entirely (data/noise problem).
+            "masked_out"   — predicate was in the raw diff but masked on prev or next side,
+                             so extract_discrete_effects filtered it out.
+            "in_diff_ok"   — predicate appeared cleanly in the diff (not masked); the absence
+                             in the final model must have another cause (cannot_be_effect, etc.).
+            "n/a"          — first encounter or different action.
+        missing_filtered_by_mask — True when the predicate would have been an add-effect but
+            was excluded because of masking (masked_in_next=True or negation-in-prev was masked).
+    """
     obs_idx: int
     problem: str
     comp_idx: int
@@ -76,9 +111,12 @@ class VoteRecord:
     diff_direction: str          # "add", "delete", or "none"
     masked_in_prev: bool
     masked_in_next: bool
-    spurious_vote: bool          # True when predicate appears as add-effect diff
+    spurious_vote: bool          # True when predicate appears as add-effect diff (spurious mode)
     is_first_encounter: bool     # True when this is the first time the action is seen (add_new_action);
                                  # this component initialises the hypothesis, it does not refine it.
+    # missing mode fields (always populated; irrelevant in spurious mode)
+    missing_reason: str = "n/a"          # see docstring above
+    missing_filtered_by_mask: bool = False   # True when masking caused the predicate to be excluded
 
 
 @dataclass
@@ -111,6 +149,7 @@ class ConflictSearchAnalysis:
 @dataclass
 class DiagnosisReport:
     """Full diagnosis output."""
+    mode: str                               # "spurious" or "missing"
     target_action: str
     target_predicate: str
     fold_dir: str
@@ -121,10 +160,15 @@ class DiagnosisReport:
     cfm_model_constraints: Optional[List[Dict]]   # model constraints active at CFM #N
     cfm_fluent_patch_count: Optional[int]         # how many fluent patches were applied
 
-    # Stage 2
+    # Stage 2 — shared
     vote_table: List[VoteRecord]
     total_votes: int
     masked_votes: int                        # votes where prev or next was masked
+
+    # Stage 2 — missing mode only
+    components_not_in_diff: int             # predicate absent from raw diff entirely
+    components_masked_out: int              # predicate filtered by masking
+    components_in_diff_ok: int             # predicate in diff cleanly (not masked)
 
     # Stage 3
     hypothesis_snapshots: List[HypothesisSnapshot]
@@ -356,11 +400,11 @@ def compute_vote_table(
     ordered_observations: List[Tuple[str, Observation]],
     target_action: str,
     target_predicate_name: str,
+    mode: str = "spurious",
 ) -> List[VoteRecord]:
     """
     For every component in every observation where the target action fires,
-    compute a raw state diff and record whether the target predicate appears
-    as an add-effect (spurious_vote=True).
+    compute a raw state diff and record per-component evidence.
 
     Uses only unmasked predicate pairs in the diff computation (same as PI-SAM)
     so as to faithfully reflect what the learner sees.
@@ -369,14 +413,28 @@ def compute_vote_table(
         ordered_observations:  List of (problem, observation) in processing order.
         target_action:         Action name to monitor (e.g. "stack").
         target_predicate_name: Base predicate name to search for (e.g. "on-table").
+        mode:                  "spurious" — record add-effect votes.
+                               "missing"  — record why predicate was NOT learned as add-effect.
 
     Returns:
         List of VoteRecord, one per relevant component.
+
+    Missing mode sub-cases (stored in VoteRecord.missing_reason):
+        "not_in_diff"  — predicate absent from raw diff entirely.
+        "masked_out"   — in raw diff, but masked on next or prev side → filtered by PI-SAM.
+        "in_diff_ok"   — predicate in diff cleanly (PI-SAM should have picked it up).
     """
     records: List[VoteRecord] = []
     # Track whether the target action has been seen before across all observations,
     # mirroring PI-SAM's observed_actions list so we can flag add_new_action components.
     target_action_seen: bool = False
+
+    def _is_masked_in(preds: Set, name: str, obj_mapping: dict) -> bool:
+        """Check if a specific grounded predicate instance is masked in a predicate set."""
+        return any(
+            p.is_masked and p.name == name and p.object_mapping == obj_mapping
+            for p in preds
+        )
 
     for obs_idx, (problem, obs) in enumerate(ordered_observations):
         for comp_idx, component in enumerate(obs.components):
@@ -393,6 +451,20 @@ def compute_vote_table(
             grounded_add, grounded_del = extract_discrete_effects_partial_observability(
                 prev_preds, next_preds
             )
+
+            # --- DEBUG: dump raw state content when the target predicate is relevant ---
+            raw_in_next = [p for p in next_preds if p.name == target_predicate_name]
+            raw_in_prev = [p for p in prev_preds if p.name == target_predicate_name]
+            if raw_in_next or raw_in_prev:
+                prev_details = [(p.untyped_representation, p.is_masked) for p in raw_in_prev]
+                next_details = [(p.untyped_representation, p.is_masked) for p in raw_in_next]
+                add_names = [p.name for p in grounded_add]
+                del_names = [p.name for p in grounded_del]
+                print(
+                    f"  DEBUG obs={obs_idx}/{problem} comp={comp_idx}: "
+                    f"in_prev={prev_details}, in_next={next_details}, "
+                    f"grounded_add={add_names}, grounded_del={del_names}"
+                )
 
             # Find the specific voted grounded instance (matched by object_mapping).
             voted_add = next(
@@ -418,12 +490,6 @@ def compute_vote_table(
             # Note: extract_discrete_effects_partial_observability already excludes masked
             # instances, so voted itself is never masked — but its counterpart in the
             # other state might be (e.g. the negation in prev was masked).
-            def _is_masked_in(preds: Set, name: str, obj_mapping: dict) -> bool:
-                return any(
-                    p.is_masked and p.name == name and p.object_mapping == obj_mapping
-                    for p in preds
-                )
-
             if voted is not None:
                 target_in_prev_masked = _is_masked_in(prev_preds, voted.name, voted.object_mapping)
                 target_in_next_masked = _is_masked_in(next_preds, voted.name, voted.object_mapping)
@@ -439,6 +505,79 @@ def compute_vote_table(
             is_first = not target_action_seen
             target_action_seen = True  # mark seen after first encounter
 
+            # --- missing mode: classify why the predicate was not picked up as effect ---
+            missing_reason: str = "n/a"
+            missing_filtered_by_mask: bool = False
+
+            if mode == "missing" and not is_first:
+                if in_add or in_del:
+                    # Sub-case (c): predicate WAS in the diff cleanly — the model constraint
+                    # (cannot_be_effect) must have removed it later.
+                    missing_reason = "in_diff_ok"
+                else:
+                    # Predicate not in the filtered diff. Figure out why.
+                    # First, check the raw state content directly: is the predicate
+                    # in one state but not the other (i.e. genuinely changed)?
+                    # raw_in_next and raw_in_prev were already computed above for the debug print.
+
+                    # Detect raw add-effect: in next (unmasked) but absent from prev.
+                    raw_add_found = False
+                    raw_add_missed_by_extract = False
+                    masked_out_found = False
+                    for np in raw_in_next:
+                        pp = next(
+                            (p for p in raw_in_prev if p.object_mapping == np.object_mapping), None
+                        )
+                        if pp is None:
+                            # Grounding present in next, absent from prev → potential add-effect.
+                            prev_negation_masked = _is_masked_in(
+                                prev_preds, target_predicate_name, np.object_mapping
+                            )
+                            if np.is_masked or prev_negation_masked:
+                                masked_out_found = True
+                            elif not np.is_masked:
+                                # Unmasked in next, absent from prev, not masked →
+                                # should have been an add-effect but extract_discrete_effects missed it.
+                                raw_add_found = True
+                                raw_add_missed_by_extract = True
+
+                    # Detect raw delete-effect: in prev (unmasked) but absent from next.
+                    raw_del_found = False
+                    raw_del_missed_by_extract = False
+                    for pp in raw_in_prev:
+                        np_match = next(
+                            (p for p in raw_in_next if p.object_mapping == pp.object_mapping), None
+                        )
+                        if np_match is None:
+                            # Grounding present in prev, absent from next → potential del-effect.
+                            next_negation_masked = _is_masked_in(
+                                next_preds, target_predicate_name, pp.object_mapping
+                            )
+                            if pp.is_masked or next_negation_masked:
+                                masked_out_found = True
+                            elif not pp.is_masked:
+                                raw_del_found = True
+                                raw_del_missed_by_extract = True
+
+                    if masked_out_found:
+                        missing_reason = "masked_out"
+                        missing_filtered_by_mask = True
+                    elif raw_add_missed_by_extract or raw_del_missed_by_extract:
+                        # The predicate genuinely changed between states (unmasked),
+                        # but extract_discrete_effects_partial_observability did not
+                        # return it. This points to a predicate matching/equality issue
+                        # in the external function.
+                        missing_reason = "in_raw_diff_but_extract_missed"
+                        print(
+                            f"  WARNING obs={obs_idx}/{problem} comp={comp_idx}: "
+                            f"predicate '{target_predicate_name}' is in the raw state diff "
+                            f"(add={raw_add_found}, del={raw_del_found}) but "
+                            f"extract_discrete_effects_partial_observability did not return it. "
+                            f"Possible predicate equality/hashing issue."
+                        )
+                    else:
+                        missing_reason = "not_in_diff"
+
             records.append(VoteRecord(
                 obs_idx=obs_idx,
                 problem=problem,
@@ -449,6 +588,8 @@ def compute_vote_table(
                 masked_in_next=target_in_next_masked,
                 spurious_vote=in_add,
                 is_first_encounter=is_first,
+                missing_reason=missing_reason,
+                missing_filtered_by_mask=missing_filtered_by_mask,
             ))
 
     return records
@@ -785,22 +926,7 @@ def retrace_conflict_search(
     timeout_seconds = int(params.get("actual_timeout_seconds") or 60)
     max_nodes = params.get("max_search_nodes")
 
-    # Collect per-node trace events for the target.
-    trace_events: List[str] = []
-
-    class TracingSearch(ConflictDrivenPatchSearch):
-        """Wraps the search to log every node touching the target predicate."""
-
-        def _expand_node(self, node, observations):  # type: ignore[override]
-            """Intercept node expansion — log if target predicate is involved."""
-            try:
-                result = super()._expand_node(node, observations)
-            except TypeError:
-                # Signature mismatch guard — fall back gracefully.
-                result = super()._expand_node(node)  # type: ignore[call-arg]
-            return result
-
-    searcher = TracingSearch(
+    searcher = ConflictDrivenPatchSearch(
         partial_domain_template=domain,
         search_mode=search_mode,
         fluent_patch_cost=fluent_patch_cost,
@@ -830,10 +956,7 @@ def retrace_conflict_search(
             and target_predicate_name in c.get("predicate", ""))
     ]
 
-    notes: List[str] = [f"Retrace completed. Trace events: {len(trace_events)}"]
-    notes += trace_events[:50]  # Cap for readability.
-    if len(trace_events) > 50:
-        notes.append(f"... ({len(trace_events) - 50} more events truncated)")
+    notes: List[str] = ["Retrace completed."]
 
     return ConflictSearchAnalysis(
         metrics_found=True,
@@ -858,8 +981,15 @@ def _derive_verdict(
     snapshots: List[HypothesisSnapshot],
     conflict: Optional[ConflictSearchAnalysis],
     cfm_index: Optional[int] = None,
+    mode: str = "spurious",
 ) -> str:
     """Produce a short human-readable verdict from the collected evidence."""
+    scope = f"CFM #{cfm_index}" if cfm_index is not None else "the global best solution"
+
+    if mode == "missing":
+        return _derive_missing_verdict(vote_table, snapshots, conflict, scope)
+
+    # --- spurious mode ---
     votes = [v for v in vote_table if v.spurious_vote and not v.is_first_encounter]
     masked_votes = [v for v in votes if v.masked_in_prev or v.masked_in_next]
     clean_votes = [v for v in votes if not v.masked_in_prev and not v.masked_in_next]
@@ -898,7 +1028,6 @@ def _derive_verdict(
             f"via {first_intro.event}."
         )
 
-    scope = f"CFM #{cfm_index}" if cfm_index is not None else "the global best solution"
     if conflict is None:
         lines.append("No conflict-search metrics available (was denoising run?).")
     elif not conflict.conflict_group_formed:
@@ -913,13 +1042,7 @@ def _derive_verdict(
             "This is contradictory: check whether the observations fed to PI-SAM at this node "
             "still produced the add-effect diff despite the constraint."
         )
-    elif hasattr(conflict, 'model_require_generated') and conflict.model_require_generated:
-        lines.append(
-            f"A REQUIRE-effect constraint for this predicate is active in {scope} — "
-            "the search explicitly required it as an effect, which explains its presence."
-        )
     else:
-        # Check notes for require signal since model_require_generated is not in the dataclass
         require_note = any("REQUIRE-effect" in n for n in (conflict.notes or []))
         if require_note:
             lines.append(
@@ -935,6 +1058,109 @@ def _derive_verdict(
     return " | ".join(lines)
 
 
+def _derive_missing_verdict(
+    vote_table: List[VoteRecord],
+    snapshots: List[HypothesisSnapshot],
+    conflict: Optional[ConflictSearchAnalysis],
+    scope: str,
+) -> str:
+    """Produce a verdict for missing-mode diagnosis."""
+    active_records = [v for v in vote_table if not v.is_first_encounter]
+    not_in_diff = [v for v in active_records if v.missing_reason == "not_in_diff"]
+    masked_out  = [v for v in active_records if v.missing_reason == "masked_out"]
+    in_diff_ok  = [v for v in active_records if v.missing_reason == "in_diff_ok"]
+
+    ever_in_effects = any(s.target_in_effects for s in snapshots)
+    ever_in_cannot  = any(s.target_in_cannot_be for s in snapshots)
+
+    lines: List[str] = []
+
+    total_active = len(active_records)
+    if total_active == 0:
+        lines.append(
+            "Action was never seen in any observation after the first encounter. "
+            "No evidence can be gathered."
+        )
+        return " ".join(lines)
+
+    # Summarise sub-cases.
+    if not_in_diff:
+        lines.append(
+            f"{len(not_in_diff)}/{total_active} component(s) where the predicate was "
+            f"COMPLETELY ABSENT from the raw diff "
+            f"(obs: {[v.obs_idx for v in not_in_diff]}). "
+            "This is the dominant data-level reason the predicate was never voted in."
+        )
+    if masked_out:
+        lines.append(
+            f"{len(masked_out)}/{total_active} component(s) where the predicate WAS in the raw diff "
+            f"but was MASKED OUT before PI-SAM could see it "
+            f"(obs: {[v.obs_idx for v in masked_out]}). "
+            "Masking filtered it from the effect set."
+        )
+    if in_diff_ok:
+        lines.append(
+            f"{len(in_diff_ok)}/{total_active} component(s) where the predicate appeared CLEANLY in "
+            f"the diff (obs: {[v.obs_idx for v in in_diff_ok]}). "
+            "PI-SAM should have added it — check Stage 3 for cannot_be_effect overrides."
+        )
+
+    # Hypothesis-level evidence.
+    if ever_in_effects:
+        last_in = next(
+            (s for s in reversed(snapshots) if s.target_in_effects), None
+        )
+        last_out = next(
+            (s for s in reversed(snapshots) if not s.target_in_effects and s.obs_idx >= (last_in.obs_idx if last_in else 0)), None
+        )
+        if last_out and last_in:
+            lines.append(
+                f"PI-SAM introduced the predicate at some point (obs={last_in.obs_idx}) "
+                f"but it was later REMOVED from effects — check Stage 3 snapshots."
+            )
+        else:
+            lines.append("PI-SAM DID introduce the predicate at some point — check Stage 3 for when it was removed.")
+    else:
+        lines.append("PI-SAM NEVER introduced the predicate into effects during replay.")
+
+    if ever_in_cannot:
+        first_cbe = next((s for s in snapshots if s.target_in_cannot_be), None)
+        cbe_obs  = first_cbe.obs_idx   if first_cbe else "?"
+        cbe_comp = first_cbe.comp_idx  if first_cbe else "?"
+        lines.append(
+            f"Predicate entered cannot_be_effect at obs={cbe_obs}, comp={cbe_comp} — "
+            "this explains its permanent exclusion from effects."
+        )
+
+    # Conflict search evidence.
+    if conflict is None:
+        lines.append("No conflict-search metrics available.")
+    elif conflict.model_forbid_generated:
+        lines.append(
+            f"A FORBID-effect constraint for this predicate is active in {scope} — "
+            "the search explicitly banned it as an effect at this node, which explains its absence."
+        )
+    else:
+        require_note = any("REQUIRE-effect" in n for n in (conflict.notes or []))
+        if require_note:
+            lines.append(
+                f"A REQUIRE-effect constraint for this predicate is active in {scope} — "
+                "yet the predicate is absent. This is contradictory — check Stage 3."
+            )
+        elif conflict.conflict_group_formed:
+            lines.append(
+                f"A conflict group for this action was formed in {scope}, "
+                "but no explicit constraint targets this predicate — fluent patches may have been applied."
+            )
+        else:
+            lines.append(
+                f"No conflict group formed for this action in {scope}. "
+                "The missing effect was not addressed by the conflict search."
+            )
+
+    return " | ".join(lines)
+
+
 def build_report(
     fold_dir: Path,
     target_action: str,
@@ -945,17 +1171,24 @@ def build_report(
     conflict: Optional[ConflictSearchAnalysis],
     cfm_index: Optional[int] = None,
     patch_details: Optional[Dict] = None,
+    mode: str = "spurious",
 ) -> DiagnosisReport:
     """Assemble a DiagnosisReport from stage outputs."""
     votes = [v for v in vote_table if v.spurious_vote and not v.is_first_encounter]
     masked_votes = [v for v in votes if v.masked_in_prev or v.masked_in_next]
+
+    # Missing mode counts.
+    active = [v for v in vote_table if not v.is_first_encounter]
+    components_not_in_diff = sum(1 for v in active if v.missing_reason == "not_in_diff")
+    components_masked_out  = sum(1 for v in active if v.missing_reason == "masked_out")
+    components_in_diff_ok  = sum(1 for v in active if v.missing_reason == "in_diff_ok")
 
     first_intro = next(
         (s for s in snapshots if s.target_in_effects), None
     )
     ever_in_cannot_be = any(s.target_in_cannot_be for s in snapshots)
 
-    verdict = _derive_verdict(vote_table, snapshots, conflict, cfm_index=cfm_index)
+    verdict = _derive_verdict(vote_table, snapshots, conflict, cfm_index=cfm_index, mode=mode)
 
     cfm_model_constraints: Optional[List[Dict]] = None
     cfm_fluent_patch_count: Optional[int] = None
@@ -964,6 +1197,7 @@ def build_report(
         cfm_fluent_patch_count = len(patch_details.get("fluent_patches", []))
 
     return DiagnosisReport(
+        mode=mode,
         target_action=target_action,
         target_predicate=target_predicate,
         fold_dir=str(fold_dir),
@@ -974,6 +1208,9 @@ def build_report(
         vote_table=vote_table,
         total_votes=len(votes),
         masked_votes=len(masked_votes),
+        components_not_in_diff=components_not_in_diff,
+        components_masked_out=components_masked_out,
+        components_in_diff_ok=components_in_diff_ok,
         hypothesis_snapshots=snapshots,
         first_introduction_obs=first_intro.obs_idx if first_intro else None,
         first_introduction_comp=first_intro.comp_idx if first_intro else None,
@@ -987,9 +1224,11 @@ def build_report(
 def print_human_report(report: DiagnosisReport) -> None:
     """Render the DiagnosisReport to stdout in a readable format."""
     sep = "─" * 70
+    mode_label = "MISSING EFFECT" if report.mode == "missing" else "SPURIOUS EFFECT"
 
     print(f"\n{sep}")
-    print(f"  SPURIOUS EFFECT DIAGNOSIS")
+    print(f"  {mode_label} DIAGNOSIS")
+    print(f"  Mode:       {report.mode}")
     print(f"  Action:     {report.target_action}")
     print(f"  Predicate:  {report.target_predicate}")
     print(f"  Fold dir:   {report.fold_dir}")
@@ -1012,7 +1251,33 @@ def print_human_report(report: DiagnosisReport) -> None:
     print(f"\n[Stage 2 — Trajectory Attribution]")
     if not report.vote_table:
         print(f"  Action '{report.target_action}' was never fired in any observation.")
+    elif report.mode == "missing":
+        # Missing mode table: show missing_reason instead of vote.
+        header = (
+            f"  {'obs':>4}  {'problem':<12}  {'comp':>4}  {'in_diff':>7}  {'dir':>6}  "
+            f"{'masked_prev':>11}  {'masked_next':>11}  {'reason':<14}  note"
+        )
+        print(header)
+        print(f"  {'-'*95}")
+        for v in report.vote_table:
+            if v.is_first_encounter:
+                note = "FIRST ENCOUNTER (add_new_action — initialises hypothesis)"
+                reason_str = "n/a"
+            else:
+                note = ""
+                reason_str = v.missing_reason
+            print(
+                f"  {v.obs_idx:>4}  {v.problem:<12}  {v.comp_idx:>4}  "
+                f"{str(v.predicate_in_diff):>7}  {v.diff_direction:>6}  "
+                f"{str(v.masked_in_prev):>11}  {str(v.masked_in_next):>11}  "
+                f"{reason_str:<14}  {note}"
+            )
+        print(f"\n  Components (excl. first encounter): {len([v for v in report.vote_table if not v.is_first_encounter])}")
+        print(f"  not_in_diff (no evidence at all) : {report.components_not_in_diff}")
+        print(f"  masked_out  (masking filtered it): {report.components_masked_out}")
+        print(f"  in_diff_ok  (was in diff cleanly): {report.components_in_diff_ok}")
     else:
+        # Spurious mode table.
         header = f"  {'obs':>4}  {'problem':<12}  {'comp':>4}  {'in_diff':>7}  {'dir':>6}  {'masked_prev':>11}  {'masked_next':>11}  {'vote':>5}  note"
         print(header)
         print(f"  {'-'*80}")
@@ -1137,6 +1402,17 @@ def parse_args() -> argparse.Namespace:
         help="Lifted predicate to trace, e.g. '(on-table ?x)'. Only the predicate name is used for matching.",
     )
     parser.add_argument(
+        "--mode", choices=["spurious", "missing"], default="spurious",
+        help=(
+            "Diagnosis mode. "
+            "'spurious' (default): trace why a predicate was incorrectly added to effects. "
+            "'missing': trace why a predicate expected by the GT model is absent from effects. "
+            "In missing mode Stage 2 classifies each component into: not_in_diff (predicate "
+            "never appeared in raw diff), masked_out (in diff but filtered by masking), or "
+            "in_diff_ok (in diff cleanly — points to cannot_be_effect override in Stage 3)."
+        ),
+    )
+    parser.add_argument(
         "--cfm-index", type=int, default=None, metavar="N",
         help=(
             "Zero-based index of the conflict-free model to analyse (e.g. --cfm-index 3). "
@@ -1168,8 +1444,11 @@ def main() -> None:
     target_predicate: str = args.predicate.strip()
     target_predicate_name: str = _predicate_name_from_lifted(target_predicate)
     cfm_index: Optional[int] = args.cfm_index
+    mode: str = args.mode
 
-    print(f"\nDiagnosing spurious effect:")
+    mode_label = "missing effect" if mode == "missing" else "spurious effect"
+    print(f"\nDiagnosing {mode_label}:")
+    print(f"  Mode:      {mode}")
     print(f"  Action:    {target_action}")
     print(f"  Predicate: {target_predicate}  (name: {target_predicate_name})")
     print(f"  Fold dir:  {fold_dir}")
@@ -1213,11 +1492,18 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Stage 2 — Trajectory attribution
     # ------------------------------------------------------------------
-    print(f"\n[Stage 2] Computing vote table for action='{target_action}', predicate='{target_predicate_name}' …")
-    vote_table = compute_vote_table(ordered_observations, target_action, target_predicate_name)
-    spurious = [v for v in vote_table if v.spurious_vote]
-    print(f"  Components with action '{target_action}': {len(vote_table)}")
-    print(f"  Spurious-vote components:                {len(spurious)}")
+    print(f"\n[Stage 2] Computing vote table for action='{target_action}', predicate='{target_predicate_name}' (mode={mode}) …")
+    vote_table = compute_vote_table(ordered_observations, target_action, target_predicate_name, mode=mode)
+    if mode == "missing":
+        active = [v for v in vote_table if not v.is_first_encounter]
+        print(f"  Components with action '{target_action}': {len(vote_table)}")
+        print(f"  not_in_diff: {sum(1 for v in active if v.missing_reason == 'not_in_diff')}")
+        print(f"  masked_out:  {sum(1 for v in active if v.missing_reason == 'masked_out')}")
+        print(f"  in_diff_ok:  {sum(1 for v in active if v.missing_reason == 'in_diff_ok')}")
+    else:
+        spurious = [v for v in vote_table if v.spurious_vote]
+        print(f"  Components with action '{target_action}': {len(vote_table)}")
+        print(f"  Spurious-vote components:                {len(spurious)}")
 
     # ------------------------------------------------------------------
     # Stage 3 — PI-SAM hypothesis evolution
@@ -1271,6 +1557,7 @@ def main() -> None:
         conflict=conflict,
         cfm_index=cfm_index,
         patch_details=patch_details,
+        mode=mode,
     )
 
     print_human_report(report)
@@ -1278,7 +1565,8 @@ def main() -> None:
     # Save JSON report.
     safe_pred = target_predicate_name.replace("-", "_").replace("?", "").replace("(", "").replace(")", "")
     cfm_suffix = f"_cfm{cfm_index}" if cfm_index is not None else ""
-    output_path = args.output or (fold_dir / f"diagnosis_{target_action}_{safe_pred}{cfm_suffix}.json")
+    mode_suffix = f"_{mode}"
+    output_path = args.output or (fold_dir / f"diagnosis_{target_action}_{safe_pred}{cfm_suffix}{mode_suffix}.json")
     save_json_report(report, output_path)
 
 
