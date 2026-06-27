@@ -108,13 +108,15 @@ def _resolve_fluent_branch_mode(
 def _learn_pisam_with_profiling(
     domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler,
     fold_work_dir=None, prepared_trajectories=None, gt_source_indices_by_obs=None,
-    pre_built_observations=None,
+    pre_built_observations=None, events_tracing: bool = False,
 ):
     """Learn PISAM with detailed profiling.
 
     Args:
         pre_built_observations: Optional list of pre-built Observation objects.
             When provided, file loading from traj_paths is skipped entirely.
+        events_tracing: If True, collect node expansion events and write
+            search_trace.json to fold_work_dir after the search completes.
     """
     partial_domain = DomainParser(Path(str(domain_ref_path)), partial_parsing=True).parse_domain()
 
@@ -186,12 +188,38 @@ def _learn_pisam_with_profiling(
             conflict_free_models_dir=conflict_free_models_dir,
             save_t_prime_fn=save_t_prime_fn,
         )
+        # Set up tracing callback if requested
+        trace_log = None
+        on_node_expanded = None
+        if events_tracing and is_denoising:
+            from src.pi_sam.plan_denoising.conflict_search import NodeExpansionEvent
+            trace_log = []
+            def on_node_expanded(event: NodeExpansionEvent) -> None:
+                trace_log.append(event)
+
         learned_model, _, _, _, _, report, patched_observations = conflict_search.run(
             observations=masked_observations,
             max_nodes=learner.max_search_nodes,
             timeout_seconds=learner.timeout_seconds,
             gt_source_indices_by_obs=gt_source_indices_by_obs,
+            on_node_expanded=on_node_expanded,
         )
+
+        # Write trace JSON if tracing was active
+        if trace_log is not None and fold_work_dir is not None:
+            from benchmark.diagnosis.trace_serialization import write_trace_json
+            search_params = {
+                "search_mode": learner.search_mode.value if hasattr(learner.search_mode, 'value') else str(learner.search_mode),
+                "node_choosing_strategy": learner.node_choosing_strategy.value if hasattr(learner.node_choosing_strategy, 'value') else str(learner.node_choosing_strategy),
+                "conflict_group_strategy": learner.conflict_group_strategy.value if hasattr(learner.conflict_group_strategy, 'value') else str(learner.conflict_group_strategy),
+                "fluent_branch_mode": learner.fluent_branch_mode.value if hasattr(learner.fluent_branch_mode, 'value') else str(learner.fluent_branch_mode),
+                "fluent_patch_cost": learner.fluent_patch_cost,
+                "model_patch_cost": learner.model_patch_cost,
+                "timeout_seconds": learner.timeout_seconds,
+            }
+            trace_path = fold_work_dir / "search_trace.json"
+            write_trace_json(trace_log, trace_path, search_params, fold_dir=fold_work_dir)
+
         model = learned_model.to_pddl()
     else:
         pi_sam = PISAMLearner(partial_domain=partial_domain, negative_preconditions_policy=NegativePreconditionPolicy.hard)
@@ -225,6 +253,7 @@ def learn_sam_pisam(
     fluent_branch_mode: str = "group",
     pre_built_observations: Optional[list] = None,
     gt_source_indices_override: Optional[Dict[int, Set[int]]] = None,
+    events_tracing: bool = False,
 ) -> Tuple[str, dict, str, any]:
     """
     Learn SAM/PISAM model.
@@ -253,6 +282,8 @@ def learn_sam_pisam(
             When provided, file-based loading is skipped entirely (simulated data mode).
         gt_source_indices_override: Optional explicit gt_source_indices_by_obs dict.
             When provided, overrides the indices extracted from prepared_trajectories.
+        events_tracing: If True, collect node expansion events and write
+            search_trace.json to fold_work_dir after the denoising search.
 
     Returns:
         Tuple of (model, learning_report, algorithm_name, patched_observations)
@@ -289,14 +320,15 @@ def learn_sam_pisam(
             # Capture actual timeout used (either explicit or default)
             actual_learning_timeout = learner.timeout_seconds
 
-        if profiler or pre_built_observations is not None:
+        if profiler or pre_built_observations is not None or events_tracing:
             # Use direct learning path (required when observations are pre-built;
-            # also used when profiler is available for detailed timing).
+            # also used when profiler is available for detailed timing or events tracing).
             model, report, patched_observations = _learn_pisam_with_profiling(
                 domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler,
                 fold_work_dir=fold_work_dir, prepared_trajectories=prepared_trajectories,
                 gt_source_indices_by_obs=gt_source_indices_by_obs,
                 pre_built_observations=pre_built_observations,
+                events_tracing=events_tracing,
             )
         else:
             learn_kwargs = {}

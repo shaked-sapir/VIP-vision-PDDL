@@ -182,6 +182,7 @@ def run_single_fold(
     simulated_noising_strategy: NoisingType = NoisingType.PERCENTAGE,
     simulated_noising_p: float = 0.15,
     simulated_seed: int = 42,
+    events_tracing: bool = False,
 ) -> List[dict]:
     """
     Run a single fold experiment with specified number of trajectories and GT rate.
@@ -480,6 +481,7 @@ def run_single_fold(
                     fluent_branch_mode=fluent_branch_mode,
                     pre_built_observations=simulated_observations,
                     gt_source_indices_override=simulated_gt_indices,
+                    events_tracing=events_tracing,
                 )
             print(f"  [PHASE 2] Denoising complete, saving metrics...")
             save_learning_metrics_func(fold_work_dir, denoising_report)

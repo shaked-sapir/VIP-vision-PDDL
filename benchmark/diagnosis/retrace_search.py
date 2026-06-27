@@ -161,11 +161,6 @@ def retrace_conflict_search(
 
     def _on_node(event: NodeExpansionEvent) -> None:
         trace_log.append(event)
-        tag = "CF" if event.is_conflict_free else f"{len(event.conflicts)}c"
-        print(
-            f"    node #{event.node_index:>3d}  depth={event.depth}  cost={event.cost:.2f}  "
-            f"[{tag}]  mc={len(event.model_constraints)}  fp={len(event.fluent_patches)}"
-        )
 
     searcher = ConflictDrivenPatchSearch(
         partial_domain_template=domain,
@@ -188,44 +183,7 @@ def retrace_conflict_search(
     )
 
     # --- Serialize trace ---
-    def _serialize_event(e: NodeExpansionEvent) -> Dict:
-        return {
-            "index": e.node_index,
-            "parent_index": e.parent_index,
-            "branch_type": e.branch_type,
-            "depth": e.depth,
-            "cost": e.cost,
-            "is_conflict_free": e.is_conflict_free,
-            "cfm_index": e.cfm_index,
-            "model_constraints": list(e.model_constraints),
-            "fluent_patches": list(e.fluent_patches),
-            "conflicts": [
-                {
-                    "action": c.action_name,
-                    "predicate": str(c.pbl),
-                    "type": c.conflict_type.value,
-                    "obs": c.observation_index,
-                    "comp": c.component_index,
-                    "fluent": c.grounded_fluent,
-                }
-                for c in e.conflicts
-            ],
-            "chosen_group": [
-                {
-                    "action": c.action_name,
-                    "predicate": str(c.pbl),
-                    "type": c.conflict_type.value,
-                    "obs": c.observation_index,
-                    "comp": c.component_index,
-                    "fluent": c.grounded_fluent,
-                }
-                for c in e.chosen_group
-            ] if e.chosen_group else None,
-            "children": {
-                "fluent_fix": {"cost": e.child_fluent_cost, "desc": e.child_fluent_fix} if e.child_fluent_fix else None,
-                "model_fix": {"cost": e.child_model_cost, "desc": e.child_model_fix} if e.child_model_fix else None,
-            },
-        }
+    from benchmark.diagnosis.trace_serialization import write_trace_json
 
     search_params_used = {
         "search_mode": search_mode.value,
@@ -237,22 +195,10 @@ def retrace_conflict_search(
         "timeout_seconds": timeout_seconds,
     }
 
-    cfm_nodes = [e for e in trace_log if e.is_conflict_free]
-    trace_data = {
-        "fold_dir": str(fold_dir),
-        "search_params": search_params_used,
-        "outcome": {
-            "nodes_expanded": len(trace_log),
-            "conflict_free_count": len(cfm_nodes),
-            "best_cost": min((e.cost for e in cfm_nodes), default=None),
-        },
-        "nodes": [_serialize_event(e) for e in trace_log],
-    }
-
     trace_path = fold_dir / "search_trace.json"
-    with open(trace_path, "w") as f:
-        json.dump(trace_data, f, indent=2)
+    write_trace_json(trace_log, trace_path, search_params_used, fold_dir=fold_dir)
 
+    cfm_nodes = [e for e in trace_log if e.is_conflict_free]
     print(f"\n  Trace saved to: {trace_path}")
     print(f"  Nodes expanded: {len(trace_log)}")
     print(f"  Conflict-free models found: {len(cfm_nodes)}")
@@ -298,6 +244,17 @@ def main() -> None:
     print(f"\nRetrace conflict search:")
     print(f"  Fold dir:  {fold_dir}")
     print(f"  Domain:    {domain_path}")
+
+    # Check if trace already exists
+    existing_trace = fold_dir / "search_trace.json"
+    if existing_trace.exists():
+        print(f"\n  search_trace.json already exists at: {existing_trace}")
+        answer = input("  Re-run retrace and overwrite? [y/N]: ").strip().lower()
+        if answer not in ("y", "yes"):
+            print(f"\n  Existing trace: {existing_trace}")
+            print(f"  Visualize with:")
+            print(f"    python benchmark/diagnosis/visualize_trace.py {existing_trace}")
+            return
 
     # Stage 0 — Load fold metadata
     print("\n[Stage 0] Loading fold_info.json …")

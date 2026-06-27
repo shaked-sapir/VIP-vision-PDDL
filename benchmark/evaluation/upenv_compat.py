@@ -25,6 +25,7 @@ class CompatibleUPEnv(Env):
         self.problem = PDDLReader().parse_problem(domain_path, problem_path)
         self._simulator = SequentialSimulator(self.problem)
         self._all_neg_fluents = {f: FALSE() for f, _ in self.problem.initial_values.items()}
+        UPState.MAX_ANCESTORS = None
         self.all_neg_state = self._build_up_state(self._all_neg_fluents)
 
         # Keep AMLGym's tarski grounding logic.
@@ -51,13 +52,8 @@ class CompatibleUPEnv(Env):
         os.remove(tmp_problem_path)
         self._grounder = LPGroundingStrategy(reader.problem)
 
-    def _build_up_state(self, values: Dict[Any, Any], parent: UPState | None = None) -> UPState:
-        if parent is not None:
-            try:
-                return UPState(values, parent)
-            except Exception:
-                pass
-        return UPState(values)
+    def _build_up_state(self, values: Dict[Any, Any]) -> UPState:
+        return UPState(values, self.problem)
 
     def _str_to_action(self, action_label: str) -> ActionInstance:
         action_split = action_label.strip()[1:-1].split()

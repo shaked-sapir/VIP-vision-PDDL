@@ -390,6 +390,10 @@ class NoisyLearnerMixin:
             self.cannot_be_effect.get(action_name, set())
         )
 
+        # Model-patch sets (used to suppress data-driven conflicts)
+        require_set = self.required_effects.get(action_name, set())
+        forbid_set = self.forbidden_effects.get(action_name, set())
+
         # (2a) DATA-ONLY: prior cannot_be_effect + new must-be-effect
         for gp in all_grounded_must:
             possible_lifted = self.matcher.get_possible_literal_matches(grounded_action, [gp])
@@ -397,17 +401,17 @@ class NoisyLearnerMixin:
             for lifted_gp in possible_lifted:
                 if lifted_gp in prior_cannot_effects:
                     pbl = ParameterBoundLiteral.from_lifted_predicate(lifted_gp)
-                    local_conflicts.append(Conflict(
-                        action_name=action_name,
-                        pbl=pbl,
-                        conflict_type=ConflictType.FORBID_EFFECT_VS_MUST,
-                        observation_index=self.current_observation_index,
-                        component_index=self.current_component_index,
-                        grounded_fluent=gp.untyped_representation,
-                    ))
+                    if pbl not in require_set:
+                        local_conflicts.append(Conflict(
+                            action_name=action_name,
+                            pbl=pbl,
+                            conflict_type=ConflictType.FORBID_EFFECT_VS_MUST,
+                            observation_index=self.current_observation_index,
+                            component_index=self.current_component_index,
+                            grounded_fluent=gp.untyped_representation,
+                        ))
 
         # (1a) PATCH-BASED: FORBID_EFFECT_VS_MUST
-        forbid_set = self.forbidden_effects.get(action_name, set())
         for gp in all_grounded_must:
             for pbl in forbid_set:
                 if self._lift_and_match(grounded_action, gp, pbl):
@@ -432,20 +436,20 @@ class NoisyLearnerMixin:
             for lifted_gp in possible_lifted:
                 if lifted_gp in prior_must_effects:
                     pbl = ParameterBoundLiteral.from_lifted_predicate(lifted_gp)
-                    to_negate = self._should_negate_grounded_effect(
-                        gp, self.current_observation_index, self.current_component_index,
-                    )
-                    local_conflicts.append(Conflict(
-                        action_name=action_name,
-                        pbl=pbl,
-                        conflict_type=ConflictType.REQUIRE_EFFECT_VS_CANNOT,
-                        observation_index=self.current_observation_index,
-                        component_index=self.current_component_index,
-                        grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
-                    ))
+                    if pbl not in forbid_set:
+                        to_negate = self._should_negate_grounded_effect(
+                            gp, self.current_observation_index, self.current_component_index,
+                        )
+                        local_conflicts.append(Conflict(
+                            action_name=action_name,
+                            pbl=pbl,
+                            conflict_type=ConflictType.REQUIRE_EFFECT_VS_CANNOT,
+                            observation_index=self.current_observation_index,
+                            component_index=self.current_component_index,
+                            grounded_fluent=gp.copy(is_negated=to_negate).untyped_representation,
+                        ))
 
         # (1b) PATCH-BASED: REQUIRE_EFFECT_VS_CANNOT
-        require_set = self.required_effects.get(action_name, set())
         for gp in cannot_be_effects:
             for pbl in require_set:
                 if self._lift_and_match(grounded_action, gp, pbl):

@@ -292,6 +292,7 @@ def main(
     simulated_noising_strategy: str = "percentage",
     simulated_seed: int = 42,
     baselines: list = None,
+    events_tracing: bool = False,
 ):
     """
     Run benchmark experiments.
@@ -299,6 +300,7 @@ def main(
     Args:
         selected_domains: List of domain names to run, or None for all domains in domain_name_mappings
         mode: Either 'masked' or 'fullyobs'
+        events_tracing: If True, each fold writes search_trace.json during denoising.
         simulated_gt_trajectories: Optional list of GT trajectory file paths (strings).
             When provided, trajectories are loaded from these files and synthetic
             masking + noise is applied in memory instead of reading pre-generated files.
@@ -484,6 +486,7 @@ def main(
                                 conflict_group_strategy=conflict_group_strategy,
                                 fluent_branch_mode=fluent_branch_mode,
                                 baselines=baselines,
+                                events_tracing=events_tracing,
                             )
                             if use_simulated:
                                 fold_kwargs.update(
@@ -729,6 +732,18 @@ if __name__ == "__main__":
     parser.add_argument('--simulated-seed', type=int, default=42,
                         help='Random seed for simulated noise injection (default: 42)')
 
+    # --- Tracing ---
+    parser.add_argument(
+        '--events-tracing',
+        action='store_true',
+        default=False,
+        help=(
+            'Enable per-node event tracing during the denoising conflict search. '
+            'When set, each fold writes a search_trace.json that can be visualized '
+            'with benchmark/diagnosis/visualize_trace.py.'
+        ),
+    )
+
     # --- Pluggable baselines ---
     parser.add_argument(
         '--baselines',
@@ -807,4 +822,5 @@ if __name__ == "__main__":
         simulated_noising_strategy=args.simulated_noising_strategy,
         simulated_seed=args.simulated_seed,
         baselines=baseline_runners,
+        events_tracing=args.events_tracing,
     )
