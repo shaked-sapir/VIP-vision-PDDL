@@ -367,7 +367,7 @@ class ConflictDrivenPatchSearchBase(ABC):
             new_fp = child_a.fluent_patches - node.fluent_patches
             child_a_desc = f"fluent-fix: +{len(new_fp)} patch(es): {[str(p) for p in new_fp]}"
         if child_b is not None:
-            new_mc = {k: v for k, v in child_b.model_constraints.items() if k not in node.model_constraints}
+            new_mc = {k: v for k, v in child_b.model_constraints.items() if node.model_constraints.get(k) != v}
             new_fp_b = child_b.fluent_patches - node.fluent_patches
             if new_mc:
                 child_b_desc = f"model-fix: {[f'{v.value} {k[2]} in {k[1].value} of {k[0]}' for k, v in new_mc.items()]}"

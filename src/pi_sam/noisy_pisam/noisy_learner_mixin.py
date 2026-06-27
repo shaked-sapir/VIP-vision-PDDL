@@ -366,7 +366,7 @@ class NoisyLearnerMixin:
 
         local_conflicts: List[Conflict] = []
 
-        # --- Must-be effects ---
+        # --- Must-be effects according to SAM rules within the current transition ---
         grounded_add_effects, grounded_del_effects = self._extract_discrete_effects(
             prev_preds, next_preds,
         )
