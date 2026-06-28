@@ -1041,8 +1041,11 @@ class ConflictDrivenPatchSearchBase(ABC):
         if desired_op is None:
             return dict(model_patches)
 
-        # No-op if already at desired op; otherwise set/replace to desired op.
-        if model_patches.get(key) == desired_op:
+        # No-op if key already exists (same value = already set; different
+        # value = would flip REQUIRE↔FORBID, causing oscillation).  The
+        # alternative direction was explored as a sibling when the constraint
+        # was first introduced; backtracking will reach it.
+        if key in model_patches:
             return dict(model_patches)
         return {**model_patches, key: desired_op}
 

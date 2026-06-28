@@ -395,6 +395,10 @@ class NoisyLearnerMixin:
         forbid_set = self.forbidden_effects.get(action_name, set())
 
         # (2a) DATA-ONLY: prior cannot_be_effect + new must-be-effect
+        # Suppress when REQUIRE is set: the current component agrees with the
+        # model constraint (must-be), so a conflict here would create a fluent
+        # patch against a *correct* observation.  Section 1b already catches the
+        # noisy components (cannot-be vs REQUIRE).
         for gp in all_grounded_must:
             possible_lifted = self.matcher.get_possible_literal_matches(grounded_action, [gp])
 
@@ -430,6 +434,10 @@ class NoisyLearnerMixin:
         )
 
         # (2b) DATA-ONLY: prior must-be-effect + new cannot-be-effect
+        # Suppress when FORBID is set: the current component agrees with the
+        # model constraint (cannot-be), so a conflict here would create a fluent
+        # patch against a *correct* observation.  Section 1a already catches the
+        # noisy components (must-be vs FORBID).
         for gp in cannot_be_effects:
             possible_lifted = self.matcher.get_possible_literal_matches(grounded_action, [gp])
 
