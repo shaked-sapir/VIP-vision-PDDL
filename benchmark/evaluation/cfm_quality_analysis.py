@@ -254,6 +254,279 @@ def plot_cfm_quality(
     print(f"  Saved: {output_path}")
 
 
+# ── Trend plots (mean ± std with forward-fill padding) ─────────────────────
+
+def load_fluent_patch_counts(instance_dir: Path) -> List[Dict]:
+    """Load conflict_free_solutions_log.json and return entries sorted by index.
+
+    Each entry has at least 'index' and 'fluent_patch_count'.
+    Returns empty list if the file doesn't exist.
+    """
+    log_path = instance_dir / "conflict_free_solutions_log.json"
+    if not log_path.exists():
+        return []
+    with open(log_path) as f:
+        data = json.load(f)
+    entries = [d for d in data if d.get("index", -1) >= 0]
+    entries.sort(key=lambda d: d["index"])
+    return entries
+
+
+def compute_padded_trend(
+    instance_dirs: List[Path],
+    metric_key: str,
+    source: str = "all_solutions_metrics",
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """Compute mean ± std of a metric across instances with forward-fill padding.
+
+    For each instance, loads the per-solution metric values, then forward-fills
+    (carries the last value) up to the global max solution_index. After padding,
+    computes mean and std at each solution_index across all instances.
+
+    Args:
+        instance_dirs: Directories containing the metric files.
+        metric_key: The metric to extract (e.g. 'solving_ratio', 'fluent_patch_count').
+        source: Which file to load from:
+            'all_solutions_metrics' → all_solutions_metrics.json (keyed by solution_index)
+            'conflict_free_solutions_log' → conflict_free_solutions_log.json (keyed by index)
+
+    Returns:
+        (solution_ids, means, stds, n_instances) where solution_ids is 0..max_id.
+    """
+    all_series: List[List[float]] = []
+
+    for d in instance_dirs:
+        if source == "conflict_free_solutions_log":
+            entries = load_fluent_patch_counts(d)
+            if not entries:
+                continue
+            series = [(e["index"], e[metric_key]) for e in entries if metric_key in e]
+        else:
+            cfms = load_cfm_metrics(d)
+            if not cfms:
+                continue
+            series = [(c["solution_index"], c[metric_key]) for c in cfms if metric_key in c]
+
+        if series:
+            all_series.append(series)
+
+    if not all_series:
+        return np.array([]), np.array([]), np.array([]), 0
+
+    # Determine global max solution_index
+    max_id = max(idx for series in all_series for idx, _ in series)
+
+    # Forward-fill each instance to max_id
+    padded = np.full((len(all_series), max_id + 1), np.nan)
+    for i, series in enumerate(all_series):
+        for idx, val in series:
+            padded[i, idx] = val
+        # Forward-fill: carry last known value
+        last_val = np.nan
+        for j in range(max_id + 1):
+            if not np.isnan(padded[i, j]):
+                last_val = padded[i, j]
+            else:
+                padded[i, j] = last_val
+
+    # Drop any columns where all instances are still NaN (shouldn't happen after ffill)
+    valid_mask = ~np.all(np.isnan(padded), axis=0)
+    padded = padded[:, valid_mask]
+    solution_ids = np.arange(max_id + 1)[valid_mask]
+
+    means = np.nanmean(padded, axis=0)
+    stds = np.nanstd(padded, axis=0)
+
+    return solution_ids, means, stds, len(all_series)
+
+
+def _draw_trend_on_ax(
+    ax,
+    solution_ids: np.ndarray,
+    means: np.ndarray,
+    stds: np.ndarray,
+    n_instances: int,
+    metric_label: str,
+    title: str,
+    expected_monotone: str | None = None,
+    value_bounds: Tuple[float, float] | None = None,
+    compact: bool = False,
+) -> None:
+    """Draw a mean ± std trend on an existing axes.
+
+    Args:
+        ax: Matplotlib axes to draw on.
+        solution_ids: X-axis values (solution indices).
+        means: Mean values at each index.
+        stds: Standard deviation at each index.
+        n_instances: Number of instances used.
+        metric_label: Y-axis label.
+        title: Axes title.
+        expected_monotone: If 'non_increasing', warn when violated.
+        value_bounds: (lo, hi) — clamp the shading band to this range.
+        compact: If True, use smaller fonts/markers for the summary figure.
+    """
+    marker_size = 3 if compact else 4
+    line_width = 1.5 if compact else 2
+    title_size = 9 if compact else 12
+    label_size = 8 if compact else 11
+    legend_size = 7 if compact else 9
+    note_size = 6 if compact else 7
+
+    ax.plot(solution_ids, means, color="#1B6DB5", linewidth=line_width,
+            marker="o", markersize=marker_size, label="Mean", zorder=5)
+
+    shade_lo = means - stds
+    shade_hi = means + stds
+    if value_bounds is not None:
+        shade_lo = np.clip(shade_lo, value_bounds[0], value_bounds[1])
+        shade_hi = np.clip(shade_hi, value_bounds[0], value_bounds[1])
+
+    ax.fill_between(solution_ids, shade_lo, shade_hi,
+                    color="#1B6DB5", alpha=0.2, label="± 1 std", zorder=3)
+
+    # Check monotonicity if expected
+    if expected_monotone == "non_increasing":
+        violations = []
+        for i in range(1, len(means)):
+            if means[i] > means[i - 1] + 1e-9:
+                violations.append(int(solution_ids[i]))
+        if violations:
+            ax.set_title(
+                f"{title}\n⚠ Non-increasing violated at: {violations}",
+                fontsize=title_size, color="#A32D2D",
+            )
+        else:
+            ax.set_title(f"{title}\n✓ Monotonic non-increasing",
+                         fontsize=title_size)
+    else:
+        ax.set_title(title, fontsize=title_size)
+
+    ax.set_xlabel("Solution index (CFM)", fontsize=label_size)
+    ax.set_ylabel(metric_label, fontsize=label_size)
+    ax.legend(loc="best", fontsize=legend_size)
+    ax.text(
+        0.99, 0.01,
+        f"n = {n_instances} instances (forward-fill padded)",
+        transform=ax.transAxes, fontsize=note_size, ha="right", va="bottom",
+        color="#888888",
+    )
+
+
+# Metrics that are bounded in [0, 1]
+_BOUNDED_METRICS = {
+    "pred_app_precision", "pred_app_recall",
+    "pred_eff_precision", "pred_eff_recall",
+    "solving_ratio",
+}
+
+
+def plot_trend_with_shading(
+    solution_ids: np.ndarray,
+    means: np.ndarray,
+    stds: np.ndarray,
+    n_instances: int,
+    metric_label: str,
+    title: str,
+    output_path: Path,
+    expected_monotone: str | None = None,
+    metric_key: str = "",
+) -> None:
+    """Plot mean ± std trend line with shaded region.
+
+    Args:
+        solution_ids: X-axis values (solution indices).
+        means: Mean values at each index.
+        stds: Standard deviation at each index.
+        n_instances: Number of instances used (shown in subtitle).
+        metric_label: Y-axis label.
+        title: Plot title.
+        output_path: Where to save the PNG.
+        expected_monotone: If 'non_increasing', warn when violated.
+        metric_key: Used to determine if shading should be clamped to [0, 1].
+    """
+    if len(solution_ids) == 0:
+        print(f"  [SKIP] {title}: no data")
+        return
+
+    bounds = (0.0, 1.0) if metric_key in _BOUNDED_METRICS else None
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    _draw_trend_on_ax(
+        ax, solution_ids, means, stds, n_instances,
+        metric_label, title, expected_monotone, value_bounds=bounds,
+    )
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {output_path}")
+
+
+def plot_all_trends_summary(
+    instance_dirs: List[Path],
+    metrics: List[Tuple[str, str]],
+    n_instances_hint: int,
+    output_path: Path,
+) -> None:
+    """Single figure with all metric trends + fluent_patch_count as subplots.
+
+    Layout: 2 columns × ceil((N_metrics + 1) / 2) rows.
+    """
+    # Collect all trend data
+    trend_data: List[Tuple[str, str, np.ndarray, np.ndarray, np.ndarray, int, str | None]] = []
+
+    for metric_key, metric_label in metrics:
+        sol_ids, means, stds, n_inst = compute_padded_trend(
+            instance_dirs, metric_key, source="all_solutions_metrics",
+        )
+        if len(sol_ids) > 0:
+            trend_data.append((metric_key, metric_label, sol_ids, means, stds, n_inst, None))
+
+    # Fluent patch count
+    sol_ids, means, stds, n_inst = compute_padded_trend(
+        instance_dirs, "fluent_patch_count", source="conflict_free_solutions_log",
+    )
+    if len(sol_ids) > 0:
+        trend_data.append(("fluent_patch_count", "Fluent patch count",
+                           sol_ids, means, stds, n_inst, "non_increasing"))
+
+    if not trend_data:
+        print("  [SKIP] No trend data for summary plot")
+        return
+
+    n_plots = len(trend_data)
+    n_cols = 2
+    n_rows = (n_plots + 1) // 2
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, 4 * n_rows))
+    axes = np.atleast_2d(axes)
+
+    for idx, (metric_key, metric_label, sol_ids, means, stds, n_inst, monotone) in enumerate(trend_data):
+        row, col = divmod(idx, n_cols)
+        ax = axes[row, col]
+        bounds = (0.0, 1.0) if metric_key in _BOUNDED_METRICS else None
+        _draw_trend_on_ax(
+            ax, sol_ids, means, stds, n_inst,
+            metric_label=metric_label,
+            title=metric_label,
+            expected_monotone=monotone,
+            value_bounds=bounds,
+            compact=True,
+        )
+
+    # Hide unused axes
+    for idx in range(n_plots, n_rows * n_cols):
+        row, col = divmod(idx, n_cols)
+        axes[row, col].set_visible(False)
+
+    fig.suptitle("CFM quality trends — all metrics (padded mean ± std)",
+                 fontsize=13, y=1.01)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {output_path}")
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main():
@@ -311,6 +584,41 @@ def main():
         plot_cfm_quality(
             abs_vals, diffs, cfm_histogram, metric_key, metric_label, output_path,
         )
+
+    # ── Trend plots (mean ± std with forward-fill padding) ──
+    print("\n--- Trend plots (padded mean ± std) ---")
+
+    # Per-metric trend plots (from all_solutions_metrics.json)
+    for metric_key, metric_label in METRICS:
+        sol_ids, means, stds, n_inst = compute_padded_trend(
+            instance_dirs, metric_key, source="all_solutions_metrics",
+        )
+        plot_trend_with_shading(
+            sol_ids, means, stds, n_inst,
+            metric_label=metric_label,
+            title=f"{metric_label} vs. solution index (padded mean ± std)",
+            output_path=output_dir / f"{metric_key}_trend.png",
+            metric_key=metric_key,
+        )
+
+    # Fluent patch count trend (sanity — should be non-increasing)
+    sol_ids, means, stds, n_inst = compute_padded_trend(
+        instance_dirs, "fluent_patch_count", source="conflict_free_solutions_log",
+    )
+    plot_trend_with_shading(
+        sol_ids, means, stds, n_inst,
+        metric_label="Fluent patch count",
+        title="Fluent patch count vs. solution index (padded mean ± std)",
+        output_path=output_dir / "fluent_patch_count_trend.png",
+        expected_monotone="non_increasing",
+        metric_key="fluent_patch_count",
+    )
+
+    # Summary: all trends in one figure
+    plot_all_trends_summary(
+        instance_dirs, METRICS, len(instance_dirs),
+        output_path=output_dir / "all_trends_summary.png",
+    )
 
     print(f"\nAll plots saved to: {output_dir}")
 
