@@ -20,10 +20,14 @@ except ImportError:
     PLANNER_AVAILABLE = False
     FD = None
 
+from pddl_plus_parser.models import Domain
+
+from src.action_model.gym2SAM_parser import parse_grounded_predicates
 from src.action_model.pddl2gym_parser import parse_image_predicate_to_gym, is_positive_gym_predicate, \
     is_unknown_gym_predicate
 from src.fluent_classification.base_fluent_classifier import FluentClassifier
 from src.object_detection.base_object_detector import ObjectDetector
+from src.utils.masking import save_masking_info
 from src.typings import TrajectoryState, TrajectoryStep
 from src.utils.containers import serialize
 from src.utils.pddl import set_problem_by_name, ground_action, build_trajectory_file, multi_replace_predicate
@@ -39,6 +43,7 @@ class ImageTrajectoryHandler(ABC):
 
     object_detector: ObjectDetector
     fluent_classifier: FluentClassifier
+    domain: Domain
 
     def __init__(self, domain_name: str, trajectory_size_limit: int = 1000, object_detector: ObjectDetector = None,
                  fluent_classifier: FluentClassifier = None):
@@ -125,6 +130,27 @@ class ImageTrajectoryHandler(ABC):
         imaged_trajectory = self.construct_trajectory_from_images(
             images_path=images_path, ground_actions=actions)
         build_trajectory_file(imaged_trajectory, problem_name, images_path)
+        return imaged_trajectory
+
+    def create_masking_info(self, problem_name: str, imaged_trajectory: list[dict],
+                            trajectory_path: Path) -> None:
+        """Extract and save masking info from the imaged trajectory's unknown predicates."""
+        trajectory_masking_info = (
+            [parse_grounded_predicates(imaged_trajectory[0]['current_state']['unknown'], self.domain)] +
+            [parse_grounded_predicates(step['next_state']['unknown'], self.domain)
+             for step in imaged_trajectory]
+        )
+        save_masking_info(trajectory_path, problem_name, trajectory_masking_info)
+
+    def create_trajectory_and_masks(self, problem_name: str, actions: List[str],
+                                     images_path: Path) -> List[dict]:
+        """Run image_trajectory_pipeline and save masking info.
+
+        Returns:
+            imaged_trajectory: List of dicts containing predicted states for each step.
+        """
+        imaged_trajectory = self.image_trajectory_pipeline(problem_name, actions, images_path)
+        self.create_masking_info(problem_name, imaged_trajectory, images_path)
         return imaged_trajectory
 
     @abstractmethod

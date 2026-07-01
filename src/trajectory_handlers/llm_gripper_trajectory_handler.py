@@ -5,12 +5,10 @@ from typing import Dict, List
 
 from pddl_plus_parser.lisp_parsers import DomainParser
 
-from src.action_model.gym2SAM_parser import parse_grounded_predicates
 from src.fluent_classification.image_llm_backend_factory import ImageLLMBackendFactory
 from src.fluent_classification.llm_gripper_fluent_classifier import LLMGripperFluentClassifier
 from src.object_detection.llm_gripper_object_detector import LLMGripperObjectDetector
 from src.trajectory_handlers import ImageTrajectoryHandler
-from src.utils.masking import save_masking_info
 from src.utils.trajectory_json_converter import convert_trajectory_to_json
 
 
@@ -93,42 +91,3 @@ class LLMGripperImageTrajectoryHandler(ImageTrajectoryHandler):
             f"detected objects: {detected_objects_by_type}"
         )
 
-    def create_masking_info(
-        self,
-        problem_name: str,
-        imaged_trajectory: list[dict],
-        trajectory_path: Path,
-    ) -> None:
-        """Create and save masking info from the imaged trajectory."""
-        trajectory_masking_info = (
-            [parse_grounded_predicates(
-                imaged_trajectory[0]["current_state"]["unknown"], self.domain
-            )]
-            + [
-                parse_grounded_predicates(step["next_state"]["unknown"], self.domain)
-                for step in imaged_trajectory
-            ]
-        )
-        save_masking_info(trajectory_path, problem_name, trajectory_masking_info)
-
-    def create_trajectory_and_masks(
-        self,
-        problem_name: str,
-        actions: List[str],
-        images_path: Path,
-    ) -> List[dict]:
-        """Create trajectory and masking info files from images.
-
-        1. Initializes visual components (object detection) if not already done
-        2. Runs fluent classification on all images
-        3. Saves trajectory file (problem_name.trajectory)
-        4. Saves masking info file (problem_name.masking_info)
-
-        Returns:
-            imaged_trajectory: List of dicts containing predicted states per step.
-        """
-        imaged_trajectory = super().image_trajectory_pipeline(
-            problem_name, actions, images_path
-        )
-        self.create_masking_info(problem_name, imaged_trajectory, images_path)
-        return imaged_trajectory
