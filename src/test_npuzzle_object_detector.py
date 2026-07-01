@@ -72,11 +72,6 @@ def test_npuzzle_full_pipeline(num_steps: int = 10, problem_name: str = "eight01
     trajectory_handler = LLMNpuzzleImageTrajectoryHandler(
         domain_name=gym_domain_name,
         pddl_domain_file=domain_file_path,
-        openai_apikey=openai_apikey,
-        object_detector_model=object_detection_model,
-        object_detection_temperature=object_detection_temp,
-        fluent_classifier_model=fluent_classification_model,
-        fluent_classification_temperature=fluent_classification_temp
     )
 
     # Generate trajectory and save images + ground truth

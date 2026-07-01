@@ -70,14 +70,30 @@ def observation_to_trajectory_file(observation: Observation, output_path: Path) 
     return output_path
 
 
-def json_to_trajectory_file(json_trajectory_path: Union[str, Path]) -> Path:
-    """Convert a _trajectory.json file to a .trajectory file in PDDL format."""
-    json_trajectory_path = Path(json_trajectory_path)
-    with open(json_trajectory_path, 'r') as f:
-        trajectory_data = json.load(f)
-    problem_name = json_trajectory_path.stem.replace('_trajectory', '')
-    build_trajectory_file(trajectory_data, problem_name, json_trajectory_path.parent)
-    return json_trajectory_path.parent / f"{problem_name}.trajectory"
+def extract_actions_from_trajectory_json(images_dir: Path) -> List[str]:
+    """Extract ground action strings from a _trajectory.json file."""
+    json_paths = list(images_dir.glob("*_trajectory.json"))
+    if not json_paths:
+        raise FileNotFoundError(f"No _trajectory.json found in {images_dir}")
+    with open(json_paths[0]) as f:
+        trajectory = json.load(f)
+    return [step["ground_action"] for step in trajectory]
+
+
+def ensure_trajectory_json(images_dir: Path) -> None:
+    """If _trajectory.json is missing, convert from .trajectory + problem.pddl."""
+    from src.utils.trajectory_json_converter import convert_trajectory_to_json
+
+    if list(images_dir.glob("*_trajectory.json")):
+        return
+    trajectory_files = list(images_dir.glob("*.trajectory"))
+    problem_files = list(images_dir.glob("*.pddl"))
+    if trajectory_files and problem_files:
+        convert_trajectory_to_json(
+            trajectory_path=trajectory_files[0],
+            problem_path=problem_files[0],
+        )
+
 
 
 # ============================================================================

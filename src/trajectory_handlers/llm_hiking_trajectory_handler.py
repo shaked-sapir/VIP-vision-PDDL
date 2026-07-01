@@ -1,66 +1,10 @@
-from pathlib import Path
-from typing import Dict, List
-
-from pddl_plus_parser.lisp_parsers import DomainParser
-
-from src.fluent_classification.image_llm_backend_factory import ImageLLMBackendFactory
 from src.fluent_classification.llm_hiking_fluent_classifier import LLMHikingFluentClassifier
 from src.object_detection.llm_hiking_object_detector import LLMHikingObjectDetector
-from src.trajectory_handlers import ImageTrajectoryHandler
+from src.trajectory_handlers.llm_image_trajectory_handler import LLMImageTrajectoryHandler
 
 
-class LLMHikingImageTrajectoryHandler(ImageTrajectoryHandler):
-    """
-    LLM-based trajectory handler for the Hanoi domain.
-    Uses LLMHikingObjectDetector and LLMHikingFluentClassifier.
-    """
+class LLMHikingImageTrajectoryHandler(LLMImageTrajectoryHandler):
+    """LLM-based trajectory handler for the Hiking domain."""
 
-    def __init__(self,
-                 domain_name,
-                 pddl_domain_file: Path,
-                 api_key: str,
-                 vendor: str = "openai",
-                 object_detector_model: str = "gpt-4o",
-                 object_detection_temperature: float = 1.0,
-                 fluent_classifier_model: str = "gpt-4o",
-                 fluent_classification_temperature: float = 1.0):
-        super().__init__(domain_name=domain_name)
-        self.api_key = api_key
-        self.vendor = vendor
-        self.object_detector_model = object_detector_model
-        self.object_detector_temperature = object_detection_temperature
-        self.fluent_classifier_model = fluent_classifier_model
-        self.fluent_classification_temperature = fluent_classification_temperature
-        self.domain = DomainParser(pddl_domain_file, partial_parsing=True).parse_domain()
-
-    def init_visual_components(self, init_state_image_path: Path) -> None:
-        """
-        In this class, this method should only be called after initializing a specific
-        blocksworld problem, because the object detection module depends on blocksworld colors which
-        are determined only at problem initialization time - and they are extracted from the initial state image.
-        """
-
-        self.object_detector = LLMHikingObjectDetector(
-            llm_backend=ImageLLMBackendFactory.create(
-                vendor=self.vendor,
-                model_type="object_detection"
-            ),
-            init_state_image_path=init_state_image_path
-        )
-        detected_objects_by_type: Dict[str, List[str]] = self.object_detector.detect(str(init_state_image_path))
-
-        self.fluent_classifier = LLMHikingFluentClassifier(
-            llm_backend=ImageLLMBackendFactory.create(
-                vendor=self.vendor,
-                model_type="fluent_classification"
-            ),
-            type_to_objects=detected_objects_by_type,
-            init_state_image_path=init_state_image_path
-        )
-
-        print(f"Initialized LLMHikingImageTrajectoryHandler with detected objects: {detected_objects_by_type}")
-
-    @staticmethod
-    def _rename_ground_action(action_str: str) -> str:
-        return action_str
-
+    detector_class = LLMHikingObjectDetector
+    classifier_class = LLMHikingFluentClassifier

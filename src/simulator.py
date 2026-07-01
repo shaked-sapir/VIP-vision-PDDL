@@ -67,12 +67,8 @@ def _create_single_problem_trajectory(
 
         # Create trajectory handler for this process
         image_trajectory_handler = LLMBlocksImageTrajectoryHandler(
-            domain_name,
-            openai_apikey,
-            object_detector_model=object_detection_model_name,
-            object_detection_temperature=object_detection_temperature,
-            fluent_classifier_model=fluent_classification_model_name,
-            fluent_classification_temperature=fluent_classification_temperature
+            domain_name=domain_name,
+            pddl_domain_file=pddl_domain_file,
         )
 
         # Create experiment directory structure
@@ -155,14 +151,10 @@ class Simulator:
         self.fluent_classification_model_name = fluent_classification_model_name
         self.fluent_classification_temperature = fluent_classification_temperature
 
-        # Initialize trajectory handler for blocksworld domain, object detection & fluent classification done with same model
+        # Initialize trajectory handler for blocksworld domain
         self.image_trajectory_handler: ImageTrajectoryHandler = LLMBlocksImageTrajectoryHandler(
-            domain_name,
-            openai_apikey,
-            object_detector_model=object_detection_model_name,
-            object_detection_temperature=object_detection_temperature,
-            fluent_classifier_model=fluent_classification_model_name,
-            fluent_classification_temperature=fluent_classification_temperature
+            domain_name=domain_name,
+            pddl_domain_file=pddl_domain_file,
         )
 
         # Parse domain and set problem directory

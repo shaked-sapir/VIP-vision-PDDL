@@ -5,10 +5,10 @@ from pddl_plus_parser.lisp_parsers import DomainParser
 
 from benchmark.domains.blocksworld.amlgym_llm_fluent_classifier import AmlgymLLMBlocksFluentClassifier
 from src.object_detection.llm_blocks_object_detector import LLMBlocksObjectDetector
-from src.trajectory_handlers import ImageTrajectoryHandler
+from src.trajectory_handlers.pddlgym_trajectory_handler import PDDLGymImageTrajectoryHandler
 
 
-class AmlgymLLMBlocksImageTrajectoryHandler(ImageTrajectoryHandler):
+class AmlgymLLMBlocksImageTrajectoryHandler(PDDLGymImageTrajectoryHandler):
     """
    LLM-based trajectory handler for the Blocksworld domain.
    Uses LLMBlocksObjectDetector and LLMBlocksFluentClassifier.

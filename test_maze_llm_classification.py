@@ -71,11 +71,6 @@ def test_maze_llm_classification(num_images=None):
     trajectory_handler = LLMMazeImageTrajectoryHandler(
         domain_name=gym_domain_name,
         pddl_domain_file=domain_path,
-        openai_apikey=openai_apikey,
-        object_detector_model=object_detection_model,
-        object_detection_temperature=object_detection_temp,
-        fluent_classifier_model=fluent_classification_model,
-        fluent_classification_temperature=fluent_classification_temp
     )
     trajectory_handler.init_visual_components(initial_image)
 

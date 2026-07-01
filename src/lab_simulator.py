@@ -583,31 +583,18 @@ def create_trajectories_for_lab(
     # Select appropriate trajectory handler based on domain
     if domain_name == 'blocksworld':
         trajectory_handler = LLMBlocksImageTrajectoryHandler(
-            gym_domain_name,
-            openai_apikey,
-            object_detector_model=object_detection_model_name,
-            object_detection_temperature=object_detection_temperature,
-            fluent_classifier_model=fluent_classification_model_name,
-            fluent_classification_temperature=fluent_classification_temperature
+            domain_name=gym_domain_name,
+            pddl_domain_file=pddl_domain_file,
         )
     elif domain_name == 'hanoi':
         trajectory_handler = LLMHanoiImageTrajectoryHandler(
-            gym_domain_name,
-            openai_apikey,
-            object_detector_model=object_detection_model_name,
-            object_detection_temperature=object_detection_temperature,
-            fluent_classifier_model=fluent_classification_model_name,
-            fluent_classification_temperature=fluent_classification_temperature
+            domain_name=gym_domain_name,
+            pddl_domain_file=pddl_domain_file,
         )
     elif domain_name == 'npuzzle':
         trajectory_handler = LLMNpuzzleImageTrajectoryHandler(
-            gym_domain_name,
-            pddl_domain_file,
-            openai_apikey,
-            object_detector_model=object_detection_model_name,
-            object_detection_temperature=object_detection_temperature,
-            fluent_classifier_model=fluent_classification_model_name,
-            fluent_classification_temperature=fluent_classification_temperature
+            domain_name=gym_domain_name,
+            pddl_domain_file=pddl_domain_file,
         )
         gym_problems = ["problem7", "problem7", "problem7", "problem7", "problem7"] # because of lack of problems
     else:

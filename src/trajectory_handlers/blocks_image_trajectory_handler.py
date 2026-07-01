@@ -2,13 +2,13 @@ from typing import Dict
 
 from src.fluent_classification.blocks_contour_fluent_classifier import BlocksContourFluentClassifier
 from src.object_detection import ColorObjectDetector
-from src.trajectory_handlers import ImageTrajectoryHandler
+from src.trajectory_handlers.pddlgym_trajectory_handler import PDDLGymImageTrajectoryHandler
 from src.typings import ObjectLabel
 from src.utils.visualize import NormalizedRGB
 from pddlgym.rendering.blocks import _block_name_to_color
 
 
-class BlocksImageTrajectoryHandler(ImageTrajectoryHandler):
+class BlocksImageTrajectoryHandler(PDDLGymImageTrajectoryHandler):
     def init_visual_components(self) -> None:
         """
         In this class, this method should only be called after initializing a specific

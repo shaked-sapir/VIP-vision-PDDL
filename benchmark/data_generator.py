@@ -33,7 +33,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 
 # Add project root to Python path
@@ -60,7 +60,7 @@ def _generate_multi_problem_trajectories(
     num_steps: int,
     vendor: str = "openai",
     start_index: int = 0,
-    use_planner: bool = False,
+    planner: Optional[str] = None,
     problem_start: int = None,
     problem_end: int = None
 ) -> Path:
@@ -76,7 +76,7 @@ def _generate_multi_problem_trajectories(
         output_base_dir: Base directory for all benchmark data
         num_steps: Total number of steps to generate per problem
         start_index: State index to start trajectory from (default: 0)
-        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
+        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
         problem_start: First problem index to process (1-based, inclusive, default: None = all)
         problem_end: Last problem index to process (1-based, inclusive, default: None = all)
 
@@ -98,13 +98,13 @@ def _generate_multi_problem_trajectories(
     experiment_name = f"multi_problem_{timestamp}__model={fluent_classification_model}__steps={num_steps}"
     if start_index > 0:
         experiment_name += f"__start={start_index}"
-    if use_planner:
-        experiment_name += "__planner"
+    if planner:
+        experiment_name += f"__planner={planner}"
 
     print("="*80)
     print(f"GENERATING {domain_display_name} MULTI-PROBLEM TRAJECTORIES")
     print(f"Experiment: {experiment_name}")
-    print(f"Mode: {'Planner (FD)' if use_planner else 'Random actions'}")
+    print(f"Mode: {planner.upper() + ' planner' if planner else 'Random actions'}")
     if start_index > 0:
         print(f"Starting from state index: {start_index}")
     print("="*80)
@@ -152,7 +152,6 @@ def _generate_multi_problem_trajectories(
             trajectory_handler = trajectory_handler_class(
                 domain_name=gym_domain_name,
                 pddl_domain_file=benchmark_domain_path,
-                api_key=api_key,
                 vendor=vendor,
             )
 
@@ -162,7 +161,7 @@ def _generate_multi_problem_trajectories(
                 images_output_path=problem_dir,
                 num_steps=num_steps,
                 start_index=start_index,
-                use_planner=use_planner
+                planner=planner
             )
 
             print(f"  ✓ Generated {len(ground_actions)} steps")
@@ -212,7 +211,7 @@ def _generate_training_data_generic(
     vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
-    use_planner: bool = False
+    planner: Optional[str] = None
 ) -> Tuple[Path, List[Path]]:
     """
     Generic function to generate training data for any domain.
@@ -227,7 +226,7 @@ def _generate_training_data_generic(
         problem_name: Problem name to use (without .pddl extension)
         trace_length: Length of each trace for our algorithms (default: None - no splitting)
         start_index: State index to start trajectory from (default: 0)
-        use_planner: If True, uses FD planner to generate optimal solution; if False, uses random actions (default: False)
+        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -247,13 +246,13 @@ def _generate_training_data_generic(
     experiment_name = f"experiment_{timestamp}__model={fluent_classification_model}__steps={num_steps}"
     if start_index > 0:
         experiment_name += f"__start={start_index}"
-    if use_planner:
-        experiment_name += "__planner"
+    if planner:
+        experiment_name += f"__planner={planner}"
 
     print("="*80)
     print(f"GENERATING {domain_display_name} TRAINING DATA")
     print(f"Experiment: {experiment_name}")
-    print(f"Mode: {'Planner (FD)' if use_planner else 'Random actions'}")
+    print(f"Mode: {planner.upper() + ' planner' if planner else 'Random actions'}")
     if start_index > 0:
         print(f"Starting from state index: {start_index}")
     print("="*80)
@@ -294,7 +293,7 @@ def _generate_training_data_generic(
         images_output_path=images_dir,
         num_steps=num_steps,
         start_index=start_index,
-        use_planner=use_planner
+        planner=planner
     )
 
     print(f"✓ Generated {len(ground_actions)} steps")
@@ -361,9 +360,9 @@ def _generate_training_data_generic(
     our_traces_base_dir.mkdir(exist_ok=True)
     our_trace_dirs = []
 
-    if use_planner or trace_length is None:
+    if planner or trace_length is None:
         # No splitting - copy full trajectory to pi_sam_traces (same as ROSAME)
-        print(f"Trace splitting disabled (use_planner={use_planner}, trace_length={trace_length})")
+        print(f"Trace splitting disabled (planner={planner}, trace_length={trace_length})")
         print(f"  Copying full trajectory to pi_sam_traces/trace_0")
 
         pi_sam_trace_0_dir = our_traces_base_dir / "trace_0"
@@ -475,7 +474,7 @@ def generate_blocks_multi_problem_trajectories(
     num_steps: int = 100,
     vendor: str = "openai",
     start_index: int = 0,
-    use_planner: bool = False,
+    planner: Optional[str] = None,
     problem_start: int = None,
     problem_end: int = None
 ) -> Path:
@@ -491,7 +490,7 @@ def generate_blocks_multi_problem_trajectories(
         num_steps=num_steps,
         vendor=vendor,
         start_index=start_index,
-        use_planner=use_planner,
+        planner=planner,
         problem_start=problem_start,
         problem_end=problem_end
     )
@@ -504,7 +503,7 @@ def generate_blocks_training_data(
     vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
-    use_planner: bool = False
+    planner: Optional[str] = None
 ) -> Tuple[Path, List[Path]]:
     """
     Generate training data for blocksworld domain.
@@ -516,7 +515,7 @@ def generate_blocks_training_data(
         vendor: LLM vendor to use (default: openai)
         trace_length: Length of each trace for our algorithms (default: None - no splitting)
         start_index: State index to start trajectory from (default: 0)
-        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
+        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -535,7 +534,7 @@ def generate_blocks_training_data(
         vendor=vendor,
         trace_length=trace_length,
         start_index=start_index,
-        use_planner=use_planner
+        planner=planner
     )
 
 
@@ -544,7 +543,7 @@ def generate_npuzzle_multi_problem_trajectories(
     num_steps: int = 100,
     vendor: str = "openai",
     start_index: int = 0,
-    use_planner: bool = False,
+    planner: Optional[str] = None,
     problem_start: int = None,
     problem_end: int = None
 ) -> Path:
@@ -560,7 +559,7 @@ def generate_npuzzle_multi_problem_trajectories(
         num_steps=num_steps,
         vendor=vendor,
         start_index=start_index,
-        use_planner=use_planner,
+        planner=planner,
         problem_start=problem_start,
         problem_end=problem_end
     )
@@ -573,7 +572,7 @@ def generate_npuzzle_training_data(
     vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
-    use_planner: bool = False
+    planner: Optional[str] = None
 ) -> Tuple[Path, List[Path]]:
     """
     Generate training data for n-puzzle domain.
@@ -584,7 +583,7 @@ def generate_npuzzle_training_data(
         problem_name: Problem name to use (without .pddl extension)
         trace_length: Length of each trace for our algorithms (default: None - no splitting)
         start_index: State index to start trajectory from (default: 0)
-        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
+        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -603,7 +602,7 @@ def generate_npuzzle_training_data(
         vendor=vendor,
         trace_length=trace_length,
         start_index=start_index,
-        use_planner=use_planner
+        planner=planner
     )
 
 
@@ -612,7 +611,7 @@ def generate_hanoi_multi_problem_trajectories(
     num_steps: int = 100,
     vendor: str = "openai",
     start_index: int = 0,
-    use_planner: bool = False,
+    planner: Optional[str] = None,
     problem_start: int = None,
     problem_end: int = None
 ) -> Path:
@@ -628,7 +627,7 @@ def generate_hanoi_multi_problem_trajectories(
         num_steps=num_steps,
         vendor=vendor,
         start_index=start_index,
-        use_planner=use_planner,
+        planner=planner,
         problem_start=problem_start,
         problem_end=problem_end
     )
@@ -641,7 +640,7 @@ def generate_hanoi_training_data(
     vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
-    use_planner: bool = False
+    planner: Optional[str] = None
 ) -> Tuple[Path, List[Path]]:
     """
     Generate training data for hanoi domain.
@@ -652,7 +651,7 @@ def generate_hanoi_training_data(
         problem_name: Problem name to use (without .pddl extension)
         trace_length: Length of each trace for our algorithms (default: None - no splitting)
         start_index: State index to start trajectory from (default: 0)
-        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
+        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -671,7 +670,7 @@ def generate_hanoi_training_data(
         vendor=vendor,
         trace_length=trace_length,
         start_index=start_index,
-        use_planner=use_planner
+        planner=planner
     )
 
 
@@ -680,7 +679,7 @@ def generate_hiking_multi_problem_trajectories(
     num_steps: int = 100,
     vendor: str = "openai",
     start_index: int = 0,
-    use_planner: bool = False,
+    planner: Optional[str] = None,
     problem_start: int = None,
     problem_end: int = None
 ) -> Path:
@@ -696,7 +695,7 @@ def generate_hiking_multi_problem_trajectories(
         num_steps=num_steps,
         vendor=vendor,
         start_index=start_index,
-        use_planner=use_planner,
+        planner=planner,
         problem_start=problem_start,
         problem_end=problem_end
     )
@@ -709,7 +708,7 @@ def generate_hiking_training_data(
     vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
-    use_planner: bool = False
+    planner: Optional[str] = None
 ) -> Tuple[Path, List[Path]]:
     """
     Generate training data for hiking domain.
@@ -720,7 +719,7 @@ def generate_hiking_training_data(
         problem_name: Problem name to use (without .pddl extension)
         trace_length: Length of each trace for our algorithms (default: None - no splitting)
         start_index: State index to start trajectory from (default: 0)
-        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
+        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -739,7 +738,7 @@ def generate_hiking_training_data(
         vendor=vendor,
         trace_length=trace_length,
         start_index=start_index,
-        use_planner=use_planner
+        planner=planner
     )
 
 
@@ -748,7 +747,7 @@ def generate_maze_multi_problem_trajectories(
     num_steps: int = 100,
     vendor: str = "openai",
     start_index: int = 0,
-    use_planner: bool = False,
+    planner: Optional[str] = None,
     problem_start: int = None,
     problem_end: int = None
 ) -> Path:
@@ -764,7 +763,7 @@ def generate_maze_multi_problem_trajectories(
         num_steps=num_steps,
         vendor=vendor,
         start_index=start_index,
-        use_planner=use_planner,
+        planner=planner,
         problem_start=problem_start,
         problem_end=problem_end
     )
@@ -777,7 +776,7 @@ def generate_maze_training_data(
     vendor: str = "openai",
     trace_length: int = None,
     start_index: int = 0,
-    use_planner: bool = False
+    planner: Optional[str] = None
 ) -> Tuple[Path, List[Path]]:
     """
     Generate training data for maze domain.
@@ -788,7 +787,7 @@ def generate_maze_training_data(
         problem_name: Problem name to use (without .pddl extension)
         trace_length: Length of each trace for our algorithms (default: None - no splitting)
         start_index: State index to start trajectory from (default: 0)
-        use_planner: If True, uses FD planner; if False, uses random actions (default: False)
+        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
 
     Returns:
         Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
@@ -807,7 +806,7 @@ def generate_maze_training_data(
         vendor=vendor,
         trace_length=trace_length,
         start_index=start_index,
-        use_planner=use_planner
+        planner=planner
     )
 
 
@@ -903,7 +902,7 @@ if __name__ == "__main__":
         "--trace-length",
         type=int,
         default=None,
-        help="Length of each trace for our algorithms (default: None - no splitting). Only used when use_planner=False"
+        help="Length of each trace for our algorithms (default: None - no splitting). Only used when planner=None"
     )
     parser.add_argument(
         "--problem",
@@ -918,9 +917,11 @@ if __name__ == "__main__":
         help="State index to start trajectory from (default: 0)"
     )
     parser.add_argument(
-        "--use-planner",
-        action="store_true",
-        help="Use FD planner to generate optimal solution instead of random actions (default: False)"
+        "--planner",
+        type=str,
+        default=None,
+        choices=["ff", "fd"],
+        help="Planner to use (ff or fd). Omit for random actions."
     )
     parser.add_argument(
         "--multi-problem",
@@ -958,7 +959,7 @@ if __name__ == "__main__":
                 num_steps=args.num_steps,
                 vendor=args.vendor,
                 start_index=args.start_index,
-                use_planner=args.use_planner,
+                planner=args.planner,
                 problem_start=args.problem_start,
                 problem_end=args.problem_end
             )
@@ -970,8 +971,8 @@ if __name__ == "__main__":
                 vendor=args.vendor,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
-                use_planner=True
-                # use_planner=args.use_planner
+                planner="ff"
+                # planner=args.planner
             )
             print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "npuzzle":
@@ -981,7 +982,7 @@ if __name__ == "__main__":
                 num_steps=args.num_steps,
                 vendor=args.vendor,
                 start_index=args.start_index,
-                use_planner=args.use_planner,
+                planner=args.planner,
                 problem_start=args.problem_start,
                 problem_end=args.problem_end
             )
@@ -993,7 +994,7 @@ if __name__ == "__main__":
                 vendor=args.vendor,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
-                use_planner=True
+                planner="ff"
             )
             print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "hanoi":
@@ -1003,8 +1004,8 @@ if __name__ == "__main__":
                 num_steps=args.num_steps,
                 vendor=args.vendor,
                 start_index=args.start_index,
-                use_planner=True,
-                # use_planner=args.use_planner
+                planner="ff",
+                # planner=args.planner
                 problem_start=args.problem_start,
                 problem_end=args.problem_end
             )
@@ -1016,7 +1017,7 @@ if __name__ == "__main__":
                 vendor=args.vendor,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
-                use_planner=True
+                planner="ff"
             )
             print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "hiking":
@@ -1026,7 +1027,7 @@ if __name__ == "__main__":
                 num_steps=args.num_steps,
                 vendor=args.vendor,
                 start_index=args.start_index,
-                use_planner=args.use_planner,
+                planner=args.planner,
                 problem_start=args.problem_start,
                 problem_end=args.problem_end
             )
@@ -1038,7 +1039,7 @@ if __name__ == "__main__":
                 vendor=args.vendor,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
-                use_planner=args.use_planner
+                planner=args.planner
             )
             print(f"Generated {len(our_dirs)} traces for our algorithms")
     elif args.domain == "maze":
@@ -1048,7 +1049,7 @@ if __name__ == "__main__":
                 num_steps=args.num_steps,
                 vendor=args.vendor,
                 start_index=args.start_index,
-                use_planner=True,
+                planner="ff",
                 problem_start=args.problem_start,
                 problem_end=args.problem_end
             )
@@ -1060,8 +1061,8 @@ if __name__ == "__main__":
                 vendor=args.vendor,
                 trace_length=args.trace_length,
                 start_index=args.start_index,
-                use_planner=True
-                # use_planner=args.use_planner
+                planner="ff"
+                # planner=args.planner
             )
             print(f"Generated {len(our_dirs)} traces for our algorithms")
     else:

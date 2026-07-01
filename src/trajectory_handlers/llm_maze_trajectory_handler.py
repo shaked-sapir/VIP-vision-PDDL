@@ -1,84 +1,27 @@
-from pathlib import Path
-from typing import Dict, List
-
-from pddl_plus_parser.lisp_parsers import DomainParser
-
-from src.fluent_classification.image_llm_backend_factory import ImageLLMBackendFactory
 from src.fluent_classification.llm_maze_fluent_classifier import LLMMazeFluentClassifier
 from src.object_detection.llm_maze_object_detector import LLMMazeObjectDetector
-from src.trajectory_handlers import ImageTrajectoryHandler
+from src.trajectory_handlers.llm_image_trajectory_handler import LLMImageTrajectoryHandler
 
 
-class LLMMazeImageTrajectoryHandler(ImageTrajectoryHandler):
-    """
-    LLM-based trajectory handler for the Hanoi domain.
-    Uses LLMHanoiObjectDetector and LLMHanoiFluentClassifier.
-    """
+class LLMMazeImageTrajectoryHandler(LLMImageTrajectoryHandler):
+    """LLM-based trajectory handler for the Maze domain."""
 
-    def __init__(self,
-                 domain_name,
-                 pddl_domain_file: Path,
-                 api_key: str,
-                 vendor: str = "openai",
-                 ):
-        super().__init__(domain_name=domain_name)
-        self.api_key = api_key
-        self.vendor = vendor
-        self.domain = DomainParser(pddl_domain_file, partial_parsing=True).parse_domain()
-
-    def init_visual_components(self, init_state_image_path: Path) -> None:
-        """
-        Initialize visual components for the maze domain.
-
-        Args:
-            init_state_image_path: Path to the initial state image for object detection
-        """
-
-        self.object_detector = LLMMazeObjectDetector(
-            llm_backend=ImageLLMBackendFactory.create(
-                vendor=self.vendor,
-                model_type="object_detection"
-            ),
-            init_state_image_path=init_state_image_path
-        )
-        detected_objects_by_type: Dict[str, List[str]] = self.object_detector.detect(str(init_state_image_path))
-
-        self.fluent_classifier = LLMMazeFluentClassifier(
-            llm_backend=ImageLLMBackendFactory.create(
-                vendor=self.vendor,
-                model_type="fluent_classification"
-            ),
-            type_to_objects=detected_objects_by_type,
-            init_state_image_path=init_state_image_path
-        )
-
-        print(f"Initialized LLMMazeImageTrajectoryHandler with detected objects: {detected_objects_by_type}")
+    detector_class = LLMMazeObjectDetector
+    classifier_class = LLMMazeFluentClassifier
 
     @staticmethod
     def _rename_ground_action(action_str: str) -> str:
-        """
-        this is because amlgym testing does not accept action names with "-"
-        :param action_str: action to transform from gym format to our format
-        :return:
-        """
+        """Replace hyphens with underscores in action names (amlgym compatibility)."""
         return action_str.replace('move-', 'move_')
 
     def _manipulate_trajectory_json(self, gt_trajectory_json: list) -> list:
-        """
-        Replace hyphens with underscores in action names only (not in parameters).
-        Example: "move-north(x:location)" -> "move_north(x:location)"
-        """
+        """Replace hyphens with underscores in action names only (not in parameters)."""
         for step in gt_trajectory_json:
             if 'ground_action' in step and step['ground_action']:
                 action = step['ground_action']
-                # Find the opening parenthesis to separate action name from parameters
                 paren_idx = action.find('(')
                 if paren_idx > 0:
-                    # Replace hyphens in action name only
                     step['ground_action'] = action[:paren_idx].replace('-', '_') + action[paren_idx:]
                 else:
-                    # No parameters, replace hyphens in entire action
                     step['ground_action'] = action.replace('-', '_')
-        
         return gt_trajectory_json
-

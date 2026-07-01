@@ -8,12 +8,12 @@ from typing import Dict
 
 from src.fluent_classification.hanoi_fluent_classifier import HanoiFluentClassifier
 from src.object_detection.hanoi_object_detector import HanoiObjectDetector
-from src.trajectory_handlers import ImageTrajectoryHandler
+from src.trajectory_handlers.pddlgym_trajectory_handler import PDDLGymImageTrajectoryHandler
 from src.typings import ObjectLabel
 from src.utils.visualize import NormalizedRGB
 
 
-class HanoiImageTrajectoryHandler(ImageTrajectoryHandler):
+class HanoiImageTrajectoryHandler(PDDLGymImageTrajectoryHandler):
     """
     Deterministic trajectory handler for the Hanoi domain.
     Uses HanoiObjectDetector (position/size-based) and HanoiFluentClassifier (geometric).

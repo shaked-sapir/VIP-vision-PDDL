@@ -204,7 +204,8 @@ def create_trajectory_handler(
     domain: str,
     domain_name: str,
     masking_strategy: str,
-    openai_apikey: str
+    openai_apikey: str,
+    pddl_domain_file: Optional[Path] = None,
 ) -> ImageTrajectoryHandler:
     """
     Create appropriate trajectory handler based on domain and masking strategy.
@@ -216,6 +217,7 @@ def create_trajectory_handler(
     :param domain_name: PDDL gym domain name (e.g., 'PDDLEnvBlocks-v0').
     :param masking_strategy: Masking strategy ('percentage', 'random', or 'llm').
     :param openai_apikey: OpenAI API key (required for LLM-based handlers).
+    :param pddl_domain_file: Path to PDDL domain file (required for LLM-based handlers).
     :return: Configured ImageTrajectoryHandler instance.
     """
     if masking_strategy == 'llm':
@@ -224,12 +226,18 @@ def create_trajectory_handler(
             print("Using LLM-based trajectory handler for Blocks")
             print("  - Object detector: LLMBlocksObjectDetector (GPT-4 Vision)")
             print("  - Fluent classifier: LLMBlocksFluentClassifier (GPT-4 Vision)")
-            return LLMBlocksImageTrajectoryHandler(domain_name, openai_apikey)
+            return LLMBlocksImageTrajectoryHandler(
+                domain_name=domain_name,
+                pddl_domain_file=pddl_domain_file,
+            )
         elif domain == 'hanoi':
             print("Using LLM-based trajectory handler for Hanoi")
             print("  - Object detector: LLMHanoiObjectDetector (GPT-4 Vision)")
             print("  - Fluent classifier: LLMHanoiFluentClassifier (GPT-4 Vision)")
-            return LLMHanoiImageTrajectoryHandler(domain_name, openai_apikey)
+            return LLMHanoiImageTrajectoryHandler(
+                domain_name=domain_name,
+                pddl_domain_file=pddl_domain_file,
+            )
         else:
             raise ValueError(f"Unknown domain: {domain}")
     else:
@@ -280,7 +288,10 @@ class Simulator:
             self.image_trajectory_handler = trajectory_handler
         else:
             # Default to LLM-based handler for backwards compatibility
-            self.image_trajectory_handler = LLMBlocksImageTrajectoryHandler(domain_name, openai_apikey)
+            self.image_trajectory_handler = LLMBlocksImageTrajectoryHandler(
+                domain_name=domain_name,
+                pddl_domain_file=pddl_domain_file,
+            )
 
         # Parse domain and set problem directory
         self.domain: Domain = DomainParser(pddl_domain_file).parse_domain()
@@ -770,7 +781,8 @@ def main():
             domain=args.domain,
             domain_name=domain_name,
             masking_strategy=masking_strategy,
-            openai_apikey=openai_apikey
+            openai_apikey=openai_apikey,
+            pddl_domain_file=pddl_domain_file,
         )
 
         simulator = Simulator(
@@ -802,7 +814,8 @@ def main():
             domain=args.domain,
             domain_name=domain_config['domain_name'],
             masking_strategy=masking_strategy,
-            openai_apikey=openai_apikey
+            openai_apikey=openai_apikey,
+            pddl_domain_file=pddl_domain_file,
         )
 
         working_dir = run_full_pipeline_with_cross_validation(
