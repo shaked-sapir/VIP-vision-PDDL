@@ -1,184 +1,238 @@
 """
 Data Generator for Benchmark System
 
-Generates training trajectories for comparing:
-- PI-SAM
-- Noisy PI-SAM (Conflict-driven patch search)
-- ROSAME
-
-Supported domains:
-- blocksworld
-- npuzzle
-- hanoi
-- hiking
-- maze
-
-For each domain, this generates:
-1. A long visual trace (images + ground truth)
-2. Full trace for ROSAME (with LLM predictions)
-3. Multiple non-overlapping shorter traces for our algorithms (split from ROSAME trace)
-
-Key efficiency: LLM vision pipeline runs ONCE on full trace, then results are split
+Generates multi-problem training trajectories for all supported domains.
+Uses a domain registry to avoid per-domain boilerplate — adding a new domain
+means adding one entry to _DOMAIN_REGISTRY.
 
 Output structure:
-benchmark/data/<domain>/experiment_<timestamp>__steps=<num_steps>/training/
-    ├── rosame_trace/
-    └── pi_sam_traces/
+    benchmark/data/<domain>/<experiment>/training/trajectories/
+        ├── problem0/
+        ├── problem1/
+        └── ...
 
 Each run creates a new experiment folder, allowing multiple experiments to coexist.
 """
 
-import json
+import re
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
-
+from typing import Callable, Optional
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.trajectory_handlers.llm_blocks_trajectory_handler import LLMBlocksImageTrajectoryHandler
 from src.trajectory_handlers.llm_npuzzle_trajectory_handler import LLMNpuzzleImageTrajectoryHandler
 from src.trajectory_handlers.llm_hanoi_trajectory_handler import LLMHanoiImageTrajectoryHandler
 from src.trajectory_handlers.llm_hiking_trajectory_handler import LLMHikingImageTrajectoryHandler
 from src.trajectory_handlers.llm_maze_trajectory_handler import LLMMazeImageTrajectoryHandler
-from src.trajectory_handlers.llm_blocks_trajectory_handler import LLMBlocksImageTrajectoryHandler
+from src.trajectory_handlers.llm_depot_trajectory_handler import LLMDepotImageTrajectoryHandler
+from src.trajectory_handlers.llm_gripper_trajectory_handler import LLMGripperImageTrajectoryHandler
 from src.utils.config import load_config
-from src.utils.masking import save_masking_info, load_masking_info
-from src.utils.pddl import build_trajectory_file
 
 
-def _generate_multi_problem_trajectories(
-    domain_display_name: str,
-    domain_config_key: str,
-    amlgym_domain_name: str,
-    trajectory_handler_class,
-    benchmark_domain_path: Path,
+# ── Problem-file transforms (PDDLGym → AMLGym) ───────────────────────────
+
+def _transform_blocks_problem(problem_file_path: Path) -> None:
+    """Remove robot type and handfull predicate from a blocksworld problem file."""
+    content = problem_file_path.read_text()
+    content = (content
+               .replace('robot - robot', '')
+               .replace('(handempty robot)', '(handempty)')
+               .replace('(handfull robot)', '')
+               .replace('(handfull)', ''))
+    problem_file_path.write_text(content)
+
+
+def _transform_npuzzle_problem(problem_file_path: Path) -> None:
+    """Replace an n-puzzle problem file with the AMLGym-compatible version."""
+    amlgym_source = project_root / "benchmark" / "domains" / "n_puzzle" / "eight01x_amlgym.pddl"
+    content = amlgym_source.read_text()
+    problem_file_path.write_text(content)
+
+
+def _apply_transform(transform_fn: Optional[Callable], problems_dir: Path) -> None:
+    """Apply a per-file transform to all .pddl files in a directory, if given."""
+    if transform_fn is None:
+        return
+    for pddl_file in problems_dir.glob("*.pddl"):
+        transform_fn(pddl_file)
+
+
+# ── Domain registry ──────────────────────────────────────────────────────
+
+_DOMAIN_REGISTRY = {
+    "blocksworld": {
+        "display_name": "BLOCKSWORLD",
+        "config_key": "blocks",
+        "handler_class": LLMBlocksImageTrajectoryHandler,
+        "transform_fn": _transform_blocks_problem,
+    },
+    "npuzzle": {
+        "display_name": "N-PUZZLE",
+        "config_key": "n_puzzle",
+        "handler_class": LLMNpuzzleImageTrajectoryHandler,
+        "transform_fn": _transform_npuzzle_problem,
+    },
+    "hanoi": {
+        "display_name": "HANOI",
+        "config_key": "hanoi",
+        "handler_class": LLMHanoiImageTrajectoryHandler,
+        "transform_fn": None,
+    },
+    "hiking": {
+        "display_name": "HIKING",
+        "config_key": "hiking",
+        "handler_class": LLMHikingImageTrajectoryHandler,
+        "transform_fn": None,
+    },
+    "maze": {
+        "display_name": "MAZE",
+        "config_key": "maze",
+        "handler_class": LLMMazeImageTrajectoryHandler,
+        "transform_fn": None,
+    },
+    "depot": {
+        "display_name": "DEPOT",
+        "config_key": "depot",
+        "handler_class": LLMDepotImageTrajectoryHandler,
+        "transform_fn": None,
+    },
+    "gripper": {
+        "display_name": "GRIPPER",
+        "config_key": "gripper",
+        "handler_class": LLMGripperImageTrajectoryHandler,
+        "transform_fn": None,
+    },
+}
+
+
+def _natural_sort_key(path: Path):
+    """Sort key that orders problem1, problem2, ..., problem10 numerically."""
+    return [int(c) if c.isdigit() else c.lower()
+            for c in re.split(r'(\d+)', path.stem)]
+
+
+# ── Main generation function ─────────────────────────────────────────────
+
+def generate_trajectories(
+    domain: str,
     output_base_dir: Path,
-    num_steps: int,
+    num_steps: int = 100,
     vendor: str = "openai",
     start_index: int = 0,
     planner: Optional[str] = None,
-    problem_start: int = None,
-    problem_end: int = None
+    problem_start: Optional[int] = None,
+    problem_end: Optional[int] = None,
 ) -> Path:
-    """
-    Generate trajectories for all problems in the domain.
+    """Generate trajectories for all problems in a domain.
+
+    Works for both PDDLGym and external domains — uses handler.run_pipeline
+    uniformly. PDDLGym handlers generate images + GT then infer; external
+    handlers read pre-existing images + GT then infer.
 
     Args:
-        domain_display_name: Display name for logging (e.g., "BLOCKS", "N-PUZZLE")
-        domain_config_key: Config key for domain (e.g., "blocks", "npuzzle")
-        amlgym_domain_name: AMLGym domain name
-        trajectory_handler_class: Class to instantiate for trajectory handling
-        benchmark_domain_path: Path to benchmark PDDL domain file
-        output_base_dir: Base directory for all benchmark data
-        num_steps: Total number of steps to generate per problem
-        start_index: State index to start trajectory from (default: 0)
-        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
-        problem_start: First problem index to process (1-based, inclusive, default: None = all)
-        problem_end: Last problem index to process (1-based, inclusive, default: None = all)
+        domain: Domain key from _DOMAIN_REGISTRY.
+        output_base_dir: Base directory for benchmark data (e.g. benchmark/data/).
+        num_steps: Max trajectory steps (gym domains only, default 100).
+        vendor: LLM vendor — "openai" or "google" (default "openai").
+        start_index: Advance gym env N steps before generating (gym only, default 0).
+        planner: Planner for gym trajectory — "ff", "fd", or None for random (default None).
+        problem_start: First problem index to process (0-based, inclusive, default None = all).
+        problem_end: Last problem index to process (0-based, inclusive, default None = all).
 
     Returns:
-        Path to trajectories directory
+        Path to the trajectories directory.
     """
+    registry = _DOMAIN_REGISTRY[domain]
+    config_key = registry["config_key"]
+
     # Load configuration
     config = load_config()
-    api_key = config[vendor]['api_key']
-    gym_domain_name = config['domains'][domain_config_key]['gym_domain_name']
-    object_detection_model = config['domains'][domain_config_key]['object_detection']['model_name']
-    object_detection_temp = config['domains'][domain_config_key]['object_detection']['temperature']
-    fluent_classification_model = config['domains'][domain_config_key]['fluent_classification']['model_name']
-    fluent_classification_temp = config['domains'][domain_config_key]['fluent_classification']['temperature']
-    problems_dir = Path(config['domains'][domain_config_key]['problems_dir'])
+    domain_config = config["domains"][config_key]
+    domain_file = Path(domain_config["domain_file"])
+    problems_dir = Path(domain_config["problems_dir"])
+    domain_name = domain_config.get("gym_domain_name", config_key)
 
-    # Generate experiment name
+    # Model name for experiment naming
+    model_name = config[vendor].get("fluent_classification_model", {}).get("model_name", vendor)
+
+    # Build experiment name
     timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-    experiment_name = f"multi_problem_{timestamp}__model={fluent_classification_model}__steps={num_steps}"
+    experiment_name = f"multi_problem_{timestamp}__model={model_name}__steps={num_steps}"
     if start_index > 0:
         experiment_name += f"__start={start_index}"
     if planner:
         experiment_name += f"__planner={planner}"
 
-    print("="*80)
-    print(f"GENERATING {domain_display_name} MULTI-PROBLEM TRAJECTORIES")
+    print("=" * 80)
+    print(f"GENERATING {registry['display_name']} TRAJECTORIES")
     print(f"Experiment: {experiment_name}")
     print(f"Mode: {planner.upper() + ' planner' if planner else 'Random actions'}")
     if start_index > 0:
         print(f"Starting from state index: {start_index}")
-    print("="*80)
+    print("=" * 80)
     print()
 
     # Setup output directories
-    benchmark_domain_dir = output_base_dir / amlgym_domain_name
-    benchmark_domain_dir.mkdir(parents=True, exist_ok=True)
+    experiment_dir = output_base_dir / config_key / experiment_name
+    trajectories_dir = experiment_dir / "training" / "trajectories"
+    trajectories_dir.mkdir(parents=True, exist_ok=True)
 
-    experiment_dir = output_base_dir / amlgym_domain_name / experiment_name
-    experiment_dir.mkdir(parents=True, exist_ok=True)
-
-    domain_data_dir = experiment_dir / "training"
-    domain_data_dir.mkdir(parents=True, exist_ok=True)
-
-    trajectories_dir = domain_data_dir / "trajectories"
-    trajectories_dir.mkdir(exist_ok=True)
-
-    # Get all problem files
-    problem_files = sorted(problems_dir.glob("*.pddl"))
+    # Collect and filter problem files
+    problem_files = sorted(problems_dir.glob("*.pddl"), key=_natural_sort_key)
     print(f"Found {len(problem_files)} problems in {problems_dir}")
 
-    # Filter by problem range if specified (1-based indexing, inclusive)
     if problem_start is not None or problem_end is not None:
-        start_idx = problem_start if problem_start is not None else 0
-        end_idx = problem_end if problem_end is not None else len(problem_files)
-        problem_files = problem_files[start_idx:end_idx+1]
-        print(f"Filtered to problems {start_idx}-{min(end_idx, len(problem_files) + start_idx)} ({len(problem_files)} problems)")
+        start = problem_start if problem_start is not None else 0
+        end = (problem_end + 1) if problem_end is not None else len(problem_files)
+        problem_files = problem_files[start:end]
+        print(f"Filtered to {len(problem_files)} problems (indices {start}–{end - 1})")
 
-    print(f"Gym environment: {gym_domain_name}")
+    print(f"Domain name: {domain_name}")
     print()
+
+    # Build kwargs for run_pipeline (gym-specific ones are harmlessly ignored by external handlers)
+    pipeline_kwargs = {}
+    if num_steps != 100:
+        pipeline_kwargs["num_steps"] = num_steps
+    if start_index > 0:
+        pipeline_kwargs["start_index"] = start_index
+    if planner:
+        pipeline_kwargs["planner"] = planner
 
     # Process each problem
     for problem_idx, problem_file in enumerate(problem_files):
         problem_name = problem_file.stem
         print(f"[{problem_idx + 1}/{len(problem_files)}] Processing {problem_name}...")
 
-        # Create problem directory
         problem_dir = trajectories_dir / problem_name
         problem_dir.mkdir(exist_ok=True)
 
         try:
-            # Initialize a new trajectory handler for each problem
-            print(f"  Initializing trajectory handler for {problem_name}...")
-            trajectory_handler = trajectory_handler_class(
-                domain_name=gym_domain_name,
-                pddl_domain_file=benchmark_domain_path,
+            # Initialize handler
+            handler = registry["handler_class"](
+                domain_name=domain_name,
+                pddl_domain_file=domain_file,
                 vendor=vendor,
             )
 
-            # Generate trajectory directly in problem directory (no nested images folder)
-            ground_actions = trajectory_handler.create_trajectory_from_gym(
+            # Run the full pipeline (works for both gym and external)
+            handler.run_pipeline(
                 problem_name=problem_name,
-                images_output_path=problem_dir,
-                num_steps=num_steps,
-                start_index=start_index,
-                planner=planner
+                images_path=problem_dir,
+                **pipeline_kwargs,
             )
 
-            print(f"  ✓ Generated {len(ground_actions)} steps")
-
-            # Run LLM vision pipeline
-            print(f"  Running LLM vision pipeline...")
-            imaged_trajectory = trajectory_handler.create_trajectory_and_masks(
-                problem_name=problem_name,
-                actions=ground_actions,
-                images_path=problem_dir
-            )
-
-            # Copy problem file
+            # Copy and transform problem file
             shutil.copy(problem_file, problem_dir)
-            transform_problems_pddlgym_to_amlgym(domain_config_key, problem_dir)
+            _apply_transform(registry["transform_fn"], problem_dir)
 
-            print(f"  ✓ Saved to: {problem_dir.relative_to(domain_data_dir)}")
+            print(f"  ✓ Saved to: {problem_dir.relative_to(trajectories_dir.parent)}")
             print()
 
         except Exception as e:
@@ -187,883 +241,64 @@ def _generate_multi_problem_trajectories(
             continue
 
     print()
-    print("="*80)
-    print("MULTI-PROBLEM TRAJECTORY GENERATION COMPLETE")
-    print("="*80)
+    print("=" * 80)
+    print("TRAJECTORY GENERATION COMPLETE")
+    print("=" * 80)
     print(f"\nExperiment saved to: {experiment_dir}")
-    print(f"  Experiment name: {experiment_name}")
-    print(f"  Trajectories directory: {trajectories_dir}")
-    print(f"  Total problems processed: {len(list(trajectories_dir.iterdir()))}")
+    print(f"  Trajectories: {trajectories_dir}")
+    print(f"  Problems processed: {len(list(trajectories_dir.iterdir()))}")
     print()
 
     return trajectories_dir
 
 
-def _generate_training_data_generic(
-    domain_display_name: str,
-    domain_config_key: str,
-    amlgym_domain_name: str,
-    trajectory_handler_class,
-    benchmark_domain_path: Path,
-    output_base_dir: Path,
-    num_steps: int,
-    problem_name: str,
-    vendor: str = "openai",
-    trace_length: int = None,
-    start_index: int = 0,
-    planner: Optional[str] = None
-) -> Tuple[Path, List[Path]]:
-    """
-    Generic function to generate training data for any domain.
-
-    Args:
-        domain_display_name: Display name for logging (e.g., "BLOCKS", "N-PUZZLE")
-        domain_config_key: Config key for domain (e.g., "blocks", "npuzzle")
-        trajectory_handler_class: Class to instantiate for trajectory handling
-        benchmark_domain_path: Path to benchmark PDDL domain file
-        output_base_dir: Base directory for all benchmark data
-        num_steps: Total number of steps to generate
-        problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms (default: None - no splitting)
-        start_index: State index to start trajectory from (default: 0)
-        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
-
-    Returns:
-        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
-    """
-    # Load configuration
-    config = load_config()
-    api_key = config[vendor]['api_key']
-    gym_domain_name = config['domains'][domain_config_key]['gym_domain_name']
-    object_detection_model = config['domains'][domain_config_key]['object_detection']['model_name']
-    object_detection_temp = config['domains'][domain_config_key]['object_detection']['temperature']
-    fluent_classification_model = config['domains'][domain_config_key]['fluent_classification']['model_name']
-    fluent_classification_temp = config['domains'][domain_config_key]['fluent_classification']['temperature']
-    problems_dir = Path(config['domains'][domain_config_key]['problems_dir'])
-
-    # Generate experiment name first for display
-    timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-    experiment_name = f"experiment_{timestamp}__model={fluent_classification_model}__steps={num_steps}"
-    if start_index > 0:
-        experiment_name += f"__start={start_index}"
-    if planner:
-        experiment_name += f"__planner={planner}"
-
-    print("="*80)
-    print(f"GENERATING {domain_display_name} TRAINING DATA")
-    print(f"Experiment: {experiment_name}")
-    print(f"Mode: {planner.upper() + ' planner' if planner else 'Random actions'}")
-    if start_index > 0:
-        print(f"Starting from state index: {start_index}")
-    print("="*80)
-    print()
-
-
-    # Setup output directories with experiment timestamp (already generated above)
-    benchmark_domain_dir = output_base_dir / amlgym_domain_name
-    benchmark_domain_dir.mkdir(parents=True, exist_ok=True)
-
-    experiment_dir = output_base_dir / amlgym_domain_name / experiment_name
-    experiment_dir.mkdir(parents=True, exist_ok=True)
-
-    domain_data_dir = experiment_dir / "training"
-    domain_data_dir.mkdir(parents=True, exist_ok=True)
-
-    # Setup trajectory handler
-    print(f"Setting up trajectory handler...")
-    print(f"  Gym environment: {gym_domain_name}")
-    print(f"  Problem: {problem_name}")
-    print(f"  Total steps: {num_steps}")
-    print()
-
-    trajectory_handler = trajectory_handler_class(
-        domain_name=gym_domain_name,
-        pddl_domain_file=benchmark_domain_path,
-        api_key=api_key,
-        vendor=vendor,
-    )
-
-    # Generate trajectory - images go directly under training/
-    print(f"Generating {num_steps}-step trajectory...")
-    images_dir = domain_data_dir / f"{problem_name}_images"
-    images_dir.mkdir()
-
-    ground_actions = trajectory_handler.create_trajectory_from_gym(
-        problem_name=problem_name,
-        images_output_path=images_dir,
-        num_steps=num_steps,
-        start_index=start_index,
-        planner=planner
-    )
-
-    print(f"✓ Generated {len(ground_actions)} steps")
-    print(f"  Sample actions: {ground_actions[:3]}...")
-    print()
-
-    # Load ground truth trajectory (for comparison purposes)
-    gt_trajectory_file = images_dir / f"{problem_name}_trajectory.json"
-    with open(gt_trajectory_file, 'r') as f:
-        gt_trajectory = json.load(f)
-
-    # Run LLM vision pipeline on full trajectory (object detection once, fluent classification per image)
-    print(f"Running LLM vision pipeline on {num_steps}-step trajectory...")
-    print(f"  This will perform object detection once and fluent classification {num_steps + 1} times")
-
-    imaged_trajectory = trajectory_handler.create_trajectory_and_masks(
-        problem_name=problem_name,
-        actions=ground_actions,
-        images_path=images_dir
-    )
-
-    print(f"✓ LLM vision pipeline complete")
-    print(f"  Saved trajectory: {problem_name}.trajectory")
-    print(f"  Saved masking info: {problem_name}.masking_info")
-    print()
-
-    # Load the generated trajectory masking info
-    trajectory_masking_info = load_masking_info(
-        Path(images_dir) / f"{problem_name}.masking_info",
-        trajectory_handler.domain
-    )
-
-    # Copy problem file to images directory for amlgym_models compatibility
-    problem_file_path = problems_dir / f"{problem_name}.pddl"
-    shutil.copy(problem_file_path, images_dir)
-    transform_problems_pddlgym_to_amlgym(domain_config_key, images_dir)
-
-    print(f"✓ Generated full trajectory")
-    print(f"  Images: {images_dir.name}")
-    print(f"  Ground truth: {gt_trajectory_file.name}")
-    print(f"  LLM trajectory: {problem_name}.trajectory")
-    print(f"  LLM masking: {problem_name}.masking_info")
-    print(f"  Problem file: {problem_name}.pddl")
-    print()
-
-    # Create ROSAME trace directory with single trace_0
-    print(f"Creating ROSAME trace directory...")
-    rosame_trace_dir = domain_data_dir / "rosame_trace"
-    rosame_trace_dir.mkdir(exist_ok=True)
-    rosame_trace_0_dir = rosame_trace_dir / "trace_0"
-    rosame_trace_0_dir.mkdir(exist_ok=True)
-
-    # Copy all files to ROSAME trace_0 (symbolic links to save space)
-    rosame_images_dir = rosame_trace_0_dir / f"{problem_name}_images"
-    shutil.copytree(images_dir, rosame_images_dir, symlinks=True)
-
-    print(f"✓ Saved ROSAME trace to: {rosame_trace_dir}")
-    print(f"  Trace: trace_0/")
-    print(f"  Images: {rosame_images_dir.relative_to(rosame_trace_dir)}")
-    print()
-
-    # Create PI-SAM traces directory
-    our_traces_base_dir = domain_data_dir / "pi_sam_traces"
-    our_traces_base_dir.mkdir(exist_ok=True)
-    our_trace_dirs = []
-
-    if planner or trace_length is None:
-        # No splitting - copy full trajectory to pi_sam_traces (same as ROSAME)
-        print(f"Trace splitting disabled (planner={planner}, trace_length={trace_length})")
-        print(f"  Copying full trajectory to pi_sam_traces/trace_0")
-
-        pi_sam_trace_0_dir = our_traces_base_dir / "trace_0"
-        pi_sam_trace_0_dir.mkdir(exist_ok=True)
-
-        # Copy all files to PI-SAM trace_0 (symbolic links to save space)
-        pi_sam_images_dir = pi_sam_trace_0_dir / f"{problem_name}_images"
-        shutil.copytree(images_dir, pi_sam_images_dir, symlinks=True)
-
-        our_trace_dirs.append(pi_sam_trace_0_dir)
-        print(f"  ✓ PI-SAM trace_0/ created (full trajectory)")
-    else:
-        # Cut into non-overlapping traces of specified length
-        print(f"Cutting into {num_steps // trace_length} traces of {trace_length} steps...")
-        print(f"  Note: Splitting LLM predictions (no re-running of vision pipeline)")
-
-        for trace_idx in range(num_steps // trace_length):
-            start_step = trace_idx * trace_length
-            end_step = start_step + trace_length
-
-            trace_dir = our_traces_base_dir / f"trace_{trace_idx}"
-            trace_dir.mkdir()
-            trace_images_dir = trace_dir / "images"
-            trace_images_dir.mkdir()
-
-            # Copy images for this trace (including initial state)
-            for step in range(start_step, end_step + 1):
-                src_image = images_dir / f"state_{step:04d}.png"
-                dst_image = trace_images_dir / f"state_{step - start_step:04d}.png"
-                shutil.copy(src_image, dst_image)
-
-            # Extract actions for this trace
-            trace_actions = ground_actions[start_step:end_step]
-
-            # Extract ground truth steps for this trace (for comparison)
-            trace_gt_trajectory = gt_trajectory[start_step:end_step]
-
-            # Extract LLM predictions for this trace (without re-running LLM)
-            trace_imaged_trajectory = imaged_trajectory[start_step:end_step]
-            trace_masking_info = trajectory_masking_info[start_step:end_step + 1]  # +1 because we need initial state too
-
-            # Save actions
-            trace_actions_file = trace_dir / "actions.json"
-            with open(trace_actions_file, 'w') as f:
-                json.dump({
-                    "problem_name": problem_name,
-                    "trace_index": trace_idx,
-                    "start_step": start_step,
-                    "end_step": end_step,
-                    "num_steps": len(trace_actions),
-                    "actions": trace_actions
-                }, f, indent=2)
-
-            # Save ground truth trajectory (for comparison)
-            trace_gt_file = trace_dir / f"{problem_name}_trace_{trace_idx}_trajectory.json"
-            with open(trace_gt_file, 'w') as f:
-                json.dump(trace_gt_trajectory, f, indent=2)
-
-            # Save LLM trajectory file (PDDL format)
-            trace_problem_name = f"{problem_name}_trace_{trace_idx}"
-            build_trajectory_file(trace_imaged_trajectory, trace_problem_name, trace_dir)
-
-            # Save LLM masking info
-            save_masking_info(trace_dir, trace_problem_name, trace_masking_info)
-
-            # Copy problem file to trace directory (required by amlgym_models)
-            trace_problem_file = trace_dir / f"{trace_problem_name}.pddl"
-            shutil.copy(problem_file_path, trace_problem_file)
-            transform_problems_pddlgym_to_amlgym(domain_config_key, trace_dir)
-
-            # Save metadata about which states this trace contains
-            trace_metadata_file = trace_dir / "trace_metadata.json"
-            with open(trace_metadata_file, 'w') as f:
-                json.dump({
-                    "trace_index": trace_idx,
-                    "start_state": start_step,
-                    "end_state": end_step,
-                    "num_states": end_step - start_step + 1,
-                    "note": f"Contains states {start_step}-{end_step} from the full ROSAME trace",
-                    "files": {
-                        "trajectory": f"{trace_problem_name}.trajectory",
-                        "masking_info": f"{trace_problem_name}.masking_info",
-                        "problem": f"{trace_problem_name}.pddl",
-                        "actions": "actions.json",
-                        "ground_truth": f"{problem_name}_trace_{trace_idx}_trajectory.json"
-                    }
-                }, f, indent=2)
-
-            our_trace_dirs.append(trace_dir)
-            print(f"  ✓ Trace {trace_idx}: states {start_step}-{end_step} → {trace_dir.name}")
-
-    print()
-    print("="*80)
-    print("TRAINING DATA GENERATION COMPLETE")
-    print("="*80)
-    print(f"\nExperiment saved to: {experiment_dir}")
-    print(f"  Experiment name: {experiment_name}")
-    print(f"  Data directory: {domain_data_dir}")
-    print(f"  Images: {images_dir.name}")
-    print(f"  ROSAME trace: {rosame_trace_dir.name}/trace_0")
-    print(f"  PI-SAM traces: pi_sam_traces/ ({len(our_trace_dirs)} traces)")
-    print()
-
-    return rosame_trace_dir, our_trace_dirs
-
-
-def generate_blocks_multi_problem_trajectories(
-    output_base_dir: Path,
-    num_steps: int = 100,
-    vendor: str = "openai",
-    start_index: int = 0,
-    planner: Optional[str] = None,
-    problem_start: int = None,
-    problem_end: int = None
-) -> Path:
-    """Generate trajectories for all blocksworld problems."""
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "blocksworld" / "blocksworld.pddl"
-    return _generate_multi_problem_trajectories(
-        domain_display_name="BLOCKSWORLD",
-        domain_config_key="blocks",
-        amlgym_domain_name="blocksworld",
-        trajectory_handler_class=LLMBlocksImageTrajectoryHandler,
-        benchmark_domain_path=benchmark_domain_path,
-        output_base_dir=output_base_dir,
-        num_steps=num_steps,
-        vendor=vendor,
-        start_index=start_index,
-        planner=planner,
-        problem_start=problem_start,
-        problem_end=problem_end
-    )
-
-
-def generate_blocks_training_data(
-    output_base_dir: Path,
-    num_steps: int = 100,
-    problem_name: str = "problem7",
-    vendor: str = "openai",
-    trace_length: int = None,
-    start_index: int = 0,
-    planner: Optional[str] = None
-) -> Tuple[Path, List[Path]]:
-    """
-    Generate training data for blocksworld domain.
-
-    Args:
-        output_base_dir: Base directory for all benchmark data
-        num_steps: Total number of steps to generate (default: 100)
-        problem_name: Problem name to use (without .pddl extension)
-        vendor: LLM vendor to use (default: openai)
-        trace_length: Length of each trace for our algorithms (default: None - no splitting)
-        start_index: State index to start trajectory from (default: 0)
-        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
-
-    Returns:
-        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
-    """
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "blocksworld" / "blocksworld.pddl"
-
-    return _generate_training_data_generic(
-        domain_display_name="BLOCKSWORLD",
-        domain_config_key="blocks",
-        amlgym_domain_name="blocksworld",
-        trajectory_handler_class=LLMBlocksImageTrajectoryHandler,
-        benchmark_domain_path=benchmark_domain_path,
-        output_base_dir=output_base_dir,
-        num_steps=num_steps,
-        problem_name=problem_name,
-        vendor=vendor,
-        trace_length=trace_length,
-        start_index=start_index,
-        planner=planner
-    )
-
-
-def generate_npuzzle_multi_problem_trajectories(
-    output_base_dir: Path,
-    num_steps: int = 100,
-    vendor: str = "openai",
-    start_index: int = 0,
-    planner: Optional[str] = None,
-    problem_start: int = None,
-    problem_end: int = None
-) -> Path:
-    """Generate trajectories for all n-puzzle problems."""
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "n_puzzle" / "n_puzzle.pddl"
-    return _generate_multi_problem_trajectories(
-        domain_display_name="N-PUZZLE",
-        domain_config_key="n_puzzle",
-        amlgym_domain_name="n_puzzle_typed",
-        trajectory_handler_class=LLMNpuzzleImageTrajectoryHandler,
-        benchmark_domain_path=benchmark_domain_path,
-        output_base_dir=output_base_dir,
-        num_steps=num_steps,
-        vendor=vendor,
-        start_index=start_index,
-        planner=planner,
-        problem_start=problem_start,
-        problem_end=problem_end
-    )
-
-
-def generate_npuzzle_training_data(
-    output_base_dir: Path,
-    num_steps: int = 100,
-    problem_name: str = "problem1",
-    vendor: str = "openai",
-    trace_length: int = None,
-    start_index: int = 0,
-    planner: Optional[str] = None
-) -> Tuple[Path, List[Path]]:
-    """
-    Generate training data for n-puzzle domain.
-
-    Args:
-        output_base_dir: Base directory for all benchmark data
-        num_steps: Total number of steps to generate (default: 100)
-        problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms (default: None - no splitting)
-        start_index: State index to start trajectory from (default: 0)
-        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
-
-    Returns:
-        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
-    """
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "n_puzzle" / "n_puzzle.pddl"
-
-    return _generate_training_data_generic(
-        domain_display_name="N-PUZZLE",
-        domain_config_key="n_puzzle",
-        amlgym_domain_name="n_puzzle_typed",
-        trajectory_handler_class=LLMNpuzzleImageTrajectoryHandler,
-        benchmark_domain_path=benchmark_domain_path,
-        output_base_dir=output_base_dir,
-        num_steps=num_steps,
-        problem_name=problem_name,
-        vendor=vendor,
-        trace_length=trace_length,
-        start_index=start_index,
-        planner=planner
-    )
-
-
-def generate_hanoi_multi_problem_trajectories(
-    output_base_dir: Path,
-    num_steps: int = 100,
-    vendor: str = "openai",
-    start_index: int = 0,
-    planner: Optional[str] = None,
-    problem_start: int = None,
-    problem_end: int = None
-) -> Path:
-    """Generate trajectories for all hanoi problems."""
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "hanoi" / "hanoi.pddl"
-    return _generate_multi_problem_trajectories(
-        domain_display_name="HANOI",
-        domain_config_key="hanoi",
-        amlgym_domain_name="hanoi",
-        trajectory_handler_class=LLMHanoiImageTrajectoryHandler,
-        benchmark_domain_path=benchmark_domain_path,
-        output_base_dir=output_base_dir,
-        num_steps=num_steps,
-        vendor=vendor,
-        start_index=start_index,
-        planner=planner,
-        problem_start=problem_start,
-        problem_end=problem_end
-    )
-
-
-def generate_hanoi_training_data(
-    output_base_dir: Path,
-    num_steps: int = 100,
-    problem_name: str = "problem0",
-    vendor: str = "openai",
-    trace_length: int = None,
-    start_index: int = 0,
-    planner: Optional[str] = None
-) -> Tuple[Path, List[Path]]:
-    """
-    Generate training data for hanoi domain.
-
-    Args:
-        output_base_dir: Base directory for all benchmark data
-        num_steps: Total number of steps to generate (default: 100)
-        problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms (default: None - no splitting)
-        start_index: State index to start trajectory from (default: 0)
-        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
-
-    Returns:
-        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
-    """
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "hanoi" / "hanoi.pddl"
-
-    return _generate_training_data_generic(
-        domain_display_name="HANOI",
-        domain_config_key="hanoi",
-        amlgym_domain_name="hanoi",
-        trajectory_handler_class=LLMHanoiImageTrajectoryHandler,
-        benchmark_domain_path=benchmark_domain_path,
-        output_base_dir=output_base_dir,
-        num_steps=num_steps,
-        problem_name=problem_name,
-        vendor=vendor,
-        trace_length=trace_length,
-        start_index=start_index,
-        planner=planner
-    )
-
-
-def generate_hiking_multi_problem_trajectories(
-    output_base_dir: Path,
-    num_steps: int = 100,
-    vendor: str = "openai",
-    start_index: int = 0,
-    planner: Optional[str] = None,
-    problem_start: int = None,
-    problem_end: int = None
-) -> Path:
-    """Generate trajectories for all hiking problems."""
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "hiking" / "hiking.pddl"
-    return _generate_multi_problem_trajectories(
-        domain_display_name="HIKING",
-        domain_config_key="hiking",
-        amlgym_domain_name="hiking",
-        trajectory_handler_class=LLMHikingImageTrajectoryHandler,
-        benchmark_domain_path=benchmark_domain_path,
-        output_base_dir=output_base_dir,
-        num_steps=num_steps,
-        vendor=vendor,
-        start_index=start_index,
-        planner=planner,
-        problem_start=problem_start,
-        problem_end=problem_end
-    )
-
-
-def generate_hiking_training_data(
-    output_base_dir: Path,
-    num_steps: int = 100,
-    problem_name: str = "problem2",
-    vendor: str = "openai",
-    trace_length: int = None,
-    start_index: int = 0,
-    planner: Optional[str] = None
-) -> Tuple[Path, List[Path]]:
-    """
-    Generate training data for hiking domain.
-
-    Args:
-        output_base_dir: Base directory for all benchmark data
-        num_steps: Total number of steps to generate (default: 100)
-        problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms (default: None - no splitting)
-        start_index: State index to start trajectory from (default: 0)
-        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
-
-    Returns:
-        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
-    """
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "hiking" / "hiking.pddl"
-
-    return _generate_training_data_generic(
-        domain_display_name="HIKING",
-        domain_config_key="hiking",
-        amlgym_domain_name="hiking",
-        trajectory_handler_class=LLMHikingImageTrajectoryHandler,
-        benchmark_domain_path=benchmark_domain_path,
-        output_base_dir=output_base_dir,
-        num_steps=num_steps,
-        problem_name=problem_name,
-        vendor=vendor,
-        trace_length=trace_length,
-        start_index=start_index,
-        planner=planner
-    )
-
-
-def generate_maze_multi_problem_trajectories(
-    output_base_dir: Path,
-    num_steps: int = 100,
-    vendor: str = "openai",
-    start_index: int = 0,
-    planner: Optional[str] = None,
-    problem_start: int = None,
-    problem_end: int = None
-) -> Path:
-    """Generate trajectories for all maze problems."""
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "maze" / "maze.pddl"
-    return _generate_multi_problem_trajectories(
-        domain_display_name="MAZE",
-        domain_config_key="maze",
-        amlgym_domain_name="maze",
-        trajectory_handler_class=LLMMazeImageTrajectoryHandler,
-        benchmark_domain_path=benchmark_domain_path,
-        output_base_dir=output_base_dir,
-        num_steps=num_steps,
-        vendor=vendor,
-        start_index=start_index,
-        planner=planner,
-        problem_start=problem_start,
-        problem_end=problem_end
-    )
-
-
-def generate_maze_training_data(
-    output_base_dir: Path,
-    num_steps: int = 100,
-    problem_name: str = "problem0",
-    vendor: str = "openai",
-    trace_length: int = None,
-    start_index: int = 0,
-    planner: Optional[str] = None
-) -> Tuple[Path, List[Path]]:
-    """
-    Generate training data for maze domain.
-
-    Args:
-        output_base_dir: Base directory for all benchmark data
-        num_steps: Total number of steps to generate (default: 100)
-        problem_name: Problem name to use (without .pddl extension)
-        trace_length: Length of each trace for our algorithms (default: None - no splitting)
-        start_index: State index to start trajectory from (default: 0)
-        planner: Which planner to use — "ff", "fd", or None for random actions (default: None)
-
-    Returns:
-        Tuple of (rosame_trace_dir, list of our_algorithm_trace_dirs)
-    """
-    benchmark_domain_path = Path(project_root) / "benchmark" / "domains" / "maze" / "maze.pddl"
-
-    return _generate_training_data_generic(
-        domain_display_name="MAZE",
-        domain_config_key="maze",
-        amlgym_domain_name="maze",
-        trajectory_handler_class=LLMMazeImageTrajectoryHandler,
-        benchmark_domain_path=benchmark_domain_path,
-        output_base_dir=output_base_dir,
-        num_steps=num_steps,
-        problem_name=problem_name,
-        vendor=vendor,
-        trace_length=trace_length,
-        start_index=start_index,
-        planner=planner
-    )
-
-
-def transform_problems_pddlgym_to_amlgym(domain_name: str, problems_dir: Path) -> None:
-    """
-    Transform all PDDLGym problem files in the specified directory to AMLGym format.
-
-    Args:
-        domain_name: Name of the domain ('blocksworld' or 'npuzzle')
-        problems_dir: Directory containing PDDLGym problem files
-    """
-    for problem_file in problems_dir.glob("*.pddl"):
-        if domain_name == "blocks":
-            transform_blocks_problem_pddlgym_to_amlgym(problem_file)
-        elif domain_name == "n_puzzle":
-            # Currently, no transformation needed for npuzzle
-            transform_npuzzle_problem_pddlgym_to_amlgym(problem_file)
-        elif domain_name == "hanoi":
-            return  # No transformation needed for hanoi
-        elif domain_name == "hiking":
-            return  # No transformation needed for hiking
-        elif domain_name == "maze":
-            return  # No transformation needed for maze
-        else:
-            raise ValueError(f"Domain '{domain_name}' not supported for transformation.")
-
-
-def transform_blocks_problem_pddlgym_to_amlgym(problem_file_path: Path) -> Path:
-    """
-    Transform a Blocksworld problem file from PDDLGym format to AMLGym format.
-
-    Args:
-        problem_file_path: Path to the PDDLGym problem file
-
-    Returns:
-        Path to the transformed AMLGym problem file
-    """
-    with open(problem_file_path, 'r') as f:
-        content = f.read()
-
-    # Remove robot reference fro objects
-    content = content.replace('robot - robot', '')
-
-    # Remove robot references from initial state
-    content = content.replace('(handempty robot)', '(handempty)')
-    content = content.replace('(handfull robot)', '').replace('(handfull)', '')
-
-    with open(problem_file_path, 'w') as f:
-        f.write(content)
-
-    return problem_file_path
-
-
-def transform_npuzzle_problem_pddlgym_to_amlgym(problem_file_path: Path) -> Path:
-    """
-    Transform a Npuzzle problem file from PDDLGym format to AMLGym format.
-    as we have only one problem possible here, we just copy a predefined file
-    Args:
-        problem_file_path: Path to the PDDLGym problem file
-
-    Returns:
-        Path to the transformed AMLGym problem file
-    """
-    with open(Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/domains/n_puzzle/eight01x_amlgym.pddl"), 'r') as f:
-        content = f.read()
-
-    with open(problem_file_path, 'w') as f:
-        f.write(content)
-
-    return problem_file_path
-
+# ── CLI ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Generate training data for benchmark experiments"
+        description="Generate training trajectories for benchmark experiments"
     )
     parser.add_argument(
-        "--domain",
-        type=str,
-        default="maze",
-        choices=["blocksworld", "npuzzle", "hanoi", "hiking", "maze"],
-        help="Domain to generate data for (default: blocksworld)"
+        "--domain", type=str, required=True,
+        choices=list(_DOMAIN_REGISTRY.keys()),
+        help="Domain to generate data for",
     )
     parser.add_argument(
-        "--num-steps",
-        type=int,
-        default=5,
-        help="Total number of steps to generate (default: 100)"
+        "--num-steps", type=int, default=100,
+        help="Max trajectory steps per problem (gym domains only, default: 100)",
     )
     parser.add_argument(
-        "--trace-length",
-        type=int,
-        default=None,
-        help="Length of each trace for our algorithms (default: None - no splitting). Only used when planner=None"
+        "--start-index", type=int, default=0,
+        help="Advance gym env N steps before generating (gym only, default: 0)",
     )
     parser.add_argument(
-        "--problem",
-        type=str,
-        default="problem0",
-        help="Problem name to use from PDDLGym (default: problem7 for blocksworld, problem7 for npuzzle, problem0 for hanoi/maze, problem2 for hiking)"
+        "--planner", type=str, default=None, choices=["ff", "fd"],
+        help="Planner to use (ff or fd). Omit for random actions.",
     )
     parser.add_argument(
-        "--start-index",
-        type=int,
-        default=0,
-        help="State index to start trajectory from (default: 0)"
+        "--problem-start", type=int, default=None,
+        help="First problem index to process (0-based, inclusive)",
     )
     parser.add_argument(
-        "--planner",
-        type=str,
-        default=None,
-        choices=["ff", "fd"],
-        help="Planner to use (ff or fd). Omit for random actions."
+        "--problem-end", type=int, default=None,
+        help="Last problem index to process (0-based, inclusive)",
     )
     parser.add_argument(
-        "--multi-problem",
-        action="store_true",
-        help="Generate trajectories for all problems in the domain (ignores --problem and --trace-length)"
-    )
-    parser.add_argument(
-        "--problem-start",
-        type=int,
-        default=None,
-        help="Start index for problem range (1-based, inclusive). Only used with --multi-problem. Example: --problem-start 1"
-    )
-    parser.add_argument(
-        "--problem-end",
-        type=int,
-        default=None,
-        help="End index for problem range (1-based, inclusive). Only used with --multi-problem. Example: --problem-end 10"
-    )
-    parser.add_argument(
-        "--vendor",
-        type=str,
-        default="openai",
-        choices=["openai", "google"],
-        help="LLM vendor to use for vision pipeline (default: openai)"
+        "--vendor", type=str, default="openai", choices=["openai", "google"],
+        help="LLM vendor for the vision pipeline (default: openai)",
     )
 
     args = parser.parse_args()
 
-    output_dir = Path(__file__).parent / "data"
-
-    if args.domain == "blocksworld":
-        if args.multi_problem:
-            trajectories_dir = generate_blocks_multi_problem_trajectories(
-                output_base_dir=output_dir,
-                num_steps=args.num_steps,
-                vendor=args.vendor,
-                start_index=args.start_index,
-                planner=args.planner,
-                problem_start=args.problem_start,
-                problem_end=args.problem_end
-            )
-        else:
-            rosame_dir, our_dirs = generate_blocks_training_data(
-                output_base_dir=output_dir,
-                num_steps=args.num_steps,
-                problem_name=args.problem,
-                vendor=args.vendor,
-                trace_length=args.trace_length,
-                start_index=args.start_index,
-                planner="ff"
-                # planner=args.planner
-            )
-            print(f"Generated {len(our_dirs)} traces for our algorithms")
-    elif args.domain == "npuzzle":
-        if args.multi_problem:
-            trajectories_dir = generate_npuzzle_multi_problem_trajectories(
-                output_base_dir=output_dir,
-                num_steps=args.num_steps,
-                vendor=args.vendor,
-                start_index=args.start_index,
-                planner=args.planner,
-                problem_start=args.problem_start,
-                problem_end=args.problem_end
-            )
-        else:
-            rosame_dir, our_dirs = generate_npuzzle_training_data(
-                output_base_dir=output_dir,
-                num_steps=args.num_steps,
-                problem_name=args.problem,
-                vendor=args.vendor,
-                trace_length=args.trace_length,
-                start_index=args.start_index,
-                planner="ff"
-            )
-            print(f"Generated {len(our_dirs)} traces for our algorithms")
-    elif args.domain == "hanoi":
-        if args.multi_problem:
-            trajectories_dir = generate_hanoi_multi_problem_trajectories(
-                output_base_dir=output_dir,
-                num_steps=args.num_steps,
-                vendor=args.vendor,
-                start_index=args.start_index,
-                planner="ff",
-                # planner=args.planner
-                problem_start=args.problem_start,
-                problem_end=args.problem_end
-            )
-        else:
-            rosame_dir, our_dirs = generate_hanoi_training_data(
-                output_base_dir=output_dir,
-                num_steps=args.num_steps,
-                problem_name=args.problem,
-                vendor=args.vendor,
-                trace_length=args.trace_length,
-                start_index=args.start_index,
-                planner="ff"
-            )
-            print(f"Generated {len(our_dirs)} traces for our algorithms")
-    elif args.domain == "hiking":
-        if args.multi_problem:
-            trajectories_dir = generate_hiking_multi_problem_trajectories(
-                output_base_dir=output_dir,
-                num_steps=args.num_steps,
-                vendor=args.vendor,
-                start_index=args.start_index,
-                planner=args.planner,
-                problem_start=args.problem_start,
-                problem_end=args.problem_end
-            )
-        else:
-            rosame_dir, our_dirs = generate_hiking_training_data(
-                output_base_dir=output_dir,
-                num_steps=args.num_steps,
-                problem_name=args.problem,
-                vendor=args.vendor,
-                trace_length=args.trace_length,
-                start_index=args.start_index,
-                planner=args.planner
-            )
-            print(f"Generated {len(our_dirs)} traces for our algorithms")
-    elif args.domain == "maze":
-        if args.multi_problem:
-            trajectories_dir = generate_maze_multi_problem_trajectories(
-                output_base_dir=output_dir,
-                num_steps=args.num_steps,
-                vendor=args.vendor,
-                start_index=args.start_index,
-                planner="ff",
-                problem_start=args.problem_start,
-                problem_end=args.problem_end
-            )
-        else:
-            rosame_dir, our_dirs = generate_maze_training_data(
-                output_base_dir=output_dir,
-                num_steps=args.num_steps,
-                problem_name=args.problem,
-                vendor=args.vendor,
-                trace_length=args.trace_length,
-                start_index=args.start_index,
-                planner="ff"
-                # planner=args.planner
-            )
-            print(f"Generated {len(our_dirs)} traces for our algorithms")
-    else:
-        print(f"Domain '{args.domain}' not yet implemented")
+    generate_trajectories(
+        domain=args.domain,
+        output_base_dir=Path(__file__).parent / "data",
+        num_steps=args.num_steps,
+        vendor=args.vendor,
+        start_index=args.start_index,
+        planner=args.planner,
+        problem_start=args.problem_start,
+        problem_end=args.problem_end,
+    )
