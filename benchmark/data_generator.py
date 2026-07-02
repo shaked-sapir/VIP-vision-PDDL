@@ -5,13 +5,22 @@ Generates multi-problem training trajectories for all supported domains.
 Uses a domain registry to avoid per-domain boilerplate — adding a new domain
 means adding one entry to _DOMAIN_REGISTRY.
 
+Unified problem layout (all domains):
+    src/domains/<domain>/problems/
+        ├── problem0/
+        │   ├── problem0.pddl
+        │   ├── (state_*.png + .trajectory — external domains only)
+        │   └── ...
+        └── problem1/
+            └── ...
+
 Output structure:
     benchmark/data/<domain>/<experiment>/training/trajectories/
         ├── problem0/
-        ├── problem1/
+        │   ├── problem0.pddl
+        │   ├── problem0.trajectory      (inferred)
+        │   └── problem0.masking_info     (inferred)
         └── ...
-
-Each run creates a new experiment folder, allowing multiple experiments to coexist.
 """
 
 import re
@@ -19,7 +28,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent
@@ -55,12 +64,33 @@ def _transform_npuzzle_problem(problem_file_path: Path) -> None:
     problem_file_path.write_text(content)
 
 
-def _apply_transform(transform_fn: Optional[Callable], problems_dir: Path) -> None:
-    """Apply a per-file transform to all .pddl files in a directory, if given."""
+def _apply_transform(transform_fn: Optional[Callable], problem_dir: Path) -> None:
+    """Apply a per-file transform to all .pddl files in a problem directory."""
     if transform_fn is None:
         return
-    for pddl_file in problems_dir.glob("*.pddl"):
+    for pddl_file in problem_dir.glob("*.pddl"):
         transform_fn(pddl_file)
+
+
+# ── External domain cleanup ─────────────────────────────────────────────
+
+def _cleanup_external_source_files(problem_dir: Path) -> None:
+    """Remove source images and GT trajectory from an external problem dir.
+
+    After inference, the output dir should contain only the inferred
+    .trajectory + .masking_info + .pddl — not the original images or GT.
+    """
+    # Remove all images
+    for img in problem_dir.glob("state_*.png"):
+        img.unlink()
+    # Remove GT trajectory (the PDDL-format one) and its JSON conversion
+    for gt_file in problem_dir.glob("*.trajectory"):
+        gt_file.unlink()
+    for json_file in problem_dir.glob("*_trajectory.json"):
+        json_file.unlink()
+    # Remove plan files if present
+    for plan_file in problem_dir.glob("plan.txt"):
+        plan_file.unlink()
 
 
 # ── Domain registry ──────────────────────────────────────────────────────
@@ -71,42 +101,49 @@ _DOMAIN_REGISTRY = {
         "config_key": "blocks",
         "handler_class": LLMBlocksImageTrajectoryHandler,
         "transform_fn": _transform_blocks_problem,
+        "is_external": False,
     },
     "npuzzle": {
         "display_name": "N-PUZZLE",
         "config_key": "n_puzzle",
         "handler_class": LLMNpuzzleImageTrajectoryHandler,
         "transform_fn": _transform_npuzzle_problem,
+        "is_external": False,
     },
     "hanoi": {
         "display_name": "HANOI",
         "config_key": "hanoi",
         "handler_class": LLMHanoiImageTrajectoryHandler,
         "transform_fn": None,
+        "is_external": False,
     },
     "hiking": {
         "display_name": "HIKING",
         "config_key": "hiking",
         "handler_class": LLMHikingImageTrajectoryHandler,
         "transform_fn": None,
+        "is_external": False,
     },
     "maze": {
         "display_name": "MAZE",
         "config_key": "maze",
         "handler_class": LLMMazeImageTrajectoryHandler,
         "transform_fn": None,
+        "is_external": False,
     },
     "depot": {
         "display_name": "DEPOT",
         "config_key": "depot",
         "handler_class": LLMDepotImageTrajectoryHandler,
         "transform_fn": None,
+        "is_external": True,
     },
     "gripper": {
         "display_name": "GRIPPER",
         "config_key": "gripper",
         "handler_class": LLMGripperImageTrajectoryHandler,
         "transform_fn": None,
+        "is_external": True,
     },
 }
 
@@ -114,7 +151,19 @@ _DOMAIN_REGISTRY = {
 def _natural_sort_key(path: Path):
     """Sort key that orders problem1, problem2, ..., problem10 numerically."""
     return [int(c) if c.isdigit() else c.lower()
-            for c in re.split(r'(\d+)', path.stem)]
+            for c in re.split(r'(\d+)', path.name)]
+
+
+def _collect_problem_dirs(problems_dir: Path) -> List[Path]:
+    """Collect problem subdirectories from the unified layout.
+
+    Each problem is a subdirectory of problems_dir containing at minimum
+    a .pddl file (and for external domains, images + GT trajectory).
+    """
+    return sorted(
+        [d for d in problems_dir.iterdir() if d.is_dir() and not d.name.startswith(('.', '_'))],
+        key=_natural_sort_key,
+    )
 
 
 # ── Main generation function ─────────────────────────────────────────────
@@ -131,9 +180,18 @@ def generate_trajectories(
 ) -> Path:
     """Generate trajectories for all problems in a domain.
 
-    Works for both PDDLGym and external domains — uses handler.run_pipeline
-    uniformly. PDDLGym handlers generate images + GT then infer; external
-    handlers read pre-existing images + GT then infer.
+    Works for both PDDLGym and external domains via handler.run_pipeline.
+
+    PDDLGym flow:
+        1. Create empty output dir.
+        2. run_pipeline generates images + GT there, then infers.
+        3. Copy problem .pddl from source, apply transform.
+
+    External flow:
+        1. Copy entire source problem dir (images + GT + .pddl) to output.
+        2. run_pipeline reads images and GT from the copy, infers in place.
+        3. Clean up: remove images, GT trajectory, and JSON — keep only
+           inferred .trajectory + .masking_info + .pddl.
 
     Args:
         domain: Domain key from _DOMAIN_REGISTRY.
@@ -150,6 +208,7 @@ def generate_trajectories(
     """
     registry = _DOMAIN_REGISTRY[domain]
     config_key = registry["config_key"]
+    is_external = registry["is_external"]
 
     # Load configuration
     config = load_config()
@@ -172,7 +231,7 @@ def generate_trajectories(
     print("=" * 80)
     print(f"GENERATING {registry['display_name']} TRAJECTORIES")
     print(f"Experiment: {experiment_name}")
-    print(f"Mode: {planner.upper() + ' planner' if planner else 'Random actions'}")
+    print(f"Mode: {'External images' if is_external else (planner.upper() + ' planner' if planner else 'Random actions')}")
     if start_index > 0:
         print(f"Starting from state index: {start_index}")
     print("=" * 80)
@@ -183,15 +242,15 @@ def generate_trajectories(
     trajectories_dir = experiment_dir / "training" / "trajectories"
     trajectories_dir.mkdir(parents=True, exist_ok=True)
 
-    # Collect and filter problem files
-    problem_files = sorted(problems_dir.glob("*.pddl"), key=_natural_sort_key)
-    print(f"Found {len(problem_files)} problems in {problems_dir}")
+    # Collect and filter problem subdirectories
+    problem_dirs = _collect_problem_dirs(problems_dir)
+    print(f"Found {len(problem_dirs)} problems in {problems_dir}")
 
     if problem_start is not None or problem_end is not None:
         start = problem_start if problem_start is not None else 0
-        end = (problem_end + 1) if problem_end is not None else len(problem_files)
-        problem_files = problem_files[start:end]
-        print(f"Filtered to {len(problem_files)} problems (indices {start}–{end - 1})")
+        end = (problem_end + 1) if problem_end is not None else len(problem_dirs)
+        problem_dirs = problem_dirs[start:end]
+        print(f"Filtered to {len(problem_dirs)} problems (indices {start}–{end - 1})")
 
     print(f"Domain name: {domain_name}")
     print()
@@ -206,33 +265,47 @@ def generate_trajectories(
         pipeline_kwargs["planner"] = planner
 
     # Process each problem
-    for problem_idx, problem_file in enumerate(problem_files):
-        problem_name = problem_file.stem
-        print(f"[{problem_idx + 1}/{len(problem_files)}] Processing {problem_name}...")
+    for problem_idx, source_problem_dir in enumerate(problem_dirs):
+        problem_name = source_problem_dir.name
+        print(f"[{problem_idx + 1}/{len(problem_dirs)}] Processing {problem_name}...")
 
-        problem_dir = trajectories_dir / problem_name
-        problem_dir.mkdir(exist_ok=True)
+        output_problem_dir = trajectories_dir / problem_name
+        output_problem_dir.mkdir(exist_ok=True)
 
         try:
-            # Initialize handler
             handler = registry["handler_class"](
                 domain_name=domain_name,
                 pddl_domain_file=domain_file,
                 vendor=vendor,
             )
 
-            # Run the full pipeline (works for both gym and external)
-            handler.run_pipeline(
-                problem_name=problem_name,
-                images_path=problem_dir,
-                **pipeline_kwargs,
-            )
+            if is_external:
+                # Copy source data (images + GT + .pddl) to output dir for inference
+                shutil.copytree(source_problem_dir, output_problem_dir, dirs_exist_ok=True)
 
-            # Copy and transform problem file
-            shutil.copy(problem_file, problem_dir)
-            _apply_transform(registry["transform_fn"], problem_dir)
+                handler.run_pipeline(
+                    problem_name=problem_name,
+                    images_path=output_problem_dir,
+                    **pipeline_kwargs,
+                )
 
-            print(f"  ✓ Saved to: {problem_dir.relative_to(trajectories_dir.parent)}")
+                # Clean up: remove source images and GT, keep inferred output + .pddl
+                _cleanup_external_source_files(output_problem_dir)
+
+            else:
+                # PDDLGym: handler generates images + GT into output dir, then infers
+                handler.run_pipeline(
+                    problem_name=problem_name,
+                    images_path=output_problem_dir,
+                    **pipeline_kwargs,
+                )
+
+                # Copy and transform problem file from source
+                source_pddl = source_problem_dir / f"{problem_name}.pddl"
+                shutil.copy(source_pddl, output_problem_dir)
+                _apply_transform(registry["transform_fn"], output_problem_dir)
+
+            print(f"  ✓ {problem_name}")
             print()
 
         except Exception as e:
