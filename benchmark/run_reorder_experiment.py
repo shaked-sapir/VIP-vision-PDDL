@@ -23,7 +23,7 @@ benchmark_path = Path(__file__).resolve().parent
 sys.path.insert(0, str(benchmark_path.parent))  # so "from benchmark.…" works
 
 from benchmark.experiment_running_helpers.run_fold import run_single_fold
-from benchmark.amlgym_testing import evaluate_model, save_learning_metrics
+from benchmark.experiment_running_helpers.evaluation import evaluate_model, save_learning_metrics
 
 # ── parameters (matching TO=300__largest__cv5 experiment exactly) ──────
 DOMAIN_NAME = "blocksworld"

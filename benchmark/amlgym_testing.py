@@ -1,20 +1,33 @@
+"""Benchmark testing script for PDDL action model learning.
+
+Runs cross-validation experiments on generated trajectory data, evaluating
+learned models against a reference domain file.
+
+Usage:
+    python -m benchmark.amlgym_testing \\
+        --domain blocks \\
+        --data-dir benchmark/data/blocksworld/multi_problem_...
+
+    The --domain arg is a key from config.yaml (blocks, hanoi, n_puzzle, etc.).
+    The --data-dir arg is the experiment directory output by data_generator.py.
+"""
+
 import argparse
 import json
+import sys
 import time
-import random
 from concurrent.futures import as_completed, ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from threading import Lock
-from typing import List, Dict
+from typing import List, Optional
 
 import pandas as pd
-from amlgym.metrics import print_metrics, syntactic_precision, syntactic_recall, problem_solving
+from amlgym.metrics import print_metrics
 
 from benchmark.baselines import get_baselines
-from benchmark.evaluation.predictive_metrics import evaluate_predictive_power
 from benchmark.evaluation.correlation_analysis import aggregate_correlation_tables
-
+from benchmark.experiment_running_helpers.evaluation import evaluate_model, save_learning_metrics
+from benchmark.experiment_running_helpers.normalize import normalize_experiment_data
 from benchmark.experiment_running_helpers.run_fold import run_single_fold
 from benchmark.experiment_running_helpers.trajectory_utils import pregenerate_all_gt_frame_axiom_files
 from benchmark.experiment_running_helpers.reporting import (
@@ -25,75 +38,13 @@ from benchmark.experiment_running_helpers.reporting import (
 )
 from src.pi_sam.masking import MaskingType
 from src.pi_sam.noising import NoisingType
+from src.utils.config import load_config
 
-# =============================================================================
-# CONFIG & PATHS
-# =============================================================================
 
-benchmark_path = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark")
+# ── Paths (derived, not hardcoded) ──────────────────────────────────────
+benchmark_path = Path(__file__).resolve().parent
 project_root = benchmark_path.parent
-print_metrics()
 
-# Global lock for thread-safe evaluation (AMLGym SimpleDomainReader is not thread-safe)
-evaluation_lock = Lock()
-
-experiment_data_dirs_masked = {
-    # "blocksworld": ["multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner"],
-    "blocksworld": ["multi_problem_02-01-2026T14:16:59__model=gpt-5.1__steps=300__planner"],
-    # "hanoi": ["multi_problem_06-12-2025T13:58:24__model=gpt-5.1__steps=100__planner"],
-    "hanoi": ["multi_problem_02-01-2026T14:26:29__model=gpt-5.1__steps=300__planner"],
-    # "hanoi": ["multi_problem_13-12-2025T14:53:55__model=gemini-2.5-pro__steps=11__planner"],
-    # "n_puzzle_typed": ["multi_problem_06-12-2025T13:32:59__model=gpt-5.1__steps=100__planner"],
-    "n_puzzle_typed": ["multi_problem_02-01-2026T16:55:49__model=gpt-5.1__steps=300__planner"],
-    "maze": ["multi_problem_09-01-2026T15:28:23__model=gpt-5.1__steps=300__planner"],
-    # "maze": ["experiment_07-12-2025T16:16:54__model=gpt-5.1__steps=100__planner"],
-    # "maze": ["multi_problem_13-12-2025T18:10:23__model=gemini-2.5-pro__steps=100__planner"]
-}
-
-experiment_data_dirs_fullyobs = {
-    "blocksworld": ["multi_problem_07-12-2025T17:27:33__model=gpt-5.1__steps=100__planner__NO_MASK"],
-    "hanoi": ["multi_problem_07-12-2025T17:30:57__model=gpt-5.1__steps=100__planner__NO_MASK"],
-    "n_puzzle_typed": ["multi_problem_06-12-2025T13:32:59__model=gpt-5.1__steps=100__planner"],
-    "maze": ["multi_problem_07-12-2025T17:37:10__model=gpt-5.1__steps=100__planner__NO_MASK"]
-}
-
-domain_name_mappings = {
-    'blocksworld': 'blocksworld',
-    'hanoi': 'hanoi',
-    'n_puzzle_typed': 'npuzzle',
-    'maze': 'maze',
-}
-
-domain_properties = {
-    'blocksworld': {
-        "domain_path": benchmark_path / 'domains' / 'blocksworld' / 'blocksworld.pddl',
-    },
-    'hanoi': {
-        "domain_path": benchmark_path / 'domains' / 'hanoi' / 'hanoi.pddl',
-    },
-    'n_puzzle_typed': {
-        "domain_path": benchmark_path / 'domains' / 'n_puzzle' / 'n_puzzle.pddl',
-    },
-    'maze': {
-        "domain_path": benchmark_path / 'domains' / 'maze' / 'maze.pddl',
-    },
-}
-
-N_FOLDS = 5
-# NUM_TRAJECTORIES_LIST = [1, 2, 3, 4, 5, 6, 7, 8]  # Number of full trajectories to use for learning
-NUM_TRAJECTORIES_LIST = [3, 4, 5, 6, 7, 8]  # Number of full trajectories to use for learning
-
-# Pool size per fold = 0.8 * n_problems (computed in run_fold). With 10 problems, pool=8.
-NUM_TRAJECTORIES_POOL = 8  # Typical value (0.8*10); actual pool is 0.8*n_problems in run_fold
-# GT_RATE_PERCENTAGES = [0, 10, 25, 50, 75, 100]  # Percentage of states to inject as GT (0 = only initial state)
-GT_RATE_PERCENTAGES = [0]  # Percentage of states to inject as GT (0 = only initial state)
-FRAME_AXIOM_MODE = "after_gt_only"  # "after_gt_only" or "all_states"
-PLANNING_TIMEOUT = 60  # Timeout in seconds for planning during evaluation
-FLUENT_PATCH_COST = 1.0
-FLUENT_PATCH_WEIGHT = 1.0
-MODEL_PATCH_COST = 1.0
-MODEL_CONSTRAINT_WEIGHT = 0.0
-MAX_SEARCH_NODES = None
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -101,13 +52,12 @@ MAX_SEARCH_NODES = None
 
 
 def _resolve_experiment_paths(
+    data_dir: Path,
+    experiment_name: Optional[str],
     domain_name: str,
-    dir_name: str,
-    experiment_name: str | None,
-    default_evaluation_results_dir: Path | None,
-) -> tuple[Path, Path, Path, Path | None]:
+    default_evaluation_results_dir: Optional[Path],
+) -> tuple[Path, Path, Path, Optional[Path]]:
     """Return (data_dir, trajectories_dir, testing_dir, evaluation_results_dir)."""
-    data_dir = benchmark_path / 'data' / domain_name / dir_name
     trajectories_dir = data_dir / 'training' / 'trajectories'
 
     if experiment_name:
@@ -131,147 +81,46 @@ def _results_for_domain(results: List[dict], display_domain_name: str) -> List[d
     return [r for r in results if r['domain'] == display_domain_name]
 
 
-def save_learning_metrics(output_dir: Path, report: dict, trajectory_mapping: Dict[str, str] = None) -> dict:
-    """Save learning metrics to JSON file."""
-    metrics = {
-        "learning_time_seconds": report.get("total_time_seconds", None),
-        "max_depth": report.get("max_depth", None),
-        "nodes_expanded": report.get("nodes_expanded", None),
-        "terminated_by": report.get("terminated_by", None),
-        "conflict_free_model_count": report.get("conflict_free_model_count", None),
-        "actual_timeout_seconds": report.get("actual_timeout_seconds", None),  # Actual timeout used (includes defaults)
-        "fluent_patch_cost": report.get("fluent_patch_cost", None),
-        "fluent_patch_weight": report.get("fluent_patch_weight", None),
-        "model_patch_cost": report.get("model_patch_cost", None),
-        "model_constraint_weight": report.get("model_constraint_weight", None),
-        "max_search_nodes": report.get("max_search_nodes", None),
-        "search_mode": report.get("search_mode", None),
-        "node_choosing_strategy": report.get("node_choosing_strategy", None),
-        "conflict_group_strategy": report.get("conflict_group_strategy", None),
-        "fluent_branch_mode": report.get("fluent_branch_mode", None),
-        # Detailed patch info for the final/best model
-        "best_model_constraints": report.get("final_model_constraints", None),
-        "best_fluent_patches": report.get("final_fluent_patches", None),
-        # Summary of all conflict-free solutions found during search
-        "conflict_free_solutions_summary": report.get("conflict_free_solutions_summary", None),
-    }
+def _resolve_domain_config(domain_key: str) -> dict:
+    """Load domain configuration from config.yaml.
 
-    # Add trajectory mapping if provided
-    if trajectory_mapping:
-        metrics["trajectory_mapping"] = trajectory_mapping
-
-    with open(output_dir / "learning_metrics.json", 'w') as f:
-        json.dump(metrics, f, indent=2)
-
-    return metrics
-
-
-
-
-def evaluate_model(model_path: str, domain_ref_path: Path, test_problems: List[str],
-                   planning_timeout: int = 60, profiler=None, test_states_path: str = None) -> dict:
-    """Evaluate a learned model. Handles AMLGym SimpleDomainReader race conditions.
-
-    Args:
-        model_path: Path to learned model PDDL file
-        domain_ref_path: Path to reference domain PDDL file
-        test_problems: List of test problem paths
-        planning_timeout: Timeout in seconds for planning during evaluation (default: 60)
-        profiler: Optional TimingProfiler instance for detailed timing
-        test_states_path: Path to test_states.json for predictive power metrics (optional)
-
-    Returns:
-        Dictionary of evaluation metrics
+    Returns dict with:
+        display_name: str  — benchmark display name (e.g. "blocksworld")
+        domain_ref_path: Path — reference domain file for evaluation metrics
     """
-    # NOTE: evaluation_lock is a threading lock, but we use ProcessPoolExecutor,
-    # so it doesn't prevent race conditions across processes.
+    config = load_config()
+    domain_config = config["domains"].get(domain_key)
+    if domain_config is None:
+        available = list(config["domains"].keys())
+        raise ValueError(f"Unknown domain '{domain_key}'. Available: {available}")
 
-    def _time_metric(metric_name, func):
-        """Helper to time a metric computation."""
-        if profiler:
-            start = time.perf_counter()
-            result = func()
-            elapsed = time.perf_counter() - start
-            profiler.add_detailed_timing(
-                'amlgym_metrics',
-                metric_name,
-                elapsed,
-                {'model_path': model_path, 'num_test_problems': len(test_problems)}
-            )
-            return result
-        return func()
-
-    max_retries = 5
-    for attempt in range(max_retries):
-        try:
-            # Add small random delay to reduce collision probability
-            if attempt > 0:
-                time.sleep(random.uniform(0.1, 0.5))
-
-            # Run all evaluations together - if any fail, retry all
-            # Profile each metric computation separately
-            precision = _time_metric('syntactic_precision', lambda: syntactic_precision(model_path, str(domain_ref_path)))
-            recall = _time_metric('syntactic_recall', lambda: syntactic_recall(model_path, str(domain_ref_path)))
-            problem_solving_result = _time_metric('problem_solving', lambda: problem_solving(model_path, str(domain_ref_path), test_problems, timeout=planning_timeout))
-
-            # Success - break out of retry loop
-            break
-
-        except (FileNotFoundError, ValueError, IndexError) as e:
-            # Race condition with SimpleDomainReader
-            if attempt < max_retries - 1:
-                # Clean up potentially corrupted _clean file
-                clean_file = f"{domain_ref_path}_clean"
-                try:
-                    if Path(clean_file).exists():
-                        Path(clean_file).unlink()
-                except OSError as cleanup_err:
-                    print(f"Warning: failed to remove stale clean file {clean_file}: {cleanup_err}")
-                continue
-            else:
-                # Final attempt failed - return null metrics
-                print(f"Warning: Evaluation failed after {max_retries} attempts: {e}")
-                precision = None
-                recall = None
-                problem_solving_result = None
-
-    # Predictive power metrics (applicability + predicted effects)
-    if test_states_path:
-        predictive = evaluate_predictive_power(model_path, str(domain_ref_path), test_states_path, test_problems)
+    # amlgym_domain_file is the reference domain for evaluation (may differ from
+    # the source domain file used for data generation).
+    amlgym_domain_file = domain_config.get("amlgym_domain_file")
+    if amlgym_domain_file:
+        domain_ref_path = project_root / amlgym_domain_file
     else:
-        predictive = {
-            "pred_app_precision": None,
-            "pred_app_recall": None,
-            "pred_eff_precision": None,
-            "pred_eff_recall": None,
-        }
+        # Fall back to the source domain file
+        domain_ref_path = project_root / domain_config["domain_file"]
 
     return {
-        'precision_precs_pos': precision.get('precs_pos') if isinstance(precision, dict) else None,
-        'precision_precs_neg': precision.get('precs_neg') if isinstance(precision, dict) else None,
-        'precision_eff_pos': precision.get('eff_pos') if isinstance(precision, dict) else None,
-        'precision_eff_neg': precision.get('eff_neg') if isinstance(precision, dict) else None,
-        'precision_overall': precision.get('mean') if isinstance(precision, dict) else precision,
-        'recall_precs_pos': recall.get('precs_pos') if isinstance(recall, dict) else None,
-        'recall_precs_neg': recall.get('precs_neg') if isinstance(recall, dict) else None,
-        'recall_eff_pos': recall.get('eff_pos') if isinstance(recall, dict) else None,
-        'recall_eff_neg': recall.get('eff_neg') if isinstance(recall, dict) else None,
-        'recall_overall': recall.get('mean') if isinstance(recall, dict) else recall,
-        'solving_ratio': problem_solving_result.get('solving_ratio') if isinstance(problem_solving_result, dict) else None,
-        'false_plans_ratio': problem_solving_result.get('false_plans_ratio') if isinstance(problem_solving_result, dict) else None,
-        'unsolvable_ratio': problem_solving_result.get('unsolvable_ratio') if isinstance(problem_solving_result, dict) else None,
-        'planning_timed_out_ratio': problem_solving_result.get('timed_out') if isinstance(problem_solving_result, dict) else None,
-        **predictive,
+        "display_name": domain_config.get("display_name", domain_key),
+        "domain_ref_path": domain_ref_path,
+        "domain_file": project_root / domain_config["domain_file"],
     }
-
 
 
 # =============================================================================
 # MAIN EXPERIMENT LOOP
 # =============================================================================
 def main(
-    selected_domains: List[str] = None,
+    domain_key: str,
+    data_dir: Path,
     mode: str = 'masked',
+    n_folds: int = 5,
+    num_trajectories_list: List[int] = None,
+    gt_rate_percentages: List[int] = None,
+    frame_axiom_mode: str = "after_gt_only",
     learning_timeout_seconds: int = 180,
     planning_timeout_seconds: int = 60,
     fluent_patch_cost: float = 1.0,
@@ -284,6 +133,8 @@ def main(
     conflict_group_strategy: str = "most_observations",
     fluent_branch_mode: str = "group",
     experiment_name: str = None,
+    normalize: bool = True,
+    force_normalize: bool = False,
     # --- Simulated data source ---
     simulated_gt_trajectories: List[str] = None,
     simulated_masking_p: float = 0.4,
@@ -294,20 +145,56 @@ def main(
     baselines: list = None,
     events_tracing: bool = False,
 ):
-    """
-    Run benchmark experiments.
+    """Run benchmark experiments on a single domain.
 
     Args:
-        selected_domains: List of domain names to run, or None for all domains in domain_name_mappings
-        mode: Either 'masked' or 'fullyobs'
-        events_tracing: If True, each fold writes search_trace.json during denoising.
-        simulated_gt_trajectories: Optional list of GT trajectory file paths (strings).
-            When provided, trajectories are loaded from these files and synthetic
-            masking + noise is applied in memory instead of reading pre-generated files.
-        simulated_masking_p: Masking probability for simulated mode (default: 0.4).
-        simulated_noising_p: Noising probability for simulated mode (default: 0.15).
-        simulated_seed: Random seed for simulated noise injection (default: 42).
+        domain_key: Config key from config.yaml (e.g. "blocks", "hanoi").
+        data_dir: Path to the experiment data directory (output of data_generator.py).
+        mode: Either 'masked' or 'fullyobs'.
+        n_folds: Number of cross-validation folds.
+        num_trajectories_list: List of trajectory counts to evaluate.
+        gt_rate_percentages: List of GT injection rates (0 = baseline).
+        frame_axiom_mode: "after_gt_only" or "all_states".
+        normalize: Run normalization pre-processing before evaluation.
+        force_normalize: Re-normalize even if normalized data exists.
     """
+    if num_trajectories_list is None:
+        num_trajectories_list = [3, 4, 5, 6, 7, 8]
+    if gt_rate_percentages is None:
+        gt_rate_percentages = [0]
+
+    # Print metrics banner (was previously a module-level side effect)
+    print_metrics()
+
+    # Load domain configuration from config.yaml
+    domain_info = _resolve_domain_config(domain_key)
+    display_domain_name = domain_info["display_name"]
+    domain_ref_path = domain_info["domain_ref_path"]
+    domain_file = domain_info["domain_file"]
+
+    # Validate data dir exists
+    if not data_dir.exists():
+        raise FileNotFoundError(f"Data directory not found: {data_dir}")
+
+    # ── Normalization ────────────────────────────────────────────────────
+    if normalize and not (simulated_gt_trajectories is not None):
+        print("\n" + "=" * 80)
+        print("NORMALIZATION PRE-PROCESSING")
+        print("=" * 80)
+        try:
+            norm_trajs_dir, norm_domain_file = normalize_experiment_data(
+                data_dir, domain_file, force=force_normalize,
+            )
+            # Use normalized data for evaluation
+            domain_ref_path = norm_domain_file
+        except ValueError as e:
+            print(f"\n  ⚠ Normalization failed: {e}")
+            print("  Continuing with unnormalized data...")
+            norm_trajs_dir = None
+    else:
+        norm_trajs_dir = None
+
+    # ── Simulated mode setup ─────────────────────────────────────────────
     use_simulated = simulated_gt_trajectories is not None
     simulated_gt_paths = None
     if use_simulated:
@@ -324,37 +211,39 @@ def main(
                 "Simulated GT trajectory file(s) not found:\n"
                 + "\n".join(f"  - {p}" for p in missing)
             )
+
     unclean_results = []
     cleaned_results = []
 
-    # Create evaluation results directory
+    # ── Resolve paths ────────────────────────────────────────────────────
     if experiment_name:
-        evaluation_results_dir = None  # set per-domain inside the loop
+        evaluation_results_dir = None  # set inside the loop
     else:
         evaluation_results_dir = benchmark_path / 'data' / 'evaluation_results'
         evaluation_results_dir.mkdir(parents=True, exist_ok=True)
 
-    # Select appropriate experiment data directories based on mode
-    experiment_data_dirs = experiment_data_dirs_masked if mode == 'masked' else experiment_data_dirs_fullyobs
+    data_dir_resolved, trajectories_dir, testing_dir, evaluation_results_dir = \
+        _resolve_experiment_paths(data_dir, experiment_name, display_domain_name, evaluation_results_dir)
 
-    # Filter domains if specific domains are requested
-    if selected_domains:
-        domains_to_run = {k: v for k, v in domain_name_mappings.items() if k in selected_domains}
-    else:
-        domains_to_run = domain_name_mappings
+    # Use normalized trajectories dir if available
+    if norm_trajs_dir is not None:
+        trajectories_dir = norm_trajs_dir
 
-    # Persist effective run configuration for reproducibility/debugging.
+    if experiment_name:
+        evaluation_results_dir = evaluation_results_dir  # already set by _resolve
+
+    # ── Persist run params ───────────────────────────────────────────────
     run_params = {
         "timestamp": datetime.now().isoformat(),
+        "domain_key": domain_key,
+        "display_domain_name": display_domain_name,
+        "data_dir": str(data_dir),
         "mode": mode,
         "experiment_name": experiment_name,
-        "selected_domains": selected_domains if selected_domains is not None else "all",
-        "domains_to_run": list(domains_to_run.keys()),
-        "experiment_data_dirs": {d: experiment_data_dirs[d] for d in domains_to_run.keys()},
-        "n_folds": N_FOLDS,
-        "num_trajectories_list": NUM_TRAJECTORIES_LIST,
-        "gt_rate_percentages": GT_RATE_PERCENTAGES,
-        "frame_axiom_mode": FRAME_AXIOM_MODE,
+        "n_folds": n_folds,
+        "num_trajectories_list": num_trajectories_list,
+        "gt_rate_percentages": gt_rate_percentages,
+        "frame_axiom_mode": frame_axiom_mode,
         "learning_timeout_seconds": learning_timeout_seconds,
         "planning_timeout_seconds": planning_timeout_seconds,
         "fluent_patch_cost": fluent_patch_cost,
@@ -367,6 +256,7 @@ def main(
         "conflict_group_strategy": conflict_group_strategy,
         "fluent_branch_mode": fluent_branch_mode,
         "baselines": [r.display_name for r in baselines] if baselines else [],
+        "normalized": norm_trajs_dir is not None,
         "simulated_mode": use_simulated,
         "simulated_gt_trajectories": [str(p) for p in simulated_gt_paths] if use_simulated else None,
         "simulated_masking_p": simulated_masking_p if use_simulated else None,
@@ -378,255 +268,229 @@ def main(
     if evaluation_results_dir is not None:
         _save_run_params(evaluation_results_dir / "run_params.json", run_params)
 
-    print(f"\n{'='*80}")
+    # ── Validate problem directories ─────────────────────────────────────
+    testing_dir.mkdir(parents=True, exist_ok=True)
+
+    problem_dirs = sorted([d for d in trajectories_dir.iterdir() if d.is_dir()])
+    n_problems = len(problem_dirs)
+
+    if n_problems < 2:
+        raise ValueError(
+            f"Domain {display_domain_name} has too few problems ({n_problems}) "
+            f"for 80/20 CV in {trajectories_dir}."
+        )
+
+    print(f"\nValidating {n_problems} problem directories...")
+    invalid_dirs = []
+    for prob_dir in problem_dirs:
+        problem_pddl_path = prob_dir / f"{prob_dir.name}.pddl"
+        if not problem_pddl_path.exists():
+            pddl_files = list(prob_dir.glob("*.pddl"))
+            if not pddl_files:
+                invalid_dirs.append(prob_dir.name)
+
+    if invalid_dirs:
+        raise ValueError(
+            f"Domain {display_domain_name} has {len(invalid_dirs)} problem directories "
+            f"without PDDL files:\n  {invalid_dirs}\n"
+            f"Expected naming: {{problem_dir_name}}/{{problem_dir_name}}.pddl"
+        )
+
+    print(f"✓ All {n_problems} problem directories validated")
+
+    # ── Print experiment info ────────────────────────────────────────────
+    print(f"\n{'=' * 80}")
     print(f"RUNNING BENCHMARK IN {mode.upper()} MODE")
-    print(f"Domains: {list(domains_to_run.keys())}")
-    print(f"{'='*80}\n")
+    print(f"Domain: {display_domain_name} (config key: {domain_key})")
+    print(f"Data dir: {data_dir}")
+    print(f"Total problems: {n_problems}")
+    print(f"Number of trajectories: {num_trajectories_list}")
+    print(f"GT rates: {gt_rate_percentages}")
+    print(f"Frame axiom mode: {frame_axiom_mode}")
+    print(f"Learning timeout: {learning_timeout_seconds}s")
+    print(f"Planning timeout: {planning_timeout_seconds}s")
+    print(
+        f"Denoising params: fluent_cost={fluent_patch_cost}, "
+        f"fluent_weight={fluent_patch_weight}, "
+        f"model_cost={model_patch_cost}, "
+        f"model_constraint_weight={model_constraint_weight}, "
+        f"max_search_nodes={max_search_nodes if max_search_nodes is not None else 'unlimited'}, "
+        f"search_mode={search_mode}, "
+        f"node_choosing_strategy={node_choosing_strategy}, "
+        f"conflict_group_strategy={conflict_group_strategy}, "
+        f"fluent_branch_mode={fluent_branch_mode}"
+    )
+    print(f"CV folds: {n_folds}")
+    print(f"{'=' * 80}\n")
 
-    for domain_name, display_domain_name in domains_to_run.items():
-        domain_ref_path = domain_properties[domain_name]["domain_path"]
+    # PRE-GENERATE all GT+frame-axiom files before experiments
+    if not use_simulated:
+        pregenerate_all_gt_frame_axiom_files(
+            problem_dirs, domain_ref_path, gt_rate_percentages, frame_axiom_mode,
+        )
 
-        for dir_name in experiment_data_dirs[domain_name]:
-            data_dir, trajectories_dir, testing_dir, evaluation_results_dir = _resolve_experiment_paths(domain_name, dir_name, experiment_name, evaluation_results_dir)
-            if experiment_name:
-                _save_run_params(evaluation_results_dir / "run_params.json", run_params, skip_if_exists=True)
+    # ── Experiment loop ──────────────────────────────────────────────────
+    for num_trajectories in num_trajectories_list:
+        print(f"\n{'='*60}\nNUMBER OF TRAJECTORIES = {num_trajectories}\n{'='*60}")
 
-            testing_dir.mkdir(parents=True, exist_ok=True)
+        for gt_rate in gt_rate_percentages:
+            gt_info = f"GT rate: {gt_rate}%" if gt_rate > 0 else "Baseline (GT only at t=0)"
+            print(f"\n{'-'*60}\n{gt_info}\n{'-'*60}")
 
-            problem_dirs = sorted([d for d in trajectories_dir.iterdir() if d.is_dir()])
-            n_problems = len(problem_dirs)
+            n_total_jobs = n_folds
+            print(f"  [MAIN] Starting {n_total_jobs} fold jobs...")
+            with ProcessPoolExecutor(max_workers=n_folds) as executor:
+                futures = []
+                for fold in range(n_folds):
+                    fold_kwargs = dict(
+                        fold=fold,
+                        problem_dirs=problem_dirs,
+                        n_problems=n_problems,
+                        num_trajectories=num_trajectories,
+                        gt_rate=gt_rate,
+                        domain_ref_path=domain_ref_path,
+                        testing_dir=testing_dir,
+                        bench_name=display_domain_name,
+                        mode=mode,
+                        evaluate_model_func=evaluate_model,
+                        save_learning_metrics_func=save_learning_metrics,
+                        conflict_search_timeout=learning_timeout_seconds,
+                        planning_timeout=planning_timeout_seconds,
+                        fluent_patch_cost=fluent_patch_cost,
+                        fluent_patch_weight=fluent_patch_weight,
+                        model_patch_cost=model_patch_cost,
+                        model_constraint_weight=model_constraint_weight,
+                        max_search_nodes=max_search_nodes,
+                        search_mode=search_mode,
+                        node_choosing_strategy=node_choosing_strategy,
+                        conflict_group_strategy=conflict_group_strategy,
+                        fluent_branch_mode=fluent_branch_mode,
+                        baselines=baselines,
+                        events_tracing=events_tracing,
+                    )
+                    if use_simulated:
+                        fold_kwargs.update(
+                            simulated_gt_trajectories=simulated_gt_paths,
+                            simulated_masking_strategy=MaskingType(simulated_masking_strategy),
+                            simulated_masking_p=simulated_masking_p,
+                            simulated_noising_strategy=NoisingType(simulated_noising_strategy),
+                            simulated_noising_p=simulated_noising_p,
+                            simulated_seed=simulated_seed,
+                        )
+                    future = executor.submit(run_single_fold, **fold_kwargs)
+                    futures.append(future)
 
-            if n_problems < 2:
-                raise ValueError(f"Domain {display_domain_name} has too few problems ({n_problems}) for 80/20 CV.")
+                print(f"  [MAIN] All {n_total_jobs} fold tasks submitted, waiting for completion...")
 
-            # Validate all problem directories have PDDL files BEFORE starting experiments
-            print(f"Validating {n_problems} problem directories...")
-            invalid_dirs = []
-            for prob_dir in problem_dirs:
-                # Use consistent naming: {problem_dir_name}.pddl
-                problem_pddl_path = prob_dir / f"{prob_dir.name}.pddl"
-                if not problem_pddl_path.exists():
-                    # Try glob as fallback
-                    pddl_files = list(prob_dir.glob("*.pddl"))
-                    if not pddl_files:
-                        invalid_dirs.append(prob_dir.name)
+                completed_count = 0
+                start_time = time.time()
+                per_job_timeout = learning_timeout_seconds * 2
+                batch_timeout = n_total_jobs * per_job_timeout
 
-            if invalid_dirs:
-                raise ValueError(
-                    f"Domain {display_domain_name} has {len(invalid_dirs)} problem directories without PDDL files:\n"
-                    f"  {invalid_dirs}\n"
-                    f"All problem directories must contain a PDDL file for CV to work correctly.\n"
-                    f"Expected naming: {{problem_dir_name}}/{{problem_dir_name}}.pddl"
-                )
+                for future in as_completed(futures, timeout=batch_timeout):
+                    try:
+                        completed_count += 1
+                        elapsed = time.time() - start_time
+                        print(f"  [MAIN] Job {completed_count}/{n_total_jobs} completed after {elapsed:.1f}s, collecting results...")
+                        results_list = future.result(timeout=per_job_timeout)
 
-            print(f"✓ All {n_problems} problem directories validated")
+                        fold_num = results_list[0]['fold'] if results_list else '?'
 
-            print(f"\n{'=' * 80}")
-            print(f"Domain: {display_domain_name} | data dir: {dir_name}")
-            print(f"Total problems: {n_problems}")
-            print(f"Number of trajectories: {NUM_TRAJECTORIES_LIST}")
-            print(f"GT rates: {GT_RATE_PERCENTAGES}")
-            print(f"Frame axiom mode: {FRAME_AXIOM_MODE}")
-            print(f"Learning timeout: {learning_timeout_seconds}s")
-            print(f"Planning timeout: {planning_timeout_seconds}s")
-            print(
-                f"Denoising params: fluent_cost={fluent_patch_cost}, "
-                f"fluent_weight={fluent_patch_weight}, "
-                f"model_cost={model_patch_cost}, "
-                f"model_constraint_weight={model_constraint_weight}, "
-                f"max_search_nodes={max_search_nodes if max_search_nodes is not None else 'unlimited'}, "
-                f"search_mode={search_mode}, "
-                f"node_choosing_strategy={node_choosing_strategy}, "
-                f"conflict_group_strategy={conflict_group_strategy}, "
-                f"fluent_branch_mode={fluent_branch_mode}"
-            )
-            print(f"CV folds: {N_FOLDS}")
-            print(f"{'=' * 80}\n")
+                        for result in results_list:
+                            phase = result['_internal_phase']
+                            if phase == 'unclean':
+                                unclean_results.append(result)
+                            else:
+                                cleaned_results.append(result)
 
-            # PRE-GENERATE all GT+frame-axiom files before experiments
-            # (skipped in simulated mode — noise is injected in memory)
-            if not use_simulated:
-                pregenerate_all_gt_frame_axiom_files(problem_dirs, domain_ref_path, GT_RATE_PERCENTAGES, FRAME_AXIOM_MODE)
+                        print(f"  [MAIN] Fold {fold_num} results processed. Jobs done: {completed_count}/{n_total_jobs}")
+                    except TimeoutError:
+                        print(f"TIMEOUT: Job {completed_count} exceeded time limit")
+                        print(f"  Completed so far: {completed_count}/{n_total_jobs}")
+                    except Exception as e:
+                        print(f"ERROR in job {completed_count}: {e}")
+                        import traceback
+                        traceback.print_exc()
 
-            # NEW: Iterate over number of trajectories instead of trajectory sizes
-            for num_trajectories in NUM_TRAJECTORIES_LIST:
-                print(f"\n{'='*60}\nNUMBER OF TRAJECTORIES = {num_trajectories}\n{'='*60}")
+            print(f"✓ All {n_total_jobs} jobs for num_trajectories={num_trajectories}, gt_rate={gt_rate}% completed")
 
-                for gt_rate in GT_RATE_PERCENTAGES:
-                    gt_info = f"GT rate: {gt_rate}%" if gt_rate > 0 else "Baseline (GT only at t=0)"
-                    print(f"\n{'-'*60}\n{gt_info}\n{'-'*60}")
+            # Write CSV files
+            timeout_suffix = f"_timeout{learning_timeout_seconds}s"
+            csv_unclean = evaluation_results_dir / f"results_{display_domain_name}_unclean{timeout_suffix}.csv"
+            csv_cleaned = evaluation_results_dir / f"results_{display_domain_name}{timeout_suffix}.csv"
 
-                    # Run all folds in parallel
-                    n_total_jobs = N_FOLDS
-                    print(f"  [MAIN] Starting {n_total_jobs} fold jobs...")
-                    with ProcessPoolExecutor(max_workers=N_FOLDS) as executor:
-                        futures = []
-                        for fold in range(N_FOLDS):
-                            fold_kwargs = dict(
-                                fold=fold,
-                                problem_dirs=problem_dirs,
-                                n_problems=n_problems,
-                                num_trajectories=num_trajectories,
-                                gt_rate=gt_rate,
-                                domain_ref_path=domain_ref_path,
-                                testing_dir=testing_dir,
-                                bench_name=display_domain_name,
-                                mode=mode,
-                                evaluate_model_func=evaluate_model,
-                                save_learning_metrics_func=save_learning_metrics,
-                                conflict_search_timeout=learning_timeout_seconds,
-                                planning_timeout=planning_timeout_seconds,
-                                fluent_patch_cost=fluent_patch_cost,
-                                fluent_patch_weight=fluent_patch_weight,
-                                model_patch_cost=model_patch_cost,
-                                model_constraint_weight=model_constraint_weight,
-                                max_search_nodes=max_search_nodes,
-                                search_mode=search_mode,
-                                node_choosing_strategy=node_choosing_strategy,
-                                conflict_group_strategy=conflict_group_strategy,
-                                fluent_branch_mode=fluent_branch_mode,
-                                baselines=baselines,
-                                events_tracing=events_tracing,
-                            )
-                            if use_simulated:
-                                fold_kwargs.update(
-                                    simulated_gt_trajectories=simulated_gt_paths,
-                                    simulated_masking_strategy=MaskingType(simulated_masking_strategy),
-                                    simulated_masking_p=simulated_masking_p,
-                                    simulated_noising_strategy=NoisingType(simulated_noising_strategy),
-                                    simulated_noising_p=simulated_noising_p,
-                                    simulated_seed=simulated_seed,
-                                )
-                            future = executor.submit(run_single_fold, **fold_kwargs)
-                            futures.append(future)
+            pd.DataFrame(unclean_results).to_csv(csv_unclean, index=False)
+            pd.DataFrame(cleaned_results).to_csv(csv_cleaned, index=False)
 
-                        print(f"  [MAIN] All {n_total_jobs} fold tasks submitted, waiting for completion...")
+            csv_combined = evaluation_results_dir / f"results_{display_domain_name}_combined{timeout_suffix}.csv"
+            pd.DataFrame(
+                _results_for_domain(unclean_results + cleaned_results, display_domain_name)
+            ).to_csv(csv_combined, index=False)
 
-                        # Wait for all jobs to complete and collect results
-                        completed_count = 0
-                        start_time = time.time()
-                        per_job_timeout = learning_timeout_seconds * 2  # 2x the learning timeout to account for the cleaning phase and other overheads
-                        batch_timeout = n_total_jobs * per_job_timeout
+            print(f"\n✓ Results written:")
+            print(f"  - Unclean: {csv_unclean}")
+            print(f"  - Cleaned: {csv_cleaned}")
+            print(f"  - Combined: {csv_combined}")
 
-                        for future in as_completed(futures, timeout=batch_timeout):
-                            try:
-                                completed_count += 1
-                                elapsed = time.time() - start_time
-                                print(f"  [MAIN] Job {completed_count}/{n_total_jobs} completed after {elapsed:.1f}s, collecting results...")
-                                results_list = future.result(timeout=per_job_timeout)
+        print(f"\n✓ All folds for num_trajectories={num_trajectories} completed")
 
-                                fold_num = results_list[0]['fold'] if results_list else '?'
+        # Generate Excel report after each num_trajectories completes
+        print(f"\n{'='*60}")
+        print(f"GENERATING AGGREGATED REPORT FOR NUM_TRAJECTORIES = {num_trajectories}")
+        print(f"{'='*60}")
 
-                                # Separate by phase
-                                for result in results_list:
-                                    phase = result['_internal_phase']
-                                    if phase == 'unclean':
-                                        unclean_results.append(result)
-                                    else:
-                                        cleaned_results.append(result)
+        timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
+        xlsx_path = evaluation_results_dir / f"benchmark_results_{timestamp}.xlsx"
+        generate_excel_report(unclean_results, cleaned_results, xlsx_path)
+        print(f"✓ Excel report saved to: {xlsx_path}")
+        completed_numtrajs = sorted(set(r['num_trajectories'] for r in unclean_results))
+        print(f"  Completed num_trajectories so far: {completed_numtrajs}")
 
-                                print(f"  [MAIN] Fold {fold_num} results processed. Jobs done: {completed_count}/{n_total_jobs}")
-                            except TimeoutError:
-                                print(f"TIMEOUT: Job {completed_count} exceeded time limit")
-                                print(f"  Completed so far: {completed_count}/{n_total_jobs}")
-                            except Exception as e:
-                                print(f"ERROR in job {completed_count}: {e}")
-                                import traceback
-                                traceback.print_exc()
+        domain_results = _results_for_domain(unclean_results + cleaned_results, display_domain_name)
+        if not domain_results:
+            print(f"\nWarning: No results collected for {display_domain_name} at num_trajectories={num_trajectories}; skipping plots")
+        else:
+            print(f"\n{'='*60}")
+            print(f"GENERATING GT INJECTION PLOTS")
+            print(f"{'='*60}")
+            generate_gt_injection_plots(csv_combined, evaluation_results_dir, display_domain_name)
 
-                    print(f"✓ All {n_total_jobs} jobs for num_trajectories={num_trajectories}, gt_rate={gt_rate}% completed")
+            print(f"\n{'='*60}")
+            print(f"GENERATING STACKED SOLVING RATE PLOTS")
+            print(f"{'='*60}")
+            plot_stacked_solving_rate(csv_combined, evaluation_results_dir, display_domain_name)
 
-                    # Write CSV files
-                    timeout_suffix = f"_timeout{learning_timeout_seconds}s"
-                    csv_unclean = evaluation_results_dir / f"results_{display_domain_name}_unclean{timeout_suffix}.csv"
-                    csv_cleaned = evaluation_results_dir / f"results_{display_domain_name}{timeout_suffix}.csv"
+        plots_dir = evaluation_results_dir / "plots"
+        generate_plots(unclean_results, cleaned_results, plots_dir)
+        print(f"✓ Plots updated with results up to num_trajectories={num_trajectories}")
 
-                    pd.DataFrame(unclean_results).to_csv(csv_unclean, index=False)
-                    pd.DataFrame(cleaned_results).to_csv(csv_cleaned, index=False)
-
-                    # Create combined CSV (unclean + cleaned results)
-                    csv_combined = evaluation_results_dir / f"results_{display_domain_name}_combined{timeout_suffix}.csv"
-                    pd.DataFrame(_results_for_domain(unclean_results + cleaned_results, display_domain_name)).to_csv(csv_combined, index=False)
-
-                    print(f"\n✓ Results written:")
-                    print(f"  - Unclean: {csv_unclean}")
-                    print(f"  - Cleaned: {csv_cleaned}")
-                    print(f"  - Combined: {csv_combined}")
-
-                print(f"\n✓ All folds for num_trajectories={num_trajectories} completed")
-
-                # Generate Excel report after each num_trajectories completes
-                print(f"\n{'='*60}")
-                print(f"GENERATING AGGREGATED REPORT FOR NUM_TRAJECTORIES = {num_trajectories}")
-                print(f"{'='*60}")
-
-                timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-                xlsx_path = evaluation_results_dir / f"benchmark_results_{timestamp}.xlsx"
-                generate_excel_report(unclean_results, cleaned_results, xlsx_path)
-                print(f"✓ Excel report saved to: {xlsx_path}")
-                completed_numtrajs = sorted(set(r['num_trajectories'] for r in unclean_results))
-                print(f"  Completed num_trajectories so far: {completed_numtrajs}")
-
-                domain_results = _results_for_domain(unclean_results + cleaned_results, display_domain_name)
-                if not domain_results:
-                    print(f"\nWarning: No results collected for {display_domain_name} at num_trajectories={num_trajectories}; skipping plots")
-                else:
-                    # Generate GT injection analysis plots
-                    print(f"\n{'='*60}")
-                    print(f"GENERATING GT INJECTION PLOTS")
-                    print(f"{'='*60}")
-                    generate_gt_injection_plots(csv_combined, evaluation_results_dir, display_domain_name)
-
-                    # Generate stacked solving rate plots
-                    print(f"\n{'='*60}")
-                    print(f"GENERATING STACKED SOLVING RATE PLOTS")
-                    print(f"{'='*60}")
-                    plot_stacked_solving_rate(csv_combined, evaluation_results_dir, display_domain_name)
-
-                # Generate plots after each num_trajectories
-                plots_dir = evaluation_results_dir / "plots"
-                generate_plots(unclean_results, cleaned_results, plots_dir)
-                print(f"✓ Plots updated with results up to num_trajectories={num_trajectories}")
-
-    # =============================================================================
-    # CROSS-FOLD CORRELATION ANALYSIS
-    # =============================================================================
+    # ── Cross-fold correlation analysis ──────────────────────────────────
     print("\n" + "=" * 80)
     print("CROSS-FOLD CORRELATION ANALYSIS")
     print("=" * 80)
 
-    for domain_name, display_domain_name in domains_to_run.items():
-        for dir_name in experiment_data_dirs[domain_name]:
-            _, _, corr_testing_dir, corr_eval_dir = _resolve_experiment_paths(domain_name, dir_name, experiment_name, evaluation_results_dir)
+    if testing_dir.exists():
+        fold_dirs = sorted(
+            d for d in testing_dir.iterdir()
+            if d.is_dir() and d.name.startswith("fold")
+            and (d / "correlation_analysis.json").exists()
+        )
 
-            if not corr_testing_dir.exists():
-                print(f"  {display_domain_name}: testing dir not found, skipping correlation.")
-                continue
+        if fold_dirs:
+            corr_output = evaluation_results_dir / f"correlation_{display_domain_name}"
+            corr_result = aggregate_correlation_tables(fold_dirs, corr_output)
+            print(f"  {display_domain_name}: {corr_result['n']} data points, output → {corr_output.name}/")
+        else:
+            print(f"  {display_domain_name}: no per-fold correlation tables found, skipping.")
+    else:
+        print(f"  {display_domain_name}: testing dir not found, skipping correlation.")
 
-            fold_dirs = sorted(
-                d for d in corr_testing_dir.iterdir()
-                if d.is_dir() and d.name.startswith("fold")
-                and (d / "correlation_analysis.json").exists()
-            )
-
-            if fold_dirs:
-                corr_output = corr_eval_dir / f"correlation_{display_domain_name}"
-                corr_result = aggregate_correlation_tables(fold_dirs, corr_output)
-                print(f"  {display_domain_name}: {corr_result['n']} data points, output → {corr_output.name}/")
-            else:
-                print(f"  {display_domain_name}: no per-fold correlation tables found, skipping.")
-
-    # =============================================================================
-    # FINAL SUMMARY
-    # =============================================================================
-
-    # Create all-domains combined CSV file
+    # ── Final summary ────────────────────────────────────────────────────
     if evaluation_results_dir is not None:
         csv_all_combined = evaluation_results_dir / "results_all_domains_combined.csv"
         all_unclean = [dict(r, phase='unclean') for r in unclean_results]
         all_cleaned = [dict(r, phase='cleaned') for r in cleaned_results]
-        all_combined_data = all_unclean + all_cleaned
-        pd.DataFrame(all_combined_data).to_csv(csv_all_combined, index=False)
+        pd.DataFrame(all_unclean + all_cleaned).to_csv(csv_all_combined, index=False)
 
     print("\n" + "=" * 80)
     print("ALL EXPERIMENTS COMPLETED")
@@ -636,88 +500,104 @@ def main(
     if evaluation_results_dir is not None:
         print(f"\nAll evaluation results saved to: {evaluation_results_dir}")
 
+
+# =============================================================================
+# CLI
+# =============================================================================
+
+def _parse_int_list(value: str) -> List[int]:
+    """Parse a comma-separated list of ints, e.g. '3,4,5,6,7,8'."""
+    return [int(x.strip()) for x in value.split(',')]
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Run PDDL action model learning benchmark')
-    parser.add_argument('--domain', type=str, default='all',
-                       help='Domain to run (blocksworld, hanoi, n_puzzle_typed, maze, or "all" for all domains)')
-    parser.add_argument('--mode', type=str, default='masked', choices=['masked', 'fullyobs'],
-                       help='Mode to run: "masked" (PISAM/PO_ROSAME) or "fullyobs" (SAM/ROSAME)')
-    parser.add_argument('--learning-timeout-seconds', type=int, default=180,
-                        help='Timeout in seconds for denoising conflict search')
-    parser.add_argument('--planning-timeout-seconds', type=int, default=PLANNING_TIMEOUT,
-                        help='Timeout in seconds for planning during evaluation')
-    parser.add_argument('--fluent-patch-cost', type=float, default=FLUENT_PATCH_COST,
-                        help='Per-patch cost for fluent patches in conflict search')
-    parser.add_argument('--fluent-patch-weight', type=float, default=FLUENT_PATCH_WEIGHT,
-                        help='Weight multiplier for fluent patch cost in conflict search')
-    parser.add_argument('--model-patch-cost', type=float, default=MODEL_PATCH_COST,
-                        help='Per-patch cost for model patches/constraints in conflict search')
-    parser.add_argument('--model-constraint-weight', type=float, default=MODEL_CONSTRAINT_WEIGHT,
-                        help='Weight multiplier for model constraint cost in conflict search')
-    parser.add_argument('--max-search-nodes', type=int, default=0,
-                        help='Max conflict-search nodes; <=0 means unlimited')
-    parser.add_argument('--search-mode', type=str, default='dfs', choices=['dfs', 'ucs'],
-                        help='Conflict-search strategy for denoising: "dfs" (anytime DFS) or "ucs"')
-    parser.add_argument(
-        '--node-choosing-strategy',
-        type=str,
-        default='model_patch_first',
-        choices=['model_patch_first', 'fluent_patch_first', 'fluent_patch_first_then_model', 'randomized'],
-        help=(
-            'Order strategy for inserting denoising branch children: '
-            '"model_patch_first", "fluent_patch_first", '
-            '"fluent_patch_first_then_model" (fluent-first until first solution, then model-first), '
-            'or "randomized"'
-        ),
-    )
-    parser.add_argument(
-        '--conflict-group-strategy',
-        type=str,
-        default='most_observations',
-        choices=['first', 'largest', 'largest_model_patchable', 'most_observations', 'smallest'],
-        help=(
-            'Which conflict group to resolve first at each search node: '
-            '"first" (original: by priority then position), '
-            '"largest" (prefer groups with most conflicts), '
-            '"largest_model_patchable" (prefer largest non-FRAME_AXIOM groups), '
-            '"most_observations" (prefer groups spanning most distinct observations), '
-            '"smallest" (prefer groups with fewest conflicts — best paired with fluent_patch_first)'
-        ),
-    )
-    parser.add_argument(
-        '--fluent-branch-mode',
-        type=str,
-        default='group',
-        choices=['group', 'single'],
-        help=(
-            'How many fluent patches per data-fix branch: '
-            '"group" (default, all conflicts in the chosen group at once), '
-            '"single" (one patch per branch — finer-grained, avoids inflated cost)'
-        ),
-    )
-    parser.add_argument(
-        '--experiment-name',
-        type=str,
-        default=None,
-        help=(
-            'Self-contained experiment folder name. When set, testing/ and '
-            'evaluation_results/ are created under '
-            'benchmark/data/new_experiments/{domain}/{name}/ '
-            'instead of the default locations.'
+    # Load config for domain validation
+    _config = load_config()
+    _available_domains = list(_config["domains"].keys())
+
+    parser = argparse.ArgumentParser(
+        description='Run PDDL action model learning benchmark',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Example:\n"
+            "  python -m benchmark.amlgym_testing \\\n"
+            "    --domain blocks \\\n"
+            "    --data-dir benchmark/data/blocksworld/multi_problem_...\n"
         ),
     )
 
-    # --- Simulated data source ---
+    # ── Required arguments ───────────────────────────────────────────────
     parser.add_argument(
-        '--simulated-gt-trajectories',
-        type=str,
-        nargs='+',
-        default=None,
-        help=(
-            'Paths to ground-truth .trajectory files for simulated mode. '
-            'When provided, synthetic masking + noise is applied in memory '
-            'instead of reading pre-generated files from disk.'
-        ),
+        '--domain', type=str, required=True,
+        choices=_available_domains,
+        help=f'Domain config key ({", ".join(_available_domains)})',
+    )
+    parser.add_argument(
+        '--data-dir', type=str, required=True,
+        help='Path to the experiment data directory (output of data_generator.py)',
+    )
+
+    # ── Experiment parameters ────────────────────────────────────────────
+    parser.add_argument('--mode', type=str, default='masked', choices=['masked', 'fullyobs'],
+                        help='Mode: "masked" (PISAM/PO_ROSAME) or "fullyobs" (SAM/ROSAME)')
+    parser.add_argument('--n-folds', type=int, default=5,
+                        help='Number of cross-validation folds (default: 5)')
+    parser.add_argument('--num-trajectories', type=str, default='3,4,5,6,7,8',
+                        help='Comma-separated trajectory counts to evaluate (default: 3,4,5,6,7,8)')
+    parser.add_argument('--gt-rates', type=str, default='0',
+                        help='Comma-separated GT injection rates in %% (default: 0)')
+    parser.add_argument('--frame-axiom-mode', type=str, default='after_gt_only',
+                        choices=['after_gt_only', 'all_states'],
+                        help='Frame axiom propagation mode (default: after_gt_only)')
+    parser.add_argument('--learning-timeout-seconds', type=int, default=180,
+                        help='Timeout in seconds for denoising conflict search (default: 180)')
+    parser.add_argument('--planning-timeout-seconds', type=int, default=60,
+                        help='Timeout in seconds for planning during evaluation (default: 60)')
+
+    # ── Conflict search parameters ───────────────────────────────────────
+    parser.add_argument('--fluent-patch-cost', type=float, default=1.0,
+                        help='Per-patch cost for fluent patches (default: 1.0)')
+    parser.add_argument('--fluent-patch-weight', type=float, default=1.0,
+                        help='Weight multiplier for fluent patch cost (default: 1.0)')
+    parser.add_argument('--model-patch-cost', type=float, default=1.0,
+                        help='Per-patch cost for model patches/constraints (default: 1.0)')
+    parser.add_argument('--model-constraint-weight', type=float, default=0.0,
+                        help='Weight multiplier for model constraint cost (default: 0.0)')
+    parser.add_argument('--max-search-nodes', type=int, default=0,
+                        help='Max conflict-search nodes; <=0 means unlimited')
+    parser.add_argument('--search-mode', type=str, default='dfs', choices=['dfs', 'ucs'],
+                        help='Conflict-search strategy (default: dfs)')
+    parser.add_argument(
+        '--node-choosing-strategy', type=str, default='model_patch_first',
+        choices=['model_patch_first', 'fluent_patch_first', 'fluent_patch_first_then_model', 'randomized'],
+        help='Order strategy for denoising branch children (default: model_patch_first)',
+    )
+    parser.add_argument(
+        '--conflict-group-strategy', type=str, default='most_observations',
+        choices=['first', 'largest', 'largest_model_patchable', 'most_observations', 'smallest'],
+        help='Which conflict group to resolve first (default: most_observations)',
+    )
+    parser.add_argument(
+        '--fluent-branch-mode', type=str, default='group', choices=['group', 'single'],
+        help='Fluent patches per data-fix branch (default: group)',
+    )
+
+    # ── Experiment naming ────────────────────────────────────────────────
+    parser.add_argument(
+        '--experiment-name', type=str, default=None,
+        help='Self-contained experiment folder name under benchmark/data/new_experiments/{domain}/{name}/',
+    )
+
+    # ── Normalization ────────────────────────────────────────────────────
+    parser.add_argument('--no-normalize', action='store_true', default=False,
+                        help='Skip normalization pre-processing')
+    parser.add_argument('--force-normalize', action='store_true', default=False,
+                        help='Re-normalize even if normalized data already exists')
+
+    # ── Simulated data source ────────────────────────────────────────────
+    parser.add_argument(
+        '--simulated-gt-trajectories', type=str, nargs='+', default=None,
+        help='GT trajectory files for simulated mode (synthetic masking + noise)',
     )
     parser.add_argument('--simulated-masking-p', type=float, default=0.4,
                         help='Masking probability for simulated mode (default: 0.4)')
@@ -732,33 +612,17 @@ if __name__ == "__main__":
     parser.add_argument('--simulated-seed', type=int, default=42,
                         help='Random seed for simulated noise injection (default: 42)')
 
-    # --- Tracing ---
+    # ── Tracing & baselines ──────────────────────────────────────────────
+    parser.add_argument('--events-tracing', action='store_true', default=False,
+                        help='Enable per-node event tracing during denoising')
     parser.add_argument(
-        '--events-tracing',
-        action='store_true',
-        default=False,
-        help=(
-            'Enable per-node event tracing during the denoising conflict search. '
-            'When set, each fold writes a search_trace.json that can be visualized '
-            'with benchmark/diagnosis/visualize_trace.py.'
-        ),
-    )
-
-    # --- Pluggable baselines ---
-    parser.add_argument(
-        '--baselines',
-        type=str,
-        nargs='*',
-        default=['rosame'],
-        help=(
-            'Baseline algorithms to run alongside SAM/PISAM. '
-            'Pass one or more names (e.g. "rosame"). '
-            'Use "none" to skip all baselines. Default: rosame.'
-        ),
+        '--baselines', type=str, nargs='*', default=['rosame'],
+        help='Baseline algorithms (e.g. "rosame"). Use "none" to skip. Default: rosame.',
     )
 
     args = parser.parse_args()
 
+    # ── Validation ───────────────────────────────────────────────────────
     if args.learning_timeout_seconds <= 0:
         parser.error("--learning-timeout-seconds must be > 0")
     if args.planning_timeout_seconds <= 0:
@@ -774,19 +638,18 @@ if __name__ == "__main__":
 
     max_search_nodes = None if args.max_search_nodes <= 0 else args.max_search_nodes
 
-    # Determine which domains to run
-    if args.domain == 'all':
-        selected_domains = None  # Run all domains in domain_name_mappings
-    else:
-        # Validate domain name
-        if args.domain not in domain_properties:
-            print(f"Error: Unknown domain '{args.domain}'")
-            print(f"Available domains: {list(domain_properties.keys())}")
-            exit(1)
-        selected_domains = [args.domain]
+    # Parse list arguments
+    num_trajectories_list = _parse_int_list(args.num_trajectories)
+    gt_rate_percentages = _parse_int_list(args.gt_rates)
 
+    # Resolve data dir (allow relative paths)
+    data_dir = Path(args.data_dir)
+    if not data_dir.is_absolute():
+        data_dir = project_root / data_dir
+
+    # Baselines
     if not args.baselines:
-        parser.error("--baselines requires a value (e.g. 'rosame', or 'none' to skip baselines)")
+        parser.error("--baselines requires a value (e.g. 'rosame', or 'none' to skip)")
     if len(args.baselines) == 1 and args.baselines[0].lower() == 'none':
         baseline_names = []
     elif any(name.lower() == 'none' for name in args.baselines):
@@ -801,8 +664,13 @@ if __name__ == "__main__":
         print("Baselines: NONE (only SAM/PISAM will run)")
 
     main(
-        selected_domains=selected_domains,
+        domain_key=args.domain,
+        data_dir=data_dir,
         mode=args.mode,
+        n_folds=args.n_folds,
+        num_trajectories_list=num_trajectories_list,
+        gt_rate_percentages=gt_rate_percentages,
+        frame_axiom_mode=args.frame_axiom_mode,
         learning_timeout_seconds=args.learning_timeout_seconds,
         planning_timeout_seconds=args.planning_timeout_seconds,
         fluent_patch_cost=args.fluent_patch_cost,
@@ -815,6 +683,8 @@ if __name__ == "__main__":
         conflict_group_strategy=args.conflict_group_strategy,
         fluent_branch_mode=args.fluent_branch_mode,
         experiment_name=args.experiment_name,
+        normalize=not args.no_normalize,
+        force_normalize=args.force_normalize,
         simulated_gt_trajectories=args.simulated_gt_trajectories,
         simulated_masking_p=args.simulated_masking_p,
         simulated_masking_strategy=args.simulated_masking_strategy,
