@@ -75,20 +75,21 @@ def _apply_transform(transform_fn: Optional[Callable], problem_dir: Path) -> Non
 # ── External domain cleanup ─────────────────────────────────────────────
 
 def _cleanup_external_source_files(problem_dir: Path) -> None:
-    """Remove source images and GT trajectory from an external problem dir.
+    """Remove source images from an external problem dir after inference.
 
-    After inference, the output dir should contain only the inferred
-    .trajectory + .masking_info + .pddl — not the original images or GT.
+    Keeps:
+        - {problem}.trajectory — the inferred trajectory (overwrites GT during pipeline)
+        - {problem}.masking_info — inference masking info
+        - {problem}.pddl — problem file
+        - {problem}_trajectory.json — GT trajectory JSON (needed by trajectory_utils
+          for GT injection at various rates during evaluation)
+
+    Removes:
+        - state_*.png — source images (no longer needed after inference)
+        - plan.txt — source plan file
     """
-    # Remove all images
     for img in problem_dir.glob("state_*.png"):
         img.unlink()
-    # Remove GT trajectory (the PDDL-format one) and its JSON conversion
-    for gt_file in problem_dir.glob("*.trajectory"):
-        gt_file.unlink()
-    for json_file in problem_dir.glob("*_trajectory.json"):
-        json_file.unlink()
-    # Remove plan files if present
     for plan_file in problem_dir.glob("plan.txt"):
         plan_file.unlink()
 
@@ -237,8 +238,8 @@ def generate_trajectories(
     print("=" * 80)
     print()
 
-    # Setup output directories
-    experiment_dir = output_base_dir / config_key / experiment_name
+    # Setup output directories (use CLI domain name, not config_key, to match existing data dirs)
+    experiment_dir = output_base_dir / domain / experiment_name
     trajectories_dir = experiment_dir / "training" / "trajectories"
     trajectories_dir.mkdir(parents=True, exist_ok=True)
 
