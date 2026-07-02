@@ -11,12 +11,12 @@ import time
 from pddl_plus_parser.lisp_parsers import DomainParser
 from utilities import NegativePreconditionPolicy
 
-from benchmark.amlgym_models.NOISY_PISAM import NOISY_PISAM
-from benchmark.amlgym_models.NOISY_SAM import NOISY_SAM
-from benchmark.amlgym_models.PISAM import PISAM
-from benchmark.amlgym_models.PO_ROSAME import PO_ROSAME
-from benchmark.amlgym_models.ROSAME import ROSAME
-from benchmark.amlgym_models.SAM import SAM
+from benchmark.algorithm_adapters.NOISY_PISAM import NOISY_PISAM
+from benchmark.algorithm_adapters.NOISY_SAM import NOISY_SAM
+from benchmark.algorithm_adapters.PISAM import PISAM
+from benchmark.algorithm_adapters.PO_ROSAME import PO_ROSAME
+from benchmark.algorithm_adapters.ROSAME import ROSAME
+from benchmark.algorithm_adapters.SAM import SAM
 from benchmark.experiment_running_helpers.cleaned_trajectories import (
     save_fold_observations,
     save_observations_to_dir,

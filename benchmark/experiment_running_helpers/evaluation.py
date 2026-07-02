@@ -1,6 +1,6 @@
 """Model evaluation and learning metrics persistence.
 
-Extracted from amlgym_testing.py to keep the main experiment loop lean.
+Extracted from benchmark_runner.py to keep the main experiment loop lean.
 """
 
 import json
@@ -90,7 +90,7 @@ def evaluate_model(
             result = func()
             elapsed = time.perf_counter() - start
             profiler.add_detailed_timing(
-                'amlgym_metrics',
+                'eval_metrics',
                 metric_name,
                 elapsed,
                 {'model_path': model_path, 'num_test_problems': len(test_problems)}

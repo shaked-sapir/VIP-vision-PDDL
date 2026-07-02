@@ -28,7 +28,7 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 | `src/utils/` | **Shared utilities only.** No domain-specific logic here. |
 | `src/typings/` | Shared type aliases and TypedDicts. No logic. |
 | `benchmark/` | Experiment runners, data generators, evaluation scripts, pluggable baselines. Not part of the library. |
-| `benchmark/baselines/` | Pluggable baseline algorithm runners (e.g. ROSAME) registered for `amlgym_testing.py`. |
+| `benchmark/baselines/` | Pluggable baseline algorithm runners (e.g. ROSAME) registered for `benchmark_runner.py`. |
 
 ---
 
@@ -211,8 +211,8 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 
 ## Experiments & Benchmarking
 
-- Entry points: `benchmark/amlgym_testing.py`, `benchmark/data_generator.py`, `src/simulator_cli.py`
-- Baselines: `benchmark/baselines/` — register runners in `BASELINE_REGISTRY`, select via `--baselines` in `amlgym_testing.py`
+- Entry points: `benchmark/benchmark_runner.py`, `benchmark/data_generator.py`, `src/simulator_cli.py`
+- Baselines: `benchmark/baselines/` — register runners in `BASELINE_REGISTRY`, select via `--baselines` in `benchmark_runner.py`
 - Data lives under `benchmark/data/{domain}/`
 - Evaluation: `benchmark/evaluation/cfm_quality_analysis.py`, `benchmark/evaluation/cfm_domain_aggregate.py`
 - Configuration: `config.yaml` at project root

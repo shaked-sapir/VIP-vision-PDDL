@@ -11,7 +11,7 @@ class LLMMazeImageTrajectoryHandler(LLMImageTrajectoryHandler):
 
     @staticmethod
     def _rename_ground_action(action_str: str) -> str:
-        """Replace hyphens with underscores in action names (amlgym compatibility)."""
+        """Replace hyphens with underscores in action names (action naming convention)."""
         return action_str.replace('move-', 'move_')
 
     def _manipulate_trajectory_json(self, gt_trajectory_json: list) -> list:

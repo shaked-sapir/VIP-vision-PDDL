@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from amlgym.algorithms.rosame.experiment_runner.rosame_runner import Rosame_Runner
-from benchmark.amlgym_models.po_rosame_runner import PORosame_Runner
+from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 
 from benchmark.baselines.base_runner import BaselineRunner

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
-from benchmark.amlgym_models.algorithm_adapter_compat import AlgorithmAdapter
+from benchmark.algorithm_adapters.algorithm_adapter_compat import AlgorithmAdapter
 from pddl_plus_parser.lisp_parsers import DomainParser
 from utilities import NegativePreconditionPolicy
 

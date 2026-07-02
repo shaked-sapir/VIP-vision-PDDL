@@ -21,7 +21,7 @@ from src.trajectory_handlers.llm_npuzzle_trajectory_handler import LLMNpuzzleIma
 from src.utils.config import load_config
 
 
-def test_npuzzle_full_pipeline(num_steps: int = 10, problem_name: str = "eight01x_amlgym.pddl", verbose: bool = False):
+def test_npuzzle_full_pipeline(num_steps: int = 10, problem_name: str = "eight01x_eval.pddl", verbose: bool = False):
     """
     Complete test of N-Puzzle vision pipeline:
     1. Generate trajectory using LLMNpuzzleImageTrajectoryHandler
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--problem", "-p",
         type=str,
-        default="eight01x_amlgym.pddl",
+        default="eight01x_eval.pddl",
         help="Problem name to use (default: npuzzle_prob_0)"
     )
 

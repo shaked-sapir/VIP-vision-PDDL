@@ -1,5 +1,5 @@
 """
-Correlation analysis: join AMLGym metrics with fluent-change (T vs GT / T' vs GT) metrics.
+Correlation analysis: join evaluation metrics with fluent-change (T vs GT / T' vs GT) metrics.
 
 Per-fold step:
     build_correlation_table() reads all_solutions_metrics.json and each
@@ -9,7 +9,7 @@ Per-fold step:
 Cross-fold aggregation:
     aggregate_correlation_tables() stacks per-fold tables and computes
     Spearman / Pearson correlations between fluent-change deltas and
-    AMLGym quality metrics.
+    evaluation quality metrics.
 """
 
 import csv
@@ -20,8 +20,8 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# ── AMLGym metric columns to correlate against ─────────────────────────
-AMLGYM_METRIC_COLS = [
+# ── Eval metric columns to correlate against ────────────────────────────
+EVAL_METRIC_COLS = [
     "solving_ratio",
     "pred_app_precision",
     "pred_app_recall",
@@ -53,7 +53,7 @@ def build_correlation_table(
     output_dir: Optional[Path] = None,
 ) -> List[dict]:
     """
-    Join AMLGym metrics with fluent-change metrics for every conflict-free model
+    Join evaluation metrics with fluent-change metrics for every conflict-free model
     in a single fold.  Writes ``correlation_analysis.json`` and
     ``correlation_analysis.csv`` to *output_dir* (defaults to *fold_work_dir*).
 
@@ -63,19 +63,19 @@ def build_correlation_table(
         output_dir = fold_work_dir
 
     # ── 1. Load all_solutions_metrics.json ──────────────────────────────
-    amlgym_path = fold_work_dir / "all_solutions_metrics.json"
-    if not amlgym_path.exists():
+    eval_metrics_path = fold_work_dir / "all_solutions_metrics.json"
+    if not eval_metrics_path.exists():
         logger.warning(f"all_solutions_metrics.json not found in {fold_work_dir}")
         return []
 
-    with open(amlgym_path) as f:
-        amlgym_rows: List[dict] = json.load(f)
+    with open(eval_metrics_path) as f:
+        eval_metrics_rows: List[dict] = json.load(f)
 
-    if not amlgym_rows:
+    if not eval_metrics_rows:
         return []
 
     # Index by solution_index for easy lookup
-    amlgym_by_idx: Dict[int, dict] = {r["solution_index"]: r for r in amlgym_rows}
+    eval_metrics_by_idx: Dict[int, dict] = {r["solution_index"]: r for r in eval_metrics_rows}
 
     # ── 2. Discover model directories ───────────────────────────────────
     cf_dir = fold_work_dir / "conflict_free_models"
@@ -99,7 +99,7 @@ def build_correlation_table(
         else:
             sol_idx = int(model_dir.name.split("_")[-1])
 
-        amlgym = amlgym_by_idx.get(sol_idx)
+        eval_metrics = eval_metrics_by_idx.get(sol_idx)
         fluent = _load_fluent_metrics(model_dir)
 
         row: dict = {"solution_index": sol_idx}
@@ -125,12 +125,12 @@ def build_correlation_table(
                 row[f"T_prime_vs_GT_{col}"] = None
                 row[f"delta_{col}"] = None
 
-        # AMLGym columns
-        if amlgym is not None:
-            for col in AMLGYM_METRIC_COLS:
-                row[col] = amlgym.get(col)
+        # Eval metric columns
+        if eval_metrics is not None:
+            for col in EVAL_METRIC_COLS:
+                row[col] = eval_metrics.get(col)
         else:
-            for col in AMLGYM_METRIC_COLS:
+            for col in EVAL_METRIC_COLS:
                 row[col] = None
 
         rows.append(row)
@@ -209,7 +209,7 @@ def aggregate_correlation_tables(
 
     for delta_col in delta_cols:
         correlations[delta_col] = {}
-        for aml_col in AMLGYM_METRIC_COLS:
+        for aml_col in EVAL_METRIC_COLS:
             # Gather paired non-None values
             pairs = [
                 (r[delta_col], r[aml_col])
@@ -269,7 +269,7 @@ def aggregate_correlation_tables(
         for aml_col, vals in aml_dict.items():
             flat_rows.append({
                 "fluent_delta": delta_col,
-                "amlgym_metric": aml_col,
+                "eval_metric": aml_col,
                 **vals,
             })
     corr_csv = output_dir / "correlation_summary.csv"

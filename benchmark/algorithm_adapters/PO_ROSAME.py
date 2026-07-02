@@ -3,10 +3,10 @@ import time
 from pathlib import Path
 from typing import List
 
-from benchmark.amlgym_models.algorithm_adapter_compat import AlgorithmAdapter
+from benchmark.algorithm_adapters.algorithm_adapter_compat import AlgorithmAdapter
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 
-from benchmark.amlgym_models.po_rosame_runner import PORosame_Runner
+from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
 
 # Add project root to path for our masking utilities
 project_root = Path(__file__).parent.parent.parent

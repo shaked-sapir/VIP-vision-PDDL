@@ -58,9 +58,9 @@ def _transform_blocks_problem(problem_file_path: Path) -> None:
 
 
 def _transform_npuzzle_problem(problem_file_path: Path) -> None:
-    """Replace an n-puzzle problem file with the AMLGym-compatible version."""
-    amlgym_source = project_root / "benchmark" / "domains" / "n_puzzle" / "eight01x_amlgym.pddl"
-    content = amlgym_source.read_text()
+    """Replace an n-puzzle problem file with the eval-compatible version."""
+    eval_source = project_root / "benchmark" / "domains" / "n_puzzle" / "eight01x_eval.pddl"
+    content = eval_source.read_text()
     problem_file_path.write_text(content)
 
 

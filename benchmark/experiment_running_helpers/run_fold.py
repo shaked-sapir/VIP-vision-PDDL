@@ -1,7 +1,7 @@
 """
-Helper functions for running AMLGym experiments.
+Helper functions for running benchmark experiments.
 
-This module contains the main fold execution logic for the amlgym_testing experiments.
+This module contains the main fold execution logic for the benchmark_runner experiments.
 """
 
 import json
@@ -15,22 +15,16 @@ from typing import Dict, List, Optional, Tuple
 from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 
 from benchmark.experiment_running_helpers.cleaned_trajectories import convert_cleaned_dir_to_trajectory_list, save_patched_observations
+from benchmark.experiment_running_helpers.data_source import DataSource
 from benchmark.experiment_running_helpers.post_process_gt_metrics import run_post_process_gt_metrics
 from benchmark.experiment_running_helpers.learning_helpers import learn_rosame, learn_sam_pisam
 from benchmark.experiment_running_helpers.profiling import TimingProfiler
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
-from benchmark.experiment_running_helpers.simulated_data_utils import (
-    build_gt_trajectory_lookup,
-    prepare_simulated_observations,
-    select_simulated_gt_trajectories,
-)
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt, load_learning_metrics
-from benchmark.experiment_running_helpers.trajectory_utils import prepare_fold_trajectories, save_fold_metadata, update_fold_metadata
+from benchmark.experiment_running_helpers.trajectory_utils import save_fold_metadata, update_fold_metadata
 from benchmark.evaluation.test_states_generator import generate_predictive_power_test_states
 from benchmark.evaluation.multi_solution_evaluator import evaluate_all_solutions
 from benchmark.evaluation.correlation_analysis import build_correlation_table
-from src.pi_sam.masking import MaskingType
-from src.pi_sam.noising import NoisingType
 from src.utils.pddl import ground_observation_completely, observations_equal
 
 
@@ -158,6 +152,7 @@ def run_single_fold(
     testing_dir: Path,
     bench_name: str,
     mode: str,
+    data_source: DataSource,
     evaluate_model_func,
     save_learning_metrics_func,
     conflict_search_timeout: int = None,
@@ -173,15 +168,7 @@ def run_single_fold(
     fluent_branch_mode: str = "group",
     trajectory_seed: Optional[int] = None,
     output_subdir: Optional[str] = None,
-    # --- Pluggable baselines ---
     baselines: Optional[list] = None,
-    # --- Simulated data source parameters ---
-    simulated_gt_trajectories: Optional[List[Path]] = None,
-    simulated_masking_strategy: MaskingType = MaskingType.PERCENTAGE,
-    simulated_masking_p: float = 0.4,
-    simulated_noising_strategy: NoisingType = NoisingType.PERCENTAGE,
-    simulated_noising_p: float = 0.15,
-    simulated_seed: int = 42,
     events_tracing: bool = False,
 ) -> List[dict]:
     """
@@ -197,6 +184,7 @@ def run_single_fold(
         testing_dir: Directory for test results
         bench_name: Benchmark domain name
         mode: 'masked' (PISAM/PO_ROSAME) or 'fullyobs' (SAM/ROSAME)
+        data_source: DataSource instance that supplies observations for this fold.
         evaluate_model_func: Function to evaluate a learned model
         save_learning_metrics_func: Function to save learning metrics
         conflict_search_timeout: Optional timeout in seconds for conflict search (cleaning phase)
@@ -214,12 +202,6 @@ def run_single_fold(
         output_subdir: Optional subdirectory under the fold work dir.
         baselines: Optional list of BaselineRunner instances to run alongside
             our algorithm. When None or empty, only SAM/PISAM is run.
-        simulated_gt_trajectories: Optional list of GT trajectory file paths.
-        simulated_masking_strategy: Masking strategy for simulated mode.
-        simulated_masking_p: Masking probability/ratio for simulated mode.
-        simulated_noising_strategy: Noising strategy for simulated mode.
-        simulated_noising_p: Noising probability/ratio for simulated mode.
-        simulated_seed: Random seed for simulated noise injection.
 
     Returns:
         List of result dicts. Always includes unclean SAM/PISAM and cleaned
@@ -280,42 +262,10 @@ def run_single_fold(
         else:
             selected_pool = random.sample(train_problem_dirs, min(n_train, len(train_problem_dirs)))
 
-        # Determine data source: simulated (in-memory noise) vs file-based
-        use_simulated = simulated_gt_trajectories is not None
-        simulated_observations = None
-        simulated_gt_indices = None
-
-        if use_simulated:
-            gt_lookup = build_gt_trajectory_lookup(simulated_gt_trajectories)
-            selected_gt = select_simulated_gt_trajectories(
-                selected_pool, num_trajectories, gt_lookup,
-            )
-            print(
-                f"  [SIMULATED] Loading {len(selected_gt)} GT trajectories "
-                f"({', '.join(p.parent.name for p in selected_gt)}) + injecting noise..."
-            )
-            with profiler.time_operation("prepare_simulated_observations"):
-                simulated_observations, simulated_gt_indices = prepare_simulated_observations(
-                    domain_path=domain_ref_path,
-                    gt_trajectory_paths=selected_gt,
-                    masking_strategy=simulated_masking_strategy,
-                    masking_p=simulated_masking_p,
-                    noising_strategy=simulated_noising_strategy,
-                    noising_p=simulated_noising_p,
-                    seed=simulated_seed + fold,
-                )
-            prepared_trajectories = []
-            for gt_path in selected_gt:
-                fake_masking = gt_path.parent / f"{gt_path.stem}.masking_info"
-                problem_pddl = gt_path.parent / f"{gt_path.parent.name}.pddl"
-                prepared_trajectories.append((gt_path, fake_masking, problem_pddl, {0}))
-            print(f"  ✓ Simulated {len(simulated_observations)} noisy observations")
-        else:
-            print(f"  Loading {num_trajectories} pre-generated trajectories with gt_rate={gt_rate}%...")
-            with profiler.time_operation("prepare_fold_trajectories"):
-                prepared_trajectories = prepare_fold_trajectories(
-                    selected_pool, num_trajectories, gt_rate
-                )
+        # Prepare observations via the data source (file-based or simulated)
+        with profiler.time_operation("data_source_prepare"):
+            prepared_trajectories, pre_built_observations, gt_source_indices = \
+                data_source.prepare(selected_pool, num_trajectories, gt_rate, fold)
 
         if not prepared_trajectories:
             print(f"  ERROR: No trajectories prepared for fold {fold}")
@@ -416,8 +366,8 @@ def run_single_fold(
                 node_choosing_strategy=node_choosing_strategy,
                 conflict_group_strategy=conflict_group_strategy,
                 fluent_branch_mode=fluent_branch_mode,
-                pre_built_observations=simulated_observations,
-                gt_source_indices_override=simulated_gt_indices,
+                pre_built_observations=pre_built_observations,
+                gt_source_indices_override=gt_source_indices,
             )
         print(f"  [PHASE 1] SAM/PISAM learning done, saving metrics...")
         save_learning_metrics_func(fold_work_dir, sam_report)
@@ -479,8 +429,8 @@ def run_single_fold(
                     node_choosing_strategy=node_choosing_strategy,
                     conflict_group_strategy=conflict_group_strategy,
                     fluent_branch_mode=fluent_branch_mode,
-                    pre_built_observations=simulated_observations,
-                    gt_source_indices_override=simulated_gt_indices,
+                    pre_built_observations=pre_built_observations,
+                    gt_source_indices_override=gt_source_indices,
                     events_tracing=events_tracing,
                 )
             print(f"  [PHASE 2] Denoising complete, saving metrics...")

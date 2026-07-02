@@ -1,7 +1,7 @@
 """
 Reporting, plotting, and Excel generation functions for AMLGym experiments.
 
-Extracted from amlgym_testing.py — all functions are stateless and operate
+Extracted from benchmark_runner.py — all functions are stateless and operate
 on DataFrames, CSV paths, or result dicts.
 """
 

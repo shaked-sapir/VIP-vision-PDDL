@@ -1,21 +1,24 @@
+import shutil
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from benchmark.amlgym_models.algorithm_adapter_compat import AlgorithmAdapter
-from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
+from benchmark.algorithm_adapters.algorithm_adapter_compat import AlgorithmAdapter
+from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Observation
 from utilities import NegativePreconditionPolicy
 
-from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearchSAM
+from src.pi_sam import PISAMLearner
+from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
 from src.pi_sam.plan_denoising.frontier import ConflictGroupStrategy, NodeChoosingStrategy, SearchMode
+from src.utils.masking import load_masked_observation
 
 
 @dataclass
-class NOISY_SAM(AlgorithmAdapter):
+class NOISY_PISAM(AlgorithmAdapter):
     """
-    Adapter class for running the SAM algorithm: "Safe Learning of Lifted Action Models",
+    Adapter class for running the PISAM algorithm: "Safe Learning of Lifted Action Models",
     B. Juba and H. S. Le, and R. Stern, Proceedings of the 18th International Conference
     on Principles of Knowledge Representation and Reasoning, 2021.
     https://proceedings.kr.org/2021/36/
@@ -47,6 +50,7 @@ class NOISY_SAM(AlgorithmAdapter):
               domain_path: str,
               trajectory_paths: List[str],
               use_problems: bool = False,
+              with_new_traj: bool = False,
               gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None,
               ) -> Tuple[str, list[Observation], dict]:
         """
@@ -59,12 +63,12 @@ class NOISY_SAM(AlgorithmAdapter):
         :parameter use_problems: boolean flag indicating whether to provide the set of objects
             specified in the problem from which the trajectories have been generated
 
-        :return: a string representing the learned PDDL model
+        :return: tuple of (learned_pddl_model, patched_observations, learning_report)
         """
 
         # Instantiate SAM algorithm
         partial_domain = DomainParser(Path(domain_path), partial_parsing=True).parse_domain()
-        conflict_search = ConflictDrivenPatchSearchSAM(
+        conflict_search = ConflictDrivenPatchSearch(
             partial_domain_template=deepcopy(partial_domain),
             negative_preconditions_policy=self.negative_precondition_policy,
             seed=self.seed,
@@ -78,20 +82,26 @@ class NOISY_SAM(AlgorithmAdapter):
         )
         # Parse input trajectories
 
-        allowed_observations = []
+        masked_observations = []
         if use_problems:
             raise NotImplementedError("use_problems=True is not implemented yet for PISAM.")
         else: # we use our own trajectories and masks, not amlgym's
             for traj_path in trajectory_paths:
                 traj_path = Path(traj_path)
 
-                problem_path = traj_path.with_suffix('.pddl')
-                problem = ProblemParser(Path(problem_path), partial_domain).parse_problem()
-                allowed_observations.append(TrajectoryParser(partial_domain, problem).parse_trajectory(traj_path))
+                # Look for masking_info file with the same stem as the trajectory file
+                masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
+
+                if not masking_info_path.exists():
+                    self.logger.warning(f"Masking info file not found for {traj_path.stem}, skipping")
+                    continue
+
+                masked_obs = load_masked_observation(traj_path, masking_info_path, partial_domain)
+                masked_observations.append(masked_obs)
 
         # Learn action model
         learned_model, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = conflict_search.run(
-            observations=allowed_observations,
+            observations=masked_observations,
             max_nodes=self.max_search_nodes,
             timeout_seconds=self.timeout_seconds,
             gt_source_indices_by_obs=gt_source_indices_by_obs,

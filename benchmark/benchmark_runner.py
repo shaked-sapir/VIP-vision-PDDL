@@ -4,7 +4,7 @@ Runs cross-validation experiments on generated trajectory data, evaluating
 learned models against a reference domain file.
 
 Usage:
-    python -m benchmark.amlgym_testing \\
+    python -m benchmark.benchmark_runner \\
         --domain blocks \\
         --data-dir benchmark/data/blocksworld/multi_problem_...
 
@@ -26,10 +26,10 @@ from amlgym.metrics import print_metrics
 
 from benchmark.baselines import get_baselines
 from benchmark.evaluation.correlation_analysis import aggregate_correlation_tables
+from benchmark.experiment_running_helpers.data_source import DataSource, ImageDataSource, SimulatedDataSource
 from benchmark.experiment_running_helpers.evaluation import evaluate_model, save_learning_metrics
 from benchmark.experiment_running_helpers.normalize import normalize_experiment_data
 from benchmark.experiment_running_helpers.run_fold import run_single_fold
-from benchmark.experiment_running_helpers.trajectory_utils import pregenerate_all_gt_frame_axiom_files
 from benchmark.experiment_running_helpers.reporting import (
     generate_excel_report,
     generate_plots,
@@ -94,11 +94,11 @@ def _resolve_domain_config(domain_key: str) -> dict:
         available = list(config["domains"].keys())
         raise ValueError(f"Unknown domain '{domain_key}'. Available: {available}")
 
-    # amlgym_domain_file is the reference domain for evaluation (may differ from
+    # eval_domain_file is the reference domain for evaluation (may differ from
     # the source domain file used for data generation).
-    amlgym_domain_file = domain_config.get("amlgym_domain_file")
-    if amlgym_domain_file:
-        domain_ref_path = project_root / amlgym_domain_file
+    eval_domain_file = domain_config.get("eval_domain_file")
+    if eval_domain_file:
+        domain_ref_path = project_root / eval_domain_file
     else:
         # Fall back to the source domain file
         domain_ref_path = project_root / domain_config["domain_file"]
@@ -116,6 +116,7 @@ def _resolve_domain_config(domain_key: str) -> dict:
 def main(
     domain_key: str,
     data_dir: Path,
+    data_source: DataSource,
     mode: str = 'masked',
     n_folds: int = 5,
     num_trajectories_list: List[int] = None,
@@ -135,13 +136,6 @@ def main(
     experiment_name: str = None,
     normalize: bool = True,
     force_normalize: bool = False,
-    # --- Simulated data source ---
-    simulated_gt_trajectories: List[str] = None,
-    simulated_masking_p: float = 0.4,
-    simulated_masking_strategy: str = "percentage",
-    simulated_noising_p: float = 0.15,
-    simulated_noising_strategy: str = "percentage",
-    simulated_seed: int = 42,
     baselines: list = None,
     events_tracing: bool = False,
 ):
@@ -150,6 +144,9 @@ def main(
     Args:
         domain_key: Config key from config.yaml (e.g. "blocks", "hanoi").
         data_dir: Path to the experiment data directory (output of data_generator.py).
+        data_source: DataSource instance controlling where observations come from.
+            Use ImageDataSource() for real image-pipeline data (pre-generated files)
+            or SimulatedDataSource(...) for synthetic in-memory noise injection.
         mode: Either 'masked' or 'fullyobs'.
         n_folds: Number of cross-validation folds.
         num_trajectories_list: List of trajectory counts to evaluate.
@@ -176,8 +173,8 @@ def main(
     if not data_dir.exists():
         raise FileNotFoundError(f"Data directory not found: {data_dir}")
 
-    # ── Normalization ────────────────────────────────────────────────────
-    if normalize and not (simulated_gt_trajectories is not None):
+    # ── Normalization (image pipeline only) ─────────────────────────────
+    if normalize and isinstance(data_source, ImageDataSource):
         print("\n" + "=" * 80)
         print("NORMALIZATION PRE-PROCESSING")
         print("=" * 80)
@@ -193,24 +190,6 @@ def main(
             norm_trajs_dir = None
     else:
         norm_trajs_dir = None
-
-    # ── Simulated mode setup ─────────────────────────────────────────────
-    use_simulated = simulated_gt_trajectories is not None
-    simulated_gt_paths = None
-    if use_simulated:
-        simulated_gt_paths = []
-        for p in simulated_gt_trajectories:
-            path = Path(p).expanduser()
-            if not path.is_absolute():
-                path = project_root / path
-            path = path.resolve()
-            simulated_gt_paths.append(path)
-        missing = [p for p in simulated_gt_paths if not p.exists()]
-        if missing:
-            raise FileNotFoundError(
-                "Simulated GT trajectory file(s) not found:\n"
-                + "\n".join(f"  - {p}" for p in missing)
-            )
 
     unclean_results = []
     cleaned_results = []
@@ -257,13 +236,7 @@ def main(
         "fluent_branch_mode": fluent_branch_mode,
         "baselines": [r.display_name for r in baselines] if baselines else [],
         "normalized": norm_trajs_dir is not None,
-        "simulated_mode": use_simulated,
-        "simulated_gt_trajectories": [str(p) for p in simulated_gt_paths] if use_simulated else None,
-        "simulated_masking_p": simulated_masking_p if use_simulated else None,
-        "simulated_masking_strategy": simulated_masking_strategy if use_simulated else None,
-        "simulated_noising_p": simulated_noising_p if use_simulated else None,
-        "simulated_noising_strategy": simulated_noising_strategy if use_simulated else None,
-        "simulated_seed": simulated_seed if use_simulated else None,
+        "data_source_type": type(data_source).__name__,
     }
     if evaluation_results_dir is not None:
         _save_run_params(evaluation_results_dir / "run_params.json", run_params)
@@ -323,11 +296,8 @@ def main(
     print(f"CV folds: {n_folds}")
     print(f"{'=' * 80}\n")
 
-    # PRE-GENERATE all GT+frame-axiom files before experiments
-    if not use_simulated:
-        pregenerate_all_gt_frame_axiom_files(
-            problem_dirs, domain_ref_path, gt_rate_percentages, frame_axiom_mode,
-        )
+    # One-time data source setup (pre-generates files for ImageDataSource; no-op for SimulatedDataSource)
+    data_source.setup(problem_dirs, domain_ref_path, gt_rate_percentages, frame_axiom_mode)
 
     # ── Experiment loop ──────────────────────────────────────────────────
     for num_trajectories in num_trajectories_list:
@@ -352,6 +322,7 @@ def main(
                         testing_dir=testing_dir,
                         bench_name=display_domain_name,
                         mode=mode,
+                        data_source=data_source,
                         evaluate_model_func=evaluate_model,
                         save_learning_metrics_func=save_learning_metrics,
                         conflict_search_timeout=learning_timeout_seconds,
@@ -368,15 +339,6 @@ def main(
                         baselines=baselines,
                         events_tracing=events_tracing,
                     )
-                    if use_simulated:
-                        fold_kwargs.update(
-                            simulated_gt_trajectories=simulated_gt_paths,
-                            simulated_masking_strategy=MaskingType(simulated_masking_strategy),
-                            simulated_masking_p=simulated_masking_p,
-                            simulated_noising_strategy=NoisingType(simulated_noising_strategy),
-                            simulated_noising_p=simulated_noising_p,
-                            simulated_seed=simulated_seed,
-                        )
                     future = executor.submit(run_single_fold, **fold_kwargs)
                     futures.append(future)
 
@@ -520,7 +482,7 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Example:\n"
-            "  python -m benchmark.amlgym_testing \\\n"
+            "  python -m benchmark.benchmark_runner \\\n"
             "    --domain blocks \\\n"
             "    --data-dir benchmark/data/blocksworld/multi_problem_...\n"
         ),
@@ -594,23 +556,24 @@ if __name__ == "__main__":
     parser.add_argument('--force-normalize', action='store_true', default=False,
                         help='Re-normalize even if normalized data already exists')
 
-    # ── Simulated data source ────────────────────────────────────────────
+    # ── Simulated data source (alternative to image-pipeline files) ──────
     parser.add_argument(
         '--simulated-gt-trajectories', type=str, nargs='+', default=None,
-        help='GT trajectory files for simulated mode (synthetic masking + noise)',
+        help='GT trajectory files for SimulatedDataSource (synthetic masking + noise). '
+             'Omit to use ImageDataSource (pre-generated image-pipeline files).',
     )
     parser.add_argument('--simulated-masking-p', type=float, default=0.4,
-                        help='Masking probability for simulated mode (default: 0.4)')
+                        help='Masking probability for SimulatedDataSource (default: 0.4)')
     parser.add_argument('--simulated-masking-strategy', type=str, default='percentage',
                         choices=['percentage', 'random'],
-                        help='Masking strategy for simulated mode (default: percentage)')
+                        help='Masking strategy for SimulatedDataSource (default: percentage)')
     parser.add_argument('--simulated-noising-p', type=float, default=0.15,
-                        help='Noising probability for simulated mode (default: 0.15)')
+                        help='Noising probability for SimulatedDataSource (default: 0.15)')
     parser.add_argument('--simulated-noising-strategy', type=str, default='percentage',
                         choices=['percentage', 'random'],
-                        help='Noising strategy for simulated mode (default: percentage)')
+                        help='Noising strategy for SimulatedDataSource (default: percentage)')
     parser.add_argument('--simulated-seed', type=int, default=42,
-                        help='Random seed for simulated noise injection (default: 42)')
+                        help='Random seed for SimulatedDataSource noise injection (default: 42)')
 
     # ── Tracing & baselines ──────────────────────────────────────────────
     parser.add_argument('--events-tracing', action='store_true', default=False,
@@ -663,9 +626,37 @@ if __name__ == "__main__":
     else:
         print("Baselines: NONE (only SAM/PISAM will run)")
 
+    # ── Construct data source ─────────────────────────────────────────────
+    if args.simulated_gt_trajectories:
+        simulated_gt_paths = []
+        for p in args.simulated_gt_trajectories:
+            path = Path(p).expanduser()
+            if not path.is_absolute():
+                path = project_root / path
+            simulated_gt_paths.append(path.resolve())
+        missing = [p for p in simulated_gt_paths if not p.exists()]
+        if missing:
+            parser.error(
+                "Simulated GT trajectory file(s) not found:\n"
+                + "\n".join(f"  - {p}" for p in missing)
+            )
+        data_source = SimulatedDataSource(
+            gt_trajectory_paths=simulated_gt_paths,
+            masking_strategy=MaskingType(args.simulated_masking_strategy),
+            masking_p=args.simulated_masking_p,
+            noising_strategy=NoisingType(args.simulated_noising_strategy),
+            noising_p=args.simulated_noising_p,
+            seed=args.simulated_seed,
+        )
+        print(f"Data source: SimulatedDataSource ({len(simulated_gt_paths)} GT trajectories)")
+    else:
+        data_source = ImageDataSource()
+        print("Data source: ImageDataSource (pre-generated image-pipeline files)")
+
     main(
         domain_key=args.domain,
         data_dir=data_dir,
+        data_source=data_source,
         mode=args.mode,
         n_folds=args.n_folds,
         num_trajectories_list=num_trajectories_list,
@@ -685,12 +676,6 @@ if __name__ == "__main__":
         experiment_name=args.experiment_name,
         normalize=not args.no_normalize,
         force_normalize=args.force_normalize,
-        simulated_gt_trajectories=args.simulated_gt_trajectories,
-        simulated_masking_p=args.simulated_masking_p,
-        simulated_masking_strategy=args.simulated_masking_strategy,
-        simulated_noising_p=args.simulated_noising_p,
-        simulated_noising_strategy=args.simulated_noising_strategy,
-        simulated_seed=args.simulated_seed,
         baselines=baseline_runners,
         events_tracing=args.events_tracing,
     )
