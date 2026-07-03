@@ -196,7 +196,10 @@ def retrace_conflict_search(
     }
 
     trace_path = fold_dir / "search_trace.json"
-    write_trace_json(trace_log, trace_path, search_params_used, fold_dir=fold_dir)
+    write_trace_json(
+        trace_log, trace_path, search_params_used,
+        fold_dir=fold_dir, ordered_observations=ordered_observations,
+    )
 
     cfm_nodes = [e for e in trace_log if e.is_conflict_free]
     print(f"\n  Trace saved to: {trace_path}")

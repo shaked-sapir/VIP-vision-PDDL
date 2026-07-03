@@ -161,6 +161,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .badge.model { background: #2e1e3e; color: var(--mauve); }
   .badge.frame { background: #3e3e1e; color: var(--yellow); }
   .node-stats { color: var(--dim); font-size: 11px; white-space: nowrap; }
+  .node-links { font-size: 11px; margin-left: 6px; }
+  .node-link { color: var(--blue); cursor: pointer; margin: 0 2px; text-decoration: underline; }
+  .node-link:hover { color: var(--yellow); }
 
   .toggle-btn {
     display: inline-block; width: 16px; text-align: center;
@@ -173,7 +176,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     margin-top: 8px; padding-top: 8px;
     border-top: 1px solid var(--border);
     font-size: 11px; color: var(--dim);
-    max-height: 400px; overflow-y: auto;
+    max-height: 600px; overflow-y: auto;
   }
   .node-detail.open { display: block; }
   .node-detail h4 { color: var(--text); margin: 6px 0 2px; font-size: 12px; }
@@ -183,6 +186,48 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .patch-item { color: var(--yellow); }
   .constraint-item { color: var(--mauve); }
   .children-info { color: var(--blue); }
+
+  /* Observation viewer */
+  .obs-viewer { margin-top: 8px; }
+  .btn-show-obs {
+    background: var(--surface); color: var(--blue); border: 1px solid var(--blue);
+    padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;
+    font-family: inherit; margin-top: 4px;
+  }
+  .btn-show-obs:hover { background: #1e2e3e; }
+  .obs-section {
+    margin-top: 6px; border: 1px solid var(--border); border-radius: 4px;
+    overflow: hidden;
+  }
+  .obs-header, .comp-header {
+    padding: 4px 8px; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 6px; font-size: 11px;
+  }
+  .obs-header { background: #1a1e2e; color: var(--blue); font-weight: bold; }
+  .obs-header:hover { background: #222e3e; }
+  .comp-header { background: var(--surface); color: var(--text); border-top: 1px solid var(--border); }
+  .comp-header:hover { background: #2a2a2a; }
+  .comp-header.conflict-comp { color: var(--orange); }
+  .comp-header .comp-marker { color: var(--orange); font-size: 13px; }
+  .obs-body, .comp-body { display: none; }
+  .obs-body.open, .comp-body.open { display: block; }
+  .comp-body { padding: 4px 8px 8px; font-size: 11px; }
+  .state-section { margin: 4px 0; }
+  .state-label { color: var(--dim); font-weight: bold; margin-bottom: 2px; font-size: 10px; text-transform: uppercase; }
+  .pred-list { display: flex; flex-wrap: wrap; gap: 3px; }
+  .pred-tag {
+    background: #1e2e1e; color: var(--green); padding: 1px 5px;
+    border-radius: 3px; font-size: 10px; font-family: monospace;
+  }
+  .pred-tag.masked { background: #2e2e1e; color: var(--dim); font-style: italic; }
+  .pred-tag.patched {
+    background: #3e2a10; color: #f5c211; font-weight: bold;
+    border: 1px solid #f5c211;
+  }
+  .pred-tag.patched-remove {
+    background: #3e1a1a; color: var(--red, #f38ba8); text-decoration: line-through;
+    border: 1px solid var(--red, #f38ba8);
+  }
 
   .depth-guide {
     color: var(--border); font-size: 11px; user-select: none;
@@ -327,6 +372,14 @@ function createRow(nodeIdx) {
 
   const toggleChar = !hasChildren ? '·' : (isExpanded ? '▼' : '▶');
 
+  const childIds = childrenOf[n.index] || [];
+  const parentLink = n.parent_index != null
+    ? `<span class="node-link" data-goto="${n.parent_index}">↑${n.parent_index}</span>` : '';
+  const childLinks = childIds.map(c =>
+    `<span class="node-link" data-goto="${c}">↓${c}</span>`).join(' ');
+  const linksHtml = (parentLink || childLinks)
+    ? `<span class="node-links">${parentLink} ${childLinks}</span>` : '';
+
   card.innerHTML = `
     <div class="node-header">
       <span class="toggle-btn">${toggleChar}</span>
@@ -337,6 +390,7 @@ function createRow(nodeIdx) {
         ${n.is_conflict_free ? '' : n.conflicts.length + 'c'}
         mc=${n.model_constraints.length} fp=${n.fluent_patches.length}
       </span>
+      ${linksHtml}
     </div>
     <div class="node-detail">${buildDetail(n)}</div>
   `;
@@ -355,6 +409,38 @@ function createRow(nodeIdx) {
   // Toggle detail on card body click
   card.addEventListener('click', (e) => {
     if (e.target.closest('.toggle-btn')) return;
+    // Handle node-link clicks (navigate to parent/child)
+    const link = e.target.closest('.node-link');
+    if (link) {
+      e.stopPropagation();
+      const targetIdx = parseInt(link.dataset.goto);
+      expandPathTo(targetIdx);
+      const targetRow = renderedRows[targetIdx];
+      if (targetRow) {
+        targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const targetCard = targetRow.querySelector('.node-card');
+        targetCard.classList.add('highlight');
+        setTimeout(() => targetCard.classList.remove('highlight'), 1500);
+      }
+      return;
+    }
+    // Handle "View Observations" button
+    const obsBtn = e.target.closest('.btn-show-obs');
+    if (obsBtn) {
+      e.stopPropagation();
+      const ni = parseInt(obsBtn.dataset.node);
+      const container = document.getElementById('obs-container-' + ni);
+      if (container.children.length === 0) {
+        createObsViewer(ni, container);
+        obsBtn.textContent = 'Hide Observations';
+      } else {
+        container.innerHTML = '';
+        obsBtn.textContent = 'View Observations';
+      }
+      return;
+    }
+    // Handle obs/comp header clicks (don't toggle parent detail)
+    if (e.target.closest('.obs-header') || e.target.closest('.comp-header')) return;
     card.querySelector('.node-detail').classList.toggle('open');
   });
 
@@ -428,6 +514,171 @@ function removeDescendants(nodeIdx) {
   });
 }
 
+// ── Observation viewer (lazy, collapsible) ──
+
+const OBS_DATA = DATA.observations || null;  // null if not embedded in trace
+
+// Parse a FluentPatch string like "FluentPatch(obs=0, comp=5, next, (at p2 d1))"
+// Returns {obs, comp, which: 'prev'|'next', predicate} or null.
+function parsePatch(s) {
+  const m = s.match(/FluentPatch\(obs=(\d+),\s*comp=(\d+),\s*(prev|next),\s*(.+)\)$/);
+  if (!m) return null;
+  return { obs: parseInt(m[1]), comp: parseInt(m[2]), which: m[3], predicate: m[4] };
+}
+
+// Build a patch index for a node: {obs -> {comp -> {prev: Set<pred>, next: Set<pred>}}}
+// FluentPatch means FLIP — the predicate string just identifies which predicate to flip.
+// Whether the flip is an add or remove depends on the predicate's current value in the
+// original state (determined at render time by applyPatches).
+function buildPatchIndex(node) {
+  const idx = {};
+  for (const ps of node.fluent_patches) {
+    const p = parsePatch(ps);
+    if (!p) continue;
+    if (!idx[p.obs]) idx[p.obs] = {};
+    if (!idx[p.obs][p.comp]) idx[p.obs][p.comp] = { prev: new Set(), next: new Set() };
+    // Normalize: strip (not ...) wrapper — both forms refer to the same predicate
+    let pred = p.predicate;
+    if (pred.startsWith('(not ')) {
+      pred = pred.slice(5, -1);  // "(not (foo))" -> "(foo)"
+    }
+    idx[p.obs][p.comp][p.which].add(pred);
+  }
+  return idx;
+}
+
+// Apply patches to a list of predicates, returns [{text, cls}].
+// patches is a Set of predicate strings that should be FLIPPED in this state.
+function applyPatches(predicates, maskedList, patches) {
+  const maskedSet = new Set(maskedList || []);
+  const patchSet = patches || new Set();
+  const result = [];
+  const seen = new Set();
+
+  for (const pred of predicates) {
+    seen.add(pred);
+    if (patchSet.has(pred)) {
+      // Predicate is in the original state AND patched → flipped to FALSE (removed)
+      result.push({ text: pred, cls: 'pred-tag patched-remove' });
+    } else if (maskedSet.has(pred)) {
+      result.push({ text: pred, cls: 'pred-tag masked' });
+    } else {
+      result.push({ text: pred, cls: 'pred-tag' });
+    }
+  }
+
+  // Predicates NOT in the original state but patched → flipped to TRUE (added)
+  for (const pred of patchSet) {
+    if (!seen.has(pred)) {
+      result.push({ text: pred, cls: 'pred-tag patched' });
+    }
+  }
+
+  return result;
+}
+
+// Render a state (prev or next) as HTML
+function renderState(label, predicates, maskedList, patches) {
+  const items = applyPatches(predicates, maskedList, patches);
+  let html = `<div class="state-section"><div class="state-label">${esc(label)}</div><div class="pred-list">`;
+  items.forEach(it => {
+    html += `<span class="${it.cls}">${esc(it.text)}</span>`;
+  });
+  html += '</div></div>';
+  return html;
+}
+
+// Merge two patch Sets (union). Both are Set<predicate>.
+function mergePatches(direct, cascading) {
+  if (!cascading || cascading.size === 0) return direct || new Set();
+  if (!direct || direct.size === 0) return cascading;
+  return new Set([...cascading, ...direct]);
+}
+
+// Build the component body (prev + next states with patches).
+// Accounts for shared state boundaries: comp N's prev = comp N-1's next,
+// so patches on (obs, N-1, next) also affect comp N's prev, and vice versa.
+function renderCompBody(obsIdx, compIdx, comp, patchIndex, totalComps) {
+  const emptySet = new Set();
+  const directPatches = patchIndex[obsIdx]?.[compIdx] || { prev: emptySet, next: emptySet };
+
+  // Cascading: comp N-1's next-state patches apply to comp N's prev-state
+  const prevCascading = compIdx > 0
+    ? (patchIndex[obsIdx]?.[compIdx - 1]?.next || emptySet)
+    : emptySet;
+  // Cascading: comp N+1's prev-state patches apply to comp N's next-state
+  const nextCascading = compIdx < totalComps - 1
+    ? (patchIndex[obsIdx]?.[compIdx + 1]?.prev || emptySet)
+    : emptySet;
+
+  const prevPatches = mergePatches(directPatches.prev, prevCascading);
+  const nextPatches = mergePatches(directPatches.next, nextCascading);
+
+  let html = renderState('PREV STATE', comp.prev.predicates, comp.prev.masked, prevPatches);
+  html += renderState('NEXT STATE', comp.next.predicates, comp.next.masked, nextPatches);
+  return html;
+}
+
+// Create the observation viewer for a node (called on "View Observations" click)
+function createObsViewer(nodeIdx, container) {
+  if (!OBS_DATA) {
+    container.innerHTML = '<em>No observation data embedded in trace. Re-run retrace_search.py to include it.</em>';
+    return;
+  }
+
+  const node = nodeMap[nodeIdx];
+  const patchIndex = buildPatchIndex(node);
+
+  // Collect conflict comp references from chosen_group for markers
+  const conflictComps = new Set();
+  if (node.chosen_group) {
+    node.chosen_group.forEach(c => conflictComps.add(c.obs + ':' + c.comp));
+  }
+
+  let html = '<div class="obs-section">';
+  OBS_DATA.forEach((obs, obsIdx) => {
+    const obsId = 'obs-' + nodeIdx + '-' + obsIdx;
+    html += `<div class="obs-header" data-target="${obsId}">`;
+    html += `<span class="toggle-btn">▶</span> obs ${obsIdx}: ${esc(obs.problem)} (${obs.components.length} components)`;
+    html += '</div>';
+    html += `<div class="obs-body" id="${obsId}">`;
+
+    obs.components.forEach((comp, compIdx) => {
+      const compId = obsId + '-c' + compIdx;
+      const isConflict = conflictComps.has(obsIdx + ':' + compIdx);
+      const hasPatch = patchIndex[obsIdx]?.[compIdx];
+      const markerHtml = isConflict ? '<span class="comp-marker">⚡</span>' : (hasPatch ? '<span class="comp-marker" style="color:var(--yellow)">●</span>' : '');
+      html += `<div class="comp-header${isConflict ? ' conflict-comp' : ''}" data-target="${compId}">`;
+      html += `<span class="toggle-btn">▶</span> ${markerHtml} comp ${compIdx}: ${esc(comp.action)}`;
+      html += '</div>';
+      html += `<div class="comp-body" id="${compId}" data-obs="${obsIdx}" data-comp="${compIdx}"></div>`;
+    });
+
+    html += '</div>';
+  });
+  html += '</div>';
+
+  container.innerHTML = html;
+
+  // Wire collapsible headers
+  container.querySelectorAll('.obs-header, .comp-header').forEach(hdr => {
+    hdr.addEventListener('click', () => {
+      const targetId = hdr.dataset.target;
+      const body = document.getElementById(targetId);
+      if (!body) return;
+      const isOpen = body.classList.toggle('open');
+      hdr.querySelector('.toggle-btn').textContent = isOpen ? '▼' : '▶';
+
+      // Lazy-render component body on first open
+      if (isOpen && body.classList.contains('comp-body') && body.innerHTML === '') {
+        const oi = parseInt(body.dataset.obs);
+        const ci = parseInt(body.dataset.comp);
+        body.innerHTML = renderCompBody(oi, ci, OBS_DATA[oi].components[ci], patchIndex, OBS_DATA[oi].components.length);
+      }
+    });
+  });
+}
+
 function buildDetail(n) {
   let html = '';
 
@@ -469,6 +720,11 @@ function buildDetail(n) {
     if (ch.fluent_fix) html += `<li class="children-info">A (fluent): cost=${ch.fluent_fix.cost?.toFixed(2) ?? '?'} — ${esc(ch.fluent_fix.desc)}</li>`;
     if (ch.model_fix) html += `<li class="children-info">B (model): cost=${ch.model_fix.cost?.toFixed(2) ?? '?'} — ${esc(ch.model_fix.desc)}</li>`;
     html += '</ul>';
+  }
+
+  // Observation viewer button (rendered lazily on click)
+  if (OBS_DATA) {
+    html += `<div class="obs-viewer"><button class="btn-show-obs" data-node="${n.index}">View Observations</button><div class="obs-container" id="obs-container-${n.index}"></div></div>`;
   }
 
   return html || '<em>No details</em>';
@@ -752,13 +1008,112 @@ document.getElementById('sidebar-close').addEventListener('click', hideSidebar);
 </html>"""
 
 
+def _strip_types_from_predicate(typed_pred: str) -> str:
+    """Convert '(at p1 - package d2 - depot)' → '(at p1 d2)'."""
+    import re
+    return re.sub(r'\s+-\s+\w+', '', typed_pred)
+
+
+def _parse_masking_info(masking_path: Path) -> list:
+    """Parse a .masking_info file into a list of masked predicate sets per state.
+
+    Each line corresponds to one state. Empty lines mean no masking.
+    Predicates are comma-separated with types: '(at p1 - package d2 - depot)'.
+    Returns list of sets of untyped predicate strings.
+    """
+    result = []
+    for line in masking_path.read_text().split('\n'):
+        line = line.strip()
+        if not line:
+            result.append(set())
+        else:
+            preds = {_strip_types_from_predicate(p.strip())
+                     for p in line.split(',') if p.strip()}
+            result.append(preds)
+    return result
+
+
+def _parse_trajectory_file(traj_path: Path, masking_path: Path = None) -> list:
+    """Parse a .trajectory file into a list of components.
+
+    Each component: {"action": str, "prev": {"predicates": [...], "masked": [...]},
+                      "next": {"predicates": [...], "masked": [...]}}.
+
+    This is a lightweight text parser — no PDDL library needed.
+    """
+    import re
+    text = traj_path.read_text()
+    # Extract all states and actions in order
+    states = []
+    actions = []
+    for line in text.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('(:init') or line.startswith('(:state'):
+            # Extract predicates: everything inside the outer parens after the keyword
+            match = re.match(r'\(:\w+\s+(.*)\)\s*$', line)
+            if match:
+                body = match.group(1)
+                preds = re.findall(r'\([^)]+\)', body)
+                states.append(preds)
+        elif line.startswith('(operator:'):
+            # Line format: (operator: (action arg1 arg2))
+            # Remove exactly one outer paren pair, then take after "operator:"
+            inner = line.strip()
+            if inner.startswith('(') and inner.endswith(')'):
+                inner = inner[1:-1].strip()
+            action_str = inner.split(':', 1)[1].strip()
+            actions.append(action_str)
+
+    # Load masking info if available
+    masked_per_state = []
+    if masking_path and masking_path.exists():
+        masked_per_state = _parse_masking_info(masking_path)
+
+    components = []
+    for i, action in enumerate(actions):
+        if i < len(states) and i + 1 < len(states):
+            prev_masked = sorted(masked_per_state[i]) if i < len(masked_per_state) else []
+            next_masked = sorted(masked_per_state[i + 1]) if (i + 1) < len(masked_per_state) else []
+            components.append({
+                "action": action,
+                "prev": {"predicates": sorted(states[i]), "masked": prev_masked},
+                "next": {"predicates": sorted(states[i + 1]), "masked": next_masked},
+            })
+    return components
+
+
+def _load_observations_from_fold(fold_dir: Path, fold_info_path: Path) -> list:
+    """Load observations from a fold's original_observations/ directory.
+
+    Returns the same format as serialize_observations(): list of
+    {"problem": str, "components": [...]}.
+    """
+    with open(fold_info_path) as f:
+        fold_info = json.load(f)
+
+    obs_dir = fold_dir / "original_observations"
+    result = []
+    for entry in fold_info["trajectories"]:
+        problem = entry["problem"]
+        traj_path = obs_dir / f"original_observation_{problem}.trajectory"
+        masking_path = obs_dir / f"original_observation_{problem}.masking_info"
+        if not traj_path.exists():
+            print(f"  Warning: {traj_path} not found, skipping.", file=sys.stderr)
+            continue
+        components = _parse_trajectory_file(traj_path, masking_path)
+        result.append({"problem": problem, "components": components})
+        print(f"  Loaded obs: {problem} ({len(components)} components)")
+
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate an interactive HTML viewer from a conflict search trace.",
     )
     parser.add_argument(
         "trace_json", type=Path,
-        help="Path to search_trace.json (produced by trace_spurious_effects.py --retrace).",
+        help="Path to search_trace.json (produced by retrace_search.py).",
     )
     parser.add_argument(
         "-o", "--output", type=Path, default=None,
@@ -773,6 +1128,18 @@ def main() -> None:
 
     with open(trace_path) as f:
         trace_data = json.load(f)
+
+    # If no observations embedded, load from the fold dir (= trace file's parent)
+    if "observations" not in trace_data or not trace_data["observations"]:
+        fold_dir = trace_path.parent
+        fold_info_path = fold_dir / "fold_info.json"
+        obs_dir = fold_dir / "original_observations"
+        if fold_info_path.exists() and obs_dir.is_dir():
+            print(f"Loading observations from {obs_dir} ...")
+            trace_data["observations"] = _load_observations_from_fold(fold_dir, fold_info_path)
+        else:
+            print(f"Note: no fold_info.json or original_observations/ in {fold_dir} — "
+                  f"observation viewer will be unavailable.", file=sys.stderr)
 
     action = trace_data.get('target_action')
     predicate = trace_data.get('target_predicate')

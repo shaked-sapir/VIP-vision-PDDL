@@ -7,9 +7,47 @@ Used by both retrace_search.py (offline retracing) and the experiment pipeline
 
 import json
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
+
+from pddl_plus_parser.models import Observation
 
 from src.pi_sam.plan_denoising.conflict_search import NodeExpansionEvent
+
+
+def _serialize_state(state) -> Dict:
+    """Serialize a State into positive predicates and masked predicates lists."""
+    positives = []
+    masked = []
+    for grounded_predicates in state.state_predicates.values():
+        for p in grounded_predicates:
+            rep = p.untyped_representation
+            positives.append(rep)
+            if p.is_masked:
+                masked.append(rep)
+    return {"predicates": sorted(positives), "masked": sorted(masked)}
+
+
+def serialize_observations(
+    ordered_observations: List[Tuple[str, Observation]],
+) -> List[Dict]:
+    """Serialize observations into a JSON-friendly format.
+
+    Each observation becomes:
+        {"problem": str, "components": [{"action": str, "prev": {...}, "next": {...}}, ...]}
+
+    Each state is {"predicates": [...positive...], "masked": [...masked...]}.
+    """
+    result = []
+    for problem_name, obs in ordered_observations:
+        components = []
+        for comp in obs.components:
+            components.append({
+                "action": str(comp.grounded_action_call),
+                "prev": _serialize_state(comp.previous_state),
+                "next": _serialize_state(comp.next_state),
+            })
+        result.append({"problem": problem_name, "components": components})
+    return result
 
 
 def serialize_event(e: NodeExpansionEvent) -> Dict:
@@ -58,6 +96,7 @@ def write_trace_json(
     output_path: Path,
     search_params: Dict,
     fold_dir: Path = None,
+    ordered_observations: Optional[List[Tuple[str, Observation]]] = None,
 ) -> Path:
     """Serialize a list of NodeExpansionEvents and write to a JSON file.
 
@@ -66,6 +105,8 @@ def write_trace_json(
         output_path: Where to write the JSON file.
         search_params: Dict of search parameters used.
         fold_dir: Optional fold directory path (stored as metadata).
+        ordered_observations: Optional list of (problem_name, Observation)
+            to embed in the trace for the observation viewer.
 
     Returns:
         The output_path.
@@ -81,6 +122,9 @@ def write_trace_json(
         },
         "nodes": [serialize_event(e) for e in trace_log],
     }
+
+    if ordered_observations is not None:
+        trace_data["observations"] = serialize_observations(ordered_observations)
 
     with open(output_path, "w") as f:
         json.dump(trace_data, f, indent=2)
