@@ -15,7 +15,7 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 | Directory | Responsibility |
 |---|---|
 | `src/object_detection/` | Detect objects in a single image frame. Input: image. Output: list of `BoundedObject`. |
-| `src/fluent_classification/` | Classify PDDL fluents from a single image frame. Input: image. Output: `Dict[str, PredicateTruthValue]`. |
+| `src/fluent_classification/` | Classify PDDL fluents from a single image frame. Input: image. Output: `Dict[str, PredicateTruthValue]`. LLM path uses `ImageLLMBackend` protocol + `ImageLLMBackendFactory` (OpenAI/Gemini). |
 | `src/trajectory_handlers/` | Image→trajectory pipeline per domain. Split into inference base, PDDLGym source, external source, and LLM mixin layers. |
 | `src/pi_sam/` | Learning logic: PI-SAM, Noisy-PI-SAM, masking/noising strategies, conflict patching. |
 | `src/pi_sam/masking/` | Masking strategies (random, percentage, uncertain). Isolated from learning logic. |
@@ -44,7 +44,8 @@ class ObjectDetector(ABC):
     def detect(self, image: Union[cv2.typing.MatLike, Path, str], *args, **kwargs): ...
 ```
 - One method. Input is flexible (Mat, Path, str). Return type is domain-defined but conventionally a list of `BoundedObject`.
-- Domain-specific detectors live in `src/object_detection/` and are named `{domain}_object_detector.py`.
+- Domain-specific detectors live in `src/object_detection/` and are named `{domain}_object_detector.py` or `llm_{domain}_object_detector.py`.
+- LLM detectors extend `llm_object_detector.py`.
 
 ### Fluent Classifier
 ```python
@@ -55,6 +56,7 @@ class FluentClassifier(ABC):
 - Returns a dict of predicate string → `PredicateTruthValue` (TRUE / FALSE / UNCERTAIN).
 - `UNCERTAIN` is meaningful — it drives masking downstream. Never silently drop it.
 - Domain-specific classifiers live in `src/fluent_classification/` and are named `{domain}_fluent_classifier.py` or `llm_{domain}_fluent_classifier.py`.
+- LLM classifiers extend `llm_fluent_classifier.py`; vendor backends implement `ImageLLMBackend` (`openai_image_llm_backend.py`, `gemini_image_llm_backend.py`).
 
 ### Image Trajectory Handler (hierarchy)
 
@@ -92,12 +94,18 @@ class ExternalImageTrajectoryHandler(ImageTrajectoryHandler):
 class LLMVisualComponentsMixin:
     detector_class: Type[ObjectDetector]
     classifier_class: Type[FluentClassifier]
-    # Wires LLM detector + classifier; override _pre_init_hook for domain prep.
+
+    def __init__(self, *, pddl_domain_file: Path, vendor: str = "openai", **kwargs): ...
+    # Cooperative init — parses domain via DomainParser(partial_parsing=True).
+    # init_visual_components: _pre_init_hook → detect objects → create classifier.
+    # Override _pre_init_hook for domain prep (e.g. ensure trajectory JSON).
 ```
 
 ```python
-# Concrete LLM combos (empty pass-through classes — set class attrs + hooks in domain file):
+# Concrete LLM combos (pass-through classes in dedicated files — set class attrs + hooks in domain file):
+# src/trajectory_handlers/llm_image_trajectory_handler.py
 class LLMImageTrajectoryHandler(LLMVisualComponentsMixin, PDDLGymImageTrajectoryHandler): ...
+# src/trajectory_handlers/llm_external_trajectory_handler.py
 class LLMExternalImageTrajectoryHandler(LLMVisualComponentsMixin, ExternalImageTrajectoryHandler): ...
 ```
 
@@ -138,12 +146,12 @@ Every utility function that is not domain-specific belongs in `src/utils/`. Befo
 | File | What it provides |
 |---|---|
 | `utils/containers.py` | `to_list`, `serialize`, `group_objects_by_key`, `sort_objects_numerically`, `shrink_whitespaces` |
-| `utils/pddl_state.py` | `get_state_grounded_predicates`, `compare_states`, `compare_observations`, `copy_state`, `copy_observation`, `flip_fluent_in_state`, `ground_observation_completely`, `get_all_possible_groundings` |
-| `utils/pddl_gym.py` | `set_problem_by_name`, `ground_action`, `parse_gym_to_pddl_literal`, `parse_gym_to_pddl_ground_action`, `translate_pddlgym_state_to_image_predicates`, `extract_objects_from_pddlgym_state` |
+| `utils/pddl_state.py` | `get_state_grounded_predicates`, `get_state_unmasked_predicates`, `get_state_masked_predicates`, `compare_states`, `compare_observations`, `observations_equal`, `copy_state`, `copy_observation`, `copy_observation_linked`, `flip_fluent_in_state`, `ground_observation_completely`, `ground_all_predicates_in_state`, `ground_all_states_in_observation`, `get_all_possible_groundings`, `get_all_possible_groundings_for_domain` |
+| `utils/pddl_gym.py` | `set_problem_by_name`, `ground_action`, `parse_gym_to_pddl_literal`, `parse_gym_to_pddl_ground_action`, `multi_replace_predicate`, `translate_pddlgym_state_to_image_predicates`, `extract_objects_from_pddlgym_state` |
 | `utils/pddl_trajectory.py` | `build_trajectory_file`, `observation_to_trajectory_file`, `ensure_trajectory_json`, `extract_actions_from_trajectory_json`, `propagate_frame_axioms_in_trajectory`, `propagate_frame_axioms_in_memory`, `propagate_frame_axioms_selective`, `inject_gt_states_by_percentage` |
 | `utils/trajectory_json_converter.py` | `convert_trajectory_to_json` — `.trajectory` + `.pddl` → `_trajectory.json` |
 | `utils/masking.py` | `mask_state`, `mask_observation`, `mask_observations`, `save_masking_info`, `load_masking_info`, `load_masked_observation` |
-| `utils/visualize.py` | `draw_objects`, `find_exact_rgb_color_mask`, `load_image`, `encode_image_to_base64` |
+| `utils/visualize.py` | `draw_objects`, `to_int_rgb`, `find_exact_rgb_color_mask`, `load_image`, `encode_image_to_base64` |
 | `utils/time.py` | `create_experiment_timestamp` |
 | `utils/config.py` | `load_config` with project-relative path resolution |
 
@@ -204,6 +212,7 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - **Handler Layering** — `ImageTrajectoryHandler` (inference) ← `PDDLGymImageTrajectoryHandler` / `ExternalImageTrajectoryHandler` (data source) ← domain concrete class. LLM domains add `LLMVisualComponentsMixin` via multiple inheritance.
 - **Mixin Composition** — noise handling (`NoisyLearnerMixin`) and LLM wiring (`LLMVisualComponentsMixin`) are mixins, not deep subclass chains.
 - **Strategy** — masking via `MaskingStrategy`; noising via `NoisingStrategy`. Baseline algorithms via `benchmark/baselines/` registry (`get_baselines`).
+- **Factory** — LLM vendor/model selection via `ImageLLMBackendFactory.create(vendor, model_type)`; config loaded from `config.yaml`.
 - **Closed-World Assumption** — when a fluent is absent from a state, it is assumed false. `UNCERTAIN` breaks this assumption and triggers masking.
 - **Frame-Axiom Propagation** — unmasked fluents are propagated across states using frame axioms before trajectory files are written (`utils/pddl_trajectory.py`).
 
@@ -214,7 +223,7 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - Entry points: `benchmark/benchmark_runner.py`, `benchmark/data_generator.py`, `src/simulator_cli.py`
 - Baselines: `benchmark/baselines/` — register runners in `BASELINE_REGISTRY`, select via `--baselines` in `benchmark_runner.py`
 - Data lives under `benchmark/data/{domain}/`
-- Evaluation: `benchmark/evaluation/cfm_quality_analysis.py`, `benchmark/evaluation/cfm_domain_aggregate.py`
+- Evaluation: `benchmark/evaluation/cfm_quality_analysis.py`, `benchmark/evaluation/cfm_domain_aggregate.py`, `benchmark/evaluation/fold_filter.py`, `benchmark/evaluation/trajectory_fluent_confusion.py`, `benchmark/evaluation/experiment_report.py`, `benchmark/evaluation/compare_original_observations.py`, `benchmark/evaluation/correlation_analysis.py`
 - Configuration: `config.yaml` at project root
 - Activate environment: `source venv11/bin/activate`
 

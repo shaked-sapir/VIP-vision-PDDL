@@ -1,0 +1,896 @@
+[
+    {
+        "step": 1,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,roomb:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,roomb:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "pick(ball1:ball,roomb:room,left:gripper)",
+        "next_state": {
+            "literals": [
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,roomb:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "carry(ball1:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 2,
+        "current_state": {
+            "literals": [
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,roomb:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "carry(ball1:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "move(roomb:room,rooma:room)",
+        "next_state": {
+            "literals": [
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,roomb:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "carry(ball1:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 3,
+        "current_state": {
+            "literals": [
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,roomb:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "carry(ball1:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "drop(ball1:ball,rooma:room,left:gripper)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,roomb:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 4,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,roomb:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "move(rooma:room,roomb:room)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,roomb:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 5,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,roomb:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "pick(ball3:ball,roomb:room,left:gripper)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "carry(ball3:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 6,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "carry(ball3:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "move(roomb:room,rooma:room)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "carry(ball3:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 7,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "carry(ball3:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "drop(ball3:ball,rooma:room,left:gripper)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 8,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "move(rooma:room,roomb:room)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 9,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,roomb:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "pick(ball4:ball,roomb:room,left:gripper)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "carry(ball4:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 10,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "carry(ball4:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "move(roomb:room,rooma:room)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "carry(ball4:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 11,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "carry(ball4:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "drop(ball4:ball,rooma:room,left:gripper)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 12,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(rooma:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "move(rooma:room,roomb:room)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 13,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at(ball5:ball,roomb:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "pick(ball5:ball,roomb:room,left:gripper)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "carry(ball5:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 14,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at(ball6:ball,roomb:room)",
+                "at_robby(roomb:room)",
+                "carry(ball5:ball,left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "pick(ball6:ball,roomb:room,right:gripper)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at_robby(roomb:room)",
+                "carry(ball5:ball,left:gripper)",
+                "carry(ball6:ball,right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 15,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at_robby(roomb:room)",
+                "carry(ball5:ball,left:gripper)",
+                "carry(ball6:ball,right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "move(roomb:room,rooma:room)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at_robby(rooma:room)",
+                "carry(ball5:ball,left:gripper)",
+                "carry(ball6:ball,right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 16,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at_robby(rooma:room)",
+                "carry(ball5:ball,left:gripper)",
+                "carry(ball6:ball,right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "drop(ball5:ball,rooma:room,left:gripper)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at(ball5:ball,rooma:room)",
+                "at_robby(rooma:room)",
+                "carry(ball6:ball,right:gripper)",
+                "free(left:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    },
+    {
+        "step": 17,
+        "current_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at(ball5:ball,rooma:room)",
+                "at_robby(rooma:room)",
+                "carry(ball6:ball,right:gripper)",
+                "free(left:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        },
+        "ground_action": "drop(ball6:ball,rooma:room,right:gripper)",
+        "next_state": {
+            "literals": [
+                "at(ball1:ball,rooma:room)",
+                "at(ball2:ball,rooma:room)",
+                "at(ball3:ball,rooma:room)",
+                "at(ball4:ball,rooma:room)",
+                "at(ball5:ball,rooma:room)",
+                "at(ball6:ball,rooma:room)",
+                "at_robby(rooma:room)",
+                "free(left:gripper)",
+                "free(right:gripper)"
+            ],
+            "objects": [
+                "ball1:ball",
+                "ball2:ball",
+                "ball3:ball",
+                "ball4:ball",
+                "ball5:ball",
+                "ball6:ball",
+                "left:gripper",
+                "right:gripper",
+                "rooma:room",
+                "roomb:room"
+            ]
+        }
+    }
+]
