@@ -122,6 +122,7 @@
     :effect (and
         (holding ?c ?p)
         (at ?p ?d)
+        (not (clear ?p))
         (not (in-truck ?p ?t))
         (not (empty-crane ?c)))
   )

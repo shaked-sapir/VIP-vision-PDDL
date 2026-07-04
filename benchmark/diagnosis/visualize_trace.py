@@ -149,6 +149,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     padding: 4px 10px; color: var(--dim); font-size: 11px;
     border-top: 1px solid var(--border); text-align: center;
   }
+  #relevant-sidebar .sidebar-filters {
+    padding: 4px 10px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  }
+  #relevant-sidebar .sidebar-filters label {
+    font-size: 11px; color: var(--dim); cursor: pointer;
+    display: flex; align-items: center; gap: 3px;
+  }
+  #relevant-sidebar .sidebar-filters label:hover { color: var(--text); }
+  #relevant-sidebar .sidebar-filters input[type="checkbox"] {
+    margin: 0; cursor: pointer;
+  }
 
   .node-header { display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }
   .node-idx { color: var(--blue); font-weight: bold; }
@@ -270,6 +282,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <div class="sidebar-header">
     <span>Relevant Nodes (<span id="sidebar-count">0</span>)</span>
     <button class="close-btn" id="sidebar-close">&times;</button>
+  </div>
+  <div class="sidebar-filters" id="sidebar-filters">
+    <label><input type="checkbox" id="sf-frame" checked> FRAME</label>
+    <label><input type="checkbox" id="sf-fluent" checked> FLUENT</label>
+    <label><input type="checkbox" id="sf-model" checked> MODEL</label>
   </div>
   <div class="sidebar-list" id="sidebar-list"></div>
 </div>
@@ -419,6 +436,9 @@ function createRow(nodeIdx) {
       if (targetRow) {
         targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
         const targetCard = targetRow.querySelector('.node-card');
+        // Open the detail panel
+        const detail = targetCard.querySelector('.node-detail');
+        if (detail && !detail.classList.contains('open')) detail.classList.add('open');
         targetCard.classList.add('highlight');
         setTimeout(() => targetCard.classList.remove('highlight'), 1500);
       }
@@ -809,19 +829,44 @@ function matchesFilter(node, action, pred) {
 let relevantNodeIds = [];
 let currentMatchIdx = -1;
 
-function buildSidebar(nodeIds) {
-  const sidebar = document.getElementById('relevant-sidebar');
+// All relevant node IDs before type filtering (set by applyFilter)
+let allRelevantNodeIds = [];
+
+// Get the branch_type for a node (what type of fix THIS node is)
+function getNodeType(n) {
+  if (!n.branch_type) return 'root';
+  if (n.branch_type === 'frame_axiom_prev_fix') return 'frame';
+  if (n.branch_type === 'fluent_fix') return 'fluent';
+  if (n.branch_type === 'model_fix') return 'model';
+  return n.branch_type;
+}
+
+function getActiveTypeFilters() {
+  return {
+    frame: document.getElementById('sf-frame').checked,
+    fluent: document.getElementById('sf-fluent').checked,
+    model: document.getElementById('sf-model').checked,
+  };
+}
+
+function filterByType(nodeIds) {
+  const filters = getActiveTypeFilters();
+  return nodeIds.filter(idx => {
+    const t = getNodeType(nodeMap[idx]);
+    if (t === 'root') return true;  // always show root
+    if (t === 'frame') return filters.frame;
+    if (t === 'fluent') return filters.fluent;
+    if (t === 'model') return filters.model;
+    return true;
+  });
+}
+
+function renderSidebarList(nodeIds) {
   const list = document.getElementById('sidebar-list');
   const countEl = document.getElementById('sidebar-count');
   list.innerHTML = '';
   relevantNodeIds = nodeIds;
   currentMatchIdx = -1;
-
-  if (nodeIds.length === 0) {
-    sidebar.classList.remove('visible');
-    document.body.classList.remove('sidebar-open');
-    return;
-  }
 
   countEl.textContent = nodeIds.length;
   const MAX_SIDEBAR = 200;
@@ -855,7 +900,20 @@ function buildSidebar(nodeIds) {
     more.textContent = '… and ' + (nodeIds.length - MAX_SIDEBAR) + ' more';
     list.appendChild(more);
   }
+}
 
+function buildSidebar(nodeIds) {
+  const sidebar = document.getElementById('relevant-sidebar');
+  allRelevantNodeIds = nodeIds;
+
+  if (nodeIds.length === 0) {
+    sidebar.classList.remove('visible');
+    document.body.classList.remove('sidebar-open');
+    return;
+  }
+
+  const filtered = filterByType(nodeIds);
+  renderSidebarList(filtered);
   sidebar.classList.add('visible');
   document.body.classList.add('sidebar-open');
 }
@@ -1003,6 +1061,13 @@ document.getElementById('filter-action').addEventListener('keydown', e => { if (
 document.getElementById('filter-pred').addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
 sel.addEventListener('change', applyFilter);
 document.getElementById('sidebar-close').addEventListener('click', hideSidebar);
+// Type filter checkboxes in sidebar
+['sf-frame', 'sf-fluent', 'sf-model'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    const filtered = filterByType(allRelevantNodeIds);
+    renderSidebarList(filtered);
+  });
+});
 </script>
 </body>
 </html>"""

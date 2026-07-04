@@ -1,0 +1,576 @@
+[
+    {
+        "step": 1,
+        "current_state": {
+            "literals": [
+                "at(p1:package,d2:depot)",
+                "at(p2:package,d2:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d1:depot)",
+                "clear(p2:package)",
+                "clear(p3:package)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "on(p2:package,p1:package)",
+                "on-pile(p1:package,pile2:pile)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        },
+        "ground_action": "drive(t1:truck,d1:depot,d2:depot)",
+        "next_state": {
+            "literals": [
+                "at(p1:package,d2:depot)",
+                "at(p2:package,d2:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d2:depot)",
+                "clear(p2:package)",
+                "clear(p3:package)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "on(p2:package,p1:package)",
+                "on-pile(p1:package,pile2:pile)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        }
+    },
+    {
+        "step": 2,
+        "current_state": {
+            "literals": [
+                "at(p1:package,d2:depot)",
+                "at(p2:package,d2:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d2:depot)",
+                "clear(p2:package)",
+                "clear(p3:package)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "on(p2:package,p1:package)",
+                "on-pile(p1:package,pile2:pile)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        },
+        "ground_action": "unstack(c2:crane,p2:package,p1:package,d2:depot)",
+        "next_state": {
+            "literals": [
+                "at(p1:package,d2:depot)",
+                "at(p2:package,d2:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d2:depot)",
+                "clear(p1:package)",
+                "clear(p3:package)",
+                "empty-crane(c1:crane)",
+                "holding(c2:crane,p2:package)",
+                "on-pile(p1:package,pile2:pile)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        }
+    },
+    {
+        "step": 3,
+        "current_state": {
+            "literals": [
+                "at(p1:package,d2:depot)",
+                "at(p2:package,d2:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d2:depot)",
+                "clear(p1:package)",
+                "clear(p3:package)",
+                "empty-crane(c1:crane)",
+                "holding(c2:crane,p2:package)",
+                "on-pile(p1:package,pile2:pile)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        },
+        "ground_action": "load(c2:crane,p2:package,t1:truck,d2:depot)",
+        "next_state": {
+            "literals": [
+                "at(p1:package,d2:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d2:depot)",
+                "clear(p1:package)",
+                "clear(p3:package)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p1:package,pile2:pile)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        }
+    },
+    {
+        "step": 4,
+        "current_state": {
+            "literals": [
+                "at(p1:package,d2:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d2:depot)",
+                "clear(p1:package)",
+                "clear(p3:package)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p1:package,pile2:pile)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        },
+        "ground_action": "lift(c2:crane,p1:package,pile2:pile,d2:depot)",
+        "next_state": {
+            "literals": [
+                "at(p1:package,d2:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d2:depot)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c1:crane)",
+                "holding(c2:crane,p1:package)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        }
+    },
+    {
+        "step": 5,
+        "current_state": {
+            "literals": [
+                "at(p1:package,d2:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d2:depot)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c1:crane)",
+                "holding(c2:crane,p1:package)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        },
+        "ground_action": "load(c2:crane,p1:package,t1:truck,d2:depot)",
+        "next_state": {
+            "literals": [
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d2:depot)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "in-truck(p1:package,t1:truck)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        }
+    },
+    {
+        "step": 6,
+        "current_state": {
+            "literals": [
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d2:depot)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "in-truck(p1:package,t1:truck)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        },
+        "ground_action": "drive(t1:truck,d2:depot,d1:depot)",
+        "next_state": {
+            "literals": [
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d1:depot)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "in-truck(p1:package,t1:truck)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        }
+    },
+    {
+        "step": 7,
+        "current_state": {
+            "literals": [
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d1:depot)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "in-truck(p1:package,t1:truck)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        },
+        "ground_action": "unload(c1:crane,p1:package,t1:truck,d1:depot)",
+        "next_state": {
+            "literals": [
+                "at(p1:package,d1:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d1:depot)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c2:crane)",
+                "holding(c1:crane,p1:package)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        }
+    },
+    {
+        "step": 8,
+        "current_state": {
+            "literals": [
+                "at(p1:package,d1:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d1:depot)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c2:crane)",
+                "holding(c1:crane,p1:package)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        },
+        "ground_action": "drop(c1:crane,p1:package,pile1:pile,d1:depot)",
+        "next_state": {
+            "literals": [
+                "at(p1:package,d1:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d1:depot)",
+                "clear(p1:package)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p1:package,pile1:pile)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        }
+    },
+    {
+        "step": 9,
+        "current_state": {
+            "literals": [
+                "at(p1:package,d1:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d1:depot)",
+                "clear(p1:package)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c1:crane)",
+                "empty-crane(c2:crane)",
+                "in-truck(p2:package,t1:truck)",
+                "on-pile(p1:package,pile1:pile)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        },
+        "ground_action": "unload(c1:crane,p2:package,t1:truck,d1:depot)",
+        "next_state": {
+            "literals": [
+                "at(p1:package,d1:depot)",
+                "at(p2:package,d1:depot)",
+                "at(p3:package,d1:depot)",
+                "at-crane(c1:crane,d1:depot)",
+                "at-crane(c2:crane,d2:depot)",
+                "at-pile(pile1:pile,d1:depot)",
+                "at-pile(pile2:pile,d2:depot)",
+                "at-truck(t1:truck,d1:depot)",
+                "clear(p1:package)",
+                "clear(p3:package)",
+                "clear(pile2:pile)",
+                "empty-crane(c2:crane)",
+                "holding(c1:crane,p2:package)",
+                "on-pile(p1:package,pile1:pile)",
+                "on-pile(p3:package,pile1:pile)"
+            ],
+            "objects": [
+                "c1:crane",
+                "c2:crane",
+                "d1:depot",
+                "d2:depot",
+                "p1:package",
+                "p2:package",
+                "p3:package",
+                "pile1:pile",
+                "pile2:pile",
+                "t1:truck"
+            ]
+        }
+    }
+]

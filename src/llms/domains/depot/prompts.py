@@ -13,55 +13,40 @@ def confidence_system_prompt(
     return (
         f"""You are a visual reasoning agent for a robotic planning system.
 Given an image with the following known objects:
-- Depots: {', '.join(depots)} (type=depot)
+- rectangular-colored Depots: {', '.join(depots)} (type=depot)
 - Trucks: {', '.join(trucks)} (type=truck)
-- Cranes: {', '.join(cranes)} (type=crane)
-- Piles: {', '.join(piles)} (type=pile)
-- Packages: {', '.join(packages)} (type=package)
-The domain is Depot.
-Objects are identified by their visible text labels:
-- Depots are labels such as D1, D2.
-- Trucks are labels such as t1, t2.
-- Cranes are labels such as c1, c2.
-- Piles are labels such as pile1, pile2.
-- Packages are labels such as p1, p2.
+- lifting-device-colored Cranes: {', '.join(cranes)} (type=crane)
+- brown-colored Piles: {', '.join(piles)} (type=pile)
+- yellow-colored Packages: {', '.join(packages)} (type=package)
+
 Your task is to extract **all grounded predicates** from the image and assign a **confidence score** to each.
 Each predicate must be written in **exactly one of the forms listed below**, using the defined objects only.
 Each argument must include the object name and its type, separated by a colon.
 For example: p1:package, D1:depot, t1:truck, c1:crane, pile1:pile.
+DO NOT invent new predicates or omit typings.
+
 Valid predicate forms:
-- at-truck(t:truck,d:depot) → truck t is located in depot d
-- at-crane(c:crane,d:depot) → crane c is located in depot d
+- at-truck(t:truck,d:depot) → truck t is located in the rectangular area of depot d
+- at-crane(c:crane,d:depot) → crane c is located in the rectangular area of depot d
 - at-pile(pl:pile,d:depot) → pile pl is located in depot d
-- at(p:package,d:depot) → package p is located in depot d
+- at(p:package,d:depot) → package p is located in the rectangular area of depot d AND is not on top of some truck. if some crane is holding package p, then the package p is in the crane's depot.
 - on(p:package,q:package) → package p is directly on package q
 - on-pile(p:package,pl:pile) → package p is directly on pile pl
-- clear(x) → object x has nothing on top of it
+- clear(p:package) → no package is on top of package p AND package p is not being held by a crane
+- clear(pl:pile) → no package is on top of pile pl
 - holding(c:crane,p:package) → crane c is holding package p
 - empty-crane(c:crane) → crane c is not holding any package
-- in-truck(p:package,t:truck) → package p is inside truck t
-Important domain rules:
-- If holding(c,p) holds, then package p is not on another package, not on a pile, and not in a truck.
-- If in-truck(p,t) holds, then package p is not at any depot.
-- If on-pile(p,pl) holds, then package p is at the same depot as pile pl.
-- If on(p,q) holds, then p and q are at the same depot.
-- clear(x) means no package is directly on top of x.
-- A crane is empty iff it is not holding any package.
-For each predicate you output, assign a confidence score:
+- in-truck(p:package,t:truck) → package p is on top of truck t
+
+For each predicate you output, assign a confidence score expressing how certain you are
+that the predicate holds in the image:
+
 - 2 → The predicate DEFINITELY holds, based on clear visual evidence.
 - 1 → The predicate MIGHT hold, but evidence is unclear, partial, or occluded.
 - 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
-☑️ You MUST assign a score to **every valid grounded predicate**:
-- every at-truck(truck, depot)
-- every at-crane(crane, depot)
-- every at-pile(pile, depot)
-- every at(package, depot)
-- every on(package, package), excluding self-relations
-- every on-pile(package, pile)
-- every clear(object), where object may be a package or pile
-- every holding(crane, package)
-- every empty-crane(crane)
-- every in-truck(package, truck)
+
+☑️ You MUST assign a score to **every valid grounded predicate**.
+
 ❗IMPORTANT:
 - Each predicate must appear exactly as described — including typings.
 - Do NOT use forms like 'at(p1,D1)' or 'on(p1,p2)' — typings are REQUIRED.
@@ -69,6 +54,8 @@ For each predicate you output, assign a confidence score:
 - DO NOT invent new predicates or omit typings.
 - Return only one predicate per line, followed by a colon and the confidence score.
 - ONLY use scores 0, 1, or 2.
+
+
 ✅ Example output:
 at-truck(t1:truck,D1:depot): 2
 at-truck(t1:truck,D2:depot): 0

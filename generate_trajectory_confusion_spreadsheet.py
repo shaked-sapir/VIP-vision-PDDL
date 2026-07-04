@@ -183,9 +183,9 @@ def ground_fluent(pred_name: str, roles: list, bindings: dict) -> str:
     return f"{pred_name} {' '.join(args)}" if args else pred_name
 
 
-def _has_complementary_swap(pred_name: str, ground_args: list, error_type: str,
-                            noisy_state: set, gt_state: set) -> bool:
-    """Check if a complementary swap exists for this binary predicate grounding.
+def _has_complementary_swap_state(pred_name: str, ground_args: list, error_type: str,
+                                  noisy_state: set, gt_state: set) -> bool:
+    """Check if a complementary swap exists for a state-level comparison (PRE).
 
     A swap occurs when this grounding has an error (FP or FN) and another
     grounding of the same predicate — sharing at least one argument — has the
@@ -206,7 +206,46 @@ def _has_complementary_swap(pred_name: str, ground_args: list, error_type: str,
     return False
 
 
+def _has_complementary_swap_transition(pred_name: str, ground_args: list,
+                                       error_type: str,
+                                       prev_noisy: set, prev_gt: set,
+                                       next_noisy: set, next_gt: set,
+                                       is_add: bool) -> bool:
+    """Check if a complementary swap exists for a transition-level comparison (ADD/DEL).
+
+    For ADD: compares which groundings were actually added (absent→present).
+    For DEL: compares which groundings were actually deleted (present→absent).
+    A swap occurs when a grounding has a transition-level error and another
+    grounding of the same predicate — sharing at least one argument — has
+    the complementary error.
+    """
+    if is_add:
+        noisy_transitions = {f for f in (next_noisy - prev_noisy) if f.split()[0] == pred_name}
+        gt_transitions = {f for f in (next_gt - prev_gt) if f.split()[0] == pred_name}
+    else:
+        noisy_transitions = {f for f in (prev_noisy - next_noisy) if f.split()[0] == pred_name}
+        gt_transitions = {f for f in (prev_gt - next_gt) if f.split()[0] == pred_name}
+
+    if error_type == "FP":
+        target = gt_transitions - noisy_transitions  # GT transitioned but noisy didn't (FN)
+    else:
+        target = noisy_transitions - gt_transitions  # noisy transitioned but GT didn't (FP)
+
+    ground_args_set = set(ground_args)
+    for f in target:
+        f_args = f.split()[1:]
+        if set(f_args) & ground_args_set:
+            return True
+    return False
+
+
 def compute_confusion(noisy_states, gt_states, actions, action_model):
+    """Compute per-fluent confusion matrix using transition-based semantics.
+
+    - PRE: state-level — is the fluent present in prev_state?
+    - ADD: transition-level — was the fluent actually added (absent in prev → present in next)?
+    - DEL: transition-level — was the fluent actually deleted (present in prev → absent in next)?
+    """
     result = defaultdict(
         lambda: defaultdict(lambda: defaultdict(
             lambda: {"TP": 0, "FP": 0, "FN": 0, "TN": 0, "SW": 0}))
@@ -224,58 +263,89 @@ def compute_confusion(noisy_states, gt_states, actions, action_model):
         prev_n, prev_g = noisy_states[i], gt_states[i]
         next_n, next_g = noisy_states[i + 1], gt_states[i + 1]
 
-        def _classify_and_record(cat, pred_name, roles, noisy_state, gt_state):
+        # --- PRE: state-level comparison on prev_state (unchanged) ---
+        for pred_name, roles in model["preconditions"]:
             g = ground_fluent(pred_name, roles, bindings)
             lifted = f"{pred_name}({','.join(roles)})"
-            in_n, in_g = g in noisy_state, g in gt_state
+            in_n, in_g = g in prev_n, g in prev_g
             is_binary = len(roles) >= 2
 
-            if cat == "DEL":
-                if not in_g and not in_n:
-                    result[action_name][cat][lifted]["TN"] += 1
-                elif in_n and not in_g:
-                    result[action_name][cat][lifted]["FP"] += 1
-                    if is_binary:
-                        g_args = g.split()[1:]
-                        if _has_complementary_swap(pred_name, g_args, "FP", noisy_state, gt_state):
-                            result[action_name][cat][lifted]["SW"] += 1
-                elif in_g and not in_n:
-                    result[action_name][cat][lifted]["FN"] += 1
-                    if is_binary:
-                        g_args = g.split()[1:]
-                        if _has_complementary_swap(pred_name, g_args, "FN", noisy_state, gt_state):
-                            result[action_name][cat][lifted]["SW"] += 1
-                else:
-                    result[action_name][cat][lifted]["TP"] += 1
+            if in_g and in_n:
+                result[action_name]["PRE"][lifted]["TP"] += 1
+            elif in_n:
+                result[action_name]["PRE"][lifted]["FP"] += 1
+                if is_binary:
+                    g_args = g.split()[1:]
+                    if _has_complementary_swap_state(pred_name, g_args, "FP", prev_n, prev_g):
+                        result[action_name]["PRE"][lifted]["SW"] += 1
+            elif in_g:
+                result[action_name]["PRE"][lifted]["FN"] += 1
+                if is_binary:
+                    g_args = g.split()[1:]
+                    if _has_complementary_swap_state(pred_name, g_args, "FN", prev_n, prev_g):
+                        result[action_name]["PRE"][lifted]["SW"] += 1
             else:
-                if in_g and in_n:
-                    result[action_name][cat][lifted]["TP"] += 1
-                elif in_n:
-                    result[action_name][cat][lifted]["FP"] += 1
-                    if is_binary:
-                        g_args = g.split()[1:]
-                        if _has_complementary_swap(pred_name, g_args, "FP", noisy_state, gt_state):
-                            result[action_name][cat][lifted]["SW"] += 1
-                elif in_g:
-                    result[action_name][cat][lifted]["FN"] += 1
-                    if is_binary:
-                        g_args = g.split()[1:]
-                        if _has_complementary_swap(pred_name, g_args, "FN", noisy_state, gt_state):
-                            result[action_name][cat][lifted]["SW"] += 1
-                else:
-                    result[action_name][cat][lifted]["TN"] += 1
+                result[action_name]["PRE"][lifted]["TN"] += 1
 
-        # Preconditions: check prev_state
-        for pred_name, roles in model["preconditions"]:
-            _classify_and_record("PRE", pred_name, roles, prev_n, prev_g)
-
-        # Add effects: check next_state
+        # --- ADD: transition-level — was f actually added (absent→present)? ---
         for pred_name, roles in model["add_effects"]:
-            _classify_and_record("ADD", pred_name, roles, next_n, next_g)
+            g = ground_fluent(pred_name, roles, bindings)
+            lifted = f"{pred_name}({','.join(roles)})"
+            is_binary = len(roles) >= 2
 
-        # Del effects: check next_state
+            gt_added = (g not in prev_g) and (g in next_g)
+            noisy_added = (g not in prev_n) and (g in next_n)
+
+            if gt_added and noisy_added:
+                result[action_name]["ADD"][lifted]["TP"] += 1
+            elif noisy_added and not gt_added:
+                result[action_name]["ADD"][lifted]["FP"] += 1
+                if is_binary:
+                    g_args = g.split()[1:]
+                    if _has_complementary_swap_transition(
+                        pred_name, g_args, "FP", prev_n, prev_g, next_n, next_g, is_add=True
+                    ):
+                        result[action_name]["ADD"][lifted]["SW"] += 1
+            elif gt_added and not noisy_added:
+                result[action_name]["ADD"][lifted]["FN"] += 1
+                if is_binary:
+                    g_args = g.split()[1:]
+                    if _has_complementary_swap_transition(
+                        pred_name, g_args, "FN", prev_n, prev_g, next_n, next_g, is_add=True
+                    ):
+                        result[action_name]["ADD"][lifted]["SW"] += 1
+            else:
+                result[action_name]["ADD"][lifted]["TN"] += 1
+
+        # --- DEL: transition-level — was f actually deleted (present→absent)? ---
         for pred_name, roles in model["del_effects"]:
-            _classify_and_record("DEL", pred_name, roles, next_n, next_g)
+            g = ground_fluent(pred_name, roles, bindings)
+            lifted = f"{pred_name}({','.join(roles)})"
+            is_binary = len(roles) >= 2
+
+            gt_deleted = (g in prev_g) and (g not in next_g)
+            noisy_deleted = (g in prev_n) and (g not in next_n)
+
+            if gt_deleted and noisy_deleted:
+                result[action_name]["DEL"][lifted]["TP"] += 1
+            elif noisy_deleted and not gt_deleted:
+                result[action_name]["DEL"][lifted]["FP"] += 1
+                if is_binary:
+                    g_args = g.split()[1:]
+                    if _has_complementary_swap_transition(
+                        pred_name, g_args, "FP", prev_n, prev_g, next_n, next_g, is_add=False
+                    ):
+                        result[action_name]["DEL"][lifted]["SW"] += 1
+            elif gt_deleted and not noisy_deleted:
+                result[action_name]["DEL"][lifted]["FN"] += 1
+                if is_binary:
+                    g_args = g.split()[1:]
+                    if _has_complementary_swap_transition(
+                        pred_name, g_args, "FN", prev_n, prev_g, next_n, next_g, is_add=False
+                    ):
+                        result[action_name]["DEL"][lifted]["SW"] += 1
+            else:
+                result[action_name]["DEL"][lifted]["TN"] += 1
 
     return result, action_counts
 
@@ -376,9 +446,9 @@ def build_action_sheet(ws, action_name, model, problems, per_problem_confusion, 
 
     row = 5
     sections = [
-        ("PRECONDITIONS (in prev state)", "PRE", model["preconditions"]),
-        ("ADD EFFECTS (in next state)", "ADD", model["add_effects"]),
-        ("DELETE EFFECTS (absent from next state)", "DEL", model["del_effects"]),
+        ("PRECONDITIONS (present in prev state)", "PRE", model["preconditions"]),
+        ("ADD EFFECTS (absent in prev → present in next)", "ADD", model["add_effects"]),
+        ("DELETE EFFECTS (present in prev → absent in next)", "DEL", model["del_effects"]),
     ]
 
     for section_label, cat, fluent_list in sections:
@@ -632,17 +702,21 @@ def simulate_gt_states(init_state: set, actions: list, action_model: dict) -> li
 # =============================================================================
 
 def process_domain(base_path: Path, output_path: Path, action_model: dict,
-                   domain_title: str, single_trajectory: bool = False):
+                   domain_title: str, single_trajectory: bool = False,
+                   gt_base_path: Path = None):
     """End-to-end: parse trajectories, compute metrics, write Excel.
 
     Args:
-        base_path: Directory containing problem subdirs.
+        base_path: Directory containing problem subdirs with noisy trajectories.
         output_path: Where to write the .xlsx file.
         action_model: Dict from parse_domain_pddl() or hand-coded.
         domain_title: Human-readable domain name for sheet headers.
         single_trajectory: If True, expect a single ``problemN.trajectory``
             per problem dir (noisy only). GT states are simulated from the
             init state using the action model.
+        gt_base_path: If set, read GT trajectories from this separate
+            directory (``gt_base_path/problemN/problemN.trajectory``).
+            Noisy trajectories are ``base_path/problemN/problemN.trajectory``.
     """
     problems = sorted(
         [d.name for d in base_path.iterdir() if d.is_dir()],
@@ -654,7 +728,21 @@ def process_domain(base_path: Path, output_path: Path, action_model: dict,
     all_fa_results = {}
 
     for prob in problems:
-        if single_trajectory:
+        if gt_base_path is not None:
+            # Separate noisy / GT directories, both named problemN.trajectory
+            noisy_path = base_path / prob / f"{prob}.trajectory"
+            gt_path = gt_base_path / prob / f"{prob}.trajectory"
+            if not noisy_path.exists():
+                continue
+            if not gt_path.exists():
+                print(f"WARNING: GT trajectory missing for {prob}, skipping")
+                continue
+            noisy_states, noisy_actions = parse_trajectory(noisy_path)
+            gt_states, gt_actions = parse_trajectory(gt_path)
+            if noisy_actions != gt_actions:
+                print(f"WARNING: action mismatch in {prob}, skipping")
+                continue
+        elif single_trajectory:
             noisy_path = base_path / prob / f"{prob}.trajectory"
             if not noisy_path.exists():
                 continue
@@ -733,6 +821,12 @@ def main():
         help="Each problem dir has a single problemN.trajectory (noisy only). "
              "GT states are simulated from the init state using the domain model.",
     )
+    parser.add_argument(
+        "--gt-base", type=Path, default=None,
+        help="Separate directory containing GT trajectories "
+             "(gt-base/problemN/problemN.trajectory). "
+             "Noisy trajectories are read from --base.",
+    )
     args = parser.parse_args()
 
     action_model = parse_domain_pddl(args.domain_pddl)
@@ -748,7 +842,8 @@ def main():
               f"pre={len(am['preconditions'])}, add={len(am['add_effects'])}, del={len(am['del_effects'])}")
 
     process_domain(args.base, args.output, action_model, title,
-                   single_trajectory=args.single_trajectory)
+                   single_trajectory=args.single_trajectory,
+                   gt_base_path=args.gt_base)
 
 
 if __name__ == "__main__":

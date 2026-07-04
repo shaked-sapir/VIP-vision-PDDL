@@ -21,35 +21,35 @@ Given an image with the following known objects:
 - Rooms: {', '.join(rooms)} (type=room)
 - Grippers: {', '.join(grippers)} (type=gripper)
 - Balls: {', '.join(ball_ids)} (type=ball)
-The domain is Gripper.
+
 The robot is named robby.
-The robot has two grippers:
+The robot has two grippers, marked by green letters:
 - R means right gripper
 - L means left gripper
-Balls are identified by the numeric identifier printed on them, e.g. ball1, ball2.
-All balls may have the same color, so do NOT use color as identity.
+
 Your task is to extract **all grounded predicates** from the image and assign a **confidence score** to each.
 Each predicate must be written in **exactly one of the forms listed below**, using the defined objects only.
 Each argument must include the object name and its type, separated by a colon, e.g. ball1:ball, rooma:room, left:gripper.
 DO NOT invent new predicates or omit typings.
+
 Valid predicate forms:
 - at-robby(r:room) → robby is located in room r
-- at(b:ball,r:room) → ball b is located in room r
-- free(g:gripper) → gripper g is empty
-- carry(b:ball,g:gripper) → gripper g is carrying ball b
+- at(b:ball,r:room) → ball b is located in room r AND is not being held by a gripper
+- free(g:gripper) → gripper g is empty (not carrying any ball)
+- carry(b:ball,g:gripper) → gripper g is holding ball b
+
 Important domain rule:
 - If carry(b:ball,g:gripper) holds, then at(b:ball,r:room) does NOT hold for any room r.
 - A ball is either located in a room or carried by a gripper, not both.
 - A gripper is free iff it is not carrying any ball.
+
 For each predicate you output, assign a confidence score expressing how certain you are that the predicate holds in the image:
 - 2 → The predicate DEFINITELY holds, based on clear visual evidence.
 - 1 → The predicate MIGHT hold, but evidence is unclear, partial, or occluded.
 - 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
-☑️ You MUST assign a score to **every valid grounded predicate**:
-- every at-robby(room)
-- every at(ball, room)
-- every free(gripper)
-- every carry(ball, gripper)
+
+☑️ You MUST assign a score to **every valid grounded predicate**.
+
 ❗IMPORTANT:
 - Each predicate must appear exactly as described — including typings.
 - Do NOT use forms like 'at(ball1,rooma)' or 'carry(1,left)' — typings are REQUIRED.
@@ -57,6 +57,7 @@ For each predicate you output, assign a confidence score expressing how certain 
 - DO NOT invent new predicates or omit typings. stick to the rules above.
 - Return only one predicate per line, followed by a colon and the confidence score.
 - ONLY use scores 0, 1, or 2.
+
 ✅ Example output:
 at-robby(rooma:room): 2
 at-robby(roomb:room): 0

@@ -38,10 +38,14 @@ class FoldSolvingResult:
         best_solving_ratio: Highest solving_ratio across all models in this fold.
         best_solution_index: solution_index of the model that achieved it.
             >= 0 → legitimate CFM.  -1 → fallback / partial model.
+        solving_count_under_threshold: Number of CFMs with solving_ratio > 0
+            discovered within ``time_threshold_seconds`` of conflict search.
     """
     fold_dir: Path
     best_solving_ratio: float
     best_solution_index: int
+    solving_count_under_threshold: int = 0
+    time_threshold_seconds: float = 300.0
 
     @property
     def is_legitimate_cfm(self) -> bool:
@@ -52,10 +56,12 @@ class FoldSolvingResult:
         return "CFM" if self.is_legitimate_cfm else "fallback (partial model)"
 
     def __str__(self) -> str:
+        threshold = int(self.time_threshold_seconds)
         return (
             f"{self.fold_dir.name}: "
             f"solving_ratio={self.best_solving_ratio:.2f} "
-            f"[{self.model_type}, solution_index={self.best_solution_index}]"
+            f"[{self.model_type}, solution_index={self.best_solution_index}] "
+            f"solving_under_{threshold}s={self.solving_count_under_threshold}"
         )
 
 
@@ -88,7 +94,47 @@ def _best_solving_entry(entries: List[dict]) -> Optional[dict]:
     return max(candidates, key=lambda e: e["solving_ratio"])
 
 
-def get_folds_with_solving_cfm(experiment_dir: Path) -> List[FoldSolvingResult]:
+def _load_solutions_log(fold_dir: Path) -> Optional[List[dict]]:
+    """Load conflict_free_solutions_log.json from a fold directory."""
+    log_path = fold_dir / "conflict_free_solutions_log.json"
+    if not log_path.exists():
+        return None
+    try:
+        with open(log_path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Could not read %s: %s — skipping timing", log_path, e)
+        return None
+
+
+def _count_solving_cfms_under_threshold(
+    entries: List[dict],
+    solutions_log: Optional[List[dict]],
+    threshold_seconds: float,
+) -> int:
+    """Count CFMs with solving_ratio > 0 found within threshold_seconds."""
+    if not solutions_log:
+        return 0
+
+    metrics_by_idx = {e["solution_index"]: e for e in entries if "solution_index" in e}
+    count = 0
+    for sol in solutions_log:
+        idx = sol.get("index")
+        if idx is None or idx < 0:
+            continue
+        metrics = metrics_by_idx.get(idx)
+        if metrics is None or metrics.get("solving_ratio", 0) <= 0:
+            continue
+        wall_time = sol.get("wall_time_so_far")
+        if wall_time is not None and wall_time <= threshold_seconds:
+            count += 1
+    return count
+
+
+def get_folds_with_solving_cfm(
+    experiment_dir: Path,
+    time_threshold_seconds: float = 300.0,
+) -> List[FoldSolvingResult]:
     """Return fold results where at least one model has solving_ratio > 0.
 
     Scans ``<experiment_dir>/testing/fold*`` directories.  Both legitimate
@@ -126,10 +172,17 @@ def get_folds_with_solving_cfm(experiment_dir: Path) -> List[FoldSolvingResult]:
         if best is None:
             continue
 
+        solutions_log = _load_solutions_log(fold_dir)
+        solving_under_threshold = _count_solving_cfms_under_threshold(
+            entries, solutions_log, time_threshold_seconds,
+        )
+
         results.append(FoldSolvingResult(
             fold_dir=fold_dir,
             best_solving_ratio=best["solving_ratio"],
             best_solution_index=best.get("solution_index", -1),
+            solving_count_under_threshold=solving_under_threshold,
+            time_threshold_seconds=time_threshold_seconds,
         ))
 
     return results
@@ -147,6 +200,10 @@ def _parse_args() -> argparse.Namespace:
         "experiment_dir", type=Path,
         help="Parent experiment config directory (contains a testing/ subdirectory).",
     )
+    parser.add_argument(
+        "--time-threshold", type=float, default=300.0,
+        help="Count solving CFMs discovered within this many seconds (default: 300).",
+    )
     return parser.parse_args()
 
 
@@ -154,7 +211,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING)
     args = _parse_args()
 
-    results = get_folds_with_solving_cfm(args.experiment_dir)
+    results = get_folds_with_solving_cfm(
+        args.experiment_dir, time_threshold_seconds=args.time_threshold,
+    )
 
     if not results:
         print("No folds with solving_ratio > 0 found.")
