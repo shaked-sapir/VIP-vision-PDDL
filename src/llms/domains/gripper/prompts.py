@@ -22,10 +22,18 @@ Given an image with the following known objects:
 - Grippers: {', '.join(grippers)} (type=gripper)
 - Balls: {', '.join(ball_ids)} (type=ball)
 
-The robot is named robby.
-The robot has two grippers, marked by green letters:
-- R means right gripper
-- L means left gripper
+The two grippers are visually distinguished by the green letters printed on their arms.
+The printed letters uniquely identify the grippers.
+
+Before classifying any predicates:
+• Locate both grippers.
+• Read the printed letter associated with each gripper.
+• Associate every observed ball with the gripper carrying the same printed letter.
+• Continue using these identities throughout the entire response.
+Do not infer gripper identity from image position, robot pose, or orientation.
+
+The printed letters are the authoritative identifiers.
+If the printed letter cannot be read confidently, assign confidence 1 to the affected carry/free predicates rather than guessing.
 
 Your task is to extract **all grounded predicates** from the image and assign a **confidence score** to each.
 Each predicate must be written in **exactly one of the forms listed below**, using the defined objects only.
@@ -35,13 +43,9 @@ DO NOT invent new predicates or omit typings.
 Valid predicate forms:
 - at-robby(r:room) → robby is located in room r
 - at(b:ball,r:room) → ball b is located in room r AND is not being held by a gripper
-- free(g:gripper) → gripper g is empty (not carrying any ball)
-- carry(b:ball,g:gripper) → gripper g is holding ball b
+- free(g:gripper) → gripper g **clearly does not hold** any ball (there is no ball hanging from the clamp of the gripper)
+- carry(b:ball,g:gripper) → gripper g **clearly holds** ball b (the ball hanging from the clamp of the gripper)
 
-Important domain rule:
-- If carry(b:ball,g:gripper) holds, then at(b:ball,r:room) does NOT hold for any room r.
-- A ball is either located in a room or carried by a gripper, not both.
-- A gripper is free iff it is not carrying any ball.
 
 For each predicate you output, assign a confidence score expressing how certain you are that the predicate holds in the image:
 - 2 → The predicate DEFINITELY holds, based on clear visual evidence.
