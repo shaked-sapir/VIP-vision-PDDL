@@ -77,9 +77,10 @@ def _apply_transform(transform_fn: Optional[Callable], problem_dir: Path) -> Non
 # ── External domain cleanup ─────────────────────────────────────────────
 
 def _cleanup_external_source_files(problem_dir: Path) -> None:
-    """Remove source images from an external problem dir after inference.
+    """Remove leftover source files from a problem dir after inference.
 
     Keeps:
+        - state_*.png — rendered images (retained for inspection/debugging)
         - {problem}.trajectory — the inferred trajectory (overwrites GT during pipeline)
         - {problem}.masking_info — inference masking info
         - {problem}.pddl — problem file
@@ -87,11 +88,8 @@ def _cleanup_external_source_files(problem_dir: Path) -> None:
           for GT injection at various rates during evaluation)
 
     Removes:
-        - state_*.png — source images (no longer needed after inference)
-        - plan.txt — source plan file
+        - plan.txt — source plan file (no longer needed after inference)
     """
-    for img in problem_dir.glob("state_*.png"):
-        img.unlink()
     for plan_file in problem_dir.glob("plan.txt"):
         plan_file.unlink()
 
@@ -128,7 +126,7 @@ def _resolve_problem_index(domain_config: dict, problem_index: Optional[int]) ->
 _DOMAIN_REGISTRY = {
     "blocksworld": {
         "display_name": "BLOCKSWORLD",
-        "config_key": "blocks",
+        "config_key": "blocksworld",
         "handler_class": LLMBlocksImageTrajectoryHandler,
         "transform_fn": _transform_blocks_problem,
         "is_external": False,
@@ -136,7 +134,7 @@ _DOMAIN_REGISTRY = {
     },
     "npuzzle": {
         "display_name": "N-PUZZLE",
-        "config_key": "n_puzzle",
+        "config_key": "npuzzle",
         "handler_class": LLMNpuzzleImageTrajectoryHandler,
         "transform_fn": _transform_npuzzle_problem,
         "is_external": False,
@@ -528,12 +526,12 @@ if __name__ == "__main__":
         help="LLM vendor for the vision pipeline (default: openai)",
     )
 
-    # ── Generation-mode args (--gen-mode generate) ────────────────────────
+    # ── Generation-mode args (--gen-mode) ────────────────────────────────
     parser.add_argument(
-        "--gen-mode", type=str, default="legacy", choices=["legacy", "generate"],
-        help="'legacy' walks pre-authored problems; 'generate' creates new "
-             "problems + images from a bundled PDDLGym problem, then infers "
-             "(default: legacy)",
+        "--gen-mode", type=str, default="predefined", choices=["predefined", "generate"],
+        help="'predefined' runs the LLM pipeline over pre-authored problem files; "
+             "'generate' creates new problems + images from a bundled PDDLGym problem, "
+             "then infers (default: predefined)",
     )
     parser.add_argument(
         "--problem-index", type=int, default=None,

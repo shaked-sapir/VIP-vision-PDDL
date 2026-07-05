@@ -52,6 +52,67 @@ p_2_2:position
 """
 
 
+# def confidence_system_prompt(tile_names: list[str], position_names: list[str]):
+#     tiles = ", ".join(sort_objects_numerically(tile_names))
+#     positions = ", ".join(sort_objects_numerically(position_names))
+
+#     return f"""
+# You are a visual reasoning agent for a robotic planning system.
+
+# KNOWN OBJECTS (complete lists, do NOT add or remove):
+# - Tiles (numbered squares): {tiles} (type=tile)
+# - Positions (grid cells): {positions} (type=position)
+
+# IMPORTANT CONSTRAINTS ON OBJECTS:
+# - Tiles names encode their numbers: t_K is the tile showing number K.
+# - Positions are named p_I_J where I = column (left→right), J = row (top→bottom), i.e., p_1_1 is the top-left cell,
+#     p_2_1 is the cell to its right, p_1_2 is the cell below it, etc.
+
+# Your task is to extract **all grounded binary predicates** from the image and assign a
+# **confidence score** to each. Use ONLY the objects and predicate forms defined below.
+
+# Each argument must include the object name and its type, separated by a colon
+# (e.g. t_1:tile, p_1_2:position). Do NOT invent new predicates, objects, or types.
+
+# Valid predicate forms:
+
+# - empty(y:position)            → y is the blank (white) position with no numbered tile
+# - at(x:tile,y:position)        → tile x is located at position y
+# - neighbor(p1:position,p2:position) → p1 and p2 share an edge (no diagonals; symmetric)
+
+# For each predicate you output, assign a confidence score expressing how certain you are
+# that the predicate holds in the image:
+
+# - 2 → The predicate DEFINITELY holds, based on clear visual evidence.
+# - 1 → UNCERTAIN whether the predicate holds; visual evidence is ambiguous or unclear.
+# - 0 → The predicate DEFINITELY does NOT hold, based on clear visual evidence.
+
+
+# ☑️ You MUST assign a score to **every valid predicate**, including all `at(...)` and `neighbor(...)` predicates.
+# Notice that you don't have to compute neighbor(x,y) for x=y, only for x≠y.
+
+# RULES:
+# - neighbor(...) is purely structural:
+#     * True (score 2) if positions differ by exactly one step horizontally or vertically.
+#     * False (score 0) otherwise.
+#     * Output both directions for true neighbors.
+# - Positions follow p_I_J: I = column (left→right), J = row (top→bottom).
+
+# OUTPUT FORMAT (strict):
+# - One predicate per line.
+# - Format:
+#     <predicate>: <score>
+
+# Valid examples:
+#     at(t_3:tile,p_2_1:position): 2
+#     empty(p_3_3:position): 2
+#     neighbor(p_1_2:position,p_1_3:position): 2
+#     neighbor(p_1_1:position,p_3_3:position): 0
+
+# Output ONLY predicate lines. No explanations.
+# """
+
+
 def confidence_system_prompt(tile_names: list[str], position_names: list[str]):
     tiles = ", ".join(sort_objects_numerically(tile_names))
     positions = ", ".join(sort_objects_numerically(position_names))
@@ -98,16 +159,20 @@ RULES:
     * Output both directions for true neighbors.
 - Positions follow p_I_J: I = column (left→right), J = row (top→bottom).
 
-OUTPUT FORMAT (strict):
-- One predicate per line.
-- Format:
-    <predicate>: <score>
+❗IMPORTANT:
+- Each predicate must appear exactly as described — including typings
+- Do NOT use forms like 'empty(p_1_2)' or 'at(t_1,p_1_2)' — typings are REQUIRED
+- Do NOT skip or filter predicates
+- DO NOT invent new predicates or omit typings. stick to the rules above.
+- Return only one predicate per line, followed by a colon and the confidence score
+- ONLY use scores 0, 1 or 2
 
-Valid examples:
-    at(t_3:tile,p_2_1:position): 2
-    empty(p_3_3:position): 2
-    neighbor(p_1_2:position,p_1_3:position): 2
-    neighbor(p_1_1:position,p_3_3:position): 0
+✅ Format:
+<predicate>: <score>
 
-Output ONLY predicate lines. No explanations.
+✅ Example output:
+at(t_3:tile,p_2_1:position): 2
+empty(p_3_3:position): 2
+neighbor(p_1_2:position,p_1_3:position): 2
+neighbor(p_1_1:position,p_3_3:position): 0
 """

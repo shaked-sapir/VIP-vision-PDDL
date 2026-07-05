@@ -8,7 +8,7 @@ Usage:
         --domain blocks \\
         --data-dir benchmark/data/blocksworld/multi_problem_...
 
-    The --domain arg is a key from config.yaml (blocks, hanoi, n_puzzle, etc.).
+    The --domain arg is a key from config.yaml (blocks, hanoi, npuzzle, etc.).
     The --data-dir arg is the experiment directory output by data_generator.py.
 """
 
@@ -142,7 +142,7 @@ def main(
     """Run benchmark experiments on a single domain.
 
     Args:
-        domain_key: Config key from config.yaml (e.g. "blocks", "hanoi").
+        domain_key: Config key from config.yaml (e.g. "blocksworld", "hanoi").
         data_dir: Path to the experiment data directory (output of data_generator.py).
         data_source: DataSource instance controlling where observations come from.
             Use ImageDataSource() for real image-pipeline data (pre-generated files)
