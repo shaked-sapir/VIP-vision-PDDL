@@ -2,7 +2,7 @@
 
 This folder provides a standalone pipeline to compare experiment result folders under:
 
-- `benchmark/data/new_experiments/blocks`
+- `benchmark/running_results/blocks`
 
 It does not modify benchmark runtime code.
 
@@ -39,7 +39,7 @@ From repo root:
 
 ```bash
 python -m benchmark.analysis_experiment_compare.main \
-  --root benchmark/data/new_experiments/blocks \
+  --root benchmark/running_results/blocks \
   --output-dir benchmark/analysis_experiment_compare/output \
   --domain blocksworld \
   --model-policy final_model

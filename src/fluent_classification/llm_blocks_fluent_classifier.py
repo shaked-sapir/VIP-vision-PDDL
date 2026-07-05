@@ -38,7 +38,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             "green": "d",
             "yellow": "e",
             "pink": "f",
-            "gripper": "robot"
+            "olive": "g",
         }
 
         preds = self.extract_predicates_from_gt_state()
@@ -94,8 +94,6 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
 
         # Extract objects by type with defaults
         blocks = self.type_to_objects.get('block', ['red', 'cyan', 'blue', 'green'])
-        # Use the first robot if multiple are provided
-        gripper_name = 'gripper'
 
         predicates = set()
 
@@ -111,8 +109,8 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
         for block in blocks:
             predicates.add(f"clear({block}:block)")
 
-        # handempty(robot) predicate
-        predicates.add(f"handempty()")
+        # handempty() nullary predicate
+        predicates.add("handempty()")
 
         # holding(block) predicates
         for block in blocks:

@@ -61,7 +61,7 @@ def _resolve_experiment_paths(
     trajectories_dir = data_dir / 'training' / 'trajectories'
 
     if experiment_name:
-        experiment_root = benchmark_path / 'data' / 'new_experiments' / domain_name / experiment_name
+        experiment_root = benchmark_path / 'running_results' / domain_name / experiment_name
         return data_dir, trajectories_dir, experiment_root / 'testing', experiment_root / 'evaluation_results'
 
     return data_dir, trajectories_dir, data_dir / 'testing', default_evaluation_results_dir
@@ -547,7 +547,7 @@ if __name__ == "__main__":
     # ── Experiment naming ────────────────────────────────────────────────
     parser.add_argument(
         '--experiment-name', type=str, default=None,
-        help='Self-contained experiment folder name under benchmark/data/new_experiments/{domain}/{name}/',
+        help='Self-contained experiment folder name under benchmark/running_results/{domain}/{name}/',
     )
 
     # ── Normalization ────────────────────────────────────────────────────

@@ -1,93 +1,80 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; 4 op-blocks world, same as in pddlgym
+;;; 4 op-blocks world, matching pddlgym's blocks_operator_actions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-; in the original file I used, there were 4 more predicates:
-; (pickup ?x - block) // whether the block can be picked up in general, without considering the other predicates (e.g. it is super-heavy..)
-; (putdown ?x - block) // whether the block can be put down in general, without considering the other predicates (e.g. it is super-heavy..)
-; (stack ?x - block ?y - block) // whether the block can be stacked on another block in general, without considering the other predicates (e.g. we cannot put big box on small box)
-; (unstack ?x - block) // whether the block can be unstacked in general, without considering the other predicates (e.g. it is too sensitive, requiring human intervention)
-
-; I decided to remove them because in our implementation we do not use them, and they are not needed for
-; the blocks world to work (they are always true), making the states more verbose without adding any value.
-
-; so I also removed them from the preconditions of all actions - each was a precondition to its corresponding action,
-; for example (pickup ?x) was a precondition of the pick-up action, and it was always true.
+; This domain matches the post-transform format produced by the LLM/contour
+; classifiers and the trajectory handler: underscore action names (pick_up,
+; put_down) and a nullary (handempty) with no (handfull). It is the single
+; canonical domain used for BOTH data creation (inference/masking) and
+; benchmark evaluation.
 
 (define (domain blocks)
     (:requirements :strips :typing)
-    (:types block robot)
+    (:types block)
     (:predicates
         (on ?x - block ?y - block)
         (ontable ?x - block)
         (clear ?x - block)
-        (handempty ?x - robot)
-        (handfull ?x - robot)
+        (handempty)
         (holding ?x - block)
     )
 
     ; (:actions pick-up put-down stack unstack)
 
-    (:action pick-up
-        :parameters (?x - block ?robot - robot)
+    (:action pick_up
+        :parameters (?x - block)
         :precondition (and
             (clear ?x)
             (ontable ?x)
-            (handempty ?robot)
+            (handempty)
         )
         :effect (and
             (not (ontable ?x))
             (not (clear ?x))
-            (not (handempty ?robot))
-            (handfull ?robot)
+            (not (handempty))
             (holding ?x)
         )
     )
 
-    (:action put-down
-        :parameters (?x - block ?robot - robot)
+    (:action put_down
+        :parameters (?x - block)
         :precondition (and
             (holding ?x)
-            (handfull ?robot)
         )
         :effect (and
             (not (holding ?x))
             (clear ?x)
-            (handempty ?robot)
-            (not (handfull ?robot))
+            (handempty)
             (ontable ?x))
         )
 
     (:action stack
-        :parameters (?x - block ?y - block ?robot - robot)
+        :parameters (?x - block ?y - block)
         :precondition (and
             (holding ?x)
             (clear ?y)
-            (handfull ?robot)
         )
         :effect (and
             (not (holding ?x))
             (not (clear ?y))
             (clear ?x)
-            (handempty ?robot)
-            (not (handfull ?robot))
+            (handempty)
             (on ?x ?y)
         )
     )
 
     (:action unstack
-        :parameters (?x - block ?y - block ?robot - robot)
+        :parameters (?x - block ?y - block)
         :precondition (and
             (on ?x ?y)
             (clear ?x)
-            (handempty ?robot)
+            (handempty)
         )
         :effect (and
             (holding ?x)
             (clear ?y)
             (not (clear ?x))
-            (not (handempty ?robot))
-            (handfull ?robot)
+            (not (handempty))
             (not (on ?x ?y))
         )
     )

@@ -94,6 +94,18 @@ class ImageTrajectoryHandler(ABC):
         return self.get_image_full_path(
             image_dir, f"state_{image_sequential_index:{self.seq_idx_format}}.png")
 
+    def _set_seq_idx_format(self, images_path: Path) -> None:
+        """Auto-detect image filename padding from existing files.
+
+        Inspects the first state_0*.png file to determine the padding format.
+        E.g. state_0.png → 'd' (unpadded), state_0000.png → '04d'.
+        """
+        first = next(Path(images_path).glob("state_0*.png"), None)
+        if first is None:
+            raise FileNotFoundError(f"No state_0*.png found in {images_path}")
+        index_part = first.stem.split("_", 1)[1]
+        self.seq_idx_format = f'0{len(index_part)}d' if len(index_part) > 1 else 'd'
+
     # ── Hook for domain-specific action renaming ────────────────────────
 
     @staticmethod

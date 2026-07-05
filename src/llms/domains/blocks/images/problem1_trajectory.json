@@ -1,4 +1,3 @@
-
 [
     {
         "step": 1,
@@ -8,7 +7,7 @@
                 "clear(cyan:block)",
                 "clear(red:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "ontable(green:block)",
                 "clear(blue:block)",
@@ -18,8 +17,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -27,18 +25,16 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "pick-up(cyan:block, gripper:gripper)",
+        "ground_action": "pick_up(cyan:block)",
         "operator_object_assignment": {
-            "?x": "b",
-            "?gripper": "gripper"
+            "?x": "b"
         },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[clear(?x:block), ontable(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "clear(red:block)",
                 "holding(cyan:block)",
-                "handfull(gripper:gripper)",
                 "ontable(blue:block)",
                 "ontable(green:block)",
                 "clear(blue:block)",
@@ -48,8 +44,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -65,7 +60,6 @@
                 "clear(green:block)",
                 "clear(red:block)",
                 "holding(cyan:block)",
-                "handfull(gripper:gripper)",
                 "ontable(blue:block)",
                 "ontable(green:block)",
                 "clear(blue:block)",
@@ -75,8 +69,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -84,18 +77,17 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "put-down(cyan:block, gripper:gripper)",
+        "ground_action": "put_down(cyan:block)",
         "operator_object_assignment": {
-            "?x": "b",
-            "?gripper": "gripper"
+            "?x": "b"
         },
-        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "clear(cyan:block)",
                 "clear(red:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(cyan:block)",
                 "ontable(blue:block)",
                 "ontable(green:block)",
@@ -106,8 +98,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -123,7 +114,7 @@
                 "clear(green:block)",
                 "clear(cyan:block)",
                 "clear(red:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(cyan:block)",
                 "ontable(blue:block)",
                 "ontable(green:block)",
@@ -134,8 +125,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -143,12 +133,11 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "pick-up(blue:block, gripper:gripper)",
+        "ground_action": "pick_up(blue:block)",
         "operator_object_assignment": {
-            "?x": "c",
-            "?gripper": "gripper"
+            "?x": "c"
         },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[clear(?x:block), ontable(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
@@ -156,7 +145,6 @@
                 "clear(red:block)",
                 "ontable(cyan:block)",
                 "holding(blue:block)",
-                "handfull(gripper:gripper)",
                 "ontable(green:block)",
                 "ontable(red:block)"
             ],
@@ -164,8 +152,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -183,7 +170,6 @@
                 "clear(red:block)",
                 "ontable(cyan:block)",
                 "holding(blue:block)",
-                "handfull(gripper:gripper)",
                 "ontable(green:block)",
                 "ontable(red:block)"
             ],
@@ -191,8 +177,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -200,19 +185,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(blue:block, cyan:block, gripper:gripper)",
+        "ground_action": "stack(blue:block, cyan:block)",
         "operator_object_assignment": {
             "?x": "c",
-            "?y": "b",
-            "?gripper": "gripper"
+            "?y": "b"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "clear(red:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "on(blue:block,cyan:block)",
                 "ontable(green:block)",
                 "clear(blue:block)",
@@ -222,8 +206,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -239,7 +222,7 @@
                 "clear(green:block)",
                 "clear(red:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "on(blue:block,cyan:block)",
                 "ontable(green:block)",
                 "clear(blue:block)",
@@ -249,8 +232,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -258,13 +240,12 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(blue:block, cyan:block, gripper:gripper)",
+        "ground_action": "unstack(blue:block, cyan:block)",
         "operator_object_assignment": {
             "?x": "c",
-            "?gripper": "gripper",
             "?y": "b"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
@@ -272,7 +253,6 @@
                 "clear(red:block)",
                 "ontable(cyan:block)",
                 "holding(blue:block)",
-                "handfull(gripper:gripper)",
                 "ontable(green:block)",
                 "ontable(red:block)"
             ],
@@ -280,8 +260,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -299,7 +278,6 @@
                 "clear(red:block)",
                 "ontable(cyan:block)",
                 "holding(blue:block)",
-                "handfull(gripper:gripper)",
                 "ontable(green:block)",
                 "ontable(red:block)"
             ],
@@ -307,8 +285,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -316,19 +293,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "put-down(blue:block, gripper:gripper)",
+        "ground_action": "put_down(blue:block)",
         "operator_object_assignment": {
-            "?x": "c",
-            "?gripper": "gripper"
+            "?x": "c"
         },
-        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "clear(cyan:block)",
                 "clear(red:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "ontable(green:block)",
                 "clear(blue:block)",
@@ -338,8 +314,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -356,7 +331,7 @@
                 "clear(cyan:block)",
                 "clear(red:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "ontable(green:block)",
                 "clear(blue:block)",
@@ -366,8 +341,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -375,19 +349,17 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "pick-up(green:block, gripper:gripper)",
+        "ground_action": "pick_up(green:block)",
         "operator_object_assignment": {
-            "?x": "d",
-            "?gripper": "gripper"
+            "?x": "d"
         },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[clear(?x:block), ontable(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(cyan:block)",
                 "clear(red:block)",
                 "ontable(cyan:block)",
                 "holding(green:block)",
-                "handfull(gripper:gripper)",
                 "ontable(blue:block)",
                 "clear(blue:block)",
                 "ontable(red:block)"
@@ -396,8 +368,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -414,7 +385,6 @@
                 "clear(red:block)",
                 "ontable(cyan:block)",
                 "holding(green:block)",
-                "handfull(gripper:gripper)",
                 "ontable(blue:block)",
                 "clear(blue:block)",
                 "ontable(red:block)"
@@ -423,8 +393,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -432,20 +401,19 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(green:block, blue:block, gripper:gripper)",
+        "ground_action": "stack(green:block, blue:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?y": "c",
-            "?gripper": "gripper"
+            "?y": "c"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "clear(cyan:block)",
                 "clear(red:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "on(green:block,blue:block)",
                 "ontable(blue:block)",
                 "ontable(red:block)"
@@ -454,8 +422,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -472,7 +439,7 @@
                 "clear(cyan:block)",
                 "clear(red:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "on(green:block,blue:block)",
                 "ontable(blue:block)",
                 "ontable(red:block)"
@@ -481,8 +448,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -490,16 +456,14 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "pick-up(cyan:block, gripper:gripper)",
+        "ground_action": "pick_up(cyan:block)",
         "operator_object_assignment": {
-            "?x": "b",
-            "?gripper": "gripper"
+            "?x": "b"
         },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[clear(?x:block), ontable(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "holding(cyan:block)",
                 "clear(red:block)",
                 "ontable(blue:block)",
@@ -510,8 +474,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -525,7 +488,6 @@
         "current_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "holding(cyan:block)",
                 "clear(red:block)",
                 "ontable(blue:block)",
@@ -536,8 +498,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -545,19 +506,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(cyan:block, green:block, gripper:gripper)",
+        "ground_action": "stack(cyan:block, green:block)",
         "operator_object_assignment": {
             "?x": "b",
-            "?y": "d",
-            "?gripper": "gripper"
+            "?y": "d"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "on(cyan:block,green:block)",
                 "clear(cyan:block)",
                 "clear(red:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "ontable(red:block)"
@@ -566,8 +526,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -583,7 +542,7 @@
                 "on(cyan:block,green:block)",
                 "clear(cyan:block)",
                 "clear(red:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "ontable(red:block)"
@@ -592,8 +551,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -601,17 +559,15 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(cyan:block, green:block, gripper:gripper)",
+        "ground_action": "unstack(cyan:block, green:block)",
         "operator_object_assignment": {
             "?x": "b",
-            "?gripper": "gripper",
             "?y": "d"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "holding(cyan:block)",
                 "clear(red:block)",
                 "ontable(blue:block)",
@@ -622,8 +578,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -637,7 +592,6 @@
         "current_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "holding(cyan:block)",
                 "clear(red:block)",
                 "ontable(blue:block)",
@@ -648,8 +602,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -657,18 +610,17 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(cyan:block, red:block, gripper:gripper)",
+        "ground_action": "stack(cyan:block, red:block)",
         "operator_object_assignment": {
             "?x": "b",
-            "?y": "a",
-            "?gripper": "gripper"
+            "?y": "a"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "clear(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "on(cyan:block,red:block)",
@@ -678,8 +630,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -694,7 +645,7 @@
             "literals": [
                 "clear(green:block)",
                 "clear(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "on(cyan:block,red:block)",
@@ -704,8 +655,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -713,17 +663,15 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(cyan:block, red:block, gripper:gripper)",
+        "ground_action": "unstack(cyan:block, red:block)",
         "operator_object_assignment": {
             "?x": "b",
-            "?gripper": "gripper",
             "?y": "a"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "holding(cyan:block)",
                 "clear(red:block)",
                 "ontable(blue:block)",
@@ -734,8 +682,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -749,7 +696,6 @@
         "current_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "holding(cyan:block)",
                 "clear(red:block)",
                 "ontable(blue:block)",
@@ -760,8 +706,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -769,18 +714,17 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "put-down(cyan:block, gripper:gripper)",
+        "ground_action": "put_down(cyan:block)",
         "operator_object_assignment": {
-            "?x": "b",
-            "?gripper": "gripper"
+            "?x": "b"
         },
-        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "clear(cyan:block)",
                 "clear(red:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(cyan:block)",
                 "on(green:block,blue:block)",
                 "ontable(blue:block)",
@@ -790,8 +734,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -807,7 +750,7 @@
                 "clear(green:block)",
                 "clear(cyan:block)",
                 "clear(red:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(cyan:block)",
                 "on(green:block,blue:block)",
                 "ontable(blue:block)",
@@ -817,8 +760,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -826,17 +768,15 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "pick-up(red:block, gripper:gripper)",
+        "ground_action": "pick_up(red:block)",
         "operator_object_assignment": {
-            "?x": "a",
-            "?gripper": "gripper"
+            "?x": "a"
         },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[clear(?x:block), ontable(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "holding(red:block)",
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "clear(cyan:block)",
                 "ontable(cyan:block)",
                 "ontable(blue:block)",
@@ -846,8 +786,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -862,7 +801,6 @@
             "literals": [
                 "holding(red:block)",
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "clear(cyan:block)",
                 "ontable(cyan:block)",
                 "ontable(blue:block)",
@@ -872,8 +810,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -881,19 +818,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(red:block, cyan:block, gripper:gripper)",
+        "ground_action": "stack(red:block, cyan:block)",
         "operator_object_assignment": {
             "?x": "a",
-            "?y": "b",
-            "?gripper": "gripper"
+            "?y": "b"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -902,8 +838,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -919,7 +854,7 @@
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -928,8 +863,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -937,18 +871,16 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(red:block, cyan:block, gripper:gripper)",
+        "ground_action": "unstack(red:block, cyan:block)",
         "operator_object_assignment": {
             "?x": "a",
-            "?gripper": "gripper",
             "?y": "b"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "holding(red:block)",
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "clear(cyan:block)",
                 "ontable(cyan:block)",
                 "ontable(blue:block)",
@@ -958,8 +890,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -974,7 +905,6 @@
             "literals": [
                 "holding(red:block)",
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "clear(cyan:block)",
                 "ontable(cyan:block)",
                 "ontable(blue:block)",
@@ -984,8 +914,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -993,19 +922,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(red:block, cyan:block, gripper:gripper)",
+        "ground_action": "stack(red:block, cyan:block)",
         "operator_object_assignment": {
             "?x": "a",
-            "?y": "b",
-            "?gripper": "gripper"
+            "?y": "b"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -1014,8 +942,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1031,7 +958,7 @@
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -1040,8 +967,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1049,16 +975,14 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(green:block, blue:block, gripper:gripper)",
+        "ground_action": "unstack(green:block, blue:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?gripper": "gripper",
             "?y": "c"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -1070,8 +994,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1084,7 +1007,6 @@
         "step": 20,
         "current_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -1096,8 +1018,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1105,19 +1026,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(green:block, blue:block, gripper:gripper)",
+        "ground_action": "stack(green:block, blue:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?y": "c",
-            "?gripper": "gripper"
+            "?y": "c"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -1126,8 +1046,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1143,7 +1062,7 @@
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -1152,8 +1071,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1161,16 +1079,14 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(green:block, blue:block, gripper:gripper)",
+        "ground_action": "unstack(green:block, blue:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?gripper": "gripper",
             "?y": "c"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -1182,8 +1098,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1196,7 +1111,6 @@
         "step": 22,
         "current_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -1208,8 +1122,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1217,19 +1130,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(green:block, blue:block, gripper:gripper)",
+        "ground_action": "stack(green:block, blue:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?y": "c",
-            "?gripper": "gripper"
+            "?y": "c"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -1238,8 +1150,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1255,7 +1166,7 @@
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -1264,8 +1175,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1273,16 +1183,14 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(green:block, blue:block, gripper:gripper)",
+        "ground_action": "unstack(green:block, blue:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?gripper": "gripper",
             "?y": "c"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -1294,8 +1202,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1308,7 +1215,6 @@
         "step": 24,
         "current_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -1320,8 +1226,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1329,19 +1234,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(green:block, blue:block, gripper:gripper)",
+        "ground_action": "stack(green:block, blue:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?y": "c",
-            "?gripper": "gripper"
+            "?y": "c"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -1350,8 +1254,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1367,7 +1270,7 @@
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -1376,8 +1279,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1385,16 +1287,14 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(green:block, blue:block, gripper:gripper)",
+        "ground_action": "unstack(green:block, blue:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?gripper": "gripper",
             "?y": "c"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -1406,8 +1306,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1420,7 +1319,6 @@
         "step": 26,
         "current_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -1432,8 +1330,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1441,19 +1338,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(green:block, blue:block, gripper:gripper)",
+        "ground_action": "stack(green:block, blue:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?y": "c",
-            "?gripper": "gripper"
+            "?y": "c"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -1462,8 +1358,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1479,7 +1374,7 @@
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "on(green:block,blue:block)",
                 "clear(red:block)"
@@ -1488,8 +1383,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1497,16 +1391,14 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(green:block, blue:block, gripper:gripper)",
+        "ground_action": "unstack(green:block, blue:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?gripper": "gripper",
             "?y": "c"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -1518,8 +1410,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1532,7 +1423,6 @@
         "step": 28,
         "current_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -1544,8 +1434,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1553,19 +1442,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(green:block, red:block, gripper:gripper)",
+        "ground_action": "stack(green:block, red:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?y": "a",
-            "?gripper": "gripper"
+            "?y": "a"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "clear(blue:block)",
                 "on(green:block,red:block)"
@@ -1574,8 +1462,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1591,7 +1478,7 @@
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "clear(blue:block)",
                 "on(green:block,red:block)"
@@ -1600,8 +1487,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1609,16 +1495,14 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "pick-up(blue:block, gripper:gripper)",
+        "ground_action": "pick_up(blue:block)",
         "operator_object_assignment": {
-            "?x": "c",
-            "?gripper": "gripper"
+            "?x": "c"
         },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[clear(?x:block), ontable(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
                 "on(green:block,red:block)",
@@ -1628,8 +1512,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1643,7 +1526,6 @@
         "current_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
                 "on(green:block,red:block)",
@@ -1653,8 +1535,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1662,18 +1543,17 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(blue:block, green:block, gripper:gripper)",
+        "ground_action": "stack(blue:block, green:block)",
         "operator_object_assignment": {
             "?x": "c",
-            "?y": "d",
-            "?gripper": "gripper"
+            "?y": "d"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "clear(blue:block)",
                 "on(blue:block,green:block)",
                 "on(green:block,red:block)"
@@ -1682,8 +1562,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1698,7 +1577,7 @@
             "literals": [
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "clear(blue:block)",
                 "on(blue:block,green:block)",
                 "on(green:block,red:block)"
@@ -1707,8 +1586,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1716,17 +1594,15 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(blue:block, green:block, gripper:gripper)",
+        "ground_action": "unstack(blue:block, green:block)",
         "operator_object_assignment": {
             "?x": "c",
-            "?gripper": "gripper",
             "?y": "d"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
                 "on(green:block,red:block)",
@@ -1736,8 +1612,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1751,7 +1626,6 @@
         "current_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
                 "on(green:block,red:block)",
@@ -1761,8 +1635,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1770,18 +1643,17 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(blue:block, green:block, gripper:gripper)",
+        "ground_action": "stack(blue:block, green:block)",
         "operator_object_assignment": {
             "?x": "c",
-            "?y": "d",
-            "?gripper": "gripper"
+            "?y": "d"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "clear(blue:block)",
                 "on(blue:block,green:block)",
                 "on(green:block,red:block)"
@@ -1790,8 +1662,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1806,7 +1677,7 @@
             "literals": [
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "clear(blue:block)",
                 "on(blue:block,green:block)",
                 "on(green:block,red:block)"
@@ -1815,8 +1686,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1824,17 +1694,15 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(blue:block, green:block, gripper:gripper)",
+        "ground_action": "unstack(blue:block, green:block)",
         "operator_object_assignment": {
             "?x": "c",
-            "?gripper": "gripper",
             "?y": "d"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
                 "on(green:block,red:block)",
@@ -1844,8 +1712,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1859,7 +1726,6 @@
         "current_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
                 "on(green:block,red:block)",
@@ -1869,8 +1735,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1878,18 +1743,17 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(blue:block, green:block, gripper:gripper)",
+        "ground_action": "stack(blue:block, green:block)",
         "operator_object_assignment": {
             "?x": "c",
-            "?y": "d",
-            "?gripper": "gripper"
+            "?y": "d"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "clear(blue:block)",
                 "on(blue:block,green:block)",
                 "on(green:block,red:block)"
@@ -1898,8 +1762,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1914,7 +1777,7 @@
             "literals": [
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "clear(blue:block)",
                 "on(blue:block,green:block)",
                 "on(green:block,red:block)"
@@ -1923,8 +1786,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1932,17 +1794,15 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(blue:block, green:block, gripper:gripper)",
+        "ground_action": "unstack(blue:block, green:block)",
         "operator_object_assignment": {
             "?x": "c",
-            "?gripper": "gripper",
             "?y": "d"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
                 "on(green:block,red:block)",
@@ -1952,8 +1812,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1967,7 +1826,6 @@
         "current_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
                 "on(green:block,red:block)",
@@ -1977,8 +1835,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -1986,18 +1843,17 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "put-down(blue:block, gripper:gripper)",
+        "ground_action": "put_down(blue:block)",
         "operator_object_assignment": {
-            "?x": "c",
-            "?gripper": "gripper"
+            "?x": "c"
         },
-        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "clear(blue:block)",
                 "on(green:block,red:block)"
@@ -2006,8 +1862,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2023,7 +1878,7 @@
                 "clear(green:block)",
                 "on(red:block,cyan:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "clear(blue:block)",
                 "on(green:block,red:block)"
@@ -2032,8 +1887,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2041,16 +1895,14 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(green:block, red:block, gripper:gripper)",
+        "ground_action": "unstack(green:block, red:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?gripper": "gripper",
             "?y": "a"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -2062,8 +1914,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2076,7 +1927,6 @@
         "step": 38,
         "current_state": {
             "literals": [
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
                 "ontable(cyan:block)",
@@ -2088,8 +1938,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2097,17 +1946,16 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "put-down(green:block, gripper:gripper)",
+        "ground_action": "put_down(green:block)",
         "operator_object_assignment": {
-            "?x": "d",
-            "?gripper": "gripper"
+            "?x": "d"
         },
-        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "clear(red:block)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
@@ -2118,8 +1966,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2134,7 +1981,7 @@
             "literals": [
                 "clear(green:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "clear(red:block)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
@@ -2145,8 +1992,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2154,16 +2000,14 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "pick-up(blue:block, gripper:gripper)",
+        "ground_action": "pick_up(blue:block)",
         "operator_object_assignment": {
-            "?x": "c",
-            "?gripper": "gripper"
+            "?x": "c"
         },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[clear(?x:block), ontable(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(green:block)",
                 "ontable(cyan:block)",
@@ -2174,8 +2018,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2189,7 +2032,6 @@
         "current_state": {
             "literals": [
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "on(red:block,cyan:block)",
                 "ontable(green:block)",
                 "ontable(cyan:block)",
@@ -2200,8 +2042,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2209,17 +2050,16 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "put-down(blue:block, gripper:gripper)",
+        "ground_action": "put_down(blue:block)",
         "operator_object_assignment": {
-            "?x": "c",
-            "?gripper": "gripper"
+            "?x": "c"
         },
-        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "clear(red:block)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
@@ -2230,8 +2070,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2246,7 +2085,7 @@
             "literals": [
                 "clear(green:block)",
                 "ontable(cyan:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "clear(red:block)",
                 "on(red:block,cyan:block)",
                 "ontable(blue:block)",
@@ -2257,8 +2096,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2266,20 +2104,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "unstack(red:block, cyan:block, gripper:gripper)",
+        "ground_action": "unstack(red:block, cyan:block)",
         "operator_object_assignment": {
             "?x": "a",
-            "?gripper": "gripper",
             "?y": "b"
         },
-        "lifted_preconds": "[unstack(?x:block), on(?x:block,?y:block), clear(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "clear(cyan:block)",
                 "ontable(cyan:block)",
                 "holding(red:block)",
-                "handfull(gripper:gripper)",
                 "ontable(blue:block)",
                 "ontable(green:block)",
                 "clear(blue:block)"
@@ -2288,8 +2124,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2306,7 +2141,6 @@
                 "clear(cyan:block)",
                 "ontable(cyan:block)",
                 "holding(red:block)",
-                "handfull(gripper:gripper)",
                 "ontable(blue:block)",
                 "ontable(green:block)",
                 "clear(blue:block)"
@@ -2315,8 +2149,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2324,19 +2157,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "put-down(red:block, gripper:gripper)",
+        "ground_action": "put_down(red:block)",
         "operator_object_assignment": {
-            "?x": "a",
-            "?gripper": "gripper"
+            "?x": "a"
         },
-        "lifted_preconds": "[putdown(?x:block), holding(?x:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "clear(cyan:block)",
                 "ontable(cyan:block)",
                 "clear(red:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "ontable(green:block)",
                 "clear(blue:block)",
@@ -2346,8 +2178,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2364,7 +2195,7 @@
                 "clear(cyan:block)",
                 "ontable(cyan:block)",
                 "clear(red:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(blue:block)",
                 "ontable(green:block)",
                 "clear(blue:block)",
@@ -2374,8 +2205,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2383,19 +2213,17 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "pick-up(green:block, gripper:gripper)",
+        "ground_action": "pick_up(green:block)",
         "operator_object_assignment": {
-            "?x": "d",
-            "?gripper": "gripper"
+            "?x": "d"
         },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[clear(?x:block), ontable(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "clear(cyan:block)",
                 "ontable(cyan:block)",
                 "clear(red:block)",
                 "holding(green:block)",
-                "handfull(gripper:gripper)",
                 "ontable(blue:block)",
                 "clear(blue:block)",
                 "ontable(red:block)"
@@ -2404,8 +2232,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2422,7 +2249,6 @@
                 "ontable(cyan:block)",
                 "clear(red:block)",
                 "holding(green:block)",
-                "handfull(gripper:gripper)",
                 "ontable(blue:block)",
                 "clear(blue:block)",
                 "ontable(red:block)"
@@ -2431,8 +2257,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2440,19 +2265,18 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "stack(green:block, cyan:block, gripper:gripper)",
+        "ground_action": "stack(green:block, cyan:block)",
         "operator_object_assignment": {
             "?x": "d",
-            "?y": "b",
-            "?gripper": "gripper"
+            "?y": "b"
         },
-        "lifted_preconds": "[stack(?x:block,?y:block), holding(?x:block), clear(?y:block), handfull(?gripper:gripper)]",
+        "lifted_preconds": "[holding(?x:block), clear(?y:block)]",
         "next_state": {
             "literals": [
                 "clear(green:block)",
                 "ontable(cyan:block)",
                 "clear(red:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(red:block)",
                 "ontable(blue:block)",
                 "clear(blue:block)",
@@ -2462,8 +2286,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2479,7 +2302,7 @@
                 "clear(green:block)",
                 "ontable(cyan:block)",
                 "clear(red:block)",
-                "handempty(gripper:gripper)",
+                "handempty()",
                 "ontable(red:block)",
                 "ontable(blue:block)",
                 "clear(blue:block)",
@@ -2489,8 +2312,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",
@@ -2498,17 +2320,15 @@
                 "on(cyan:block,red:block)"
             ]
         },
-        "ground_action": "pick-up(red:block, gripper:gripper)",
+        "ground_action": "pick_up(red:block)",
         "operator_object_assignment": {
-            "?x": "a",
-            "?gripper": "gripper"
+            "?x": "a"
         },
-        "lifted_preconds": "[pickup(?x:block), clear(?x:block), ontable(?x:block), handempty(?gripper:gripper)]",
+        "lifted_preconds": "[clear(?x:block), ontable(?x:block), handempty()]",
         "next_state": {
             "literals": [
                 "holding(red:block)",
                 "clear(green:block)",
-                "handfull(gripper:gripper)",
                 "ontable(cyan:block)",
                 "ontable(blue:block)",
                 "clear(blue:block)",
@@ -2518,8 +2338,7 @@
                 "cyan:block",
                 "green:block",
                 "red:block",
-                "blue:block",
-                "gripper:gripper"
+                "blue:block"
             ],
             "goal": [
                 "on(green:block,blue:block)",

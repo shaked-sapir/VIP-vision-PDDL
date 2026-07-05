@@ -41,7 +41,9 @@ from src.trajectory_handlers.llm_hiking_trajectory_handler import LLMHikingImage
 from src.trajectory_handlers.llm_maze_trajectory_handler import LLMMazeImageTrajectoryHandler
 from src.trajectory_handlers.llm_depot_trajectory_handler import LLMDepotImageTrajectoryHandler
 from src.trajectory_handlers.llm_gripper_trajectory_handler import LLMGripperImageTrajectoryHandler
+from src.trajectory_handlers.pddlgym_problem_generator import PDDLGymProblemGenerator
 from src.utils.config import load_config
+from src.utils.pddl_trajectory import ensure_trajectory_json, extract_actions_from_trajectory_json
 
 
 # ── Problem-file transforms (PDDLGym → AMLGym) ───────────────────────────
@@ -94,6 +96,33 @@ def _cleanup_external_source_files(problem_dir: Path) -> None:
         plan_file.unlink()
 
 
+# ── Generation-mode helpers (PDDLGym domains) ────────────────────────────
+
+def _run_generation_inference(handler, problem_name: str, problem_dir: Path) -> None:
+    """Run external-style inference over a freshly-generated PDDLGym problem folder.
+
+    The generated folder already contains GT (_trajectory.json) + images + .pddl,
+    so we treat it exactly like an external (depot/gripper) problem: extract the
+    ground actions from the GT JSON and run the LLM classification pipeline.
+    """
+    ensure_trajectory_json(problem_dir)
+    actions = extract_actions_from_trajectory_json(problem_dir)
+    handler._set_seq_idx_format(problem_dir)
+    handler.create_trajectory_and_masks(problem_name, actions, problem_dir)
+
+
+def _resolve_problem_index(domain_config: dict, problem_index: Optional[int]) -> int:
+    """Resolve the 0-based problem position (natural order) from an explicit value or config default.
+
+    Position 0 selects problem1, position 1 selects problem2, etc. — matching
+    legacy mode's ordering (see PDDLGymProblemGenerator.problem_index).
+    """
+    if problem_index is not None:
+        return problem_index
+    gen_cfg = domain_config.get("generation", {})
+    return gen_cfg.get("default_problem_index", 0)
+
+
 # ── Domain registry ──────────────────────────────────────────────────────
 
 _DOMAIN_REGISTRY = {
@@ -103,6 +132,7 @@ _DOMAIN_REGISTRY = {
         "handler_class": LLMBlocksImageTrajectoryHandler,
         "transform_fn": _transform_blocks_problem,
         "is_external": False,
+        "supports_generation": True,
     },
     "npuzzle": {
         "display_name": "N-PUZZLE",
@@ -110,6 +140,7 @@ _DOMAIN_REGISTRY = {
         "handler_class": LLMNpuzzleImageTrajectoryHandler,
         "transform_fn": _transform_npuzzle_problem,
         "is_external": False,
+        "supports_generation": True,
     },
     "hanoi": {
         "display_name": "HANOI",
@@ -117,6 +148,7 @@ _DOMAIN_REGISTRY = {
         "handler_class": LLMHanoiImageTrajectoryHandler,
         "transform_fn": None,
         "is_external": False,
+        "supports_generation": True,
     },
     "hiking": {
         "display_name": "HIKING",
@@ -167,6 +199,134 @@ def _collect_problem_dirs(problems_dir: Path) -> List[Path]:
     )
 
 
+# ── Generation-mode entry point (generate problems + images, then infer) ──
+
+def generate_trajectories_via_generation(
+    domain: str,
+    output_base_dir: Path,
+    vendor: str = "openai",
+    problem_index: Optional[int] = None,
+    num_problems: Optional[int] = None,
+    length_min: Optional[int] = None,
+    length_max: Optional[int] = None,
+    skip: Optional[int] = None,
+    seed: Optional[int] = None,
+    run_inference: bool = True,
+    output_dir_name: Optional[str] = None,
+) -> Path:
+    """Generate brand-new PDDLGym problems (init/goal/images/plan), then infer.
+
+    Unlike the legacy path (which walks pre-authored problem files), this
+    (ROSAME-style):
+        1. Selects a bundled PDDLGym problem by index (fixes object count) and
+           runs one long random walk from it.
+        2. Cuts the walk into distinct, solvable sub-problems — each written as a
+           depot/gripper-style folder (.pddl + .trajectory + _trajectory.json +
+           plan.txt + state_*.png).
+        3. Runs the same external-style LLM inference over each folder to produce
+           the inferred .trajectory + .masking_info.
+
+    Args:
+        domain: Domain key from _DOMAIN_REGISTRY (must support generation).
+        output_base_dir: Base directory for benchmark data (e.g. benchmark/data/).
+        vendor: LLM vendor — "openai" or "google".
+        problem_index: Bundled PDDLGym problem index to walk from. Defaults to config.
+        num_problems: Number of problems to generate (default from config).
+        length_min: Min window length in steps (default from config).
+        length_max: Max window length in steps (default from config).
+        skip: States discarded between windows (default from config).
+        seed: RNG seed for reproducibility.
+        run_inference: If False, only generate folders (skip LLM). Useful for tests.
+        output_dir_name: Override for the output directory name. If None, a name is
+            auto-generated as ``multi_problem_<timestamp>__model=<model>__gen__...``.
+
+    Returns:
+        Path to the trajectories directory.
+    """
+    registry = _DOMAIN_REGISTRY[domain]
+    if not registry.get("supports_generation"):
+        raise ValueError(f"Domain '{domain}' does not support generation mode.")
+
+    config = load_config()
+    domain_config = config["domains"][registry["config_key"]]
+    domain_file = Path(domain_config["domain_file"])
+    gym_domain_name = domain_config["gym_domain_name"]
+    problem_prefix = domain_config.get("problem_prefix", "problem")
+    gen_cfg = domain_config.get("generation", {})
+
+    problem_index = _resolve_problem_index(domain_config, problem_index)
+    num_problems = num_problems if num_problems is not None else gen_cfg.get("num_problems", 10)
+    length_min = length_min if length_min is not None else gen_cfg.get("length_min", 9)
+    length_max = length_max if length_max is not None else gen_cfg.get("length_max", 20)
+    skip = skip if skip is not None else gen_cfg.get("skip", 1)
+    cursor_steps_limit = config.get("trajectory", {}).get(
+        "generation_cursor_steps_limit", 1000)
+
+    model_name = config[vendor].get("fluent_classification_model", {}).get("model_name", vendor)
+    timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
+    auto_name = (f"multi_problem_{timestamp}__model={model_name}"
+                 f"__gen__prob={problem_index}__len={length_min}-{length_max}")
+    experiment_name = output_dir_name if output_dir_name is not None else auto_name
+
+    print("=" * 80)
+    print(f"GENERATING {registry['display_name']} PROBLEMS (generation mode)")
+    print(f"Experiment: {experiment_name}")
+    print(f"Env: {gym_domain_name} | problem index: {problem_index}")
+    print(f"Problems: {num_problems} | length {length_min}-{length_max} | skip {skip}")
+    print("=" * 80)
+    print()
+
+    experiment_dir = output_base_dir / domain / experiment_name
+    trajectories_dir = experiment_dir / "training" / "trajectories"
+    trajectories_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Generate the problem folders (images + GT + pddl + plan).
+    generator = PDDLGymProblemGenerator(gym_domain_name, problem_index=problem_index)
+    generated_dirs = generator.generate(
+        output_dir=trajectories_dir,
+        num_problems=num_problems,
+        length_range=(length_min, length_max),
+        skip=skip,
+        seed=seed,
+        problem_prefix=problem_prefix,
+        cursor_steps_limit=cursor_steps_limit,
+    )
+    print(f"Generated {len(generated_dirs)} problem folders.")
+    print()
+
+    if not run_inference:
+        print("run_inference=False — skipping LLM inference.")
+        return trajectories_dir
+
+    # 2. Run external-style inference on each generated folder.
+    for problem_idx, problem_dir in enumerate(generated_dirs):
+        problem_name = problem_dir.name
+        print(f"[{problem_idx + 1}/{len(generated_dirs)}] Inferring {problem_name}...")
+        try:
+            handler = registry["handler_class"](
+                domain_name=gym_domain_name,
+                pddl_domain_file=domain_file,
+                vendor=vendor,
+            )
+            _run_generation_inference(handler, problem_name, problem_dir)
+            _apply_transform(registry["transform_fn"], problem_dir)
+            _cleanup_external_source_files(problem_dir)
+            print(f"  ✓ {problem_name}")
+            print()
+        except Exception as e:
+            print(f"  ✗ Failed: {e}")
+            print()
+            continue
+
+    print("=" * 80)
+    print("GENERATION-MODE TRAJECTORY GENERATION COMPLETE")
+    print("=" * 80)
+    print(f"\nExperiment saved to: {experiment_dir}")
+    print(f"  Trajectories: {trajectories_dir}")
+    print()
+    return trajectories_dir
+
+
 # ── Main generation function ─────────────────────────────────────────────
 
 def generate_trajectories(
@@ -178,6 +338,7 @@ def generate_trajectories(
     planner: Optional[str] = None,
     problem_start: Optional[int] = None,
     problem_end: Optional[int] = None,
+    output_dir_name: Optional[str] = None,
 ) -> Path:
     """Generate trajectories for all problems in a domain.
 
@@ -203,6 +364,8 @@ def generate_trajectories(
         planner: Planner for gym trajectory — "ff", "fd", or None for random (default None).
         problem_start: First problem index to process (0-based, inclusive, default None = all).
         problem_end: Last problem index to process (0-based, inclusive, default None = all).
+        output_dir_name: Override for the output directory name. If None, a name is
+            auto-generated as ``multi_problem_<timestamp>__model=<model>__steps=<n>``.
 
     Returns:
         Path to the trajectories directory.
@@ -223,11 +386,12 @@ def generate_trajectories(
 
     # Build experiment name
     timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-    experiment_name = f"multi_problem_{timestamp}__model={model_name}__steps={num_steps}"
+    auto_name = f"multi_problem_{timestamp}__model={model_name}__steps={num_steps}"
     if start_index > 0:
-        experiment_name += f"__start={start_index}"
+        auto_name += f"__start={start_index}"
     if planner:
-        experiment_name += f"__planner={planner}"
+        auto_name += f"__planner={planner}"
+    experiment_name = output_dir_name if output_dir_name is not None else auto_name
 
     print("=" * 80)
     print(f"GENERATING {registry['display_name']} TRAJECTORIES")
@@ -364,15 +528,74 @@ if __name__ == "__main__":
         help="LLM vendor for the vision pipeline (default: openai)",
     )
 
+    # ── Generation-mode args (--gen-mode generate) ────────────────────────
+    parser.add_argument(
+        "--gen-mode", type=str, default="legacy", choices=["legacy", "generate"],
+        help="'legacy' walks pre-authored problems; 'generate' creates new "
+             "problems + images from a bundled PDDLGym problem, then infers "
+             "(default: legacy)",
+    )
+    parser.add_argument(
+        "--problem-index", type=int, default=None,
+        help="0-based problem position to walk from in natural (numeric) order "
+             "(generate mode only): 0 -> problem1, 1 -> problem2, etc. — matches "
+             "legacy ordering. Defaults to config default_problem_index.",
+    )
+    parser.add_argument(
+        "--num-problems", type=int, default=None,
+        help="Number of problems to generate (generate mode only, default from config)",
+    )
+    parser.add_argument(
+        "--length-min", type=int, default=None,
+        help="Min window length in steps (generate mode only, default from config)",
+    )
+    parser.add_argument(
+        "--length-max", type=int, default=None,
+        help="Max window length in steps (generate mode only, default from config)",
+    )
+    parser.add_argument(
+        "--skip", type=int, default=None,
+        help="States discarded between windows (generate mode only, default from config)",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="RNG seed for reproducibility (generate mode only)",
+    )
+    parser.add_argument(
+        "--no-inference", action="store_true",
+        help="Generate folders only, skip LLM inference (generate mode only)",
+    )
+    parser.add_argument(
+        "--output-dir-name", type=str, default=None,
+        help="Custom name for the output directory. Overrides the auto-generated "
+             "'multi_problem_<timestamp>__model=<model>...' name.",
+    )
+
     args = parser.parse_args()
 
-    generate_trajectories(
-        domain=args.domain,
-        output_base_dir=Path(__file__).parent / "data",
-        num_steps=args.num_steps,
-        vendor=args.vendor,
-        start_index=args.start_index,
-        planner=args.planner,
-        problem_start=args.problem_start,
-        problem_end=args.problem_end,
-    )
+    if args.gen_mode == "generate":
+        generate_trajectories_via_generation(
+            domain=args.domain,
+            output_base_dir=Path(__file__).parent / "data",
+            vendor=args.vendor,
+            problem_index=args.problem_index,
+            num_problems=args.num_problems,
+            length_min=args.length_min,
+            length_max=args.length_max,
+            skip=args.skip,
+            seed=args.seed,
+            run_inference=not args.no_inference,
+            output_dir_name=args.output_dir_name,
+        )
+    else:
+        generate_trajectories(
+            domain=args.domain,
+            output_base_dir=Path(__file__).parent / "data",
+            num_steps=args.num_steps,
+            vendor=args.vendor,
+            start_index=args.start_index,
+            planner=args.planner,
+            problem_start=args.problem_start,
+            problem_end=args.problem_end,
+            output_dir_name=args.output_dir_name,
+        )

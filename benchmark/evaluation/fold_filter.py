@@ -10,7 +10,7 @@ Usage:
 
 Example:
     python -m benchmark.evaluation.fold_filter \\
-        benchmark/data/new_experiments/blocksworld/TO=300__largest__cv5
+        benchmark/running_results/blocksworld/TO=300__largest__cv5
 """
 
 from __future__ import annotations

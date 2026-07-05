@@ -52,8 +52,8 @@ class BlocksContourFluentClassifier(FluentClassifier):
             predicates[f"clear({block.label})"] = self.is_clear(block, blocks) and not self.is_holding(robot, block)
             predicates[f"holding({block.label})"] = self.is_holding(robot, block)
 
-        predicates[f"handempty({robot.label})"] = self.is_handempty(robot, blocks)
-        predicates[f"handfull({robot.label})"] = self.is_handfull(robot, blocks)
+        # Canonical domain uses a nullary (handempty) and no (handfull).
+        predicates["handempty()"] = self.is_handempty(robot, blocks)
 
         # Convert boolean results to PredicateState
         for key in predicates:

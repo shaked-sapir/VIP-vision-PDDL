@@ -27,7 +27,7 @@ class LLMBlocksObjectDetector(LLMObjectDetector):
             "green": "d",
             "yellow": "e",
             "pink": "f",
-            "gripper": "robot"
+            "olive": "g",
         }
 
         self.fewshot_examples = [(init_state_image_path, self.extract_objects_from_gt_state())]

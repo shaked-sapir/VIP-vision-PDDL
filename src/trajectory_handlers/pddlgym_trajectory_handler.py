@@ -211,6 +211,16 @@ class PDDLGymImageTrajectoryHandler(ImageTrajectoryHandler):
         """Override to apply domain-specific transforms to GT trajectory JSON."""
         return gt_trajectory_json
 
+    def _write_gt_trajectory_json(self, problem_name: str,
+                                  gt_trajectory: List[TrajectoryStep],
+                                  output_path: Path) -> Path:
+        """Serialize a GT trajectory (list of TrajectoryStep) to `{problem}_trajectory.json`."""
+        gt_json = self._manipulate_trajectory_json(serialize(gt_trajectory))
+        trajectory_log_path = Path(output_path) / f"{problem_name}_trajectory.json"
+        with open(trajectory_log_path, "w") as f:
+            json.dump(gt_json, f, indent=4)
+        return trajectory_log_path
+
     # ── Main gym pipeline ───────────────────────────────────────────────
 
     def create_trajectory_from_gym(self, problem_name: str, images_output_path: Path,
@@ -246,10 +256,8 @@ class PDDLGymImageTrajectoryHandler(ImageTrajectoryHandler):
                 num_steps, images_output_path, obs)
 
         # Save GT trajectory JSON
-        gt_json = self._manipulate_trajectory_json(serialize(GT_trajectory))
-        trajectory_log_path = os.path.join(images_output_path, f"{problem_name}_trajectory.json")
-        with open(trajectory_log_path, 'w') as f:
-            json.dump(gt_json, f, indent=4)
+        trajectory_log_path = self._write_gt_trajectory_json(
+            problem_name, GT_trajectory, images_output_path)
 
         print(f"Images saved to '{images_output_path}'")
         print(f"Trajectory log saved to '{trajectory_log_path}'")

@@ -1,7 +1,7 @@
 Compare a fold's `original_observations/` against the source GT100 training trajectories, state by state.
 
 **Input**: experiment directory and fold name, separated by a space — e.g.  
-`benchmark/data/new_experiments/blocksworld/SIM__TO=300__... fold0_numtrajs3_gtrate0`
+`benchmark/running_results/blocksworld/SIM__TO=300__... fold0_numtrajs3_gtrate0`
 
 Alternatively, pass the fold directory path directly.
 

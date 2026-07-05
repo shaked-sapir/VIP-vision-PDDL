@@ -1,7 +1,7 @@
 from typing import Dict, List
 
 objects_to_colors = {
-    "block": ["red", "green", "blue", "cyan", "yellow", "pink"],
+    "block": ["red", "green", "blue", "cyan", "yellow", "pink", "olive"],
     "gripper": ["gray"],
     "table": ["brown"]
 }

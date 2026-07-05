@@ -58,7 +58,7 @@ class LLMFluentClassifier(FluentClassifier, ABC):
         """Returns the regex pattern to extract predicates from LLM response."""
         # Pattern to match predicate with confidence score
         # Examples: "on(red,blue) 0.9", "ontable(green) 0.8", "clear(cyan) 0.7"
-        return r'([a-zA-Z_]+\([a-zA-Z0-9_:,]+\))\s*:\s*([0-9]*\.?[0-9]+)'  # relevance is int 0,1,2
+        return r'([a-zA-Z_]+\([a-zA-Z0-9_:,]*\))\s*:\s*([0-9]*\.?[0-9]+)'  # relevance is int 0,1,2; '*' allows nullary preds like handempty()
 
     @staticmethod
     def _parse_llm_predicate_relevance(predicate_fact: tuple[str, int]) -> tuple[str, int]:

@@ -32,18 +32,6 @@ class ExternalImageTrajectoryHandler(ImageTrajectoryHandler):
           from your domain's expected format.
     """
 
-    def _set_seq_idx_format(self, images_path: Path) -> None:
-        """Auto-detect image filename padding from existing files.
-
-        Inspects the first state_0*.png file to determine the padding format.
-        E.g. state_0.png → 'd' (unpadded), state_0000.png → '04d'.
-        """
-        first = next(images_path.glob("state_0*.png"), None)
-        if first is None:
-            raise FileNotFoundError(f"No state_0*.png found in {images_path}")
-        index_part = first.stem.split("_", 1)[1]
-        self.seq_idx_format = f'0{len(index_part)}d' if len(index_part) > 1 else 'd'
-
     def run_pipeline(self, problem_name: str, images_path: Path, **kwargs) -> List[dict]:
         """Run the full external-source pipeline.
 

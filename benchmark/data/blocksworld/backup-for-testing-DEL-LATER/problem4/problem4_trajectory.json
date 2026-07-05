@@ -1,0 +1,298 @@
+[
+    {
+        "step": 1,
+        "current_state": {
+            "literals": [
+                "on(c:block,b:block)",
+                "ontable(a:block)",
+                "on(b:block,a:block)",
+                "handempty()",
+                "clear(c:block)",
+                "ontable(d:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        },
+        "ground_action": "unstack(c:block, b:block)",
+        "operator_object_assignment": {
+            "?x": "c",
+            "?y": "b"
+        },
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
+        "next_state": {
+            "literals": [
+                "clear(b:block)",
+                "ontable(a:block)",
+                "on(b:block,a:block)",
+                "ontable(d:block)",
+                "holding(c:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        }
+    },
+    {
+        "step": 2,
+        "current_state": {
+            "literals": [
+                "clear(b:block)",
+                "ontable(a:block)",
+                "on(b:block,a:block)",
+                "ontable(d:block)",
+                "holding(c:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        },
+        "ground_action": "put_down(c:block)",
+        "operator_object_assignment": {
+            "?x": "c"
+        },
+        "lifted_preconds": "[holding(?x:block), handfull()]",
+        "next_state": {
+            "literals": [
+                "clear(b:block)",
+                "on(b:block,a:block)",
+                "clear(c:block)",
+                "ontable(d:block)",
+                "ontable(c:block)",
+                "ontable(a:block)",
+                "handempty()",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        }
+    },
+    {
+        "step": 3,
+        "current_state": {
+            "literals": [
+                "clear(b:block)",
+                "on(b:block,a:block)",
+                "clear(c:block)",
+                "ontable(d:block)",
+                "ontable(c:block)",
+                "ontable(a:block)",
+                "handempty()",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        },
+        "ground_action": "unstack(b:block, a:block)",
+        "operator_object_assignment": {
+            "?x": "b",
+            "?y": "a"
+        },
+        "lifted_preconds": "[on(?x:block,?y:block), clear(?x:block), handempty()]",
+        "next_state": {
+            "literals": [
+                "clear(a:block)",
+                "clear(c:block)",
+                "ontable(d:block)",
+                "ontable(c:block)",
+                "ontable(a:block)",
+                "clear(d:block)",
+                "holding(b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        }
+    },
+    {
+        "step": 4,
+        "current_state": {
+            "literals": [
+                "clear(a:block)",
+                "clear(c:block)",
+                "ontable(d:block)",
+                "ontable(c:block)",
+                "ontable(a:block)",
+                "clear(d:block)",
+                "holding(b:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        },
+        "ground_action": "put_down(b:block)",
+        "operator_object_assignment": {
+            "?x": "b"
+        },
+        "lifted_preconds": "[holding(?x:block), handfull()]",
+        "next_state": {
+            "literals": [
+                "clear(b:block)",
+                "clear(a:block)",
+                "clear(c:block)",
+                "ontable(d:block)",
+                "ontable(c:block)",
+                "ontable(b:block)",
+                "ontable(a:block)",
+                "handempty()",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        }
+    },
+    {
+        "step": 5,
+        "current_state": {
+            "literals": [
+                "clear(b:block)",
+                "clear(a:block)",
+                "clear(c:block)",
+                "ontable(d:block)",
+                "ontable(c:block)",
+                "ontable(b:block)",
+                "ontable(a:block)",
+                "handempty()",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        },
+        "ground_action": "pick_up(a:block)",
+        "operator_object_assignment": {
+            "?x": "a"
+        },
+        "lifted_preconds": "[clear(?x:block), ontable(?x:block), handempty()]",
+        "next_state": {
+            "literals": [
+                "clear(b:block)",
+                "holding(a:block)",
+                "clear(c:block)",
+                "ontable(d:block)",
+                "ontable(c:block)",
+                "ontable(b:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        }
+    },
+    {
+        "step": 6,
+        "current_state": {
+            "literals": [
+                "clear(b:block)",
+                "holding(a:block)",
+                "clear(c:block)",
+                "ontable(d:block)",
+                "ontable(c:block)",
+                "ontable(b:block)",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        },
+        "ground_action": "stack(a:block, b:block)",
+        "operator_object_assignment": {
+            "?x": "a",
+            "?y": "b"
+        },
+        "lifted_preconds": "[holding(?x:block), clear(?y:block), handfull()]",
+        "next_state": {
+            "literals": [
+                "clear(a:block)",
+                "clear(c:block)",
+                "ontable(d:block)",
+                "ontable(c:block)",
+                "ontable(b:block)",
+                "on(a:block,b:block)",
+                "handempty()",
+                "clear(d:block)"
+            ],
+            "objects": [
+                "c:block",
+                "b:block",
+                "d:block",
+                "a:block"
+            ],
+            "goal": [
+                "on(a:block,b:block)"
+            ]
+        }
+    }
+]

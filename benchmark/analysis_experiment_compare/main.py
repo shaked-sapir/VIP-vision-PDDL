@@ -129,7 +129,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path("benchmark/data/new_experiments/blocks"),
+        default=Path("benchmark/running_results/blocks"),
         help="Root directory that contains experiment folders.",
     )
     parser.add_argument(

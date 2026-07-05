@@ -109,7 +109,7 @@ def confidence_system_prompt(block_colors: list[str]) -> str:
     Valid predicate forms:
      - on(x:block,y:block)            → block x is on top of block y - order is important!
      - ontable(x:block)               → block x is placed on the brown table
-     - handempty(gripper:gripper)     → gripper is empty
+     - handempty()                    → gripper is empty, i.e. it is not holding any block
      - holding(x:block)               → gripper **clearly** holds block x
      - clear(x:block)    → no block is on top of x AND gripper does not hold block x
 
@@ -131,7 +131,7 @@ def confidence_system_prompt(block_colors: list[str]) -> str:
     - Do NOT skip or filter predicates
     - DO NOT invent new predicates or omit typings. stick to the rules above.
     - Return only one predicate per line, followed by a colon and the confidence score
-    - ONLY use scores 0 or 2
+    - ONLY use scores 0, 1 or 2
 
 
     ✅ Format:
@@ -143,7 +143,7 @@ def confidence_system_prompt(block_colors: list[str]) -> str:
     holding(red:block): 0
     ontable(blue:block): 2
     clear(green:block): 2
-    handempty(gripper:gripper): 2
+    handempty(): 2
     )""")
 
 

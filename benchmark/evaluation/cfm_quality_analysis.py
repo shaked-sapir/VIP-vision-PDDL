@@ -15,7 +15,7 @@ Usage:
 
 Example:
     python -m benchmark.evaluation.cfm_quality_analysis \
-        benchmark/data/new_experiments/blocksworld/TO=300__largest__cv5__singleFluentBranching
+        benchmark/running_results/blocksworld/TO=300__largest__cv5__singleFluentBranching
 """
 
 from __future__ import annotations
