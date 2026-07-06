@@ -1,8 +1,10 @@
 import re
+from pathlib import Path
 
 from src.fluent_classification.llm_hanoi_fluent_classifier import LLMHanoiFluentClassifier
 from src.object_detection.llm_hanoi_object_detector import LLMHanoiObjectDetector
 from src.trajectory_handlers.llm_image_trajectory_handler import LLMImageTrajectoryHandler
+from src.utils.pddl_gym import translate_problem_pddl_text
 
 
 class LLMHanoiImageTrajectoryHandler(LLMImageTrajectoryHandler):
@@ -10,6 +12,33 @@ class LLMHanoiImageTrajectoryHandler(LLMImageTrajectoryHandler):
 
     detector_class = LLMHanoiObjectDetector
     classifier_class = LLMHanoiFluentClassifier
+
+    # ── Shared gym→eval schema mapping (used by both the trajectory JSON and
+    #    the problem .pddl translation) ───────────────────────────────────
+    _SPLIT_PREDICATES = ("smaller", "on", "clear")
+
+    @staticmethod
+    def _object_type(name: str) -> str:
+        """Map a hanoi object name to its typed schema type."""
+        return "peg" if name.startswith("peg") else "disc"
+
+    @classmethod
+    def _split_predicate_name(cls, pred: str, args: list[str]) -> str:
+        """Split a shared hanoi predicate into its -disc/-peg variant."""
+        if pred in cls._SPLIT_PREDICATES:
+            suffix = "peg" if any(a.startswith("peg") for a in args) else "disc"
+            return f"{pred}-{suffix}"
+        return pred
+
+    def translate_problem_pddl(self, pddl_path: Path) -> None:
+        """Rewrite a generated hanoi problem .pddl into the typed eval schema."""
+        text = pddl_path.read_text()
+        translated = translate_problem_pddl_text(
+            text,
+            object_type_fn=self._object_type,
+            literal_fn=lambda pred, args: (self._split_predicate_name(pred, args), args),
+        )
+        pddl_path.write_text(translated)
 
     @staticmethod
     def _rename_ground_action(action_str: str) -> str:

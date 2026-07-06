@@ -38,33 +38,58 @@ class LLMNpuzzleFluentClassifier(LLMFluentClassifier):
             **{f"p_{i}_{j}": f"p_{i}_{j}" for i in range(1,6) for j in range(1,6)} # positions up to 5x5
         }
 
-        # new_preds, max_idx = [], 0
-        #
-        # for p in self.extract_predicates_from_gt_state():
-        #     new_preds.extend(p)
-        #     print(p)
-        #     if p.startswith("position("):
-        #         for n in re.findall(r"(\d+):default", p):
-        #             max_idx = max(max_idx, int(n))
-        #     elif p.startswith("at("):
-        #         t, x, y = re.findall(r"(\d+):default", p)
-        #         new_preds.append(f"at(t_{t}:tile,p_{x}_{y}:position)")
-        #     elif p.startswith("blank("):
-        #         x, y = re.findall(r"(\d+):default", p)
-        #         new_preds.append(f"empty(p_{x}_{y})")
-        #
-        # neighbors = set()
-        # for i in range(1, max_idx + 1):
-        #     for j in range(1, max_idx + 1):
-        #         for di, dj in ((1, 0), (0, 1)):  # right & down generate all undirected pairs
-        #             ni, nj = i + di, j + dj
-        #             if 1 <= ni <= max_idx and 1 <= nj <= max_idx:
-        #                 neighbors.add(f"neighbor(p_{i}_{j}:position,p_{ni}_{nj}:position)")
-        #                 neighbors.add(f"neighbor(p_{ni}_{nj}:position,p_{i}_{j}:position)")
-
-        # new_preds.extend(sorted(neighbors))
-
         self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
+
+    def extract_predicates_from_gt_state(self, state_index: int = 0) -> list[str]:
+        """Return GT init-state predicates translated to the typed n_puzzle schema.
+
+        The bundled PDDLGym trajectory JSON stores states in the untyped
+        `slidetile` schema (`at(t6:...,x1:...,y3:...)`, `blank(...)`, `tile`,
+        `position`, `inc`, `dec`). The learner and the classifier both operate
+        on the typed `n_puzzle_typed` schema (`at(t_6:tile,p_1_3:position)`,
+        `empty(...)`, `neighbor(...)`). Translate here so the few-shot / init
+        predicates match the classified states written for the other steps.
+        """
+        raw_literals = super().extract_predicates_from_gt_state(state_index)
+        return self._translate_slidetile_literals_to_typed(raw_literals)
+
+    @staticmethod
+    def _translate_slidetile_literals_to_typed(literals: list[str]) -> list[str]:
+        """Convert untyped slidetile literals to typed n_puzzle literals.
+
+        Drops the auxiliary `tile`/`position`/`inc`/`dec` predicates, maps
+        `at`/`blank` to typed `at`/`empty`, and derives the grid `neighbor`
+        literals from the coordinates present in the state.
+        """
+        translated: list[str] = []
+        max_x, max_y = 0, 0
+
+        for lit in literals:
+            at_match = re.match(r'at\(t(\d+):\w+,x(\d+):\w+,y(\d+):\w+\)', lit)
+            if at_match:
+                t, x, y = at_match.groups()
+                translated.append(f"at(t_{t}:tile,p_{x}_{y}:position)")
+                max_x, max_y = max(max_x, int(x)), max(max_y, int(y))
+                continue
+            blank_match = re.match(r'blank\(x(\d+):\w+,y(\d+):\w+\)', lit)
+            if blank_match:
+                x, y = blank_match.groups()
+                translated.append(f"empty(p_{x}_{y}:position)")
+                max_x, max_y = max(max_x, int(x)), max(max_y, int(y))
+                continue
+            if (lit.startswith('tile(') or lit.startswith('position(') or
+                    lit.startswith('inc(') or lit.startswith('dec(')):
+                continue
+            translated.append(lit)
+
+        for x in range(1, max_x + 1):
+            for y in range(1, max_y + 1):
+                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                    nx, ny = x + dx, y + dy
+                    if 1 <= nx <= max_x and 1 <= ny <= max_y:
+                        translated.append(f"neighbor(p_{x}_{y}:position,p_{nx}_{ny}:position)")
+
+        return translated
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""

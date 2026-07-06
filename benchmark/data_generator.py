@@ -59,13 +59,6 @@ def _transform_blocks_problem(problem_file_path: Path) -> None:
     problem_file_path.write_text(content)
 
 
-def _transform_npuzzle_problem(problem_file_path: Path) -> None:
-    """Replace an n-puzzle problem file with the eval-compatible version."""
-    eval_source = project_root / "benchmark" / "domains" / "n_puzzle" / "eight01x_eval.pddl"
-    content = eval_source.read_text()
-    problem_file_path.write_text(content)
-
-
 def _apply_transform(transform_fn: Optional[Callable], problem_dir: Path) -> None:
     """Apply a per-file transform to all .pddl files in a problem directory."""
     if transform_fn is None:
@@ -102,11 +95,34 @@ def _run_generation_inference(handler, problem_name: str, problem_dir: Path) -> 
     The generated folder already contains GT (_trajectory.json) + images + .pddl,
     so we treat it exactly like an external (depot/gripper) problem: extract the
     ground actions from the GT JSON and run the LLM classification pipeline.
+
+    The generator writes the .pddl and _trajectory.json in the raw gym schema
+    (its _GymWalkHandler has no schema-translation hook). Inference produces a
+    .trajectory already in the eval schema (via _rename_ground_action + the
+    classifiers). So after inference we translate the .pddl to the eval schema
+    and rebuild _trajectory.json from the translated .trajectory + .pddl, leaving
+    all three files consistently in the eval schema.
     """
     ensure_trajectory_json(problem_dir)
     actions = extract_actions_from_trajectory_json(problem_dir)
     handler._set_seq_idx_format(problem_dir)
     handler.create_trajectory_and_masks(problem_name, actions, problem_dir)
+    _translate_problem_and_rebuild_json(handler, problem_dir)
+
+
+def _translate_problem_and_rebuild_json(handler, problem_dir: Path) -> None:
+    """Translate the problem .pddl to the eval schema and rebuild its GT JSON.
+
+    Uses the domain handler's translate_problem_pddl (no-op for domains whose
+    gym schema already matches the eval schema). After translation the raw GT
+    _trajectory.json is stale, so it is deleted and rebuilt from the eval-schema
+    .trajectory + .pddl via ensure_trajectory_json.
+    """
+    for pddl_file in problem_dir.glob("*.pddl"):
+        handler.translate_problem_pddl(pddl_file)
+    for json_file in problem_dir.glob("*_trajectory.json"):
+        json_file.unlink()
+    ensure_trajectory_json(problem_dir)
 
 
 def _resolve_problem_index(domain_config: dict, problem_index: Optional[int]) -> int:
@@ -136,7 +152,7 @@ _DOMAIN_REGISTRY = {
         "display_name": "N-PUZZLE",
         "config_key": "npuzzle",
         "handler_class": LLMNpuzzleImageTrajectoryHandler,
-        "transform_fn": _transform_npuzzle_problem,
+        "transform_fn": None,
         "is_external": False,
         "supports_generation": True,
     },
@@ -463,10 +479,15 @@ def generate_trajectories(
                     **pipeline_kwargs,
                 )
 
-                # Copy and transform problem file from source
+                # Copy and transform problem file from source. run_pipeline already
+                # wrote a translated .trajectory + _trajectory.json (via the domain
+                # handler), but the copied .pddl is still in the raw gym schema, so
+                # translate it to the eval schema to match.
                 source_pddl = source_problem_dir / f"{problem_name}.pddl"
                 shutil.copy(source_pddl, output_problem_dir)
                 _apply_transform(registry["transform_fn"], output_problem_dir)
+                for pddl_file in output_problem_dir.glob("*.pddl"):
+                    handler.translate_problem_pddl(pddl_file)
 
             print(f"  ✓ {problem_name}")
             print()

@@ -1,7 +1,7 @@
 """PDDLGym format conversion and visual-facts / image-object translation."""
 
 import re
-from typing import Set
+from typing import Callable, List, Set, Tuple
 
 from pddlgym.core import PDDLEnv
 from pddlgym.parser import Operator
@@ -115,3 +115,89 @@ def extract_objects_from_pddlgym_state(
         return f"{gym2img.get(name, name)}:{typ}"
 
     return {translate(o) for o in pddlgym_state_objects}
+
+
+# ============================================================================
+# Problem-file schema translation (gym schema → eval schema)
+# ============================================================================
+
+# A literal transform maps (predicate_name, args) → (predicate_name, args).
+LiteralTransform = Callable[[str, List[str]], Tuple[str, List[str]]]
+# An object-type transform maps an object name → its eval-schema type.
+ObjectTypeTransform = Callable[[str], str]
+
+
+def _translate_objects_block(obj_block: str, object_type_fn: ObjectTypeTransform) -> str:
+    """Re-type every object in a `(:objects ...)` block body, one per line."""
+    names: List[str] = []
+    for segment in re.split(r'\n', obj_block):
+        segment = segment.strip()
+        if not segment or segment.startswith(';'):
+            continue
+        # Drop any existing "- type" suffix; keep the bare object names.
+        head = re.split(r'\s*-\s*', segment)[0]
+        names.extend(n for n in head.split() if n)
+    return "\n".join(f"\t{name} - {object_type_fn(name)}" for name in names)
+
+
+def _translate_literal(literal_body: str, literal_fn: LiteralTransform) -> str:
+    """Translate a single `pred a b` literal body via `literal_fn`."""
+    parts = literal_body.split()
+    if not parts:
+        return literal_body
+    pred_name, args = parts[0], parts[1:]
+    new_pred, new_args = literal_fn(pred_name, args)
+    return " ".join([new_pred, *new_args]).strip()
+
+
+def _translate_literal_region(text: str, literal_fn: LiteralTransform) -> str:
+    """Translate every `(pred ...)` literal in a region of PDDL text."""
+    return re.sub(
+        r'\(([a-zA-Z][\w-]*(?:\s+[\w:-]+)*)\)',
+        lambda m: f"({_translate_literal(m.group(1), literal_fn)})",
+        text,
+    )
+
+
+def translate_problem_pddl_text(
+    pddl_text: str,
+    object_type_fn: ObjectTypeTransform,
+    literal_fn: LiteralTransform,
+) -> str:
+    """Rewrite a PDDL problem's objects/init/goal from one schema to another.
+
+    Preserves the problem's own objects, init, and goal — only the object
+    *types* and the predicate names/args are rewritten, using the two
+    domain-supplied callables. Keeps schema knowledge in the caller (the domain
+    handler) while sharing the text manipulation here.
+
+    Args:
+        pddl_text: Raw problem PDDL text (gym schema).
+        object_type_fn: Maps an object name to its eval-schema type.
+        literal_fn: Maps (predicate_name, args) to the rewritten pair.
+
+    Returns:
+        The rewritten PDDL text.
+    """
+    # 1. Re-type the (:objects ...) block.
+    text = re.sub(
+        r'\(:objects\s+(.*?)\)',
+        lambda m: f"(:objects\n{_translate_objects_block(m.group(1), object_type_fn)}\n)",
+        pddl_text, flags=re.DOTALL,
+    )
+
+    # 2. Rewrite literals inside the (:init ...) block (up to (:goal).
+    text = re.sub(
+        r'\(:init\s+(.*?)\)\s*(?=\(:goal)',
+        lambda m: f"(:init {_translate_literal_region(m.group(1), literal_fn)})\n  ",
+        text, flags=re.DOTALL,
+    )
+
+    # 3. Rewrite literals inside the (:goal ...) block (runs to problem end).
+    text = re.sub(
+        r'\(:goal\s+(.*)\)\s*\)\s*$',
+        lambda m: f"(:goal {_translate_literal_region(m.group(1), literal_fn)}))\n",
+        text, flags=re.DOTALL,
+    )
+
+    return text

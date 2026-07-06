@@ -211,6 +211,18 @@ class PDDLGymImageTrajectoryHandler(ImageTrajectoryHandler):
         """Override to apply domain-specific transforms to GT trajectory JSON."""
         return gt_trajectory_json
 
+    def translate_problem_pddl(self, pddl_path: Path) -> None:
+        """Translate a generated problem .pddl from gym schema to the eval schema.
+
+        No-op by default. Domains whose PDDLGym schema differs from their eval
+        domain (object types and/or predicate names) override this to rewrite the
+        generated problem file in place, preserving that problem's own objects,
+        init, and goal. Runs on the generation path where the .pddl is produced
+        in raw gym schema (see PDDLGymProblemGenerator, which uses a plain gym
+        handler without domain-specific translation).
+        """
+        return None
+
     def _write_gt_trajectory_json(self, problem_name: str,
                                   gt_trajectory: List[TrajectoryStep],
                                   output_path: Path) -> Path:
