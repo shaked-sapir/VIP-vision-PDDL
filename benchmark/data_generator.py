@@ -332,11 +332,17 @@ def generate_trajectories_via_generation(
             print()
             continue
 
+    # Export GT .trajectory files (one per problem) from the retained GT JSONs.
+    # Lazy import avoids a circular import (the GT script imports helpers from here).
+    from benchmark.generate_gt_trajectories import generate_gt_trajectories
+    gt_root = generate_gt_trajectories(trajectories_dir, experiment_dir)
+
     print("=" * 80)
     print("GENERATION-MODE TRAJECTORY GENERATION COMPLETE")
     print("=" * 80)
     print(f"\nExperiment saved to: {experiment_dir}")
     print(f"  Trajectories: {trajectories_dir}")
+    print(f"  GT trajectories: {gt_root}")
     print()
     return trajectories_dir
 
@@ -497,12 +503,18 @@ def generate_trajectories(
             print()
             continue
 
+    # Export GT .trajectory files (one per problem) from the retained GT JSONs.
+    # Lazy import avoids a circular import (the GT script imports helpers from here).
+    from benchmark.generate_gt_trajectories import generate_gt_trajectories
+    gt_root = generate_gt_trajectories(trajectories_dir, experiment_dir)
+
     print()
     print("=" * 80)
     print("TRAJECTORY GENERATION COMPLETE")
     print("=" * 80)
     print(f"\nExperiment saved to: {experiment_dir}")
     print(f"  Trajectories: {trajectories_dir}")
+    print(f"  GT trajectories: {gt_root}")
     print(f"  Problems processed: {len(list(trajectories_dir.iterdir()))}")
     print()
 
