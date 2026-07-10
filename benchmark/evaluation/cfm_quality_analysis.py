@@ -13,6 +13,9 @@ if preferred.
 Usage:
     python -m benchmark.evaluation.cfm_quality_analysis <experiment_root>
 
+Outputs per-metric improvement/trend PNGs plus summary figures:
+    all_trends_summary.png, precision_trends_summary.png, recall_trends_summary.png
+
 Example:
     python -m benchmark.evaluation.cfm_quality_analysis \
         benchmark/running_results/blocksworld/TO=300__largest__cv5__singleFluentBranching
@@ -41,9 +44,44 @@ METRICS = [
     ("solving_ratio", "Problem solving ratio"),
 ]
 
+# Syntactic (non-predictive-power) metrics from all_solutions_metrics.json
+SYNTACTIC_PRECISION_METRICS = [
+    ("precision_precs_pos", "Preconditions precision (+)"),
+    ("precision_precs_neg", "Preconditions precision (−)"),
+    ("precision_eff_pos", "Effects precision (+)"),
+    ("precision_eff_neg", "Effects precision (−)"),
+    ("precision_overall", "Overall precision"),
+]
+
+SYNTACTIC_RECALL_METRICS = [
+    ("recall_precs_pos", "Preconditions recall (+)"),
+    ("recall_precs_neg", "Preconditions recall (−)"),
+    ("recall_eff_pos", "Effects recall (+)"),
+    ("recall_eff_neg", "Effects recall (−)"),
+    ("recall_overall", "Overall recall"),
+]
+
 
 
 # ── Data loading ────────────────────────────────────────────────────────────
+
+def load_domain_name(experiment_root: Path) -> str:
+    """Load domain name from run_params.json, falling back to parent directory name."""
+    run_params_path = experiment_root / "evaluation_results" / "run_params.json"
+    if run_params_path.exists():
+        with open(run_params_path) as f:
+            run_params = json.load(f)
+        for key in ("display_domain_name", "domain_key"):
+            name = run_params.get(key)
+            if name:
+                return str(name)
+    return experiment_root.parent.name
+
+
+def _title_with_domain(domain_name: str, title: str) -> str:
+    """Prefix a plot title with the uppercased domain name."""
+    return f"{domain_name.upper()} — {title}"
+
 
 def find_instance_dirs(testing_dir: Path) -> List[Path]:
     """Return all instance directories that contain all_solutions_metrics.json."""
@@ -158,6 +196,7 @@ def plot_cfm_quality(
     metric_name: str,
     metric_label: str,
     output_path: Path,
+    domain_name: str,
 ) -> None:
     """Three-panel stacked figure (shared x-axis, no twin axes):
 
@@ -214,7 +253,11 @@ def plot_cfm_quality(
     all_counts = abs_counts + exact_counts
     ax_count.set_ylim(0, max(all_counts) * 1.4 if all_counts else 1)
     ax_count.legend(loc="upper right", fontsize=7, framealpha=0.9)
-    ax_count.set_title(f"CFM quality progression — {metric_label}", fontsize=12, pad=8)
+    ax_count.set_title(
+        _title_with_domain(domain_name, f"CFM quality progression — {metric_label}"),
+        fontsize=12,
+        pad=8,
+    )
 
     # ============== MIDDLE — absolute metric values ==============
     _make_boxplot(ax_abs, abs_data, x_positions,
@@ -418,7 +461,13 @@ _BOUNDED_METRICS = {
     "pred_app_precision", "pred_app_recall",
     "pred_eff_precision", "pred_eff_recall",
     "solving_ratio",
+    *(key for key, _ in SYNTACTIC_PRECISION_METRICS),
+    *(key for key, _ in SYNTACTIC_RECALL_METRICS),
 }
+
+
+# Each entry: (metric_key, metric_label, source, expected_monotone)
+TrendSpec = Tuple[str, str, str, str | None]
 
 
 def plot_trend_with_shading(
@@ -462,36 +511,27 @@ def plot_trend_with_shading(
     print(f"  Saved: {output_path}")
 
 
-def plot_all_trends_summary(
+def plot_metrics_trends_summary(
     instance_dirs: List[Path],
-    metrics: List[Tuple[str, str]],
-    n_instances_hint: int,
+    trend_specs: List[TrendSpec],
+    suptitle: str,
     output_path: Path,
+    domain_name: str,
 ) -> None:
-    """Single figure with all metric trends + fluent_patch_count as subplots.
-
-    Layout: 2 columns × ceil((N_metrics + 1) / 2) rows.
-    """
-    # Collect all trend data
+    """Single figure with multiple padded mean ± std trend subplots."""
     trend_data: List[Tuple[str, str, np.ndarray, np.ndarray, np.ndarray, int, str | None]] = []
 
-    for metric_key, metric_label in metrics:
+    for metric_key, metric_label, source, expected_monotone in trend_specs:
         sol_ids, means, stds, n_inst = compute_padded_trend(
-            instance_dirs, metric_key, source="all_solutions_metrics",
+            instance_dirs, metric_key, source=source,
         )
         if len(sol_ids) > 0:
-            trend_data.append((metric_key, metric_label, sol_ids, means, stds, n_inst, None))
-
-    # Fluent patch count
-    sol_ids, means, stds, n_inst = compute_padded_trend(
-        instance_dirs, "fluent_patch_count", source="conflict_free_solutions_log",
-    )
-    if len(sol_ids) > 0:
-        trend_data.append(("fluent_patch_count", "Fluent patch count",
-                           sol_ids, means, stds, n_inst, "non_increasing"))
+            trend_data.append(
+                (metric_key, metric_label, sol_ids, means, stds, n_inst, expected_monotone)
+            )
 
     if not trend_data:
-        print("  [SKIP] No trend data for summary plot")
+        print(f"  [SKIP] No trend data for {output_path.name}")
         return
 
     n_plots = len(trend_data)
@@ -508,23 +548,45 @@ def plot_all_trends_summary(
         _draw_trend_on_ax(
             ax, sol_ids, means, stds, n_inst,
             metric_label=metric_label,
-            title=metric_label,
+            title=_title_with_domain(domain_name, metric_label),
             expected_monotone=monotone,
             value_bounds=bounds,
             compact=True,
         )
 
-    # Hide unused axes
     for idx in range(n_plots, n_rows * n_cols):
         row, col = divmod(idx, n_cols)
         axes[row, col].set_visible(False)
 
-    fig.suptitle("CFM quality trends — all metrics (padded mean ± std)",
-                 fontsize=13, y=1.01)
+    fig.suptitle(_title_with_domain(domain_name, suptitle), fontsize=13, y=1.01)
     fig.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {output_path}")
+
+
+def plot_all_trends_summary(
+    instance_dirs: List[Path],
+    metrics: List[Tuple[str, str]],
+    n_instances_hint: int,
+    output_path: Path,
+    domain_name: str,
+) -> None:
+    """Single figure with predictive metrics + fluent_patch_count trends."""
+    trend_specs: List[TrendSpec] = [
+        (metric_key, metric_label, "all_solutions_metrics", None)
+        for metric_key, metric_label in metrics
+    ]
+    trend_specs.append(
+        ("fluent_patch_count", "Fluent patch count", "conflict_free_solutions_log", "non_increasing")
+    )
+    plot_metrics_trends_summary(
+        instance_dirs,
+        trend_specs,
+        suptitle="CFM quality trends — all metrics (padded mean ± std)",
+        output_path=output_path,
+        domain_name=domain_name,
+    )
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -550,6 +612,7 @@ def main():
 
     output_dir = eval_dir / "CFM_quality"
     output_dir.mkdir(parents=True, exist_ok=True)
+    domain_name = load_domain_name(experiment_root)
 
     # ── Load data ──
     instance_dirs = find_instance_dirs(testing_dir)
@@ -583,6 +646,7 @@ def main():
         output_path = output_dir / f"{metric_key}_cfm_improvement.png"
         plot_cfm_quality(
             abs_vals, diffs, cfm_histogram, metric_key, metric_label, output_path,
+            domain_name,
         )
 
     # ── Trend plots (mean ± std with forward-fill padding) ──
@@ -596,7 +660,9 @@ def main():
         plot_trend_with_shading(
             sol_ids, means, stds, n_inst,
             metric_label=metric_label,
-            title=f"{metric_label} vs. solution index (padded mean ± std)",
+            title=_title_with_domain(
+                domain_name, f"{metric_label} vs. solution index (padded mean ± std)"
+            ),
             output_path=output_dir / f"{metric_key}_trend.png",
             metric_key=metric_key,
         )
@@ -608,7 +674,9 @@ def main():
     plot_trend_with_shading(
         sol_ids, means, stds, n_inst,
         metric_label="Fluent patch count",
-        title="Fluent patch count vs. solution index (padded mean ± std)",
+        title=_title_with_domain(
+            domain_name, "Fluent patch count vs. solution index (padded mean ± std)"
+        ),
         output_path=output_dir / "fluent_patch_count_trend.png",
         expected_monotone="non_increasing",
         metric_key="fluent_patch_count",
@@ -618,6 +686,29 @@ def main():
     plot_all_trends_summary(
         instance_dirs, METRICS, len(instance_dirs),
         output_path=output_dir / "all_trends_summary.png",
+        domain_name=domain_name,
+    )
+
+    plot_metrics_trends_summary(
+        instance_dirs,
+        [
+            (metric_key, metric_label, "all_solutions_metrics", None)
+            for metric_key, metric_label in SYNTACTIC_PRECISION_METRICS
+        ],
+        suptitle="Syntactic precision trends (padded mean ± std)",
+        output_path=output_dir / "precision_trends_summary.png",
+        domain_name=domain_name,
+    )
+
+    plot_metrics_trends_summary(
+        instance_dirs,
+        [
+            (metric_key, metric_label, "all_solutions_metrics", None)
+            for metric_key, metric_label in SYNTACTIC_RECALL_METRICS
+        ],
+        suptitle="Syntactic recall trends (padded mean ± std)",
+        output_path=output_dir / "recall_trends_summary.png",
+        domain_name=domain_name,
     )
 
     print(f"\nAll plots saved to: {output_dir}")

@@ -269,7 +269,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </div>
   <div>
     <label>Filter predicate:</label>
-    <input id="filter-pred" type="text" placeholder="e.g. handempty" size="14">
+    <select id="filter-pred"><option value="">— any —</option></select>
   </div>
   <div>
     <button id="btn-apply">Apply Filter</button>
@@ -310,6 +310,35 @@ DATA.nodes.forEach(n => {
 });
 
 const roots = DATA.nodes.filter(n => n.parent_index == null).map(n => n.index);
+
+// ── Build action→predicates index for filter dropdown ──
+const actionPredicates = {};  // action → Set of pbl strings
+DATA.nodes.forEach(n => {
+  (n.chosen_group || []).forEach(c => {
+    if (!actionPredicates[c.action]) actionPredicates[c.action] = new Set();
+    actionPredicates[c.action].add(c.predicate);
+  });
+  (n.conflicts || []).forEach(c => {
+    if (!actionPredicates[c.action]) actionPredicates[c.action] = new Set();
+    actionPredicates[c.action].add(c.predicate);
+  });
+});
+
+function populatePredicateDropdown(action) {
+  const sel = document.getElementById('filter-pred');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— any —</option>';
+  const preds = action ? actionPredicates[action] : null;
+  if (preds) {
+    [...preds].sort().forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p; opt.textContent = p;
+      sel.appendChild(opt);
+    });
+    // Restore previous selection if still valid
+    if ([...preds].includes(prev)) sel.value = prev;
+  }
+}
 
 // ── State ──
 const expandedSet = new Set();   // which nodes are expanded
@@ -551,18 +580,27 @@ function parsePatch(s) {
 // Whether the flip is an add or remove depends on the predicate's current value in the
 // original state (determined at render time by applyPatches).
 function buildPatchIndex(node) {
-  const idx = {};
+  // Phase 1: count flips per (obs, comp, which, base_pred).
+  // Both "(foo)" and "(not (foo))" flip the same base predicate.
+  // Two flips on the same predicate cancel; only odd counts are real flips.
+  const counts = {};
   for (const ps of node.fluent_patches) {
     const p = parsePatch(ps);
     if (!p) continue;
-    if (!idx[p.obs]) idx[p.obs] = {};
-    if (!idx[p.obs][p.comp]) idx[p.obs][p.comp] = { prev: new Set(), next: new Set() };
-    // Normalize: strip (not ...) wrapper — both forms refer to the same predicate
     let pred = p.predicate;
-    if (pred.startsWith('(not ')) {
-      pred = pred.slice(5, -1);  // "(not (foo))" -> "(foo)"
-    }
-    idx[p.obs][p.comp][p.which].add(pred);
+    if (pred.startsWith('(not ')) pred = pred.slice(5, -1);
+    const key = `${p.obs}|${p.comp}|${p.which}|${pred}`;
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  // Phase 2: build the index keeping only predicates with odd flip count.
+  const idx = {};
+  for (const [key, cnt] of Object.entries(counts)) {
+    if (cnt % 2 === 0) continue;   // even flips cancel out
+    const [obs, comp, which, pred] = key.split('|');
+    const o = +obs, c = +comp;
+    if (!idx[o]) idx[o] = {};
+    if (!idx[o][c]) idx[o][c] = { prev: new Set(), next: new Set() };
+    idx[o][c][which].add(pred);
   }
   return idx;
 }
@@ -608,11 +646,16 @@ function renderState(label, predicates, maskedList, patches) {
   return html;
 }
 
-// Merge two patch Sets (union). Both are Set<predicate>.
+// Merge two patch Sets (symmetric difference / XOR).
+// Direct (comp N, next) and cascading (comp N+1, prev) target the SAME state.
+// A predicate appearing in both means two flips on the same state → cancel.
 function mergePatches(direct, cascading) {
   if (!cascading || cascading.size === 0) return direct || new Set();
   if (!direct || direct.size === 0) return cascading;
-  return new Set([...cascading, ...direct]);
+  const merged = new Set();
+  for (const p of direct)    { if (!cascading.has(p)) merged.add(p); }
+  for (const p of cascading) { if (!direct.has(p))    merged.add(p); }
+  return merged;
 }
 
 // Build the component body (prev + next states with patches).
@@ -804,24 +847,36 @@ function expandPathTo(nodeIdx) {
 function chosenGroupMatches(node, action, pred) {
   if (!node.chosen_group || node.chosen_group.length === 0) return false;
   const a = action.toLowerCase();
-  const p = pred.toLowerCase();
   return node.chosen_group.some(c => {
     const matchA = !action || c.action.toLowerCase() === a;
-    const matchP = !pred || (c.predicate + ' ' + c.fluent).toLowerCase().includes(p);
+    // Exact match on pbl when a dropdown value is selected
+    const matchP = !pred || c.predicate === pred;
     return matchA && matchP;
   });
 }
 
 // Does the node mention the action/predicate anywhere (conflicts, patches, constraints)?
 function matchesFilter(node, action, pred) {
-  const texts = [
-    ...node.conflicts.map(c => c.action + ' ' + c.predicate + ' ' + c.fluent),
-    ...(node.chosen_group || []).map(c => c.action + ' ' + c.predicate + ' ' + c.fluent),
-    ...node.model_constraints,
-    ...node.fluent_patches,
-  ].join(' ').toLowerCase();
-  if (action && !texts.includes(action.toLowerCase())) return false;
-  if (pred && !texts.includes(pred.toLowerCase())) return false;
+  // If pred is a specific pbl from the dropdown, match it exactly
+  if (pred) {
+    const hasPred = [
+      ...node.conflicts.map(c => c.predicate),
+      ...(node.chosen_group || []).map(c => c.predicate),
+    ].some(p => p === pred);
+    // Also check model_constraints and fluent_patches by substring (these are strings)
+    const textMatch = [...node.model_constraints, ...node.fluent_patches]
+      .some(s => s.toLowerCase().includes(pred.toLowerCase()));
+    if (!hasPred && !textMatch) return false;
+  }
+  if (action) {
+    const texts = [
+      ...node.conflicts.map(c => c.action),
+      ...(node.chosen_group || []).map(c => c.action),
+      ...node.model_constraints,
+      ...node.fluent_patches,
+    ].join(' ').toLowerCase();
+    if (!texts.includes(action.toLowerCase())) return false;
+  }
   return true;
 }
 
@@ -1058,7 +1113,11 @@ document.getElementById('btn-collapse-all').addEventListener('click', () => {
   setStatus('Collapsed.');
 });
 document.getElementById('filter-action').addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
-document.getElementById('filter-pred').addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(); });
+// Populate predicate dropdown when action changes
+document.getElementById('filter-action').addEventListener('input', e => {
+  populatePredicateDropdown(e.target.value.trim());
+});
+document.getElementById('filter-pred').addEventListener('change', applyFilter);
 sel.addEventListener('change', applyFilter);
 document.getElementById('sidebar-close').addEventListener('click', hideSidebar);
 // Type filter checkboxes in sidebar

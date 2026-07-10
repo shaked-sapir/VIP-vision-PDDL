@@ -20,7 +20,7 @@ def confidence_system_prompt(block_colors: list[str]) -> str:
 
 
     Valid predicate forms:
-     - on(x:block,y:block)            → block x is on top of block y - order is important!
+     - on(x:block,y:block)            → block x is directly on top of block y 
      - ontable(x:block)               → block x is placed on the brown table
      - handempty()                    → gripper is empty, i.e. it is not holding any block
      - holding(x:block)               → gripper **clearly** holds block x
