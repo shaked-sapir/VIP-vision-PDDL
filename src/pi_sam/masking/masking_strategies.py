@@ -79,7 +79,9 @@ class RandomMaskingStrategy(MaskingStrategy):
     def mask(self, predicates: set[GroundedPredicate], masking_proba: float = 0.3,
              *args, **kwargs) -> Tuple[set[GroundedPredicate], set[GroundedPredicate]]:
         print(f"using {self.name} masking strategy with probability {masking_proba}")
-        for predicate in predicates:
+        # Sort by str for a deterministic iteration order (set order depends on
+        # PYTHONHASHSEED, which would make seeded runs non-reproducible).
+        for predicate in sorted(predicates, key=str):
             if random.random() < masking_proba:
                 predicate.is_masked = True
         return self._split_masked_and_unmasked(predicates)
@@ -97,7 +99,9 @@ class PercentageMaskingStrategy(MaskingStrategy):
         if not predicates or masking_ratio == 0:
             return set(), set(predicates)
         sample_size = max(1, round(len(predicates) * masking_ratio))  # Ensure at least 1 element if p > 0
-        sample = set(random.sample(list(predicates), sample_size))
+        # Sort by str for a deterministic sampling pool (set order depends on
+        # PYTHONHASHSEED, which would make seeded runs non-reproducible).
+        sample = set(random.sample(sorted(predicates, key=str), sample_size))
         for predicate in sample:
             predicate.is_masked = True
         return self._split_masked_and_unmasked(predicates)

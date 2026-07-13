@@ -1,7 +1,7 @@
 """
 Helper functions for running benchmark experiments.
 
-This module contains the main fold execution logic for the benchmark_runner experiments.
+This module contains the main fold execution logic for the experiment_runner experiments.
 """
 
 import json

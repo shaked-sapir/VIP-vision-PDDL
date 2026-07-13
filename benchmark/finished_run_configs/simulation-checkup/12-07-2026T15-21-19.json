@@ -1,0 +1,60 @@
+{
+  "run_name": "simulation-checkup",
+  "source": "simulated",
+  "generated_at": "12-07-2026T15-21-19",
+  "run_status": "ok",
+  "selected_domains": [
+    "hanoi"
+  ],
+  "shared": {
+    "mode": "masked",
+    "n_folds": 5,
+    "num_trajectories": [
+      8
+    ],
+    "gt_rates": [
+      0
+    ],
+    "learning_timeout_seconds": 300,
+    "planning_timeout_seconds": 60,
+    "search_mode": "dfs",
+    "node_choosing_strategy": "model_patch_first",
+    "model_constraint_weight": 0.0,
+    "conflict_group_strategy": "largest",
+    "fluent_branch_mode": "single",
+    "events_tracing": false,
+    "baselines": [
+      "none"
+    ]
+  },
+  "simulation": {
+    "masking_strategy": "percentage",
+    "noising_strategy": "percentage",
+    "seed": 42,
+    "grid": {
+      "masking_ps": [
+        0.0
+      ],
+      "noising_ps": [
+        0.2
+      ]
+    }
+  },
+  "num_cells": 1,
+  "by_domain": {
+    "hanoi": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-checkup__mask=0.0__noise=0.2"
+    ]
+  },
+  "cells": [
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-checkup__mask=0.0__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-checkup__mask=0.0__noise=0.2",
+      "masking_p": 0.0,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    }
+  ]
+}

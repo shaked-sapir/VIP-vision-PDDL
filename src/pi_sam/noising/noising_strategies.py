@@ -68,7 +68,9 @@ class RandomNoisingStrategy(NoisingStrategy):
               noise_proba: float = 0.1,
               *args, **kwargs) -> Set[GroundedPredicate]:
         print(f"using {self.name} noising strategy with probability {noise_proba}")
-        return {p for p in predicates if random.random() < noise_proba}
+        # Sort by str for a deterministic iteration order (set order depends on
+        # PYTHONHASHSEED, which would make seeded runs non-reproducible).
+        return {p for p in sorted(predicates, key=str) if random.random() < noise_proba}
 
 
 class PercentageNoisingStrategy(NoisingStrategy):
@@ -83,4 +85,6 @@ class PercentageNoisingStrategy(NoisingStrategy):
         if not predicates or noise_ratio == 0:
             return set()
         sample_size = max(1, round(len(predicates) * noise_ratio))
-        return set(random.sample(list(predicates), sample_size))
+        # Sort by str for a deterministic sampling pool (set order depends on
+        # PYTHONHASHSEED, which would make seeded runs non-reproducible).
+        return set(random.sample(sorted(predicates, key=str), sample_size))

@@ -1,0 +1,49 @@
+# The single editable run config. Edit this file in place with your desired
+# run_name + params, then run the batch — no need to create a new file per run.
+#
+# Run with:
+#   python -m benchmark.benchmark_runner                 # uses this file by default
+#   python -m benchmark.benchmark_runner --dry-run       # preview cells, no execution
+#   python -m benchmark.benchmark_runner --config other.yaml   # override the default
+#
+# A timestamped manifest (params + per-domain output paths) is archived to:
+#   benchmark/finished_run_configs/<run_name>/<timestamp>.json
+
+run_name: simulation-checkup                       # names the output experiments + the manifest dir
+source: simulated                       # image | simulated
+
+# Shared benchmark params — forwarded to experiment_runner.main().
+# Any omitted key falls back to main()'s own default.
+shared:
+  mode: masked                          # masked | fullyobs
+  n_folds: 5                            # any int >= 1
+  num_trajectories: [3, 4, 5, 6, 7, 8]  # list of ints (trajectory counts to evaluate)
+  gt_rates: [0]                         # list of ints — GT injection rates in % (e.g. 0, 25, 50)
+  learning_timeout_seconds: 300         # any int (seconds)
+  planning_timeout_seconds: 60          # any int (seconds)
+  search_mode: dfs                      # dfs | ucs
+  node_choosing_strategy: model_patch_first  # model_patch_first | fluent_patch_first | fluent_patch_first_then_model | randomized
+  model_constraint_weight: 0.0          # any float >= 0
+  conflict_group_strategy: largest      # first | largest | largest_model_patchable | most_observations | smallest
+  fluent_branch_mode: single            # group | single
+  events_tracing: false                  # true | false -> make this true only when debugging, this produces an html showing the whole search space and it is HEAVY
+  baselines: [none]                     # [rosame] | [none] to skip baselines
+
+# Mode-specific block (only read when source: simulated).
+simulation:
+  masking_strategy: percentage          # percentage | random
+  noising_strategy: percentage          # percentage | random
+  seed: 42                              # any int (RNG seed)
+  grid:
+    masking_ps: [0.0, 0.01, 0.1]
+    noising_ps: [0.0, 0.1, 0.2]             # list of floats in [0, 1]
+
+# Per-domain: only domain_key + data_dir. data_dir must contain
+# training/trajectories/ (for imaged version) and gt_trajectories/ (for simulated version).
+
+domains:
+  - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"}
+  - {domain_key: hanoi,       data_dir: "benchmark/data/hanoi/hanoi_generated_problem1__final-version"}
+  - {domain_key: npuzzle,     data_dir: "benchmark/data/npuzzle/npuzzle_prob0_6-10steps_generate"}
+  - {domain_key: depot,       data_dir: "benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"}
+  - {domain_key: gripper,     data_dir: "benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"}

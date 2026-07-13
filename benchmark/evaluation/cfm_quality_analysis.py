@@ -29,10 +29,11 @@ import os
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import MaxNLocator
 
 
 # ── Metrics to analyse ──────────────────────────────────────────────────────
@@ -394,6 +395,8 @@ def _draw_trend_on_ax(
     expected_monotone: str | None = None,
     value_bounds: Tuple[float, float] | None = None,
     compact: bool = False,
+    metric_key: str = "",
+    legend: bool = True,
 ) -> None:
     """Draw a mean ± std trend on an existing axes.
 
@@ -447,13 +450,16 @@ def _draw_trend_on_ax(
 
     ax.set_xlabel("Solution index (CFM)", fontsize=label_size)
     ax.set_ylabel(metric_label, fontsize=label_size)
-    ax.legend(loc="best", fontsize=legend_size)
+    if legend:
+        ax.legend(loc="best", fontsize=legend_size)
     ax.text(
         0.99, 0.01,
         f"n = {n_instances} instances (forward-fill padded)",
         transform=ax.transAxes, fontsize=note_size, ha="right", va="bottom",
         color="#888888",
     )
+
+    _apply_axis_scaling(ax, metric_key)
 
 
 # Metrics that are bounded in [0, 1]
@@ -464,6 +470,38 @@ _BOUNDED_METRICS = {
     *(key for key, _ in SYNTACTIC_PRECISION_METRICS),
     *(key for key, _ in SYNTACTIC_RECALL_METRICS),
 }
+
+
+# Bounded metrics that share one fixed [0, 1] y-scale so panels are directly
+# comparable. solving_ratio is excluded (it swings far more than the others and
+# would flatten them); fluent_patch_count is unbounded and keeps its own scale
+# so its monotonic-decrease shape stays readable.
+_SHARED_SCALE_METRICS = _BOUNDED_METRICS - {"solving_ratio"}
+
+# Tiny headroom above 1.0 so the y=1.0 marker/line sits just below the top spine
+# (border above it) without ever drawing a tick label greater than 1.0.
+_TOP_HEADROOM = 0.02
+
+
+def _apply_axis_scaling(ax, metric_key: str) -> None:
+    """Force integer x-ticks and normalize the y-axis for bounded metrics.
+
+    - X-axis: solution indices are integers, so only integer ticks are shown.
+    - Y-axis (bounded metrics): capped at 1.0 with a hair of headroom and no
+      tick label above 1.0. Metrics in ``_SHARED_SCALE_METRICS`` also get a
+      fixed [0, 1] bottom so those panels share one scale; ``solving_ratio``
+      keeps an auto bottom; unbounded metrics are left untouched.
+    """
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+    if metric_key in _SHARED_SCALE_METRICS:
+        ax.set_ylim(0.0, 1.0 + _TOP_HEADROOM)
+    elif metric_key == "solving_ratio":
+        ax.set_ylim(bottom=0.0, top=1.0 + _TOP_HEADROOM)
+
+    if metric_key in _BOUNDED_METRICS:
+        # Drop any tick label above 1.0 (keeps the 1.0 tick, border sits above it).
+        ax.set_yticks([t for t in ax.get_yticks() if t <= 1.0 + 1e-9])
 
 
 # Each entry: (metric_key, metric_label, source, expected_monotone)
@@ -504,6 +542,7 @@ def plot_trend_with_shading(
     _draw_trend_on_ax(
         ax, solution_ids, means, stds, n_instances,
         metric_label, title, expected_monotone, value_bounds=bounds,
+        metric_key=metric_key,
     )
     fig.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
@@ -552,6 +591,8 @@ def plot_metrics_trends_summary(
             expected_monotone=monotone,
             value_bounds=bounds,
             compact=True,
+            metric_key=metric_key,
+            legend=False,
         )
 
     for idx in range(n_plots, n_rows * n_cols):
@@ -560,6 +601,13 @@ def plot_metrics_trends_summary(
 
     fig.suptitle(_title_with_domain(domain_name, suptitle), fontsize=13, y=1.01)
     fig.tight_layout()
+
+    # Single shared legend (Mean / ± 1 std) at the top-left of the whole figure,
+    # since every panel uses identical styling.
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    if handles:
+        fig.legend(handles, labels, loc="upper left",
+                   bbox_to_anchor=(0.0, 1.0), fontsize=9, framealpha=0.9)
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {output_path}")
@@ -591,24 +639,27 @@ def plot_all_trends_summary(
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Analyze CFM quality progression across conflict-search instances."
-    )
-    parser.add_argument(
-        "experiment_root",
-        type=str,
-        help="Path to experiment config dir (contains testing/ and evaluation_results/).",
-    )
-    args = parser.parse_args()
+def generate_cfm_quality_analysis(experiment_root: Path) -> Optional[Path]:
+    """Generate the CFM-quality plots for a completed experiment directory.
 
-    experiment_root = Path(args.experiment_root)
+    Reads <experiment_root>/testing/ and writes PNGs to
+    <experiment_root>/evaluation_results/CFM_quality/.
+
+    Args:
+        experiment_root: Experiment dir (contains testing/ and evaluation_results/).
+
+    Returns:
+        The output dir when plots were written, or None when there is nothing
+        to plot (no instance has >= 2 CFMs).
+
+    Raises:
+        FileNotFoundError: If no testing/ directory exists.
+    """
     testing_dir = experiment_root / "testing"
     eval_dir = experiment_root / "evaluation_results"
 
     if not testing_dir.is_dir():
-        print(f"ERROR: testing dir not found: {testing_dir}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"testing dir not found: {testing_dir}")
 
     output_dir = eval_dir / "CFM_quality"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -628,7 +679,7 @@ def main():
 
     if not multi_cfm:
         print("No instances with multiple CFMs found. Nothing to plot.")
-        sys.exit(0)
+        return None
 
     # Histogram: how many instances have exactly N CFMs
     cfm_histogram = _cfm_count_histogram(all_instances)
@@ -712,6 +763,25 @@ def main():
     )
 
     print(f"\nAll plots saved to: {output_dir}")
+    return output_dir
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Analyze CFM quality progression across conflict-search instances."
+    )
+    parser.add_argument(
+        "experiment_root",
+        type=str,
+        help="Path to experiment config dir (contains testing/ and evaluation_results/).",
+    )
+    args = parser.parse_args()
+
+    try:
+        generate_cfm_quality_analysis(Path(args.experiment_root))
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

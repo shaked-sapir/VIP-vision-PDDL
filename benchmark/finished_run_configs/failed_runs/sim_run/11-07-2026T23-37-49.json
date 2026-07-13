@@ -1,0 +1,242 @@
+{
+  "run_name": "sim_run",
+  "source": "simulated",
+  "generated_at": "11-07-2026T23-37-49",
+  "run_status": "failed",
+  "selected_domains": [
+    "depot",
+    "gripper"
+  ],
+  "shared": {
+    "mode": "masked",
+    "n_folds": 5,
+    "num_trajectories": [
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "gt_rates": [
+      0
+    ],
+    "learning_timeout_seconds": 300,
+    "planning_timeout_seconds": 60,
+    "search_mode": "dfs",
+    "node_choosing_strategy": "model_patch_first",
+    "model_constraint_weight": 0.0,
+    "conflict_group_strategy": "largest",
+    "fluent_branch_mode": "single",
+    "events_tracing": true,
+    "baselines": [
+      "none"
+    ]
+  },
+  "simulation": {
+    "masking_strategy": "percentage",
+    "noising_strategy": "percentage",
+    "seed": 42,
+    "grid": {
+      "masking_ps": [
+        0.0,
+        0.01,
+        0.1
+      ],
+      "noising_ps": [
+        0.0,
+        0.1,
+        0.2
+      ]
+    }
+  },
+  "num_cells": 18,
+  "by_domain": {
+    "depot": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.0__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.0__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.0__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.01__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.01__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.01__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.1__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.1__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.1__noise=0.2"
+    ],
+    "gripper": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.0__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.0__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.0__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.01__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.01__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.01__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.1__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.1__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.1__noise=0.2"
+    ]
+  },
+  "cells": [
+    {
+      "domain_key": "depot",
+      "experiment_name": "sim_run__mask=0.0__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.0__noise=0.0",
+      "masking_p": 0.0,
+      "noising_p": 0.0,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "sim_run__mask=0.0__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.0__noise=0.1",
+      "masking_p": 0.0,
+      "noising_p": 0.1,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "sim_run__mask=0.0__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.0__noise=0.2",
+      "masking_p": 0.0,
+      "noising_p": 0.2,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "sim_run__mask=0.01__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.01__noise=0.0",
+      "masking_p": 0.01,
+      "noising_p": 0.0,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "sim_run__mask=0.01__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.01__noise=0.1",
+      "masking_p": 0.01,
+      "noising_p": 0.1,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "sim_run__mask=0.01__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.01__noise=0.2",
+      "masking_p": 0.01,
+      "noising_p": 0.2,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "sim_run__mask=0.1__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.1__noise=0.0",
+      "masking_p": 0.1,
+      "noising_p": 0.0,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "sim_run__mask=0.1__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.1__noise=0.1",
+      "masking_p": 0.1,
+      "noising_p": 0.1,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "sim_run__mask=0.1__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/sim_run__mask=0.1__noise=0.2",
+      "masking_p": 0.1,
+      "noising_p": 0.2,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "sim_run__mask=0.0__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.0__noise=0.0",
+      "masking_p": 0.0,
+      "noising_p": 0.0,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "sim_run__mask=0.0__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.0__noise=0.1",
+      "masking_p": 0.0,
+      "noising_p": 0.1,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "sim_run__mask=0.0__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.0__noise=0.2",
+      "masking_p": 0.0,
+      "noising_p": 0.2,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "sim_run__mask=0.01__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.01__noise=0.0",
+      "masking_p": 0.01,
+      "noising_p": 0.0,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "sim_run__mask=0.01__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.01__noise=0.1",
+      "masking_p": 0.01,
+      "noising_p": 0.1,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "sim_run__mask=0.01__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.01__noise=0.2",
+      "masking_p": 0.01,
+      "noising_p": 0.2,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "sim_run__mask=0.1__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.1__noise=0.0",
+      "masking_p": 0.1,
+      "noising_p": 0.0,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "sim_run__mask=0.1__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.1__noise=0.1",
+      "masking_p": 0.1,
+      "noising_p": 0.1,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "sim_run__mask=0.1__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/sim_run__mask=0.1__noise=0.2",
+      "masking_p": 0.1,
+      "noising_p": 0.2,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"
+    }
+  ]
+}

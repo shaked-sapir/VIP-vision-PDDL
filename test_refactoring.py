@@ -84,7 +84,7 @@ print("=" * 60)
 
 files_to_check = [
     Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/run_fold.py"),
-    Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/benchmark_runner.py"),
+    Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/experiment_runner.py"),
     Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/src/utils/pddl.py"),
 ]
 
@@ -101,7 +101,7 @@ print("TEST 4: Configuration Constants")
 print("=" * 60)
 
 try:
-    import benchmark.benchmark_runner as aml
+    import benchmark.experiment_runner as aml
     print(f"✓ NUM_TRAJECTORIES_LIST: {aml.NUM_TRAJECTORIES_LIST}")
     print(f"✓ NUM_TRAJECTORIES_POOL: {aml.NUM_TRAJECTORIES_POOL}")
     print(f"✓ GT_RATE_PERCENTAGES: {aml.GT_RATE_PERCENTAGES}")

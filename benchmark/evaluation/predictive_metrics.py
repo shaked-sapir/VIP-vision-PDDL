@@ -5,7 +5,7 @@ Builds UPEnv simulators for each test problem that has S_test data,
 then calls AMLGym's predictive_power() directly.
 
 Used by both:
-  - benchmark_runner.evaluate_model()        (single-model evaluation)
+  - experiment_runner.evaluate_model()        (single-model evaluation)
   - multi_solution_evaluator.evaluate_all_solutions()  (batch evaluation)
 """
 

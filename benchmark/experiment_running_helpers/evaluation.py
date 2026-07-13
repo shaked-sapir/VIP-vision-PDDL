@@ -1,6 +1,6 @@
 """Model evaluation and learning metrics persistence.
 
-Extracted from benchmark_runner.py to keep the main experiment loop lean.
+Extracted from experiment_runner.py to keep the main experiment loop lean.
 """
 
 import json

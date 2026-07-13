@@ -1,0 +1,149 @@
+{
+  "run_name": "sim_run",
+  "source": "simulated",
+  "generated_at": "11-07-2026T14-15-59",
+  "run_status": "failed",
+  "selected_domains": [
+    "blocksworld"
+  ],
+  "shared": {
+    "mode": "masked",
+    "n_folds": 5,
+    "num_trajectories": [
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "gt_rates": [
+      0
+    ],
+    "learning_timeout_seconds": 300,
+    "planning_timeout_seconds": 60,
+    "search_mode": "dfs",
+    "node_choosing_strategy": "model_patch_first",
+    "model_constraint_weight": 0.0,
+    "conflict_group_strategy": "largest",
+    "fluent_branch_mode": "single",
+    "events_tracing": true,
+    "baselines": [
+      "none"
+    ]
+  },
+  "simulation": {
+    "masking_strategy": "percentage",
+    "noising_strategy": "percentage",
+    "seed": 42,
+    "grid": {
+      "masking_ps": [
+        0.0,
+        0.01,
+        0.1
+      ],
+      "noising_ps": [
+        0.0,
+        0.1,
+        0.2
+      ]
+    }
+  },
+  "num_cells": 9,
+  "by_domain": {
+    "blocksworld": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.0__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.0__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.0__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.01__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.01__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.01__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.1__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.1__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.1__noise=0.2"
+    ]
+  },
+  "cells": [
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "sim_run__mask=0.0__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.0__noise=0.0",
+      "masking_p": 0.0,
+      "noising_p": 0.0,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "sim_run__mask=0.0__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.0__noise=0.1",
+      "masking_p": 0.0,
+      "noising_p": 0.1,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "sim_run__mask=0.0__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.0__noise=0.2",
+      "masking_p": 0.0,
+      "noising_p": 0.2,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "sim_run__mask=0.01__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.01__noise=0.0",
+      "masking_p": 0.01,
+      "noising_p": 0.0,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "sim_run__mask=0.01__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.01__noise=0.1",
+      "masking_p": 0.01,
+      "noising_p": 0.1,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "sim_run__mask=0.01__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.01__noise=0.2",
+      "masking_p": 0.01,
+      "noising_p": 0.2,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "sim_run__mask=0.1__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.1__noise=0.0",
+      "masking_p": 0.1,
+      "noising_p": 0.0,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "sim_run__mask=0.1__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.1__noise=0.1",
+      "masking_p": 0.1,
+      "noising_p": 0.1,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "sim_run__mask=0.1__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/sim_run__mask=0.1__noise=0.2",
+      "masking_p": 0.1,
+      "noising_p": 0.2,
+      "status": "failed",
+      "error": "No gt_trajectories/ dir found under /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version. Expected: /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version/gt_trajectories\nGenerate them with:\n    python -m benchmark.generate_gt_trajectories --experiment-dir /Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"
+    }
+  ]
+}
