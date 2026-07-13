@@ -11,13 +11,13 @@ metrics (continuous in [0,1]) ratio would also work — swap to
 if preferred.
 
 Usage:
-    python -m benchmark.evaluation.cfm_quality_analysis <experiment_root>
+    python -m benchmark.evaluation.cfm.cfm_quality_analysis <experiment_root>
 
 Outputs per-metric improvement/trend PNGs plus summary figures:
     all_trends_summary.png, precision_trends_summary.png, recall_trends_summary.png
 
 Example:
-    python -m benchmark.evaluation.cfm_quality_analysis \
+    python -m benchmark.evaluation.cfm.cfm_quality_analysis \
         benchmark/running_results/blocksworld/TO=300__largest__cv5__singleFluentBranching
 """
 

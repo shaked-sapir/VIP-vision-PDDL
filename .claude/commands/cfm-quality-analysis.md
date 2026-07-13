@@ -7,7 +7,7 @@ Analyze whether later CFMs improve over earlier ones for a completed experiment.
 1. Run the following command from the project root with the venv activated:
 
 ```
-source venv11/bin/activate && python -m benchmark.evaluation.cfm_quality_analysis "$ARGUMENTS"
+source venv11/bin/activate && python -m benchmark.evaluation.cfm.cfm_quality_analysis "$ARGUMENTS"
 ```
 
 2. If the command succeeds, report:

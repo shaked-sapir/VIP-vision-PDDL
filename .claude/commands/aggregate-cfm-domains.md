@@ -20,7 +20,7 @@ Default output directory: `<experiment_dir>/aggregated_domains/`
 1. Run from the project root with the venv activated:
 
 ```
-source venv11/bin/activate && python -m benchmark.evaluation.cfm_domain_aggregate "$ARGUMENTS"
+source venv11/bin/activate && python -m benchmark.evaluation.cfm.cfm_domain_aggregate "$ARGUMENTS"
 ```
 
 2. Present:

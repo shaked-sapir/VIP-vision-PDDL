@@ -223,7 +223,7 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - Entry points: `benchmark/benchmark_runner.py` (config-driven batch runner over domains/noise configs), `benchmark/experiment_runner.py` (single experiment; called per-cell by benchmark_runner), `benchmark/data_generator.py`, `src/simulator_cli.py`
 - Baselines: `benchmark/baselines/` — register runners in `BASELINE_REGISTRY`, select via `--baselines` in `experiment_runner.py`
 - Data lives under `benchmark/data/{domain}/`
-- Evaluation: `benchmark/evaluation/cfm_quality_analysis.py`, `benchmark/evaluation/cfm_domain_aggregate.py`, `benchmark/evaluation/fold_filter.py`, `benchmark/evaluation/trajectory_fluent_confusion.py`, `benchmark/evaluation/experiment_report.py`, `benchmark/evaluation/compare_original_observations.py`, `benchmark/evaluation/correlation_analysis.py`
+- Evaluation: `benchmark/evaluation/cfm/cfm_quality_analysis.py`, `benchmark/evaluation/cfm/cfm_domain_aggregate.py`, `benchmark/evaluation/cfm/cfm_quality_table.py`, `benchmark/evaluation/fold_filter.py`, `benchmark/evaluation/trajectory_fluent_confusion.py`, `benchmark/evaluation/experiment_report.py`, `benchmark/evaluation/compare_original_observations.py`, `benchmark/evaluation/correlation_analysis.py`
 - Configuration: `config.yaml` at project root
 - Activate environment: `source venv11/bin/activate`
 

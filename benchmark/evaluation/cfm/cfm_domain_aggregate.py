@@ -13,7 +13,7 @@ For every ``conflict_free_model_*/model.pddl`` under an experiment's
 6. ``vote_0p90.pddl`` — literals in ≥ 90% of CFMs.
 
 Usage:
-    python -m benchmark.evaluation.cfm_domain_aggregate <experiment_dir>
+    python -m benchmark.evaluation.cfm.cfm_domain_aggregate <experiment_dir>
 """
 
 from __future__ import annotations

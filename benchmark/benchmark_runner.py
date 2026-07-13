@@ -65,7 +65,8 @@ sys.path.insert(0, str(project_root))
 
 from benchmark import experiment_runner
 from benchmark.baselines import get_baselines
-from benchmark.evaluation.cfm_quality_analysis import generate_cfm_quality_analysis
+from benchmark.evaluation.cfm.cfm_quality_analysis import generate_cfm_quality_analysis
+from benchmark.evaluation.cfm.cfm_quality_table import generate_cfm_quality_table
 from benchmark.evaluation.experiment_report import generate_experiment_report
 from benchmark.experiment_running_helpers.data_source import ImageDataSource, SimulatedDataSource
 from src.pi_sam.masking import MaskingType
@@ -444,6 +445,7 @@ def _generate_cell_reports(result_dir: Path) -> None:
     for label, generate in (
         ("experiment report", generate_experiment_report),
         ("CFM quality analysis", generate_cfm_quality_analysis),
+        ("CFM quality table", generate_cfm_quality_table),
     ):
         try:
             print(f"\nGenerating {label} for {result_dir} ...")
