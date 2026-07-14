@@ -10,6 +10,29 @@ from typing import List, Set, Tuple
 from src.utils.pddl import inject_gt_states_by_percentage, propagate_frame_axioms_selective
 
 
+def _resolve_gt_json_path(prob_dir: Path, problem_name: str) -> Path:
+    """Resolve the ground-truth trajectory JSON for GT-rate injection.
+
+    Prefers the clean ``gt_trajectories/{problem}/{problem}_trajectory.json``
+    (true states) over the in-dir ``{problem}_trajectory.json`` (which, for
+    generate-mode datasets, holds the classifier's noisy states). Falls back to
+    the in-dir JSON for legacy datasets that predate the gt_trajectories/ split.
+
+    ``prob_dir`` is ``<data_dir>/training/trajectories/<problem>``, so the
+    experiment/data root is ``prob_dir.parents[2]``.
+    """
+    in_dir = prob_dir / f"{problem_name}_trajectory.json"
+    try:
+        gt_json = prob_dir.parents[2] / "gt_trajectories" / prob_dir.name / f"{problem_name}_trajectory.json"
+    except IndexError:
+        return in_dir
+    if gt_json.exists():
+        return gt_json
+    print(f"    ⚠ No gt_trajectories JSON for {prob_dir.name}; "
+          f"falling back to in-dir JSON (may be noisy for generate-mode data)")
+    return in_dir
+
+
 def _save_gt_indices(path: Path, indices: Set[int]) -> None:
     path.write_text(json.dumps(sorted(indices)))
 
@@ -59,7 +82,7 @@ def pregenerate_all_gt_frame_axiom_files(
         traj_path = traj_files[0]
         problem_name = traj_path.stem
         masking_path = prob_dir / f"{problem_name}.masking_info"
-        json_trajectory_path = prob_dir / f"{problem_name}_trajectory.json"
+        json_trajectory_path = _resolve_gt_json_path(prob_dir, problem_name)
 
         if not masking_path.exists() or not json_trajectory_path.exists():
             print(f"    ⚠ Missing masking or JSON file, skipping")

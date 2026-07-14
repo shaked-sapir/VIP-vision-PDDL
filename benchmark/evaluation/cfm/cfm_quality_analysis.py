@@ -324,8 +324,12 @@ def compute_padded_trend(
     """Compute mean ± std of a metric across instances with forward-fill padding.
 
     For each instance, loads the per-solution metric values, then forward-fills
-    (carries the last value) up to the global max solution_index. After padding,
-    computes mean and std at each solution_index across all instances.
+    (carries the last value) up to *this experiment's* max solution_index. After
+    padding, computes mean and std at each solution_index across all instances.
+
+    Note: padding never extends past this experiment's own max index — sharing a
+    common x-axis across experiments is done at plot time (via the x-axis limits),
+    not by inventing a flat tail here.
 
     Args:
         instance_dirs: Directories containing the metric files.
@@ -357,7 +361,7 @@ def compute_padded_trend(
     if not all_series:
         return np.array([]), np.array([]), np.array([]), 0
 
-    # Determine global max solution_index
+    # Determine this experiment's own max solution_index
     max_id = max(idx for series in all_series for idx, _ in series)
 
     # Forward-fill each instance to max_id
@@ -397,6 +401,7 @@ def _draw_trend_on_ax(
     compact: bool = False,
     metric_key: str = "",
     legend: bool = True,
+    x_max: Optional[int] = None,
 ) -> None:
     """Draw a mean ± std trend on an existing axes.
 
@@ -461,6 +466,12 @@ def _draw_trend_on_ax(
 
     _apply_axis_scaling(ax, metric_key)
 
+    # Shared x-axis limits (for grid comparison) without inventing a flat tail:
+    # the line stops at its own last index; only the visible range is extended.
+    if x_max is not None and x_max > 0:
+        margin = max(0.5, 0.02 * x_max)
+        ax.set_xlim(-margin, x_max + margin)
+
 
 # Metrics that are bounded in [0, 1]
 _BOUNDED_METRICS = {
@@ -518,6 +529,7 @@ def plot_trend_with_shading(
     output_path: Path,
     expected_monotone: str | None = None,
     metric_key: str = "",
+    x_max: Optional[int] = None,
 ) -> None:
     """Plot mean ± std trend line with shaded region.
 
@@ -531,6 +543,8 @@ def plot_trend_with_shading(
         output_path: Where to save the PNG.
         expected_monotone: If 'non_increasing', warn when violated.
         metric_key: Used to determine if shading should be clamped to [0, 1].
+        x_max: Optional shared x-axis upper limit (for grid comparison); the line
+            still ends at its own last index.
     """
     if len(solution_ids) == 0:
         print(f"  [SKIP] {title}: no data")
@@ -542,7 +556,7 @@ def plot_trend_with_shading(
     _draw_trend_on_ax(
         ax, solution_ids, means, stds, n_instances,
         metric_label, title, expected_monotone, value_bounds=bounds,
-        metric_key=metric_key,
+        metric_key=metric_key, x_max=x_max,
     )
     fig.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
@@ -556,6 +570,7 @@ def plot_metrics_trends_summary(
     suptitle: str,
     output_path: Path,
     domain_name: str,
+    x_max: Optional[int] = None,
 ) -> None:
     """Single figure with multiple padded mean ± std trend subplots."""
     trend_data: List[Tuple[str, str, np.ndarray, np.ndarray, np.ndarray, int, str | None]] = []
@@ -593,6 +608,7 @@ def plot_metrics_trends_summary(
             compact=True,
             metric_key=metric_key,
             legend=False,
+            x_max=x_max,
         )
 
     for idx in range(n_plots, n_rows * n_cols):
@@ -619,6 +635,7 @@ def plot_all_trends_summary(
     n_instances_hint: int,
     output_path: Path,
     domain_name: str,
+    x_max: Optional[int] = None,
 ) -> None:
     """Single figure with predictive metrics + fluent_patch_count trends."""
     trend_specs: List[TrendSpec] = [
@@ -631,6 +648,7 @@ def plot_all_trends_summary(
     plot_metrics_trends_summary(
         instance_dirs,
         trend_specs,
+        x_max=x_max,
         suptitle="CFM quality trends — all metrics (padded mean ± std)",
         output_path=output_path,
         domain_name=domain_name,
@@ -639,14 +657,46 @@ def plot_all_trends_summary(
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
-def generate_cfm_quality_analysis(experiment_root: Path) -> Optional[Path]:
+def get_max_solution_index(experiment_root: Path) -> Optional[int]:
+    """Return the largest CFM solution index across an experiment's instances.
+
+    Used to align the x-axis across a grid of experiments (shared x). Returns
+    None when the experiment has no usable instance metrics.
+
+    Args:
+        experiment_root: Experiment dir (contains testing/).
+    """
+    testing_dir = experiment_root / "testing"
+    if not testing_dir.is_dir():
+        return None
+    max_id: Optional[int] = None
+    for d in find_instance_dirs(testing_dir):
+        for cfm in load_cfm_metrics(d):
+            idx = cfm.get("solution_index")
+            if idx is not None and (max_id is None or idx > max_id):
+                max_id = idx
+    return max_id
+
+
+def generate_cfm_quality_analysis(
+    experiment_root: Path,
+    x_max: Optional[int] = None,
+    output_dir_override: Optional[Path] = None,
+) -> Optional[Path]:
     """Generate the CFM-quality plots for a completed experiment directory.
 
     Reads <experiment_root>/testing/ and writes PNGs to
-    <experiment_root>/evaluation_results/CFM_quality/.
+    <experiment_root>/evaluation_results/CFM_quality/ (or to
+    ``output_dir_override`` when given).
 
     Args:
         experiment_root: Experiment dir (contains testing/ and evaluation_results/).
+        x_max: Optional shared x-axis upper limit. When given, trend plots use it
+            only as the x-axis limit (for grid comparison); each line still ends
+            at its own last solution index (no flat tail). Leave None for raw,
+            per-experiment plots.
+        output_dir_override: Write PNGs here instead of the default CFM_quality
+            dir (used to keep shared-x dashboard copies separate from raw plots).
 
     Returns:
         The output dir when plots were written, or None when there is nothing
@@ -661,7 +711,7 @@ def generate_cfm_quality_analysis(experiment_root: Path) -> Optional[Path]:
     if not testing_dir.is_dir():
         raise FileNotFoundError(f"testing dir not found: {testing_dir}")
 
-    output_dir = eval_dir / "CFM_quality"
+    output_dir = output_dir_override or (eval_dir / "CFM_quality")
     output_dir.mkdir(parents=True, exist_ok=True)
     domain_name = load_domain_name(experiment_root)
 
@@ -716,6 +766,7 @@ def generate_cfm_quality_analysis(experiment_root: Path) -> Optional[Path]:
             ),
             output_path=output_dir / f"{metric_key}_trend.png",
             metric_key=metric_key,
+            x_max=x_max,
         )
 
     # Fluent patch count trend (sanity — should be non-increasing)
@@ -731,6 +782,7 @@ def generate_cfm_quality_analysis(experiment_root: Path) -> Optional[Path]:
         output_path=output_dir / "fluent_patch_count_trend.png",
         expected_monotone="non_increasing",
         metric_key="fluent_patch_count",
+        x_max=x_max,
     )
 
     # Summary: all trends in one figure
@@ -738,6 +790,7 @@ def generate_cfm_quality_analysis(experiment_root: Path) -> Optional[Path]:
         instance_dirs, METRICS, len(instance_dirs),
         output_path=output_dir / "all_trends_summary.png",
         domain_name=domain_name,
+        x_max=x_max,
     )
 
     plot_metrics_trends_summary(
@@ -749,6 +802,7 @@ def generate_cfm_quality_analysis(experiment_root: Path) -> Optional[Path]:
         suptitle="Syntactic precision trends (padded mean ± std)",
         output_path=output_dir / "precision_trends_summary.png",
         domain_name=domain_name,
+        x_max=x_max,
     )
 
     plot_metrics_trends_summary(
@@ -760,6 +814,7 @@ def generate_cfm_quality_analysis(experiment_root: Path) -> Optional[Path]:
         suptitle="Syntactic recall trends (padded mean ± std)",
         output_path=output_dir / "recall_trends_summary.png",
         domain_name=domain_name,
+        x_max=x_max,
     )
 
     print(f"\nAll plots saved to: {output_dir}")
@@ -775,10 +830,17 @@ def main():
         type=str,
         help="Path to experiment config dir (contains testing/ and evaluation_results/).",
     )
+    parser.add_argument(
+        "--pad-to-index",
+        type=int,
+        default=None,
+        help="Force trend plots to share a common x-axis up to this solution index "
+             "(forward-fill padding extends the last value as a flat tail).",
+    )
     args = parser.parse_args()
 
     try:
-        generate_cfm_quality_analysis(Path(args.experiment_root))
+        generate_cfm_quality_analysis(Path(args.experiment_root), x_max=args.pad_to_index)
     except FileNotFoundError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)

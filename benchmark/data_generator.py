@@ -89,7 +89,8 @@ def _cleanup_external_source_files(problem_dir: Path) -> None:
 
 # ── Generation-mode helpers (PDDLGym domains) ────────────────────────────
 
-def _run_generation_inference(handler, problem_name: str, problem_dir: Path) -> None:
+def _run_generation_inference(handler, problem_name: str, problem_dir: Path,
+                              gt_root: Path) -> None:
     """Run external-style inference over a freshly-generated PDDLGym problem folder.
 
     The generated folder already contains GT (_trajectory.json) + images + .pddl,
@@ -99,14 +100,27 @@ def _run_generation_inference(handler, problem_name: str, problem_dir: Path) -> 
     The generator writes the .pddl and _trajectory.json in the raw gym schema
     (its _GymWalkHandler has no schema-translation hook). Inference produces a
     .trajectory already in the eval schema (via _rename_ground_action + the
-    classifiers). So after inference we translate the .pddl to the eval schema
-    and rebuild _trajectory.json from the translated .trajectory + .pddl, leaving
-    all three files consistently in the eval schema.
+    classifiers).
+
+    Before we translate the .pddl and rebuild the (noisy) _trajectory.json from
+    the classifier .trajectory, we export the *true* GT — schema-translated to
+    the eval schema — into ``gt_root/{problem}/``. This preserves ground truth as
+    a first-class parallel artifact; without it the raw GT JSON would be deleted
+    and gt_trajectories/ would silently contain classifier output.
     """
+    from benchmark.experiment_running_helpers.gt_builder import export_gt_from_problem_dir
+
     ensure_trajectory_json(problem_dir)
     actions = extract_actions_from_trajectory_json(problem_dir)
     handler._set_seq_idx_format(problem_dir)
     handler.create_trajectory_and_masks(problem_name, actions, problem_dir)
+
+    # Capture GT (raw gym schema -> eval schema) BEFORE the rebuild overwrites it.
+    export_gt_from_problem_dir(
+        problem_dir, gt_root, problem_name,
+        handler=handler, needs_schema_translation=True,
+    )
+
     _translate_problem_and_rebuild_json(handler, problem_dir)
 
 
@@ -313,6 +327,7 @@ def generate_trajectories_via_generation(
         return trajectories_dir
 
     # 2. Run external-style inference on each generated folder.
+    gt_root = experiment_dir / "gt_trajectories"
     for problem_idx, problem_dir in enumerate(generated_dirs):
         problem_name = problem_dir.name
         print(f"[{problem_idx + 1}/{len(generated_dirs)}] Inferring {problem_name}...")
@@ -322,7 +337,7 @@ def generate_trajectories_via_generation(
                 pddl_domain_file=domain_file,
                 vendor=vendor,
             )
-            _run_generation_inference(handler, problem_name, problem_dir)
+            _run_generation_inference(handler, problem_name, problem_dir, gt_root)
             _apply_transform(registry["transform_fn"], problem_dir)
             _cleanup_external_source_files(problem_dir)
             print(f"  ✓ {problem_name}")
@@ -332,10 +347,8 @@ def generate_trajectories_via_generation(
             print()
             continue
 
-    # Export GT .trajectory files (one per problem) from the retained GT JSONs.
-    # Lazy import avoids a circular import (the GT script imports helpers from here).
-    from benchmark.generate_gt_trajectories import generate_gt_trajectories
-    gt_root = generate_gt_trajectories(trajectories_dir, experiment_dir)
+    # GT trajectories are exported per-problem inside _run_generation_inference
+    # (before the noisy rebuild), so no separate post-pass is needed.
 
     print("=" * 80)
     print("GENERATION-MODE TRAJECTORY GENERATION COMPLETE")
@@ -450,6 +463,7 @@ def generate_trajectories(
         pipeline_kwargs["planner"] = planner
 
     # Process each problem
+    gt_root = experiment_dir / "gt_trajectories"
     for problem_idx, source_problem_dir in enumerate(problem_dirs):
         problem_name = source_problem_dir.name
         print(f"[{problem_idx + 1}/{len(problem_dirs)}] Processing {problem_name}...")
@@ -495,6 +509,15 @@ def generate_trajectories(
                 for pddl_file in output_problem_dir.glob("*.pddl"):
                     handler.translate_problem_pddl(pddl_file)
 
+            # Export GT to gt_trajectories/ from the retained (eval-schema) GT
+            # JSON. For predefined/external the JSON is already GT + eval-schema
+            # (never rebuilt from the classifier), so no schema translation.
+            from benchmark.experiment_running_helpers.gt_builder import export_gt_from_problem_dir
+            export_gt_from_problem_dir(
+                output_problem_dir, gt_root, problem_name,
+                needs_schema_translation=False,
+            )
+
             print(f"  ✓ {problem_name}")
             print()
 
@@ -502,11 +525,6 @@ def generate_trajectories(
             print(f"  ✗ Failed: {e}")
             print()
             continue
-
-    # Export GT .trajectory files (one per problem) from the retained GT JSONs.
-    # Lazy import avoids a circular import (the GT script imports helpers from here).
-    from benchmark.generate_gt_trajectories import generate_gt_trajectories
-    gt_root = generate_gt_trajectories(trajectories_dir, experiment_dir)
 
     print()
     print("=" * 80)

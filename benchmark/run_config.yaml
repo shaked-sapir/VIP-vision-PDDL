@@ -9,7 +9,7 @@
 # A timestamped manifest (params + per-domain output paths) is archived to:
 #   benchmark/finished_run_configs/<run_name>/<timestamp>.json
 
-run_name: simulation-checkup                       # names the output experiments + the manifest dir
+run_name: simulation-checkup-dfdf                       # names the output experiments + the manifest dir
 source: simulated                       # image | simulated
 
 # Shared benchmark params — forwarded to experiment_runner.main().
@@ -36,15 +36,15 @@ simulation:
   noising_strategy: percentage          # percentage | random
   seed: 42                              # any int (RNG seed)
   grid:
-    masking_ps: [0.0, 0.01, 0.1]
-    noising_ps: [0.0, 0.1, 0.2]             # list of floats in [0, 1]
+    masking_ps: [0.0]
+    noising_ps: [0.0]             # list of floats in [0, 1]
 
 # Per-domain: only domain_key + data_dir. data_dir must contain
 # training/trajectories/ (for imaged version) and gt_trajectories/ (for simulated version).
 
 domains:
   - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"}
-  - {domain_key: hanoi,       data_dir: "benchmark/data/hanoi/hanoi_generated_problem1__final-version"}
+  - {domain_key: hanoi,       data_dir: "benchmark/data/hanoi/hanoi_generated_problem1__final-version_fixed"}
   - {domain_key: npuzzle,     data_dir: "benchmark/data/npuzzle/npuzzle_prob0_6-10steps_generate"}
   - {domain_key: depot,       data_dir: "benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"}
   - {domain_key: gripper,     data_dir: "benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"}
