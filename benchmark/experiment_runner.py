@@ -26,12 +26,17 @@ from typing import List, Optional
 import pandas as pd
 from amlgym.metrics import print_metrics
 
-from benchmark.baselines import get_baselines
+from benchmark.baselines import resolve_baselines
 from benchmark.evaluation.correlation_analysis import aggregate_correlation_tables
 from benchmark.experiment_running_helpers.data_source import DataSource, ImageDataSource, SimulatedDataSource
 from benchmark.experiment_running_helpers.evaluation import evaluate_model, save_learning_metrics
 from benchmark.experiment_running_helpers.normalize import normalize_experiment_data
 from benchmark.experiment_running_helpers.run_fold import run_single_fold
+from benchmark.experiment_running_helpers.resume import (
+    fold_instance_dir,
+    run_params_conflicts,
+    try_load_fold_result,
+)
 from benchmark.experiment_running_helpers.reporting import (
     generate_excel_report,
     generate_plots,
@@ -81,6 +86,15 @@ def _save_run_params(path: Path, run_params: dict, *, skip_if_exists: bool = Fal
 
 def _results_for_domain(results: List[dict], display_domain_name: str) -> List[dict]:
     return [r for r in results if r['domain'] == display_domain_name]
+
+
+def _route_results(rows: List[dict], unclean_results: List[dict], cleaned_results: List[dict]) -> None:
+    """Append each result row to the unclean/cleaned list by its internal phase."""
+    for result in rows:
+        if result['_internal_phase'] == 'unclean':
+            unclean_results.append(result)
+        else:
+            cleaned_results.append(result)
 
 
 def _resolve_domain_config(domain_key: str) -> dict:
@@ -140,6 +154,7 @@ def main(
     force_normalize: bool = False,
     baselines: list = None,
     events_tracing: bool = False,
+    resume: bool = False,
 ):
     """Run benchmark experiments on a single domain.
 
@@ -156,6 +171,10 @@ def main(
         frame_axiom_mode: "after_gt_only" or "all_states".
         normalize: Run normalization pre-processing before evaluation.
         force_normalize: Re-normalize even if normalized data exists.
+        resume: Skip fold instances that already completed (a fold_result.json
+            marker exists), reloading their rows so reports stay complete.
+            Strictly aborts if the current config conflicts with the saved
+            run_params.json of the experiment being resumed.
     """
     if num_trajectories_list is None:
         num_trajectories_list = [3, 4, 5, 6, 7, 8]
@@ -241,7 +260,24 @@ def main(
         "data_source_type": type(data_source).__name__,
     }
     if evaluation_results_dir is not None:
-        _save_run_params(evaluation_results_dir / "run_params.json", run_params)
+        run_params_path = evaluation_results_dir / "run_params.json"
+        if resume and run_params_path.exists():
+            with open(run_params_path) as f:
+                existing_params = json.load(f)
+            conflicts = run_params_conflicts(existing_params, run_params)
+            if conflicts:
+                details = "\n".join(
+                    f"    {k}: saved={existing_params.get(k)!r} current={run_params.get(k)!r}"
+                    for k in conflicts
+                )
+                raise ValueError(
+                    f"Cannot resume experiment {experiment_name!r}: current config "
+                    f"conflicts with the saved run_params.json:\n{details}\n"
+                    f"  Revert the config or use a fresh experiment name."
+                )
+            _save_run_params(run_params_path, run_params, skip_if_exists=True)
+        else:
+            _save_run_params(run_params_path, run_params)
 
     # ── Validate problem directories ─────────────────────────────────────
     testing_dir.mkdir(parents=True, exist_ok=True)
@@ -309,11 +345,17 @@ def main(
             gt_info = f"GT rate: {gt_rate}%" if gt_rate > 0 else "Baseline (GT only at t=0)"
             print(f"\n{'-'*60}\n{gt_info}\n{'-'*60}")
 
-            n_total_jobs = n_folds
-            print(f"  [MAIN] Starting {n_total_jobs} fold jobs...")
             with ProcessPoolExecutor(max_workers=n_folds) as executor:
                 futures = []
                 for fold in range(n_folds):
+                    if resume:
+                        cached = try_load_fold_result(
+                            fold_instance_dir(testing_dir, fold, num_trajectories, gt_rate)
+                        )
+                        if cached is not None:
+                            _route_results(cached, unclean_results, cleaned_results)
+                            print(f"  [RESUME] fold {fold} already complete — skipping")
+                            continue
                     fold_kwargs = dict(
                         fold=fold,
                         problem_dirs=problem_dirs,
@@ -344,7 +386,8 @@ def main(
                     future = executor.submit(run_single_fold, **fold_kwargs)
                     futures.append(future)
 
-                print(f"  [MAIN] All {n_total_jobs} fold tasks submitted, waiting for completion...")
+                n_total_jobs = len(futures)
+                print(f"  [MAIN] {n_total_jobs} fold tasks submitted, waiting for completion...")
 
                 completed_count = 0
                 start_time = time.time()
@@ -360,12 +403,7 @@ def main(
 
                         fold_num = results_list[0]['fold'] if results_list else '?'
 
-                        for result in results_list:
-                            phase = result['_internal_phase']
-                            if phase == 'unclean':
-                                unclean_results.append(result)
-                            else:
-                                cleaned_results.append(result)
+                        _route_results(results_list, unclean_results, cleaned_results)
 
                         print(f"  [MAIN] Fold {fold_num} results processed. Jobs done: {completed_count}/{n_total_jobs}")
                     except TimeoutError:
@@ -580,6 +618,8 @@ if __name__ == "__main__":
     # ── Tracing & baselines ──────────────────────────────────────────────
     parser.add_argument('--events-tracing', action='store_true', default=False,
                         help='Enable per-node event tracing during denoising')
+    parser.add_argument('--resume', action='store_true', default=False,
+                        help='Skip fold instances that already completed (fold_result.json present)')
     parser.add_argument(
         '--baselines', type=str, nargs='*', default=['rosame'],
         help='Baseline algorithms (e.g. "rosame"). Use "none" to skip. Default: rosame.',
@@ -615,14 +655,10 @@ if __name__ == "__main__":
     # Baselines
     if not args.baselines:
         parser.error("--baselines requires a value (e.g. 'rosame', or 'none' to skip)")
-    if len(args.baselines) == 1 and args.baselines[0].lower() == 'none':
-        baseline_names = []
-    elif any(name.lower() == 'none' for name in args.baselines):
-        parser.error("Cannot combine 'none' with other baseline names")
-    else:
-        baseline_names = args.baselines
-
-    baseline_runners = get_baselines(baseline_names) if baseline_names else []
+    try:
+        baseline_runners = resolve_baselines(args.baselines)
+    except ValueError as err:
+        parser.error(str(err))
     if baseline_runners:
         print(f"Baselines: {', '.join(r.display_name for r in baseline_runners)}")
     else:
@@ -680,4 +716,5 @@ if __name__ == "__main__":
         force_normalize=args.force_normalize,
         baselines=baseline_runners,
         events_tracing=args.events_tracing,
+        resume=args.resume,
     )

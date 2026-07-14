@@ -20,6 +20,7 @@ from benchmark.experiment_running_helpers.post_process_gt_metrics import run_pos
 from benchmark.experiment_running_helpers.learning_helpers import learn_rosame, learn_sam_pisam
 from benchmark.experiment_running_helpers.profiling import TimingProfiler
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
+from benchmark.experiment_running_helpers.resume import fold_instance_dir, save_fold_result
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt, load_learning_metrics
 from benchmark.experiment_running_helpers.trajectory_utils import save_fold_metadata, update_fold_metadata
 from benchmark.evaluation.test_states_generator import generate_predictive_power_test_states
@@ -220,7 +221,7 @@ def run_single_fold(
     profiler = TimingProfiler()
 
     # Setup
-    fold_work_dir = testing_dir / f"fold{fold}_numtrajs{num_trajectories}_gtrate{gt_rate}"
+    fold_work_dir = fold_instance_dir(testing_dir, fold, num_trajectories, gt_rate)
     if output_subdir is not None:
         fold_work_dir = fold_work_dir / output_subdir
     fold_work_dir.mkdir(parents=True, exist_ok=True)
@@ -565,6 +566,9 @@ def run_single_fold(
         
         # Build results list: always SAM results first, then baselines
         fold_results = [unclean_sam_result] + unclean_baseline_results + [cleaned_sam_result] + cleaned_baseline_results
+
+        # Write the resume marker last: its presence means this fold is fully done.
+        save_fold_result(fold_work_dir, fold_results)
         print(f"  [FOLD COMPLETE] Returning {len(fold_results)} results for fold {fold}")
         return fold_results
 

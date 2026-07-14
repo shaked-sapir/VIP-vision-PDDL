@@ -64,7 +64,7 @@ project_root = benchmark_path.parent
 sys.path.insert(0, str(project_root))
 
 from benchmark import experiment_runner
-from benchmark.baselines import get_baselines
+from benchmark.baselines import resolve_baselines
 from benchmark.evaluation.cfm.cfm_quality_analysis import generate_cfm_quality_analysis
 from benchmark.evaluation.cfm.cfm_quality_table import generate_cfm_quality_table
 from benchmark.evaluation.experiment_report import generate_experiment_report
@@ -268,7 +268,7 @@ _PASSTHROUGH_KEYS = {
     "model_patch_cost", "model_constraint_weight",
     "max_search_nodes", "search_mode", "node_choosing_strategy",
     "conflict_group_strategy", "fluent_branch_mode",
-    "normalize", "force_normalize", "events_tracing",
+    "normalize", "force_normalize", "events_tracing", "resume",
 }
 
 
@@ -290,12 +290,8 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     if "gt_rates" in shared:
         kwargs["gt_rate_percentages"] = shared["gt_rates"]
 
-    # Baselines: resolve names → runner instances.
-    baseline_names = shared.get("baselines", ["rosame"])
-    if len(baseline_names) == 1 and str(baseline_names[0]).lower() == "none":
-        kwargs["baselines"] = []
-    else:
-        kwargs["baselines"] = get_baselines(baseline_names)
+    # Baselines: resolve names → runner instances ("none" skips baselines).
+    kwargs["baselines"] = resolve_baselines(shared.get("baselines", ["rosame"]))
 
     return kwargs
 

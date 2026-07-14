@@ -50,3 +50,28 @@ def get_baselines(names: List[str]) -> List[BaselineRunner]:
         for cls in BASELINE_REGISTRY[key]:
             runners.append(cls())
     return runners
+
+
+def resolve_baselines(names: List[str]) -> List[BaselineRunner]:
+    """Resolve baseline names to runners, treating ``"none"`` as "skip".
+
+    A single ``"none"`` (case-insensitive) yields an empty list. ``"none"`` may
+    not be mixed with real baseline names. Any other list is delegated to
+    :func:`get_baselines`.
+
+    Args:
+        names: List of short baseline names, or a single ``["none"]``.
+
+    Returns:
+        Instantiated ``BaselineRunner`` objects (empty for ``["none"]``).
+
+    Raises:
+        ValueError: If ``"none"`` is combined with other names, or a name is
+            not found in the registry.
+    """
+    lowered = [name.strip().lower() for name in names]
+    if "none" in lowered:
+        if len(lowered) > 1:
+            raise ValueError("Cannot combine 'none' with other baseline names")
+        return []
+    return get_baselines(names)
