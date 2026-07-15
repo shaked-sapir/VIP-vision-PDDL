@@ -493,6 +493,10 @@ _SHARED_SCALE_METRICS = _BOUNDED_METRICS - {"solving_ratio"}
 # (border above it) without ever drawing a tick label greater than 1.0.
 _TOP_HEADROOM = 0.02
 
+# A little room below 0.0 so a curve pinned at 0 (e.g. solving ratio all zeros)
+# is drawn as a visible flat line instead of hiding on the bottom spine.
+_BOTTOM_ROOM = 0.03
+
 
 def _apply_axis_scaling(ax, metric_key: str) -> None:
     """Force integer x-ticks and normalize the y-axis for bounded metrics.
@@ -506,13 +510,13 @@ def _apply_axis_scaling(ax, metric_key: str) -> None:
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
     if metric_key in _SHARED_SCALE_METRICS:
-        ax.set_ylim(0.0, 1.0 + _TOP_HEADROOM)
+        ax.set_ylim(-_BOTTOM_ROOM, 1.0 + _TOP_HEADROOM)
     elif metric_key == "solving_ratio":
-        ax.set_ylim(bottom=0.0, top=1.0 + _TOP_HEADROOM)
+        ax.set_ylim(bottom=-_BOTTOM_ROOM, top=1.0 + _TOP_HEADROOM)
 
     if metric_key in _BOUNDED_METRICS:
-        # Drop any tick label above 1.0 (keeps the 1.0 tick, border sits above it).
-        ax.set_yticks([t for t in ax.get_yticks() if t <= 1.0 + 1e-9])
+        # Keep only ticks in [0, 1] (no label above 1.0, none below 0.0).
+        ax.set_yticks([t for t in ax.get_yticks() if -1e-9 <= t <= 1.0 + 1e-9])
 
 
 # Each entry: (metric_key, metric_label, source, expected_monotone)

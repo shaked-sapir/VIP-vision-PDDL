@@ -1,0 +1,60 @@
+# Configuration for the results-dashboard generators
+# (benchmark/evaluation/cfm/build_sim_dashboard.py and build_image_dashboard.py).
+#
+# All paths are relative to the project root. Edit the values below and re-run
+# the generators; nothing here is auto-discovered except the grid cells found
+# under each simulation prefix.
+
+results_dashboard:
+
+  # Root folder holding one subfolder per domain of experiment results.
+  results_root: benchmark/running_results
+
+  # Single output page (simulation + image live in one HTML, behind a toggle).
+  output_html: benchmark/running_results/results_dashboard.html
+
+  # Domains to include, in display order (used by both dashboards).
+  domains:
+    - blocksworld
+    - depot
+    - gripper
+    - hanoi
+    - npuzzle
+
+  # Metrics to show (key must match the "<key>_trend.png" plot names;
+  # label is what appears in the metric nav / table headers).
+  metrics:
+    - key: pred_app_precision
+      label: "Predictive applicability precision"
+    - key: pred_app_recall
+      label: "Predictive applicability recall"
+    - key: pred_eff_precision
+      label: "Predicted effects precision"
+    - key: pred_eff_recall
+      label: "Predicted effects recall"
+    - key: solving_ratio
+      label: "Problem solving ratio"
+    - key: fluent_patch_count
+      label: "Fluent patch count"
+
+  # ── Simulation section (mask x noise grid-search per domain) ──
+  simulation:
+    # Per-domain experiment-name prefix of the grid-search runs. The generator
+    # globs "<results_root>/<domain>/<prefix>*mask=*noise=*" for the 9 cells.
+    prefix:
+      blocksworld: sim_run
+      depot: sim_run
+      gripper: sim_run
+      hanoi: simulation-checkup-after-gtfixed
+      npuzzle: simulation-checkup-after-gtfixed
+
+  # ── Image section (single experiment per domain) ──
+  image:
+    # Per-domain path to the single image-experiment result directory
+    # (each contains testing/ and evaluation_results/).
+    experiment_dir:
+      blocksworld: benchmark/running_results/blocksworld/TO=600__blocks_predefined_problems1-10_final-version
+      depot: benchmark/running_results/depot/TO=600__depot_data_from_PV
+      gripper: benchmark/running_results/gripper/TO=600__gripper_data_from_PV
+      hanoi: benchmark/running_results/hanoi/TO=600__hanoi_generated_problem1__final-version
+      npuzzle: benchmark/running_results/npuzzle/TO=600__npuzzle_prob0_6-10steps_generate  
