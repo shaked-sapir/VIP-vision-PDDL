@@ -32,6 +32,7 @@ the page uses, not the full plot suite.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -47,9 +48,16 @@ from benchmark.evaluation.cfm.cfm_quality_analysis import (
     compute_padded_trend,
     find_instance_dirs,
     get_max_solution_index,
+    load_cfm_metrics,
     _apply_axis_scaling,
     _BOUNDED_METRICS,
 )
+
+
+def instance_counts(instance_dirs: List[Path]) -> List[int]:
+    """[contributing, total]: instances with >= 1 CFM, and the total found."""
+    contrib = sum(1 for d in instance_dirs if load_cfm_metrics(d))
+    return [contrib, len(instance_dirs)]
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_CONFIG = Path(__file__).resolve().parent / "dashboard_config.yaml"
@@ -202,11 +210,22 @@ def _plot_trend_thumb(solution_ids, means, stds, metric_key: str,
     domain/config labels and the corner axis key).
     """
     fig, ax = plt.subplots(figsize=(3.4, 2.5))
-    ax.plot(solution_ids, means, color="#1B6DB5", linewidth=1.4)
-    lo, hi = means - stds, means + stds
-    if metric_key in _BOUNDED_METRICS:
-        lo, hi = np.clip(lo, 0.0, 1.0), np.clip(hi, 0.0, 1.0)
-    ax.fill_between(solution_ids, lo, hi, color="#1B6DB5", alpha=0.2)
+    if len(solution_ids) == 1:
+        # No conflicts: one CFM only. Show a bold point at its value + a note,
+        # keeping the same axes as every other cell.
+        val = float(means[0])
+        ax.plot(solution_ids, means, "o", color="#1B6DB5", markersize=8, zorder=5)
+        label = f"{val:.0f}" if metric_key == "fluent_patch_count" else f"{val:.2f}"
+        ax.annotate(label, xy=(0, val), xytext=(8, -3), textcoords="offset points",
+                    ha="left", va="top", fontsize=8, fontweight="bold", color="#1B6DB5")
+        ax.text(0.5, 0.5, "single model\n(no conflicts)", transform=ax.transAxes,
+                ha="center", va="center", color="#888888", fontsize=8)
+    else:
+        ax.plot(solution_ids, means, color="#1B6DB5", linewidth=1.4)
+        lo, hi = means - stds, means + stds
+        if metric_key in _BOUNDED_METRICS:
+            lo, hi = np.clip(lo, 0.0, 1.0), np.clip(hi, 0.0, 1.0)
+        ax.fill_between(solution_ids, lo, hi, color="#1B6DB5", alpha=0.2)
     _apply_axis_scaling(ax, metric_key)          # integer x ticks + fixed y scale
     if x_max and x_max > 0:
         margin = max(0.5, 0.02 * x_max)
@@ -236,9 +255,9 @@ def regenerate_shared_x_plots(cells: List[Path], metrics: List[dict]) -> None:
     domain_max = max(per_max.values(), default=0)
     if domain_max == 0:
         return
+    # Includes single-CFM cells (noise=0): they get a one-point plot with the
+    # same shared x-axis and a "single model" note (see _plot_trend_thumb).
     for cell in cells:
-        if per_max[cell] == 0:
-            continue  # single CFM (no conflicts) — no trend
         _generate_shared_trend_plots(cell, domain_max, metrics)
 
 
@@ -248,8 +267,16 @@ def _rel(png: Path, out_dir: Path) -> str:
     return os.path.relpath(png, out_dir).replace(os.sep, "/")
 
 
+def img_src(png: Path, out_dir: Path, embed: bool) -> str:
+    """A relative ``<img src>`` path, or a self-contained base64 data URI when
+    ``embed`` is set (so the whole page can be shared as one file)."""
+    if embed:
+        return "data:image/png;base64," + base64.b64encode(png.read_bytes()).decode("ascii")
+    return _rel(png, out_dir)
+
+
 def build_sim_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
-                   regen: bool, refresh: bool) -> dict:
+                   regen: bool, refresh: bool, embed: bool) -> dict:
     prefixes = cfg["simulation"].get("prefix", {})
     masks, noises = set(), set()
     cells_out: Dict[str, dict] = {}
@@ -277,12 +304,13 @@ def build_sim_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
             max_id = get_max_solution_index(cell)
             status = "missing" if max_id is None else ("single" if max_id == 0 else "ok")
             shared = cell / "evaluation_results" / SHARED_SUBDIR
-            pngs = {mk["key"]: _rel(shared / f'{mk["key"]}_trend.png', out_dir)
+            pngs = {mk["key"]: img_src(shared / f'{mk["key"]}_trend.png', out_dir, embed)
                     for mk in metrics if (shared / f'{mk["key"]}_trend.png').exists()}
             fl = fluent.get(key, {})
             cells_out[domain][key] = {
                 "status": status, "stats": stats, "pngs": pngs,
                 "masked": fl.get("masked"), "flipped": fl.get("flipped"),
+                "n": instance_counts(instance_dirs),
             }
 
     return {
@@ -306,7 +334,7 @@ def regenerate_image_thumbs(exp: Path, metrics: List[dict]) -> None:
 
 
 def build_image_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
-                     regen: bool) -> dict:
+                     regen: bool, embed: bool) -> dict:
     dirs = cfg.get("image", {}).get("experiment_dir", {})
     out: Dict[str, dict] = {}
     for domain in cfg["domains"]:
@@ -323,27 +351,31 @@ def build_image_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
         instance_dirs = find_instance_dirs(testing)
         stats = all_metric_stats(instance_dirs, metrics)
         cfmq = exp / "evaluation_results" / SHARED_SUBDIR
-        pngs = {mk["key"]: _rel(cfmq / f'{mk["key"]}_trend.png', out_dir)
+        pngs = {mk["key"]: img_src(cfmq / f'{mk["key"]}_trend.png', out_dir, embed)
                 for mk in metrics if (cfmq / f'{mk["key"]}_trend.png').exists()}
-        out[domain] = {"stats": stats, "pngs": pngs}
+        out[domain] = {"stats": stats, "pngs": pngs, "n": instance_counts(instance_dirs)}
         print(f"  [img] {domain}: ok")
     return {"domains_data": out}
 
 
 def build(config_path: Path, regen: bool, refresh: bool,
-          domains: Optional[List[str]] = None) -> Path:
+          domains: Optional[List[str]] = None, embed: bool = False) -> Path:
     cfg = yaml.safe_load(config_path.read_text())["results_dashboard"]
     if domains:
         cfg["domains"] = [d for d in cfg["domains"] if d in domains]
     root = (_PROJECT_ROOT / cfg["results_root"]).resolve()
     out_html = (_PROJECT_ROOT / cfg["output_html"]).resolve()
     out_dir = out_html.parent
+    # Embedded export goes to a separate self-contained file so the live
+    # relative-path page is left intact.
+    if embed:
+        out_html = out_html.with_name(out_html.stem + "_standalone" + out_html.suffix)
     metrics = cfg["metrics"]
 
     print("Assembling simulation data...")
-    sim = build_sim_data(cfg, root, out_dir, metrics, regen, refresh)
+    sim = build_sim_data(cfg, root, out_dir, metrics, regen, refresh, embed)
     print("Assembling image data...")
-    img = build_image_data(cfg, root, out_dir, metrics, regen)
+    img = build_image_data(cfg, root, out_dir, metrics, regen, embed)
 
     payload = {
         "domains": cfg["domains"],
@@ -353,7 +385,9 @@ def build(config_path: Path, regen: bool, refresh: bool,
         "image": img,
     }
     out_html.write_text(_HTML.replace("__DATA__", json.dumps(payload)))
-    print(f"\nDashboard written to: {out_html}")
+    size_mb = out_html.stat().st_size / 1e6
+    print(f"\nDashboard written to: {out_html}  ({size_mb:.1f} MB"
+          f"{', self-contained' if embed else ', relative image paths'})")
     return out_html
 
 
@@ -367,8 +401,11 @@ def main() -> None:
                     help="Recompute cached per-domain fluent statistics.")
     ap.add_argument("--domains", nargs="*", default=None,
                     help="Restrict to these domains (default: all in the config).")
+    ap.add_argument("--embed", action="store_true",
+                    help="Export a self-contained <name>_standalone.html with every chart "
+                         "embedded as base64 (shareable as a single file). Larger file.")
     args = ap.parse_args()
-    build(args.config, args.regen_plots, args.refresh_stats, args.domains)
+    build(args.config, args.regen_plots, args.refresh_stats, args.domains, args.embed)
 
 
 _HTML = r"""<!DOCTYPE html>
@@ -404,6 +441,7 @@ _HTML = r"""<!DOCTYPE html>
   .cell{border:1px solid #333842;border-radius:8px;padding:3px;background:#1b1e25;min-height:120px;}
   .cell img{width:100%;height:auto;display:block;cursor:zoom-in;background:#fff;border-radius:3px;}
   .cell .ph{font-size:10.5px;color:#6b7280;text-align:center;padding:20px 4px;}
+  .ncap{font-size:10px;color:#8b929c;text-align:center;margin-top:3px;}
   .empty{border:1px dashed #3a4150;border-radius:8px;background:#1a1d24;color:#6b7280;font-size:11px;display:flex;align-items:center;justify-content:center;text-align:center;min-height:110px;padding:6px;}
   .rowsep{grid-column:1/-1;border-top:1px solid #333842;margin:9px 0;}
   .colsep{background:#333842;}
@@ -494,11 +532,12 @@ function explainCard(){return `<div class="card gexp"><h4>How to read the plots<
     `<p class="ex"><b>Example:</b> index 5 → 0.80 = the mean over instances of each one's value at its 6th CFM (or its last value, if it found fewer).</p>`+
   `</div></div>`;}
 function guideRow(){return `<div class="grow">${corruption()}${exampleCard()}${explainCard()}</div>`;}
+function ncap(c){return (c&&c.n)?`<div class="ncap">instances: ${c.n[0]}(${c.n[1]})</div>`:"";}
 function chartCell(c,cap,hk){
   const hov=hk?` onmouseenter="hlCorr('${hk}',true)" onmouseleave="hlCorr('${hk}',false)"`:"";
-  if(c&&c.status==="ok"&&c.pngs[S.metric]) return `<div class="cell"${hov}><img loading="lazy" src="${c.pngs[S.metric]}" onclick="zoom('${c.pngs[S.metric]}','${cap}')"></div>`;
-  if(c&&c.status==="single") return `<div class="empty"${hov}>single model<br>(no conflicts)</div>`;
-  return `<div class="empty">no data</div>`;
+  if(c&&c.pngs[S.metric]) return `<div${hov}><div class="cell"><img loading="lazy" src="${c.pngs[S.metric]}" onclick="zoom('${c.pngs[S.metric]}','${cap}')"></div>${ncap(c)}</div>`;
+  if(c&&c.status==="single") return `<div${hov}><div class="empty">single model<br>(no conflicts)</div>${ncap(c)}</div>`;
+  return `<div><div class="empty">no data</div>${ncap(c)}</div>`;
 }
 function hlCorr(key,on){const p=key.split("|");
   document.querySelectorAll(`[data-mk="${p[0]}|${p[1]}"],[data-fc="${p[0]}|${p[1]}|${p[2]}"]`).forEach(e=>e.classList.toggle("hl",on));
@@ -538,7 +577,7 @@ function imgView(){
   const guide=`<div class="grow">${exampleCard()}${explainCard()}</div>`;
   let charts=`<div class="card"><h4>${ml} — per domain (single config)<span class="legkey"><span><i style="width:14px;height:2px;background:#1B6DB5;"></i> mean</span><span><i style="width:14px;height:9px;background:#B5D4F4;border-radius:2px;"></i> ±1 std</span></span></h4>`;
   charts+=`<div style="display:grid;grid-template-columns:repeat(${have.length},1fr);gap:7px;margin-bottom:6px;">`+have.map(d=>`<div class="domhead">${d}</div>`).join("")+`</div>`;
-  charts+=`<div style="display:grid;grid-template-columns:repeat(${have.length},1fr);gap:7px;">`+have.map(d=>{const p=dd[d].pngs[S.metric],cap=`${d} · ${ml}`;return p?`<div class="cell"><img loading="lazy" src="${p}" onclick="zoom('${p}','${cap}')"></div>`:`<div class="empty">no plot</div>`;}).join("")+`</div></div>`;
+  charts+=`<div style="display:grid;grid-template-columns:repeat(${have.length},1fr);gap:7px;">`+have.map(d=>{const p=dd[d].pngs[S.metric],cap=`${d} · ${ml}`,nc=dd[d].n?`<div class="ncap">instances: ${dd[d].n[0]}(${dd[d].n[1]})</div>`:"";return `<div>${p?`<div class="cell"><img loading="lazy" src="${p}" onclick="zoom('${p}','${cap}')"></div>`:`<div class="empty">no plot</div>`}${nc}</div>`;}).join("")+`</div></div>`;
   return table+guide+charts;
 }
 function render(){
