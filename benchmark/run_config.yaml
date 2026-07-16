@@ -28,7 +28,7 @@ shared:
   fluent_branch_mode: single            # group | single
   events_tracing: false                  # true | false -> make this true only when debugging, this produces an html showing the whole search space and it is HEAVY
   resume: false                         # true | false -> skip fold instances already completed (fold_result.json present); strict-aborts if config differs from the saved run_params.json
-  baselines: [none]                     # [rosame] | [none] to skip baselines
+  algorithms: [cdps, rosame]            # any subset of: cdps (ours), rosame. e.g. [cdps] or [rosame] to run one standalone
 
 # Mode-specific block (only read when source: simulated).
 simulation:

@@ -13,8 +13,14 @@ Both expose the same two-method interface so run_single_fold() is data-source-ag
 
     data_source.setup(problem_dirs, domain_ref_path, gt_rate_percentages, frame_axiom_mode)
     prepared, pre_built_obs, gt_indices = data_source.prepare(
-        selected_pool, num_trajectories, gt_rate, fold
+        selected_pool, num_trajectories, gt_rate, fold, output_dir
     )
+
+Both guarantee the same contract: ``prepared_trajectories`` always point at real,
+on-disk degraded (masked + flipped) files. ``ImageDataSource`` reads pre-generated
+files; ``SimulatedDataSource`` persists its in-memory degraded observations to
+``output_dir/original_observations/`` so the learner and the baselines consume
+byte-identical data.
 """
 
 from __future__ import annotations
@@ -25,6 +31,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from pddl_plus_parser.models import Observation
 
+from benchmark.experiment_running_helpers.cleaned_trajectories import save_fold_observations
 from benchmark.experiment_running_helpers.simulated_data_utils import (
     build_gt_trajectory_lookup,
     prepare_simulated_observations,
@@ -67,11 +74,18 @@ class DataSource(ABC):
         num_trajectories: int,
         gt_rate: int,
         fold: int,
+        output_dir: Path,
     ) -> PrepareResult:
         """Prepare observations for one fold.
 
+        Args:
+            output_dir: The fold's working directory. Used by sources that must
+                persist their degraded data to disk (so ``prepared_trajectories``
+                point at real files). File-based sources may ignore it.
+
         Returns:
-            prepared_trajectories: List of (traj_path, masking_path, pddl_path, gt_indices).
+            prepared_trajectories: List of (traj_path, masking_path, pddl_path, gt_indices),
+                always pointing at real on-disk degraded files.
             pre_built_observations: Pre-built Observation objects, or None when
                 observations should be loaded from prepared_trajectories by the
                 learning helper.
@@ -104,7 +118,9 @@ class ImageDataSource(DataSource):
         num_trajectories: int,
         gt_rate: int,
         fold: int,
+        output_dir: Path,
     ) -> PrepareResult:
+        # File-based sources already point at real on-disk degraded files.
         prepared = prepare_fold_trajectories(selected_pool, num_trajectories, gt_rate)
         return prepared, None, None
 
@@ -135,6 +151,24 @@ class SimulatedDataSource(DataSource):
         self._gt_lookup = build_gt_trajectory_lookup(gt_trajectory_paths)
         self._domain_ref_path: Optional[Path] = None
 
+    # Read-only accessors so callers (e.g. run_params logging) don't reach into
+    # private attributes.
+    @property
+    def masking_p(self) -> float:
+        return self._masking_p
+
+    @property
+    def noising_p(self) -> float:
+        return self._noising_p
+
+    @property
+    def masking_strategy(self) -> MaskingType:
+        return self._masking_strategy
+
+    @property
+    def noising_strategy(self) -> NoisingType:
+        return self._noising_strategy
+
     def setup(
         self,
         problem_dirs: List[Path],
@@ -151,9 +185,12 @@ class SimulatedDataSource(DataSource):
         num_trajectories: int,
         gt_rate: int,
         fold: int,
+        output_dir: Path,
     ) -> PrepareResult:
         if self._domain_ref_path is None:
             raise RuntimeError("SimulatedDataSource.setup() must be called before prepare().")
+
+        selected_dirs = selected_pool[:num_trajectories]
         selected_gt = select_simulated_gt_trajectories(
             selected_pool, num_trajectories, self._gt_lookup,
         )
@@ -170,13 +207,26 @@ class SimulatedDataSource(DataSource):
             noising_p=self._noising_p,
             seed=self._seed + fold,
         )
-        # Build fake prepared_trajectories entries so downstream code that reads
-        # metadata (problem name, pddl path) still works without loading files.
-        prepared: List[PreparedTrajectory] = []
-        for gt_path in selected_gt:
-            fake_masking = gt_path.parent / f"{gt_path.stem}.masking_info"
-            problem_pddl = gt_path.parent / f"{gt_path.parent.name}.pddl"
-            prepared.append((gt_path, fake_masking, problem_pddl, {0}))
 
-        print(f"  ✓ Simulated {len(observations)} noisy observations")
+        # Persist the degraded (masked + flipped) observations to the cell so
+        # every consumer — our conflict search and the baselines — reads the
+        # identical on-disk data. The problem .pddl comes from the training-pool
+        # dir, where it actually lives (gt_trajectories/ holds only .trajectory).
+        original_obs_dir = output_dir / "original_observations"
+        problem_pddls = [d / f"{d.name}.pddl" for d in selected_dirs]
+        naming = [(None, None, pddl, {0}) for pddl in problem_pddls]
+        save_fold_observations(observations, naming, original_obs_dir, "original_observation")
+
+        prepared: List[PreparedTrajectory] = []
+        for problem_dir, problem_pddl in zip(selected_dirs, problem_pddls):
+            stem = f"original_observation_{problem_dir.name}"
+            prepared.append((
+                original_obs_dir / f"{stem}.trajectory",
+                original_obs_dir / f"{stem}.masking_info",
+                problem_pddl,
+                {0},
+            ))
+
+        print(f"  ✓ Simulated {len(observations)} noisy observations "
+              f"→ {original_obs_dir.name}/")
         return prepared, observations, gt_source_indices

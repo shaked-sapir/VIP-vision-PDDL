@@ -14,8 +14,6 @@ from utilities import NegativePreconditionPolicy
 from benchmark.algorithm_adapters.NOISY_PISAM import NOISY_PISAM
 from benchmark.algorithm_adapters.NOISY_SAM import NOISY_SAM
 from benchmark.algorithm_adapters.PISAM import PISAM
-from benchmark.algorithm_adapters.PO_ROSAME import PO_ROSAME
-from benchmark.algorithm_adapters.ROSAME import ROSAME
 from benchmark.algorithm_adapters.SAM import SAM
 from benchmark.experiment_running_helpers.cleaned_trajectories import (
     save_fold_observations,
@@ -387,77 +385,3 @@ def learn_sam_pisam(
         )
     
     return model, report, algo_name, patched_observations
-
-
-def learn_rosame(
-    mode: str,
-    domain_ref_path: Path,
-    prepared_trajectories: List[Tuple[Path, Path, Path]],
-    testing_dir: Path,
-    workspace_name: str,
-    profiler=None
-) -> Tuple[str, dict, str]:
-    """
-    Learn ROSAME/PO_ROSAME model.
-
-    Args:
-        mode: 'masked' (uses PO_ROSAME) or 'fullyobs' (uses ROSAME)
-        domain_ref_path: Path to reference domain PDDL
-        prepared_trajectories: List of (trajectory_path, masking_path, problem_pddl_path)
-        testing_dir: Working directory
-        workspace_name: Name for workspace directory
-
-    Returns:
-        Tuple of (model, learning_report, algorithm_name)
-        - model: PDDL model string or None on failure
-        - learning_report: Always {} (ROSAME has no learning report)
-        - algorithm_name: "PO_ROSAME" or "ROSAME"
-    """
-    algo_name = 'PO_ROSAME' if mode == 'masked' else 'ROSAME'
-    print(f"  [DEBUG] Setting up workspace for {workspace_name}...")
-    traj_paths = setup_algorithm_workspace(prepared_trajectories, workspace_name, testing_dir, mode)
-    print(f"  [DEBUG] Workspace setup complete, {len(traj_paths)} trajectories")
-
-    if not traj_paths:
-        print(f"  [DEBUG] No trajectories for ROSAME, skipping")
-        return None, {}, algo_name
-
-    try:
-        print(f"  [DEBUG] Starting {algo_name} learning...")
-        # Call static method directly on the class
-        if mode == 'masked':
-            model = PO_ROSAME.learn(str(domain_ref_path), traj_paths, use_problems=False, profiler=profiler)
-        else:
-            model = ROSAME.learn(str(domain_ref_path), traj_paths, use_problems=False, profiler=profiler)
-        print(f"  [DEBUG] {algo_name} learning complete")
-
-        if model and ":action" in model:
-            return model, {}, algo_name
-        else:
-            raise ValueError("Invalid ROSAME model")
-    except Exception as e:
-        print(f"  Warning: ROSAME learning failed: {e}")
-        print(f"  Domain ref: {domain_ref_path}")
-        print(f"  Num trajectories: {len(traj_paths)}")
-        print(f"  Workspace: {workspace_name}")
-
-        # Check if any files are empty or malformed
-        if domain_ref_path.exists():
-            size = domain_ref_path.stat().st_size
-            print(f"  Domain file size: {size} bytes")
-            if size == 0:
-                print(f"  ERROR: Domain file is EMPTY!")
-        else:
-            print(f"  ERROR: Domain file does not exist!")
-
-        for i, traj_path in enumerate(traj_paths):
-            traj_file = Path(traj_path)
-            if traj_file.exists():
-                size = traj_file.stat().st_size
-                if size == 0:
-                    print(f"  ERROR: Trajectory {i} is EMPTY: {traj_path}")
-            else:
-                print(f"  ERROR: Trajectory {i} does not exist: {traj_path}")
-
-        return None, {}, algo_name
-

@@ -520,6 +520,34 @@ def _write_df_to_sheet(
     return row
 
 
+def _write_per_algorithm_sheets(writer: pd.ExcelWriter, df_algos: pd.DataFrame) -> None:
+    """One sheet per algorithm: mean-over-folds table + the per-fold rows.
+
+    Columns that are all-empty for an algorithm (e.g. CDPS-only extras on ROSAME)
+    are dropped, so each sheet shows only that algorithm's base + own extras.
+    """
+    if df_algos is None or df_algos.empty:
+        return
+
+    id_cols = ["domain", "algorithm", "fold", "num_trajectories", "gt_rate", "experiment_name"]
+    group = ["num_trajectories", "gt_rate"]
+
+    for algo in sorted(df_algos["algorithm"].dropna().unique()):
+        sub = df_algos[df_algos["algorithm"] == algo].dropna(axis=1, how="all").reset_index(drop=True)
+        sheet = f"algo_{algo}"[:31]
+
+        numeric = sub.select_dtypes("number").columns.tolist()
+        agg_metrics = [c for c in numeric if c not in group and c != "fold"]
+        if set(group).issubset(sub.columns) and agg_metrics:
+            agg = sub.groupby(group)[agg_metrics].mean().reset_index()
+            next_row = _write_df_to_sheet(writer, agg, sheet, title=f"{algo} — mean over folds")
+        else:
+            next_row = 0
+
+        _write_df_to_sheet(writer, sub, sheet, title=f"{algo} — per-fold rows",
+                           start_row=next_row + 2)
+
+
 def write_report(
     experiment_path: Path,
     run_params: dict,
@@ -528,6 +556,7 @@ def write_report(
     df_raw: pd.DataFrame,
     df_pivot: pd.DataFrame,
     df_summary: pd.DataFrame,
+    df_algos: pd.DataFrame = None,
 ) -> Path:
     """Write the fully-detailed report xlsx."""
     output_dir = experiment_path / "evaluation_results"
@@ -542,6 +571,9 @@ def write_report(
             for k, v in run_params.items()
         ])
         _write_df_to_sheet(writer, params_df, "run_params", title="Run Parameters")
+
+        # --- Per-algorithm sheets (base + each algorithm's own extras) ---
+        _write_per_algorithm_sheets(writer, df_algos)
 
         # --- Sheet 2: cs_traversal_metrics ---
         if not df_traversal.empty:
@@ -559,10 +591,10 @@ def write_report(
                 title="Folds with solving_ratio > 0",
             )
 
-        # --- Sheet 4: raw_data ---
-        # Ensure column order
-        cols = [c for c in RAW_COLUMNS if c in df_raw.columns]
-        _write_df_to_sheet(writer, df_raw[cols], "raw_data", title="All CFM Solutions — Raw Data")
+        # --- Sheet 4: raw_data (CDPS CFM solutions; skipped for baseline-only runs) ---
+        if not df_raw.empty:
+            cols = [c for c in RAW_COLUMNS if c in df_raw.columns]
+            _write_df_to_sheet(writer, df_raw[cols], "raw_data", title="All CFM Solutions — Raw Data")
 
         # --- Sheet 3: pivot ---
         if not df_pivot.empty:
@@ -637,20 +669,27 @@ def generate_experiment_report(experiment_path: Path) -> Path:
     solving_rows = collect_solving_folds(testing_dir)
     df_solving_folds = pd.DataFrame(solving_rows)
 
-    # Collect raw data
+    # Collect raw CFM data (CDPS only; empty for baseline-only runs).
     rows = collect_raw_rows(testing_dir)
-    if not rows:
-        raise ValueError(f"No conflict-free solutions found in {testing_dir}")
-
     df_raw = pd.DataFrame(rows)
-    df_raw = df_raw.sort_values(["numtrajs", "fold", "solution_index"]).reset_index(drop=True)
+    if not df_raw.empty:
+        df_raw = df_raw.sort_values(["numtrajs", "fold", "solution_index"]).reset_index(drop=True)
+        df_pivot = build_pivot(df_raw)
+        df_summary = build_summary(df_raw)
+    else:
+        df_pivot = pd.DataFrame()
+        df_summary = pd.DataFrame()
 
-    # Build derived tables
-    df_pivot = build_pivot(df_raw)
-    df_summary = build_summary(df_raw)
+    # Per-algorithm summary rows (base + algorithm_specific extras), all algorithms.
+    from benchmark.experiment_running_helpers.collect_results import collect_results
+    df_algos = collect_results(experiment_path)
+
+    if df_raw.empty and df_algos.empty:
+        raise ValueError(f"No results found in {testing_dir}")
 
     # Write
-    output_path = write_report(experiment_path, run_params, df_traversal, df_solving_folds, df_raw, df_pivot, df_summary)
+    output_path = write_report(experiment_path, run_params, df_traversal,
+                               df_solving_folds, df_raw, df_pivot, df_summary, df_algos)
     print(f"Report written to: {output_path}")
     return output_path
 

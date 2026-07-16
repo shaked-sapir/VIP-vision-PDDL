@@ -3,8 +3,9 @@
 A *fold instance* — one ``(fold, num_trajs, gt_rate)`` triple, mapped to a single
 directory under ``testing/`` — is the atomic unit of work. When a fold finishes,
 :func:`save_fold_result` writes a ``fold_result.json`` marker holding that fold's
-result rows. On resume, completed folds are skipped and their rows reloaded, so
-the aggregated CSV/Excel reports still include every fold.
+per-algorithm result rows. On resume, completed folds are skipped and their rows
+reloaded. These per-cell markers are the single source of truth for reports,
+which are generated on demand (see ``collect_results`` / ``experiment_report``).
 """
 
 from __future__ import annotations

@@ -13,16 +13,11 @@ from __future__ import annotations
 from typing import Dict, List, Type
 
 from benchmark.baselines.base_runner import BaselineRunner
-from benchmark.baselines.rosame_runner import (
-    PORosameBaselineRunner,
-    RosameBaselineRunner,
-)
+from benchmark.baselines.rosame_runner import RosameBaselineRunner
 
 # Maps a short CLI name to the concrete runner classes it activates.
-# Multiple classes per key are common when an algorithm has separate
-# fully-observable and partially-observable variants.
 BASELINE_REGISTRY: Dict[str, List[Type[BaselineRunner]]] = {
-    "rosame": [RosameBaselineRunner, PORosameBaselineRunner],
+    "rosame": [RosameBaselineRunner],
 }
 
 

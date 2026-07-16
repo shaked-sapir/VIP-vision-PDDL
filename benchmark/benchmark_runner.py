@@ -64,7 +64,7 @@ project_root = benchmark_path.parent
 sys.path.insert(0, str(project_root))
 
 from benchmark import experiment_runner
-from benchmark.baselines import resolve_baselines
+from benchmark.algorithms import resolve_algorithms
 from benchmark.evaluation.cfm.cfm_quality_analysis import generate_cfm_quality_analysis
 from benchmark.evaluation.cfm.cfm_quality_table import generate_cfm_quality_table
 from benchmark.evaluation.experiment_report import generate_experiment_report
@@ -290,8 +290,15 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     if "gt_rates" in shared:
         kwargs["gt_rate_percentages"] = shared["gt_rates"]
 
-    # Baselines: resolve names → runner instances ("none" skips baselines).
-    kwargs["baselines"] = resolve_baselines(shared.get("baselines", ["rosame"]))
+    # Algorithms: resolve names → (run_cdps, baseline runners). Accepts either
+    # the new `algorithms` key or a legacy `baselines` list (implies cdps too).
+    if "algorithms" in shared:
+        algorithm_names = shared["algorithms"]
+    elif "baselines" in shared:
+        algorithm_names = ["cdps"] + [b for b in shared["baselines"] if b != "none"]
+    else:
+        algorithm_names = ["cdps", "rosame"]
+    kwargs["run_cdps"], kwargs["baselines"] = resolve_algorithms(algorithm_names)
 
     return kwargs
 

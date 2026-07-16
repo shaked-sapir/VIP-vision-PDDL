@@ -14,10 +14,11 @@ from typing import Dict, List, Optional, Tuple
 
 from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 
-from benchmark.experiment_running_helpers.cleaned_trajectories import convert_cleaned_dir_to_trajectory_list, save_patched_observations
+from benchmark.algorithms import CDPS_ALGORITHM_NAME
+from benchmark.experiment_running_helpers.cleaned_trajectories import save_patched_observations
 from benchmark.experiment_running_helpers.data_source import DataSource
 from benchmark.experiment_running_helpers.post_process_gt_metrics import run_post_process_gt_metrics
-from benchmark.experiment_running_helpers.learning_helpers import learn_rosame, learn_sam_pisam
+from benchmark.experiment_running_helpers.learning_helpers import learn_sam_pisam
 from benchmark.experiment_running_helpers.profiling import TimingProfiler
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import fold_instance_dir, save_fold_result
@@ -75,10 +76,9 @@ def check_trajectories_equal(
     return True
 
 
-def _run_baselines_phase(
+def _run_baselines(
     baselines,
     mode: str,
-    phase: str,
     domain_ref_path: Path,
     trajectories: List[Tuple[Path, Path, Path]],
     fold_work_dir: Path,
@@ -96,9 +96,8 @@ def _run_baselines_phase(
     planning_timeout: int,
     profiler,
     test_states_path_str: str,
-    save_learning_metrics_func,
 ) -> List[dict]:
-    """Run all applicable baseline runners for a given phase and return result dicts."""
+    """Run each baseline runner once on the (degraded) trajectories → result rows."""
     results = []
     if not baselines:
         return results
@@ -108,10 +107,10 @@ def _run_baselines_phase(
             continue
 
         algo_name = runner.name
-        workspace_label = f"{algo_name.lower()}_{phase}"
-        print(f"  [{phase.upper()}] Starting {runner.display_name} learning...")
+        print(f"  [{algo_name}] Starting {runner.display_name} learning...")
 
-        with profiler.time_operation(f"learning_{workspace_label}"):
+        learn_start = time.perf_counter()
+        with profiler.time_operation(f"learning_{algo_name.lower()}"):
             model, extra_info = runner.learn(
                 mode=mode,
                 domain_path=domain_ref_path,
@@ -120,20 +119,18 @@ def _run_baselines_phase(
                 timeout_seconds=conflict_search_timeout or 60,
                 profiler=profiler,
             )
+        learn_time = time.perf_counter() - learn_start
 
-        # Baselines don't produce our learning_metrics JSON, so pass empty
-        baseline_learning_metrics = {}
-
-        print(f"  [{phase.upper()}] Evaluating {runner.display_name} model...")
-        with profiler.time_operation(f"metrics_checking_{workspace_label}"):
+        print(f"  [{algo_name}] Evaluating {runner.display_name} model...")
+        with profiler.time_operation(f"metrics_checking_{algo_name.lower()}"):
             result = evaluate_and_build_result(
                 model, algo_name, bench_name, fold, num_trajectories, gt_rate,
-                test_problem_paths, phase, domain_ref_path, testing_dir,
+                test_problem_paths, domain_ref_path, testing_dir,
                 evaluate_model_func, null_metrics, fold_work_dir,
                 total_transitions=total_transitions,
                 total_gt_transitions=total_gt_transitions,
-                learning_metrics=baseline_learning_metrics,
-                conflict_search_timeout=conflict_search_timeout,
+                learning_time_seconds=learn_time,
+                algorithm_specific=extra_info or {},
                 planning_timeout=planning_timeout,
                 profiler=profiler,
                 test_states_path=test_states_path_str,
@@ -170,6 +167,7 @@ def run_single_fold(
     trajectory_seed: Optional[int] = None,
     output_subdir: Optional[str] = None,
     baselines: Optional[list] = None,
+    run_cdps: bool = True,
     events_tracing: bool = False,
 ) -> List[dict]:
     """
@@ -266,7 +264,7 @@ def run_single_fold(
         # Prepare observations via the data source (file-based or simulated)
         with profiler.time_operation("data_source_prepare"):
             prepared_trajectories, pre_built_observations, gt_source_indices = \
-                data_source.prepare(selected_pool, num_trajectories, gt_rate, fold)
+                data_source.prepare(selected_pool, num_trajectories, gt_rate, fold, fold_work_dir)
 
         if not prepared_trajectories:
             print(f"  ERROR: No trajectories prepared for fold {fold}")
@@ -322,7 +320,7 @@ def run_single_fold(
             )
         print(f"  [STATS] Unclean phase: {total_transitions_unclean} transitions, {total_gt_transitions_unclean} GT states")
 
-        # Common kwargs for _run_baselines_phase
+        # Common kwargs for _run_baselines
         baseline_common = dict(
             baselines=baselines,
             mode=mode,
@@ -340,59 +338,12 @@ def run_single_fold(
             planning_timeout=planning_timeout,
             profiler=profiler,
             test_states_path_str=test_states_path_str,
-            save_learning_metrics_func=save_learning_metrics_func,
         )
 
         # ==================================================
-        # PHASE 1: UNCLEAN (learning on prepared trajectories)
+        # BASELINES — each learns once from the degraded trajectories
         # ==================================================
-        print(f"  [PHASE 1] Learning on unclean trajectories...")
-
-        # Learn SAM/PISAM
-        print(f"  [PHASE 1] Starting SAM/PISAM learning...")
-        sam_algo_name = 'PISAM' if mode == 'masked' else 'SAM'
-        with profiler.time_operation(f"learning_sam_pisam_unclean_{sam_algo_name}"):
-            sam_unclean_model, sam_report, sam_algo_name, _ = learn_sam_pisam(
-                mode, domain_ref_path, prepared_trajectories, testing_dir,
-                is_denoising=False,
-                conflict_search_timeout=conflict_search_timeout,
-                profiler=profiler,
-                fold_work_dir=fold_work_dir,
-                fluent_patch_cost=fluent_patch_cost,
-                fluent_patch_weight=fluent_patch_weight,
-                model_patch_cost=model_patch_cost,
-                model_constraint_weight=model_constraint_weight,
-                max_search_nodes=max_search_nodes,
-                search_mode=search_mode,
-                node_choosing_strategy=node_choosing_strategy,
-                conflict_group_strategy=conflict_group_strategy,
-                fluent_branch_mode=fluent_branch_mode,
-                pre_built_observations=pre_built_observations,
-                gt_source_indices_override=gt_source_indices,
-            )
-        print(f"  [PHASE 1] SAM/PISAM learning done, saving metrics...")
-        save_learning_metrics_func(fold_work_dir, sam_report)
-        
-        sam_learning_metrics = load_learning_metrics(fold_work_dir, 'unclean', sam_algo_name)
-        
-        print(f"  [PHASE 1] Evaluating SAM/PISAM model...")
-        with profiler.time_operation("metrics_checking_sam_pisam_unclean"):
-            unclean_sam_result = evaluate_and_build_result(
-                sam_unclean_model, sam_algo_name, bench_name, fold, num_trajectories, gt_rate,
-                test_problem_paths, 'unclean', domain_ref_path, testing_dir,
-                evaluate_model_func, null_metrics, fold_work_dir,
-                total_transitions=total_transitions_unclean,
-                total_gt_transitions=total_gt_transitions_unclean,
-                learning_metrics=sam_learning_metrics,
-                conflict_search_timeout=conflict_search_timeout,
-                planning_timeout=planning_timeout,
-                profiler=profiler,
-                test_states_path=test_states_path_str,
-            )
-
-        # Run baselines on unclean trajectories
-        unclean_baseline_results = _run_baselines_phase(
-            phase='unclean',
+        baseline_results = _run_baselines(
             trajectories=prepared_trajectories,
             total_transitions=total_transitions_unclean,
             total_gt_transitions=total_gt_transitions_unclean,
@@ -400,172 +351,134 @@ def run_single_fold(
         )
 
         # ==================================================
-        # PHASE 2: CLEANED (denoising with NOISY_PISAM/NOISY_SAM)
+        # CDPS — Conflict-Directed Patch Search (our algorithm)
         # ==================================================
-        print(f"  [PHASE 2] Denoising and re-learning...")
-        
-        total_transitions_cleaned = total_transitions_unclean
-        total_gt_transitions_cleaned = total_gt_transitions_unclean
+        cdps_result = None
+        if run_cdps:
+            try:
+                print(f"  [CDPS] Starting conflict-directed patch search...")
+                if conflict_search_timeout is not None:
+                    print(f"  [CDPS] Using conflict search timeout: {conflict_search_timeout}s")
+                # Internal learner name (used for the metrics file lookup only).
+                denoiser_algo_name = 'NOISY_PISAM' if mode == 'masked' else 'NOISY_SAM'
+                with profiler.time_operation(f"learning_cdps_{denoiser_algo_name}"):
+                    cleaned_model, denoising_report, denoiser_algo_name, patched_observations = learn_sam_pisam(
+                        mode, domain_ref_path, prepared_trajectories, testing_dir,
+                        is_denoising=True,
+                        conflict_search_timeout=conflict_search_timeout,
+                        profiler=profiler,
+                        fold_work_dir=fold_work_dir,
+                        fluent_patch_cost=fluent_patch_cost,
+                        fluent_patch_weight=fluent_patch_weight,
+                        model_patch_cost=model_patch_cost,
+                        model_constraint_weight=model_constraint_weight,
+                        max_search_nodes=max_search_nodes,
+                        search_mode=search_mode,
+                        node_choosing_strategy=node_choosing_strategy,
+                        conflict_group_strategy=conflict_group_strategy,
+                        fluent_branch_mode=fluent_branch_mode,
+                        pre_built_observations=pre_built_observations,
+                        gt_source_indices_override=gt_source_indices,
+                        events_tracing=events_tracing,
+                    )
+                print(f"  [CDPS] Search complete, saving metrics...")
+                save_learning_metrics_func(fold_work_dir, denoising_report)
 
-        cleaned_equals_unclean_pisam = None
+                denoising_learning_metrics = load_learning_metrics(fold_work_dir, 'cleaned', denoiser_algo_name)
 
-        try:
-            print(f"  [PHASE 2] Starting denoising (NOISY_SAM/NOISY_PISAM)...")
-            if conflict_search_timeout is not None:
-                print(f"  [PHASE 2] Using conflict search timeout: {conflict_search_timeout}s")
-            denoiser_algo_name = 'NOISY_PISAM' if mode == 'masked' else 'NOISY_SAM'
-            with profiler.time_operation(f"learning_sam_pisam_cleaned_{denoiser_algo_name}"):
-                cleaned_model, denoising_report, denoiser_algo_name, patched_observations = learn_sam_pisam(
-                    mode, domain_ref_path, prepared_trajectories, testing_dir,
-                    is_denoising=True,
-                    conflict_search_timeout=conflict_search_timeout,
-                    profiler=profiler,
-                    fold_work_dir=fold_work_dir,
-                    fluent_patch_cost=fluent_patch_cost,
-                    fluent_patch_weight=fluent_patch_weight,
-                    model_patch_cost=model_patch_cost,
-                    model_constraint_weight=model_constraint_weight,
-                    max_search_nodes=max_search_nodes,
-                    search_mode=search_mode,
-                    node_choosing_strategy=node_choosing_strategy,
-                    conflict_group_strategy=conflict_group_strategy,
-                    fluent_branch_mode=fluent_branch_mode,
-                    pre_built_observations=pre_built_observations,
-                    gt_source_indices_override=gt_source_indices,
-                    events_tracing=events_tracing,
+                # CDPS-owned extras (nested under algorithm_specific).
+                lm = denoising_learning_metrics or {}
+                cdps_specific = {
+                    "nodes_in_cleaning_tree": lm.get("nodes_expanded"),
+                    "conflict_free_model_count": lm.get("conflict_free_model_count"),
+                    "terminated_by": lm.get("terminated_by"),
+                    "conflict_search_timeout_seconds": conflict_search_timeout,
+                    "learning_timeout_seconds": (
+                        lm.get("actual_timeout_seconds")
+                        if lm.get("actual_timeout_seconds") is not None else conflict_search_timeout
+                    ),
+                    "timeout_during_cleaning": lm.get("timeout_during_learning"),
+                }
+
+                print(f"  [CDPS] Evaluating learned model...")
+                with profiler.time_operation("metrics_checking_cdps"):
+                    cdps_result = evaluate_and_build_result(
+                        cleaned_model, CDPS_ALGORITHM_NAME, bench_name, fold, num_trajectories, gt_rate,
+                        test_problem_paths, domain_ref_path, testing_dir,
+                        evaluate_model_func, null_metrics, fold_work_dir,
+                        total_transitions=total_transitions_unclean,
+                        total_gt_transitions=total_gt_transitions_unclean,
+                        learning_time_seconds=lm.get("learning_time_seconds"),
+                        algorithm_specific=cdps_specific,
+                        planning_timeout=planning_timeout,
+                        profiler=profiler,
+                        test_states_path=test_states_path_str,
+                    )
+
+                # Did the search change the data? (kept for fold metadata)
+                patched_equals_input = check_trajectories_equal(
+                    prepared_trajectories, patched_observations, domain_ref_path, is_patched_observations=True
                 )
-            print(f"  [PHASE 2] Denoising complete, saving metrics...")
-            save_learning_metrics_func(fold_work_dir, denoising_report)
-            
-            denoising_learning_metrics = load_learning_metrics(fold_work_dir, 'cleaned', denoiser_algo_name)
-            
-            total_transitions_cleaned = total_transitions_unclean
-            total_gt_transitions_cleaned = total_gt_transitions_unclean
+                if patched_equals_input is not None:
+                    print(f"  [CDPS] Patched vs input trajectories are "
+                          f"{'EQUAL' if patched_equals_input else 'DIFFERENT'}")
 
-            # Evaluate cleaned SAM/PISAM model
-            print(f"  [PHASE 2] Evaluating denoised model...")
-            with profiler.time_operation("metrics_checking_sam_pisam_cleaned"):
-                cleaned_sam_result = evaluate_and_build_result(
-                    cleaned_model, denoiser_algo_name, bench_name, fold, num_trajectories, gt_rate,
-                    test_problem_paths, 'cleaned', domain_ref_path, testing_dir,
+                # Save patched observations + evaluate all conflict-free models
+                if patched_observations is not None:
+                    print(f"  [CDPS] Saving {len(patched_observations)} patched observations...")
+                    final_observations_dir = fold_work_dir / "final_observations"
+                    save_patched_observations(
+                        patched_observations, prepared_trajectories, final_observations_dir, domain_ref_path
+                    )
+                    run_post_process_gt_metrics(fold_work_dir, prepared_trajectories, domain_ref_path, gt_rate)
+                    update_fold_metadata(
+                        fold_work_dir, cleaned_equals_unclean_pisam=patched_equals_input,
+                    )
+
+                    conflict_free_models_dir = fold_work_dir / "conflict_free_models"
+                    if conflict_free_models_dir.exists():
+                        print(f"  [MULTI-EVAL] Evaluating all conflict-free models...")
+                        with profiler.time_operation("evaluate_all_solutions"):
+                            all_solutions_results = evaluate_all_solutions(
+                                conflict_free_models_dir=conflict_free_models_dir,
+                                ref_domain_path=domain_ref_path,
+                                test_problem_paths=test_problem_paths,
+                                test_states_path=test_states_path,
+                                planning_timeout=planning_timeout,
+                                output_dir=fold_work_dir,
+                            )
+                        print(f"  [MULTI-EVAL] Evaluated {len(all_solutions_results)} solutions")
+                        with profiler.time_operation("build_correlation_table"):
+                            build_correlation_table(fold_work_dir)
+
+            except Exception as e:
+                print(f"  ERROR in CDPS phase: {e}")
+                import traceback
+                traceback.print_exc()
+                cdps_result = evaluate_and_build_result(
+                    None, CDPS_ALGORITHM_NAME, bench_name, fold, num_trajectories, gt_rate,
+                    test_problem_paths, domain_ref_path, testing_dir,
                     evaluate_model_func, null_metrics, fold_work_dir,
-                    total_transitions=total_transitions_cleaned,
-                    total_gt_transitions=total_gt_transitions_cleaned,
-                    learning_metrics=denoising_learning_metrics,
-                    conflict_search_timeout=conflict_search_timeout,
+                    total_transitions=total_transitions_unclean,
+                    total_gt_transitions=total_gt_transitions_unclean,
+                    learning_time_seconds=None,
+                    algorithm_specific={"conflict_search_timeout_seconds": conflict_search_timeout,
+                                        "error": str(e)},
                     planning_timeout=planning_timeout,
                     profiler=profiler,
                     test_states_path=test_states_path_str,
                 )
 
-            # Check if cleaned and unclean trajectories are the same
-            cleaned_equals_unclean_pisam = check_trajectories_equal(
-                prepared_trajectories, patched_observations, domain_ref_path, is_patched_observations=True
-            )
-            if cleaned_equals_unclean_pisam is not None:
-                if cleaned_equals_unclean_pisam:
-                    print(f"  [PHASE 2] ⚠️  WARNING: Cleaned and unclean trajectories are EQUAL for {denoiser_algo_name}!")
-                else:
-                    print(f"  [PHASE 2] ✓ Cleaned and unclean trajectories are DIFFERENT for {denoiser_algo_name}")
-
-            # SAVE patched observations to disk for baselines to use
-            cleaned_baseline_results = []
-            if patched_observations is not None:
-                print(f"  [PHASE 2] Saving {len(patched_observations)} patched observations to disk...")
-                final_observations_dir = fold_work_dir / "final_observations"
-                save_patched_observations(
-                    patched_observations, prepared_trajectories, final_observations_dir, domain_ref_path
-                )
-                print(f"  [PHASE 2] Patched observations saved")
-                run_post_process_gt_metrics(fold_work_dir, prepared_trajectories, domain_ref_path, gt_rate)
-
-                # Evaluate ALL conflict-free models (multi-solution evaluation)
-                conflict_free_models_dir = fold_work_dir / "conflict_free_models"
-                if conflict_free_models_dir.exists():
-                    print(f"  [MULTI-EVAL] Evaluating all conflict-free models...")
-                    with profiler.time_operation("evaluate_all_solutions"):
-                        all_solutions_results = evaluate_all_solutions(
-                            conflict_free_models_dir=conflict_free_models_dir,
-                            ref_domain_path=domain_ref_path,
-                            test_problem_paths=test_problem_paths,
-                            test_states_path=test_states_path,
-                            planning_timeout=planning_timeout,
-                            output_dir=fold_work_dir,
-                        )
-                    print(f"  [MULTI-EVAL] Evaluated {len(all_solutions_results)} solutions")
-
-                    with profiler.time_operation("build_correlation_table"):
-                        build_correlation_table(fold_work_dir)
-
-                # Run baselines on cleaned trajectories
-                if baselines and final_observations_dir.exists():
-                    cleaned_trajectories = convert_cleaned_dir_to_trajectory_list(
-                        final_observations_dir, prepared_trajectories
-                    )
-                    if cleaned_trajectories:
-                        # Check equality for metadata
-                        cleaned_equals_unclean_baselines = check_trajectories_equal(
-                            prepared_trajectories, cleaned_trajectories, domain_ref_path, is_patched_observations=False
-                        )
-                        update_fold_metadata(
-                            fold_work_dir,
-                            cleaned_equals_unclean_pisam=cleaned_equals_unclean_pisam,
-                            cleaned_equals_unclean_rosame=cleaned_equals_unclean_baselines,
-                        )
-
-                        with profiler.time_operation("count_total_transitions_and_gt_cleaned"):
-                            total_transitions_cleaned_bl, total_gt_transitions_cleaned_bl = count_total_transitions_and_gt(
-                                cleaned_trajectories, domain_ref_path, gt_rate
-                            )
-
-                        cleaned_baseline_results = _run_baselines_phase(
-                            phase='cleaned',
-                            trajectories=cleaned_trajectories,
-                            total_transitions=total_transitions_cleaned_bl,
-                            total_gt_transitions=total_gt_transitions_cleaned_bl,
-                            **baseline_common,
-                        )
-
-        except Exception as e:
-            print(f"  ERROR in denoising phase: {e}")
-            import traceback
-            traceback.print_exc()
-
-            cleaned_sam_result = evaluate_and_build_result(
-                None, sam_algo_name, bench_name, fold, num_trajectories, gt_rate,
-                test_problem_paths, 'cleaned', domain_ref_path, testing_dir,
-                evaluate_model_func, null_metrics, fold_work_dir,
-                total_transitions=total_transitions_cleaned,
-                total_gt_transitions=total_gt_transitions_cleaned,
-                learning_metrics={},
-                conflict_search_timeout=conflict_search_timeout,
-                planning_timeout=planning_timeout,
-                profiler=profiler,
-                test_states_path=test_states_path_str,
-            )
-            cleaned_baseline_results = []
-
-        # Update fold metadata (if not already updated)
-        metadata_path = fold_work_dir / "fold_info.json"
-        if metadata_path.exists():
-            with open(metadata_path, 'r') as f:
-                existing_metadata = json.load(f)
-            if 'cleaned_equals_unclean_pisam' not in existing_metadata:
-                update_fold_metadata(
-                    fold_work_dir,
-                    cleaned_equals_unclean_pisam=cleaned_equals_unclean_pisam if 'cleaned_equals_unclean_pisam' in locals() else None,
-                )
-        
         # Save detailed timing report
         timing_report_path = fold_work_dir / "timing_report.json"
         profiler.save_report(timing_report_path)
         print(f"  [FOLD COMPLETE] Timing report saved to {timing_report_path.name}")
-        
+
         timing_plot_path = fold_work_dir / "timing_report.png"
         profiler.plot_timing_report(timing_plot_path)
-        
-        # Build results list: always SAM results first, then baselines
-        fold_results = [unclean_sam_result] + unclean_baseline_results + [cleaned_sam_result] + cleaned_baseline_results
+
+        # Build results: baselines + our CDPS row (when run)
+        fold_results = baseline_results + ([cdps_result] if cdps_result is not None else [])
 
         # Write the resume marker last: its presence means this fold is fully done.
         save_fold_result(fold_work_dir, fold_results)

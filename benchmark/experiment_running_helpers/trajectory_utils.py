@@ -301,37 +301,27 @@ def save_fold_metadata(
 def update_fold_metadata(
     fold_dir: Path,
     cleaned_equals_unclean_pisam: bool = None,
-    cleaned_equals_unclean_rosame: bool = None
 ) -> None:
-    """
-    Update fold metadata JSON with additional information about trajectory comparisons.
-    
+    """Update fold_info.json with whether CDPS's patched trajectories == the input.
+
     Args:
-        fold_dir: Directory where fold results are saved
-        cleaned_equals_unclean_pisam: Whether cleaned and unclean trajectories are equal for PISAM/SAM
-        cleaned_equals_unclean_rosame: Whether cleaned and unclean trajectories are equal for ROSAME
+        fold_dir: Directory where fold results are saved.
+        cleaned_equals_unclean_pisam: Whether the patched (denoised) trajectories
+            equal the input degraded trajectories (i.e. CDPS made no change).
     """
     metadata_path = fold_dir / "fold_info.json"
-    
-    # Load existing metadata if it exists
+
     if metadata_path.exists():
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
     else:
         metadata = {}
-    
-    # Add comparison information
+
     if cleaned_equals_unclean_pisam is not None:
         metadata["cleaned_equals_unclean_pisam"] = cleaned_equals_unclean_pisam
         if cleaned_equals_unclean_pisam:
-            metadata["note_pisam"] = "Cleaned and unclean trajectories are EQUAL - denoiser did not modify trajectories"
-    
-    if cleaned_equals_unclean_rosame is not None:
-        metadata["cleaned_equals_unclean_rosame"] = cleaned_equals_unclean_rosame
-        if cleaned_equals_unclean_rosame:
-            metadata["note_rosame"] = "Cleaned and unclean trajectories are EQUAL - denoiser did not modify trajectories"
-    
-    # Save updated metadata
+            metadata["note_pisam"] = "Patched and input trajectories are EQUAL - denoiser did not modify trajectories"
+
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
 

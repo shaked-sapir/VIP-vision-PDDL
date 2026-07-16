@@ -23,10 +23,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-import pandas as pd
 from amlgym.metrics import print_metrics
 
-from benchmark.baselines import resolve_baselines
+from benchmark.algorithms import available_algorithms, resolve_algorithms
 from benchmark.evaluation.correlation_analysis import aggregate_correlation_tables
 from benchmark.experiment_running_helpers.data_source import DataSource, ImageDataSource, SimulatedDataSource
 from benchmark.experiment_running_helpers.evaluation import evaluate_model, save_learning_metrics
@@ -36,12 +35,6 @@ from benchmark.experiment_running_helpers.resume import (
     fold_instance_dir,
     run_params_conflicts,
     try_load_fold_result,
-)
-from benchmark.experiment_running_helpers.reporting import (
-    generate_excel_report,
-    generate_plots,
-    generate_gt_injection_plots,
-    plot_stacked_solving_rate,
 )
 from src.pi_sam.masking import MaskingType
 from src.pi_sam.noising import NoisingType
@@ -82,19 +75,6 @@ def _save_run_params(path: Path, run_params: dict, *, skip_if_exists: bool = Fal
     with open(path, "w") as f:
         json.dump(run_params, f, indent=2)
     print(f"Saved run params to: {path}")
-
-
-def _results_for_domain(results: List[dict], display_domain_name: str) -> List[dict]:
-    return [r for r in results if r['domain'] == display_domain_name]
-
-
-def _route_results(rows: List[dict], unclean_results: List[dict], cleaned_results: List[dict]) -> None:
-    """Append each result row to the unclean/cleaned list by its internal phase."""
-    for result in rows:
-        if result['_internal_phase'] == 'unclean':
-            unclean_results.append(result)
-        else:
-            cleaned_results.append(result)
 
 
 def _resolve_domain_config(domain_key: str) -> dict:
@@ -153,6 +133,7 @@ def main(
     normalize: bool = True,
     force_normalize: bool = False,
     baselines: list = None,
+    run_cdps: bool = True,
     events_tracing: bool = False,
     resume: bool = False,
 ):
@@ -212,8 +193,7 @@ def main(
     else:
         norm_trajs_dir = None
 
-    unclean_results = []
-    cleaned_results = []
+    all_results = []
 
     # ── Resolve paths ────────────────────────────────────────────────────
     if experiment_name:
@@ -255,10 +235,17 @@ def main(
         "node_choosing_strategy": node_choosing_strategy,
         "conflict_group_strategy": conflict_group_strategy,
         "fluent_branch_mode": fluent_branch_mode,
-        "baselines": [r.display_name for r in baselines] if baselines else [],
+        "run_cdps": run_cdps,
+        "algorithms": (["CDPS"] if run_cdps else []) + [r.name for r in (baselines or [])],
         "normalized": norm_trajs_dir is not None,
         "data_source_type": type(data_source).__name__,
     }
+    # Simulated-only run context (image runs leave these absent).
+    if isinstance(data_source, SimulatedDataSource):
+        run_params["p_mask"] = data_source.masking_p
+        run_params["p_noise"] = data_source.noising_p
+        run_params["masking_strategy"] = data_source.masking_strategy.value
+        run_params["noising_strategy"] = data_source.noising_strategy.value
     if evaluation_results_dir is not None:
         run_params_path = evaluation_results_dir / "run_params.json"
         if resume and run_params_path.exists():
@@ -353,7 +340,7 @@ def main(
                             fold_instance_dir(testing_dir, fold, num_trajectories, gt_rate)
                         )
                         if cached is not None:
-                            _route_results(cached, unclean_results, cleaned_results)
+                            all_results.extend(cached)
                             print(f"  [RESUME] fold {fold} already complete — skipping")
                             continue
                     fold_kwargs = dict(
@@ -381,6 +368,7 @@ def main(
                         conflict_group_strategy=conflict_group_strategy,
                         fluent_branch_mode=fluent_branch_mode,
                         baselines=baselines,
+                        run_cdps=run_cdps,
                         events_tracing=events_tracing,
                     )
                     future = executor.submit(run_single_fold, **fold_kwargs)
@@ -403,7 +391,7 @@ def main(
 
                         fold_num = results_list[0]['fold'] if results_list else '?'
 
-                        _route_results(results_list, unclean_results, cleaned_results)
+                        all_results.extend(results_list)
 
                         print(f"  [MAIN] Fold {fold_num} results processed. Jobs done: {completed_count}/{n_total_jobs}")
                     except TimeoutError:
@@ -416,55 +404,12 @@ def main(
 
             print(f"✓ All {n_total_jobs} jobs for num_trajectories={num_trajectories}, gt_rate={gt_rate}% completed")
 
-            # Write CSV files
-            timeout_suffix = f"_timeout{learning_timeout_seconds}s"
-            csv_unclean = evaluation_results_dir / f"results_{display_domain_name}_unclean{timeout_suffix}.csv"
-            csv_cleaned = evaluation_results_dir / f"results_{display_domain_name}{timeout_suffix}.csv"
-
-            pd.DataFrame(unclean_results).to_csv(csv_unclean, index=False)
-            pd.DataFrame(cleaned_results).to_csv(csv_cleaned, index=False)
-
-            csv_combined = evaluation_results_dir / f"results_{display_domain_name}_combined{timeout_suffix}.csv"
-            pd.DataFrame(
-                _results_for_domain(unclean_results + cleaned_results, display_domain_name)
-            ).to_csv(csv_combined, index=False)
-
-            print(f"\n✓ Results written:")
-            print(f"  - Unclean: {csv_unclean}")
-            print(f"  - Cleaned: {csv_cleaned}")
-            print(f"  - Combined: {csv_combined}")
-
-        print(f"\n✓ All folds for num_trajectories={num_trajectories} completed")
-
-        # Generate Excel report after each num_trajectories completes
-        print(f"\n{'='*60}")
-        print(f"GENERATING AGGREGATED REPORT FOR NUM_TRAJECTORIES = {num_trajectories}")
-        print(f"{'='*60}")
-
-        timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-        xlsx_path = evaluation_results_dir / f"benchmark_results_{timestamp}.xlsx"
-        generate_excel_report(unclean_results, cleaned_results, xlsx_path)
-        print(f"✓ Excel report saved to: {xlsx_path}")
-        completed_numtrajs = sorted(set(r['num_trajectories'] for r in unclean_results))
-        print(f"  Completed num_trajectories so far: {completed_numtrajs}")
-
-        domain_results = _results_for_domain(unclean_results + cleaned_results, display_domain_name)
-        if not domain_results:
-            print(f"\nWarning: No results collected for {display_domain_name} at num_trajectories={num_trajectories}; skipping plots")
-        else:
-            print(f"\n{'='*60}")
-            print(f"GENERATING GT INJECTION PLOTS")
-            print(f"{'='*60}")
-            generate_gt_injection_plots(csv_combined, evaluation_results_dir, display_domain_name)
-
-            print(f"\n{'='*60}")
-            print(f"GENERATING STACKED SOLVING RATE PLOTS")
-            print(f"{'='*60}")
-            plot_stacked_solving_rate(csv_combined, evaluation_results_dir, display_domain_name)
-
-        plots_dir = evaluation_results_dir / "plots"
-        generate_plots(unclean_results, cleaned_results, plots_dir)
-        print(f"✓ Plots updated with results up to num_trajectories={num_trajectories}")
+        # Per-cell results are persisted as fold_result.json (the resume marker);
+        # reports are generated on demand from those + run_params.json by
+        # benchmark.evaluation.experiment_report. No results CSVs are written.
+        completed_numtrajs = sorted(set(r['num_trajectories'] for r in all_results))
+        print(f"\n✓ All folds for num_trajectories={num_trajectories} completed "
+              f"(num_trajectories so far: {completed_numtrajs})")
 
     # ── Cross-fold correlation analysis ──────────────────────────────────
     print("\n" + "=" * 80)
@@ -488,19 +433,14 @@ def main(
         print(f"  {display_domain_name}: testing dir not found, skipping correlation.")
 
     # ── Final summary ────────────────────────────────────────────────────
-    if evaluation_results_dir is not None:
-        csv_all_combined = evaluation_results_dir / "results_all_domains_combined.csv"
-        all_unclean = [dict(r, phase='unclean') for r in unclean_results]
-        all_cleaned = [dict(r, phase='cleaned') for r in cleaned_results]
-        pd.DataFrame(all_unclean + all_cleaned).to_csv(csv_all_combined, index=False)
-
     print("\n" + "=" * 80)
     print("ALL EXPERIMENTS COMPLETED")
     print("=" * 80)
-    print(f"\nTotal unclean results: {len(unclean_results)}")
-    print(f"Total cleaned results: {len(cleaned_results)}")
+    print(f"\nTotal result rows: {len(all_results)}")
     if evaluation_results_dir is not None:
         print(f"\nAll evaluation results saved to: {evaluation_results_dir}")
+        print("Generate the report with: "
+              "python -m benchmark.evaluation.experiment_report <experiment_dir>")
 
 
 # =============================================================================
@@ -621,8 +561,9 @@ if __name__ == "__main__":
     parser.add_argument('--resume', action='store_true', default=False,
                         help='Skip fold instances that already completed (fold_result.json present)')
     parser.add_argument(
-        '--baselines', type=str, nargs='*', default=['rosame'],
-        help='Baseline algorithms (e.g. "rosame"). Use "none" to skip. Default: rosame.',
+        '--algorithms', type=str, nargs='*', default=['cdps', 'rosame'],
+        help=f'Algorithms to run (any subset, standalone allowed). '
+             f'Available: {", ".join(available_algorithms())}. Default: cdps rosame.',
     )
 
     args = parser.parse_args()
@@ -652,17 +593,15 @@ if __name__ == "__main__":
     if not data_dir.is_absolute():
         data_dir = project_root / data_dir
 
-    # Baselines
-    if not args.baselines:
-        parser.error("--baselines requires a value (e.g. 'rosame', or 'none' to skip)")
+    # Algorithms (our CDPS and/or baselines)
+    if not args.algorithms:
+        parser.error(f"--algorithms requires a value (available: {', '.join(available_algorithms())})")
     try:
-        baseline_runners = resolve_baselines(args.baselines)
+        run_cdps, baseline_runners = resolve_algorithms(args.algorithms)
     except ValueError as err:
         parser.error(str(err))
-    if baseline_runners:
-        print(f"Baselines: {', '.join(r.display_name for r in baseline_runners)}")
-    else:
-        print("Baselines: NONE (only SAM/PISAM will run)")
+    selected = (['CDPS'] if run_cdps else []) + [r.display_name for r in baseline_runners]
+    print(f"Algorithms: {', '.join(selected)}")
 
     # ── Construct data source ─────────────────────────────────────────────
     if args.simulated_gt_trajectories:
@@ -715,6 +654,7 @@ if __name__ == "__main__":
         normalize=not args.no_normalize,
         force_normalize=args.force_normalize,
         baselines=baseline_runners,
+        run_cdps=run_cdps,
         events_tracing=args.events_tracing,
         resume=args.resume,
     )
