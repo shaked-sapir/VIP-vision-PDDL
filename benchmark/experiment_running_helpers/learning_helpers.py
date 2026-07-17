@@ -124,7 +124,7 @@ def _learn_pisam_with_profiling(
 
             def timing_callback(step_name, elapsed):
                 profiler.add_detailed_timing(
-                    "sam_pisam_trajectory_processing_cleaned",
+                    "sam_pisam_trajectory_processing",
                     step_name, elapsed,
                     {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
                 )
@@ -134,7 +134,7 @@ def _learn_pisam_with_profiling(
             load_elapsed = time.perf_counter() - start_load
 
             profiler.add_detailed_timing(
-                "sam_pisam_trajectory_loading_cleaned",
+                "sam_pisam_trajectory_loading",
                 'load_masked_observation_total',
                 load_elapsed,
                 {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
@@ -142,7 +142,10 @@ def _learn_pisam_with_profiling(
 
             masked_observations.append(masked_obs)
 
-    if fold_work_dir is not None and prepared_trajectories and masked_observations:
+    # Only the image pipeline persists here; for simulated runs the
+    # SimulatedDataSource already wrote original_observations/ (pre_built_observations
+    # is not None), so re-saving would double-write identical files.
+    if pre_built_observations is None and fold_work_dir is not None and prepared_trajectories and masked_observations:
         original_obs_dir = fold_work_dir / "original_observations"
         save_fold_observations(
             masked_observations,
@@ -214,7 +217,7 @@ def _learn_pisam_with_profiling(
     model = learned_model.to_pddl()
 
     if profiler:
-        profiler.add_timing(f"learning_process_{algo_name}_cleaned", time.perf_counter() - start_learn)
+        profiler.add_timing(f"learning_process_{algo_name}", time.perf_counter() - start_learn)
     return model, report, patched_observations
 
 
@@ -237,7 +240,7 @@ def learn_sam_pisam(
     pre_built_observations: Optional[list] = None,
     gt_source_indices_override: Optional[Dict[int, Set[int]]] = None,
     events_tracing: bool = False,
-) -> Tuple[str, dict, str, any]:
+) -> Tuple[str, dict, any]:
     """Learn a PISAM model via the Conflict-Directed Patch Search (CDPS).
 
     Args:
@@ -250,7 +253,7 @@ def learn_sam_pisam(
         (other args configure the conflict search)
 
     Returns:
-        Tuple of (model, learning_report, algorithm_name, patched_observations).
+        Tuple of (model, learning_report, patched_observations).
     """
     algo_name = 'PISAM'
 
@@ -299,4 +302,4 @@ def learn_sam_pisam(
         report['conflict_group_strategy'] = _resolve_conflict_group_strategy(conflict_group_strategy).value
         report['fluent_branch_mode'] = _resolve_fluent_branch_mode(fluent_branch_mode).value
 
-    return model, report, algo_name, patched_observations
+    return model, report, patched_observations

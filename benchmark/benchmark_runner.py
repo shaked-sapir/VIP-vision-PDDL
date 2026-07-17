@@ -30,11 +30,10 @@ Example run config (simulated):
     run_name: sim_run_2026_07
     source: simulated
     shared:
-      mode: masked
       n_folds: 5
       num_trajectories: [3, 5, 8]
       gt_rates: [0]
-      baselines: [rosame]
+      algorithms: [cdps, rosame]
     simulation:
       masking_strategy: percentage
       noising_strategy: percentage
@@ -276,8 +275,18 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     """Translate the shared config block into experiment_runner.main() kwargs.
 
     Only keys present in the config are forwarded; anything omitted falls back
-    to main()'s own defaults.
+    to main()'s own defaults. Unknown keys raise, so a typo (e.g. ``n_fold``) or
+    a stale key (e.g. the removed ``mode``) fails loudly instead of being
+    silently dropped.
     """
+    known_keys = _PASSTHROUGH_KEYS | {"num_trajectories", "gt_rates", "algorithms", "baselines"}
+    unknown = set(shared) - known_keys
+    if unknown:
+        raise ValueError(
+            f"Unknown shared config key(s): {sorted(unknown)}. "
+            f"Known keys: {sorted(known_keys)}."
+        )
+
     kwargs: Dict[str, Any] = {}
 
     for key in _PASSTHROUGH_KEYS:

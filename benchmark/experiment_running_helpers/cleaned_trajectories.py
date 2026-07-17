@@ -1,5 +1,8 @@
 """
-Cleaned trajectory handling utilities for AMLGym experiments.
+Observation serialization utilities for AMLGym experiments.
+
+Serialize in-memory Observation objects to on-disk .trajectory + .masking_info
+files (degraded "original_observations" and CDPS-patched "final_observations").
 """
 
 from pathlib import Path
@@ -84,7 +87,7 @@ def save_patched_observations(
     Save patched observations from denoiser to trajectory files.
 
     Args:
-        patched_observations: List of Observation objects from NOISY_SAM/NOISY_PISAM
+        patched_observations: List of Observation objects from CDPS (NOISY_PISAM conflict search)
         prepared_trajectories: Original trajectories (to match observations to problems)
         output_dir: Directory to save final observations (e.g., fold_work_dir / "final_observations")
         domain_path: Unused; kept for call-site compatibility.

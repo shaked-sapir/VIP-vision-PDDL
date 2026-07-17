@@ -32,47 +32,32 @@ from src.utils.pddl import ground_observation_completely, observations_equal
 
 def check_trajectories_equal(
     prepared_trajectories: List[Tuple[Path, Path, Path]],
-    cleaned_observations_or_paths,
+    patched_observations,
     domain_ref_path: Path,
-    is_patched_observations: bool = False
 ):
     """
-    Check if cleaned and unclean trajectories are equal.
-    
+    Check whether CDPS's patched observations equal the original input trajectories.
+
     Args:
-        prepared_trajectories: List of (trajectory_path, masking_path, problem_pddl_path) for unclean
-        cleaned_observations_or_paths: Either list of Observation objects (if is_patched_observations=True)
-                                      or list of (trajectory_path, masking_path, problem_pddl_path) tuples
-        domain_ref_path: Path to domain file
-        is_patched_observations: True if cleaned_observations_or_paths contains Observation objects
-        
+        prepared_trajectories: List of (trajectory_path, masking_path, problem_pddl_path).
+        patched_observations: List of patched Observation objects from CDPS.
+        domain_ref_path: Path to domain file.
+
     Returns:
-        True if all trajectories are equal, False if different, None if check cannot be performed
+        True if all patched observations equal their input, False if any differ,
+        None if the check cannot be performed.
     """
-    if is_patched_observations:
-        if cleaned_observations_or_paths is None or len(cleaned_observations_or_paths) != len(prepared_trajectories):
-            return None
-    else:
-        if not cleaned_observations_or_paths or len(cleaned_observations_or_paths) != len(prepared_trajectories):
-            return None
-    
+    if patched_observations is None or len(patched_observations) != len(prepared_trajectories):
+        return None
+
     domain = DomainParser(domain_ref_path).parse_domain()
     parser = TrajectoryParser(domain)
-    
+
     for idx, (traj_path, *_) in enumerate(prepared_trajectories):
-        if is_patched_observations:
-            original_obs = parser.parse_trajectory(traj_path)
-            fully_grounded_original_obs = ground_observation_completely(domain, original_obs)
-            if not observations_equal(fully_grounded_original_obs, cleaned_observations_or_paths[idx]):
-                return False
-        else:
-            cleaned_traj_path, _, _ = cleaned_observations_or_paths[idx]
-            unclean_obs = parser.parse_trajectory(traj_path)
-            fully_grounded_unclean_obs = ground_observation_completely(domain, unclean_obs)
-            cleaned_obs = parser.parse_trajectory(cleaned_traj_path)
-            fully_grounded_cleaned_obs = ground_observation_completely(domain, cleaned_obs)
-            if not observations_equal(fully_grounded_unclean_obs, fully_grounded_cleaned_obs):
-                return False
+        original_obs = parser.parse_trajectory(traj_path)
+        fully_grounded_original_obs = ground_observation_completely(domain, original_obs)
+        if not observations_equal(fully_grounded_original_obs, patched_observations[idx]):
+            return False
     return True
 
 
@@ -306,10 +291,10 @@ def run_single_fold(
 
         # Count total transitions and GT transitions for unclean phase
         with profiler.time_operation("count_total_transitions_and_gt"):
-            total_transitions_unclean, total_gt_transitions_unclean = count_total_transitions_and_gt(
+            total_transitions, total_gt_transitions = count_total_transitions_and_gt(
                 prepared_trajectories
             )
-        print(f"  [STATS] Unclean phase: {total_transitions_unclean} transitions, {total_gt_transitions_unclean} GT states")
+        print(f"  [STATS] {total_transitions} transitions, {total_gt_transitions} GT states")
 
         # Common kwargs for _run_baselines
         baseline_common = dict(
@@ -335,8 +320,8 @@ def run_single_fold(
         # ==================================================
         baseline_results = _run_baselines(
             trajectories=prepared_trajectories,
-            total_transitions=total_transitions_unclean,
-            total_gt_transitions=total_gt_transitions_unclean,
+            total_transitions=total_transitions,
+            total_gt_transitions=total_gt_transitions,
             **baseline_common,
         )
 
@@ -349,10 +334,8 @@ def run_single_fold(
                 print(f"  [CDPS] Starting conflict-directed patch search...")
                 if conflict_search_timeout is not None:
                     print(f"  [CDPS] Using conflict search timeout: {conflict_search_timeout}s")
-                # Internal learner name (used for the metrics file lookup only).
-                denoiser_algo_name = 'NOISY_PISAM'
-                with profiler.time_operation(f"learning_cdps_{denoiser_algo_name}"):
-                    cleaned_model, denoising_report, denoiser_algo_name, patched_observations = learn_sam_pisam(
+                with profiler.time_operation("learning_cdps"):
+                    cleaned_model, denoising_report, patched_observations = learn_sam_pisam(
                         domain_ref_path, prepared_trajectories, testing_dir,
                         conflict_search_timeout=conflict_search_timeout,
                         profiler=profiler,
@@ -373,7 +356,7 @@ def run_single_fold(
                 print(f"  [CDPS] Search complete, saving metrics...")
                 save_learning_metrics_func(fold_work_dir, denoising_report)
 
-                denoising_learning_metrics = load_learning_metrics(fold_work_dir, 'cleaned', denoiser_algo_name)
+                denoising_learning_metrics = load_learning_metrics(fold_work_dir)
 
                 # CDPS-owned extras (nested under algorithm_specific).
                 lm = denoising_learning_metrics or {}
@@ -395,8 +378,8 @@ def run_single_fold(
                         cleaned_model, CDPS_ALGORITHM_NAME, bench_name, fold, num_trajectories, gt_rate,
                         test_problem_paths, domain_ref_path, testing_dir,
                         evaluate_model_func, null_metrics, fold_work_dir,
-                        total_transitions=total_transitions_unclean,
-                        total_gt_transitions=total_gt_transitions_unclean,
+                        total_transitions=total_transitions,
+                        total_gt_transitions=total_gt_transitions,
                         learning_time_seconds=lm.get("learning_time_seconds"),
                         algorithm_specific=cdps_specific,
                         planning_timeout=planning_timeout,
@@ -406,7 +389,7 @@ def run_single_fold(
 
                 # Did the search change the data? (kept for fold metadata)
                 patched_equals_input = check_trajectories_equal(
-                    prepared_trajectories, patched_observations, domain_ref_path, is_patched_observations=True
+                    prepared_trajectories, patched_observations, domain_ref_path
                 )
                 if patched_equals_input is not None:
                     print(f"  [CDPS] Patched vs input trajectories are "
@@ -421,7 +404,7 @@ def run_single_fold(
                     )
                     run_post_process_gt_metrics(fold_work_dir, prepared_trajectories, domain_ref_path, gt_rate)
                     update_fold_metadata(
-                        fold_work_dir, cleaned_equals_unclean_pisam=patched_equals_input,
+                        fold_work_dir, patched_equals_input=patched_equals_input,
                     )
 
                     conflict_free_models_dir = fold_work_dir / "conflict_free_models"
@@ -448,8 +431,8 @@ def run_single_fold(
                     None, CDPS_ALGORITHM_NAME, bench_name, fold, num_trajectories, gt_rate,
                     test_problem_paths, domain_ref_path, testing_dir,
                     evaluate_model_func, null_metrics, fold_work_dir,
-                    total_transitions=total_transitions_unclean,
-                    total_gt_transitions=total_gt_transitions_unclean,
+                    total_transitions=total_transitions,
+                    total_gt_transitions=total_gt_transitions,
                     learning_time_seconds=None,
                     algorithm_specific={"conflict_search_timeout_seconds": conflict_search_timeout,
                                         "error": str(e)},

@@ -52,20 +52,16 @@ def count_total_transitions_and_gt(
     return total_transitions, total_gt_states
 
 
-def load_learning_metrics(fold_work_dir: Path, phase: str, algorithm_name: str) -> dict:
+def load_learning_metrics(fold_work_dir: Path) -> dict:
     """
-    Load learning metrics from JSON file.
-    
+    Load learning metrics from learning_metrics.json in the fold directory.
+
     Args:
         fold_work_dir: Directory where fold results are saved
-        phase: 'unclean' or 'cleaned'
-        algorithm_name: Algorithm name (e.g., 'PISAM', 'SAM', 'PO_ROSAME', 'ROSAME')
-        
+
     Returns:
         Dictionary with learning metrics, or empty dict if not found
     """
-    # For cleaned phase with denoising, the metrics might be in a specific file
-    # For now, we'll look for learning_metrics.json in the fold directory
     metrics_file = fold_work_dir / "learning_metrics.json"
     
     if not metrics_file.exists():

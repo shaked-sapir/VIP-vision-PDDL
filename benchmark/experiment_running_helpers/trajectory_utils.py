@@ -241,13 +241,13 @@ def save_fold_metadata(
 
 def update_fold_metadata(
     fold_dir: Path,
-    cleaned_equals_unclean_pisam: bool = None,
+    patched_equals_input: bool = None,
 ) -> None:
     """Update fold_info.json with whether CDPS's patched trajectories == the input.
 
     Args:
         fold_dir: Directory where fold results are saved.
-        cleaned_equals_unclean_pisam: Whether the patched (denoised) trajectories
+        patched_equals_input: Whether the patched (denoised) trajectories
             equal the input degraded trajectories (i.e. CDPS made no change).
     """
     metadata_path = fold_dir / "fold_info.json"
@@ -258,10 +258,10 @@ def update_fold_metadata(
     else:
         metadata = {}
 
-    if cleaned_equals_unclean_pisam is not None:
-        metadata["cleaned_equals_unclean_pisam"] = cleaned_equals_unclean_pisam
-        if cleaned_equals_unclean_pisam:
-            metadata["note_pisam"] = "Patched and input trajectories are EQUAL - denoiser did not modify trajectories"
+    if patched_equals_input is not None:
+        metadata["patched_equals_input"] = patched_equals_input
+        if patched_equals_input:
+            metadata["note"] = "Patched and input trajectories are EQUAL - denoiser did not modify trajectories"
 
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
