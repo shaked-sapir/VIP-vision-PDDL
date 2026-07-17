@@ -1,4 +1,3 @@
-import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Union
@@ -176,7 +175,6 @@ def load_masked_observation(
     trajectory_path: Path,
     masking_info_path: Path,
     domain: Domain,
-    timing_callback=None
 ) -> Observation:
     """
     Load a trajectory and apply masking in one unified call.
@@ -193,7 +191,6 @@ def load_masked_observation(
     :param trajectory_path: Path to the .trajectory file
     :param masking_info_path: Path to the .masking_info file
     :param domain: The PDDL domain for parsing predicates and actions
-    :param timing_callback: Optional callback function(step_name, elapsed_seconds) to record timings
     :return: A fully grounded and masked observation ready for PI-SAM learning
 
     Example:
@@ -206,20 +203,9 @@ def load_masked_observation(
         >>>
         >>> masked_obs = load_masked_observation(traj_path, mask_path, domain)
     """
-    def _time_step(step_name, func):
-        start = time.perf_counter() if timing_callback else None
-        result = func()
-        if timing_callback:
-            timing_callback(step_name, time.perf_counter() - start)
-        return result
-
-    observation = _time_step('parse_trajectory', 
-        lambda: TrajectoryParser(partial_domain=domain).parse_trajectory(trajectory_path))
-    masking_info = _time_step('load_masking_info', 
-        lambda: load_masking_info(masking_info_path, domain))
-    grounded_observation = _time_step('ground_observation_completely', 
-        lambda: ground_observation_completely(domain, observation))
-    masked_observation = _time_step('mask_observation', 
-        lambda: mask_observation(grounded_observation, masking_info))
+    observation = TrajectoryParser(partial_domain=domain).parse_trajectory(trajectory_path)
+    masking_info = load_masking_info(masking_info_path, domain)
+    grounded_observation = ground_observation_completely(domain, observation)
+    masked_observation = mask_observation(grounded_observation, masking_info)
 
     return masked_observation

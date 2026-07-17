@@ -30,7 +30,6 @@ def evaluate_and_build_result(
     learning_time_seconds: Optional[float] = None,
     algorithm_specific: Optional[dict] = None,
     planning_timeout: int = 60,
-    profiler=None,
     test_states_path: str = None,
 ) -> dict:
     """Evaluate a learned model and build its base result record.
@@ -61,7 +60,7 @@ def evaluate_and_build_result(
 
         metrics = evaluate_model_func(
             str(temp_path), domain_ref_path, test_problem_paths,
-            planning_timeout=planning_timeout, profiler=profiler,
+            planning_timeout=planning_timeout,
             test_states_path=test_states_path,
         )
         temp_path.unlink()

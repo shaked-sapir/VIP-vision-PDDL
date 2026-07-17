@@ -86,7 +86,6 @@ class RosameBaselineRunner(BaselineRunner):
         prepared_trajectories: List[Tuple[Path, Path, Path]],
         work_dir: Path,
         timeout_seconds: int = 60,
-        profiler=None,
     ) -> Tuple[Optional[str], Dict]:
         traj_paths = _setup_rosame_workspace(prepared_trajectories, work_dir)
         if not traj_paths:

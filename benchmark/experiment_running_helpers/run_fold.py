@@ -19,7 +19,6 @@ from benchmark.experiment_running_helpers.cleaned_trajectories import save_patch
 from benchmark.experiment_running_helpers.data_source import DataSource
 from benchmark.experiment_running_helpers.post_process_gt_metrics import run_post_process_gt_metrics
 from benchmark.experiment_running_helpers.learning_helpers import learn_cdps
-from benchmark.experiment_running_helpers.profiling import TimingProfiler
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import fold_instance_dir, save_fold_result
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt, load_learning_metrics
@@ -78,7 +77,6 @@ def _run_baselines(
     total_gt_transitions: int,
     conflict_search_timeout: int,
     planning_timeout: int,
-    profiler,
     test_states_path_str: str,
 ) -> List[dict]:
     """Run each baseline runner once on the (degraded) trajectories → result rows."""
@@ -91,30 +89,26 @@ def _run_baselines(
         print(f"  [{algo_name}] Starting {runner.display_name} learning...")
 
         learn_start = time.perf_counter()
-        with profiler.time_operation(f"learning_{algo_name.lower()}"):
-            model, extra_info = runner.learn(
-                domain_path=domain_ref_path,
-                prepared_trajectories=trajectories,
-                work_dir=fold_work_dir,
-                timeout_seconds=conflict_search_timeout or 60,
-                profiler=profiler,
-            )
+        model, extra_info = runner.learn(
+            domain_path=domain_ref_path,
+            prepared_trajectories=trajectories,
+            work_dir=fold_work_dir,
+            timeout_seconds=conflict_search_timeout or 60,
+        )
         learn_time = time.perf_counter() - learn_start
 
         print(f"  [{algo_name}] Evaluating {runner.display_name} model...")
-        with profiler.time_operation(f"metrics_checking_{algo_name.lower()}"):
-            result = evaluate_and_build_result(
-                model, algo_name, bench_name, fold, num_trajectories, gt_rate,
-                test_problem_paths, domain_ref_path, testing_dir,
-                evaluate_model_func, null_metrics, fold_work_dir,
-                total_transitions=total_transitions,
-                total_gt_transitions=total_gt_transitions,
-                learning_time_seconds=learn_time,
-                algorithm_specific=extra_info or {},
-                planning_timeout=planning_timeout,
-                profiler=profiler,
-                test_states_path=test_states_path_str,
-            )
+        result = evaluate_and_build_result(
+            model, algo_name, bench_name, fold, num_trajectories, gt_rate,
+            test_problem_paths, domain_ref_path, testing_dir,
+            evaluate_model_func, null_metrics, fold_work_dir,
+            total_transitions=total_transitions,
+            total_gt_transitions=total_gt_transitions,
+            learning_time_seconds=learn_time,
+            algorithm_specific=extra_info or {},
+            planning_timeout=planning_timeout,
+            test_states_path=test_states_path_str,
+        )
         results.append(result)
 
     return results
@@ -191,9 +185,6 @@ def run_single_fold(
         baseline_names = [r.display_name for r in baselines]
         print(f"  Baselines: {', '.join(baseline_names) if baseline_names else '(none)'}")
 
-    # Initialize profiling
-    profiler = TimingProfiler()
-
     # Setup
     fold_work_dir = fold_instance_dir(testing_dir, fold, num_trajectories, gt_rate)
     if output_subdir is not None:
@@ -238,9 +229,8 @@ def run_single_fold(
             selected_pool = random.sample(train_problem_dirs, min(n_train, len(train_problem_dirs)))
 
         # Prepare observations via the data source (file-based or simulated)
-        with profiler.time_operation("data_source_prepare"):
-            prepared_trajectories, pre_built_observations, gt_source_indices = \
-                data_source.prepare(selected_pool, num_trajectories, gt_rate, fold, fold_work_dir)
+        prepared_trajectories, pre_built_observations, gt_source_indices = \
+            data_source.prepare(selected_pool, num_trajectories, gt_rate, fold, fold_work_dir)
 
         if not prepared_trajectories:
             print(f"  ERROR: No trajectories prepared for fold {fold}")
@@ -275,25 +265,23 @@ def run_single_fold(
         # ==================================================
         print(f"  [S_TEST] Generating predictive power test states...")
         test_states_dir = fold_work_dir / "predictive_power_test_states"
-        with profiler.time_operation("generate_predictive_power_test_states"):
-            test_states_path = generate_predictive_power_test_states(
-                domain_ref_path=domain_ref_path,
-                test_problem_paths=test_problem_paths,
-                output_dir=test_states_dir,
-                num_trajectories_per_problem=50,
-                seed=42 + fold,
-            )
+        test_states_path = generate_predictive_power_test_states(
+            domain_ref_path=domain_ref_path,
+            test_problem_paths=test_problem_paths,
+            output_dir=test_states_dir,
+            num_trajectories_per_problem=50,
+            seed=42 + fold,
+        )
         test_states_path_str = str(test_states_path)
         print(f"  [S_TEST] Test states ready at {test_states_path.name}")
 
         # Save fold metadata with test problem names
         save_fold_metadata(fold_work_dir, prepared_trajectories, fold, num_trajectories, gt_rate, test_problem_paths)
 
-        # Count total transitions and GT transitions for unclean phase
-        with profiler.time_operation("count_total_transitions_and_gt"):
-            total_transitions, total_gt_transitions = count_total_transitions_and_gt(
-                prepared_trajectories
-            )
+        # Count total transitions and GT transitions
+        total_transitions, total_gt_transitions = count_total_transitions_and_gt(
+            prepared_trajectories
+        )
         print(f"  [STATS] {total_transitions} transitions, {total_gt_transitions} GT states")
 
         # Common kwargs for _run_baselines
@@ -311,7 +299,6 @@ def run_single_fold(
             testing_dir=testing_dir,
             conflict_search_timeout=conflict_search_timeout,
             planning_timeout=planning_timeout,
-            profiler=profiler,
             test_states_path_str=test_states_path_str,
         )
 
@@ -334,25 +321,23 @@ def run_single_fold(
                 print(f"  [CDPS] Starting conflict-directed patch search...")
                 if conflict_search_timeout is not None:
                     print(f"  [CDPS] Using conflict search timeout: {conflict_search_timeout}s")
-                with profiler.time_operation("learning_cdps"):
-                    cleaned_model, denoising_report, patched_observations = learn_cdps(
-                        domain_ref_path, prepared_trajectories, testing_dir,
-                        conflict_search_timeout=conflict_search_timeout,
-                        profiler=profiler,
-                        fold_work_dir=fold_work_dir,
-                        fluent_patch_cost=fluent_patch_cost,
-                        fluent_patch_weight=fluent_patch_weight,
-                        model_patch_cost=model_patch_cost,
-                        model_constraint_weight=model_constraint_weight,
-                        max_search_nodes=max_search_nodes,
-                        search_mode=search_mode,
-                        node_choosing_strategy=node_choosing_strategy,
-                        conflict_group_strategy=conflict_group_strategy,
-                        fluent_branch_mode=fluent_branch_mode,
-                        pre_built_observations=pre_built_observations,
-                        gt_source_indices_override=gt_source_indices,
-                        events_tracing=events_tracing,
-                    )
+                cleaned_model, denoising_report, patched_observations = learn_cdps(
+                    domain_ref_path, prepared_trajectories, testing_dir,
+                    conflict_search_timeout=conflict_search_timeout,
+                    fold_work_dir=fold_work_dir,
+                    fluent_patch_cost=fluent_patch_cost,
+                    fluent_patch_weight=fluent_patch_weight,
+                    model_patch_cost=model_patch_cost,
+                    model_constraint_weight=model_constraint_weight,
+                    max_search_nodes=max_search_nodes,
+                    search_mode=search_mode,
+                    node_choosing_strategy=node_choosing_strategy,
+                    conflict_group_strategy=conflict_group_strategy,
+                    fluent_branch_mode=fluent_branch_mode,
+                    pre_built_observations=pre_built_observations,
+                    gt_source_indices_override=gt_source_indices,
+                    events_tracing=events_tracing,
+                )
                 print(f"  [CDPS] Search complete, saving metrics...")
                 save_learning_metrics_func(fold_work_dir, denoising_report)
 
@@ -373,19 +358,17 @@ def run_single_fold(
                 }
 
                 print(f"  [CDPS] Evaluating learned model...")
-                with profiler.time_operation("metrics_checking_cdps"):
-                    cdps_result = evaluate_and_build_result(
-                        cleaned_model, CDPS_ALGORITHM_NAME, bench_name, fold, num_trajectories, gt_rate,
-                        test_problem_paths, domain_ref_path, testing_dir,
-                        evaluate_model_func, null_metrics, fold_work_dir,
-                        total_transitions=total_transitions,
-                        total_gt_transitions=total_gt_transitions,
-                        learning_time_seconds=lm.get("learning_time_seconds"),
-                        algorithm_specific=cdps_specific,
-                        planning_timeout=planning_timeout,
-                        profiler=profiler,
-                        test_states_path=test_states_path_str,
-                    )
+                cdps_result = evaluate_and_build_result(
+                    cleaned_model, CDPS_ALGORITHM_NAME, bench_name, fold, num_trajectories, gt_rate,
+                    test_problem_paths, domain_ref_path, testing_dir,
+                    evaluate_model_func, null_metrics, fold_work_dir,
+                    total_transitions=total_transitions,
+                    total_gt_transitions=total_gt_transitions,
+                    learning_time_seconds=lm.get("learning_time_seconds"),
+                    algorithm_specific=cdps_specific,
+                    planning_timeout=planning_timeout,
+                    test_states_path=test_states_path_str,
+                )
 
                 # Did the search change the data? (kept for fold metadata)
                 patched_equals_input = check_trajectories_equal(
@@ -410,18 +393,16 @@ def run_single_fold(
                     conflict_free_models_dir = fold_work_dir / "conflict_free_models"
                     if conflict_free_models_dir.exists():
                         print(f"  [MULTI-EVAL] Evaluating all conflict-free models...")
-                        with profiler.time_operation("evaluate_all_solutions"):
-                            all_solutions_results = evaluate_all_solutions(
-                                conflict_free_models_dir=conflict_free_models_dir,
-                                ref_domain_path=domain_ref_path,
-                                test_problem_paths=test_problem_paths,
-                                test_states_path=test_states_path,
-                                planning_timeout=planning_timeout,
-                                output_dir=fold_work_dir,
-                            )
+                        all_solutions_results = evaluate_all_solutions(
+                            conflict_free_models_dir=conflict_free_models_dir,
+                            ref_domain_path=domain_ref_path,
+                            test_problem_paths=test_problem_paths,
+                            test_states_path=test_states_path,
+                            planning_timeout=planning_timeout,
+                            output_dir=fold_work_dir,
+                        )
                         print(f"  [MULTI-EVAL] Evaluated {len(all_solutions_results)} solutions")
-                        with profiler.time_operation("build_correlation_table"):
-                            build_correlation_table(fold_work_dir)
+                        build_correlation_table(fold_work_dir)
 
             except Exception as e:
                 print(f"  ERROR in CDPS phase: {e}")
@@ -437,17 +418,8 @@ def run_single_fold(
                     algorithm_specific={"conflict_search_timeout_seconds": conflict_search_timeout,
                                         "error": str(e)},
                     planning_timeout=planning_timeout,
-                    profiler=profiler,
                     test_states_path=test_states_path_str,
                 )
-
-        # Save detailed timing report
-        timing_report_path = fold_work_dir / "timing_report.json"
-        profiler.save_report(timing_report_path)
-        print(f"  [FOLD COMPLETE] Timing report saved to {timing_report_path.name}")
-
-        timing_plot_path = fold_work_dir / "timing_report.png"
-        profiler.plot_timing_report(timing_plot_path)
 
         # Build results: baselines + our CDPS row (when run)
         fold_results = baseline_results + ([cdps_result] if cdps_result is not None else [])

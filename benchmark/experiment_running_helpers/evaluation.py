@@ -64,7 +64,6 @@ def evaluate_model(
     domain_ref_path: Path,
     test_problems: List[str],
     planning_timeout: int = 60,
-    profiler=None,
     test_states_path: str = None,
 ) -> dict:
     """Evaluate a learned model against a reference domain.
@@ -76,27 +75,11 @@ def evaluate_model(
         domain_ref_path: Path to reference domain PDDL file.
         test_problems: List of test problem paths.
         planning_timeout: Timeout in seconds for planning during evaluation.
-        profiler: Optional TimingProfiler instance for detailed timing.
         test_states_path: Path to test_states.json for predictive power metrics.
 
     Returns:
         Dictionary of evaluation metrics.
     """
-
-    def _time_metric(metric_name, func):
-        """Helper to time a metric computation."""
-        if profiler:
-            start = time.perf_counter()
-            result = func()
-            elapsed = time.perf_counter() - start
-            profiler.add_detailed_timing(
-                'eval_metrics',
-                metric_name,
-                elapsed,
-                {'model_path': model_path, 'num_test_problems': len(test_problems)}
-            )
-            return result
-        return func()
 
     max_retries = 5
     for attempt in range(max_retries):
@@ -104,20 +87,11 @@ def evaluate_model(
             if attempt > 0:
                 time.sleep(random.uniform(0.1, 0.5))
 
-            precision = _time_metric(
-                'syntactic_precision',
-                lambda: syntactic_precision(model_path, str(domain_ref_path)),
-            )
-            recall = _time_metric(
-                'syntactic_recall',
-                lambda: syntactic_recall(model_path, str(domain_ref_path)),
-            )
-            problem_solving_result = _time_metric(
-                'problem_solving',
-                lambda: problem_solving(
-                    model_path, str(domain_ref_path), test_problems,
-                    timeout=planning_timeout,
-                ),
+            precision = syntactic_precision(model_path, str(domain_ref_path))
+            recall = syntactic_recall(model_path, str(domain_ref_path))
+            problem_solving_result = problem_solving(
+                model_path, str(domain_ref_path), test_problems,
+                timeout=planning_timeout,
             )
             break
 

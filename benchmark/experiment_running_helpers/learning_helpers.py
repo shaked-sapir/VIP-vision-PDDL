@@ -10,8 +10,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-import time
-
 from pddl_plus_parser.lisp_parsers import DomainParser
 
 from benchmark.experiment_running_helpers.cleaned_trajectories import (
@@ -23,12 +21,12 @@ from src.pi_sam.plan_denoising.conflict_search_config import CDPSConfig
 from src.utils.masking import load_masked_observation
 
 
-def _learn_cdps_with_profiling(
-    domain_ref_path, traj_paths, config: CDPSConfig, timeout_seconds, algo_name, profiler,
+def _learn_cdps_core(
+    domain_ref_path, traj_paths, config: CDPSConfig, timeout_seconds,
     fold_work_dir=None, prepared_trajectories=None, gt_source_indices_by_obs=None,
     pre_built_observations=None, events_tracing: bool = False,
 ):
-    """Run the Conflict-Directed Patch Search (CDPS) with detailed profiling.
+    """Run the Conflict-Directed Patch Search (CDPS).
 
     Args:
         pre_built_observations: Optional list of pre-built Observation objects.
@@ -44,31 +42,14 @@ def _learn_cdps_with_profiling(
         masked_observations = pre_built_observations
     else:
         masked_observations = []
-        for traj_idx, traj_path_str in enumerate(traj_paths):
+        for traj_path_str in traj_paths:
             traj_path = Path(traj_path_str)
             masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
 
             if not masking_info_path.exists():
                 continue
 
-            def timing_callback(step_name, elapsed):
-                profiler.add_detailed_timing(
-                    "cdps_trajectory_processing",
-                    step_name, elapsed,
-                    {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
-                )
-
-            start_load = time.perf_counter()
-            masked_obs = load_masked_observation(traj_path, masking_info_path, partial_domain, timing_callback=timing_callback)
-            load_elapsed = time.perf_counter() - start_load
-
-            profiler.add_detailed_timing(
-                "cdps_trajectory_loading",
-                'load_masked_observation_total',
-                load_elapsed,
-                {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
-            )
-
+            masked_obs = load_masked_observation(traj_path, masking_info_path, partial_domain)
             masked_observations.append(masked_obs)
 
     # Only the image pipeline persists here; for simulated runs the
@@ -83,8 +64,6 @@ def _learn_cdps_with_profiling(
             observation_prefix="original_observation",
         )
         print(f"  [CDPS] Saved {len(masked_observations)} original observations to {original_obs_dir.name}/")
-
-    start_learn = time.perf_counter()
 
     conflict_free_models_dir = (fold_work_dir / "conflict_free_models") if fold_work_dir else None
     save_t_prime_fn = None
@@ -141,8 +120,6 @@ def _learn_cdps_with_profiling(
 
     model = learned_model.to_pddl()
 
-    if profiler:
-        profiler.add_timing(f"learning_process_{algo_name}", time.perf_counter() - start_learn)
     return model, report, patched_observations
 
 
@@ -151,7 +128,6 @@ def learn_cdps(
     prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
     testing_dir: Path,
     conflict_search_timeout: int = None,
-    profiler=None,
     fold_work_dir: Path = None,
     fluent_patch_cost: float = 1.0,
     fluent_patch_weight: float = 1.0,
@@ -180,8 +156,6 @@ def learn_cdps(
     Returns:
         Tuple of (model, learning_report, patched_observations).
     """
-    algo_name = 'PISAM'
-
     # Determine GT source indices: explicit override takes priority.
     if gt_source_indices_override is not None:
         gt_source_indices_by_obs = gt_source_indices_override
@@ -206,8 +180,8 @@ def learn_cdps(
     # matching the previous NOISY_PISAM default).
     timeout_seconds = conflict_search_timeout if conflict_search_timeout is not None else 60
 
-    model, report, patched_observations = _learn_cdps_with_profiling(
-        domain_ref_path, traj_paths, config, timeout_seconds, algo_name, profiler,
+    model, report, patched_observations = _learn_cdps_core(
+        domain_ref_path, traj_paths, config, timeout_seconds,
         fold_work_dir=fold_work_dir, prepared_trajectories=prepared_trajectories,
         gt_source_indices_by_obs=gt_source_indices_by_obs,
         pre_built_observations=pre_built_observations,

@@ -41,7 +41,6 @@ class BaselineRunner(ABC):
         prepared_trajectories: List[Tuple[Path, Path, Path]],
         work_dir: Path,
         timeout_seconds: int = 60,
-        profiler=None,
     ) -> Tuple[Optional[str], Dict]:
         """Run the baseline learning algorithm on the (degraded) trajectories.
 
@@ -52,7 +51,6 @@ class BaselineRunner(ABC):
                 experiment pipeline.
             work_dir: Scratch directory for this baseline's temporary files.
             timeout_seconds: Wall-clock budget (seconds).
-            profiler: Optional profiler object (pass-through).
 
         Returns:
             ``(pddl_model_string | None, report_dict)`` where
