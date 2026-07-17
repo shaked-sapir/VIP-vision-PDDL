@@ -307,7 +307,7 @@ def run_single_fold(
         # Count total transitions and GT transitions for unclean phase
         with profiler.time_operation("count_total_transitions_and_gt"):
             total_transitions_unclean, total_gt_transitions_unclean = count_total_transitions_and_gt(
-                prepared_trajectories, domain_ref_path, gt_rate
+                prepared_trajectories
             )
         print(f"  [STATS] Unclean phase: {total_transitions_unclean} transitions, {total_gt_transitions_unclean} GT states")
 

@@ -90,37 +90,4 @@ class LLMHikingFluentClassifier(LLMFluentClassifier):
             predicates.add(f"adjacent({loc2}:loc,{loc1}:loc)")
 
         return predicates
-
-if __name__ == "__main__":
-    type_to_objects = {
-        "loc": [f"c{i}_r{j}" for i in range(0,7) for j in range(0,5)],
-    }
-    init_image = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/hiking/experiment_01-12-2025T02:03:07__steps=25/training/rosame_trace/problem2_images/state_0000.png")
-
-    openai_backend = OpenAIImageLLMBackend(
-        api_key="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",  # Replace with your actual OpenAI API key,
-        model="gpt-5.1",
-    )
-    hanoi_openai = LLMHikingFluentClassifier(
-        llm_backend=openai_backend,
-        init_state_image_path=init_image,
-        type_to_objects=type_to_objects,
-        temperature=0.0,
-    )
-
-    # Gemini version
-    gemini_backend = GeminiImageLLMBackend(
-        api_key="AIzaSyANQZLrjfLEQqp5gC-Ip7-sLwbP9OR46xs",
-        model="gemini-2.5-flash",
-    )
-    hanoi_gemini = LLMHikingFluentClassifier(
-        llm_backend=gemini_backend,
-        init_state_image_path=init_image,
-        type_to_objects=type_to_objects,
-        temperature=0.0,
-    )
-
-    # Both expose the same API:
-    preds_gemini = hanoi_gemini.classify(init_image.parent / "state_0008.png")
-    preds_openai = hanoi_openai.classify(init_image.parent / "state_0008.png")
     print("done")

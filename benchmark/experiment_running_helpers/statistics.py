@@ -3,11 +3,8 @@ Statistics and metrics calculation utilities for AMLGym experiments.
 """
 
 import json
-import math
 from pathlib import Path
 from typing import List, Tuple
-
-from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 
 
 def count_transitions_in_trajectory(trajectory_path: Path) -> int:
@@ -31,81 +28,27 @@ def count_transitions_in_trajectory(trajectory_path: Path) -> int:
     return num_transitions
 
 
-def count_gt_states_in_trajectory(trajectory_path: Path, domain_path: Path, gt_rate: int) -> int:
-    """
-    Count the number of GT (ground truth) states in a trajectory based on GT injection rate.
-    GT states are calculated based on the gt_rate percentage and trajectory length,
-    following the same logic as inject_gt_states_by_percentage.
-    
-    Args:
-        trajectory_path: Path to .trajectory file
-        domain_path: Path to domain PDDL file
-        gt_rate: Percentage of states to inject as GT (0-100)
-        
-    Returns:
-        Number of GT states in the trajectory
-    """
-    if not trajectory_path.exists():
-        return 0
-    
-    try:
-        # Parse trajectory to get number of states
-        domain = DomainParser(domain_path).parse_domain()
-        parser = TrajectoryParser(domain)
-        current_observation = parser.parse_trajectory(trajectory_path)
-        num_steps = len(current_observation.components)
-        num_states = num_steps + 1  # Including initial state
-        
-        # Calculate GT states using same logic as inject_gt_states_by_percentage
-        gt_state_indices = set()
-        gt_state_indices.add(0)  # Initial state is always GT
-        
-        if gt_rate > 0:
-            # Calculate total number of GT states needed
-            num_gt_states = max(1, math.ceil(num_states * gt_rate / 100.0))
-            
-            if num_gt_states > 1:
-                # Calculate interval for even spacing
-                interval = num_states / num_gt_states
-                
-                # Generate evenly spaced GT state indices
-                for i in range(num_gt_states):
-                    idx = int(i * interval)
-                    if idx < num_states:
-                        gt_state_indices.add(idx)
-        
-        return len(gt_state_indices)
-    except Exception as e:
-        print(f"  Warning: Failed to count GT states: {e}")
-        return 0
-
-
 def count_total_transitions_and_gt(
-    prepared_trajectories: List[Tuple[Path, Path, Path]],
-    domain_path: Path,
-    gt_rate: int
+    prepared_trajectories: List[Tuple[Path, Path, Path, set]],
 ) -> Tuple[int, int]:
     """
-    Count total transitions and GT transitions across all prepared trajectories.
-    
+    Count total transitions and GT states across all prepared trajectories.
+
     Args:
-        prepared_trajectories: List of (trajectory_path, masking_path, problem_pddl_path)
-        domain_path: Path to domain PDDL file
-        gt_rate: Percentage of states to inject as GT (0-100)
-        
+        prepared_trajectories: List of
+            (trajectory_path, masking_path, problem_pddl_path, gt_indices) tuples;
+            GT states are read directly from each trajectory's gt_indices set.
+
     Returns:
         Tuple of (total_transitions, total_gt_states)
     """
     total_transitions = 0
     total_gt_states = 0
     
-    for traj_path, masking_path, problem_pddl_path, *_ in prepared_trajectories:
-        transitions = count_transitions_in_trajectory(traj_path)
-        total_transitions += transitions
-        
-        gt_states = count_gt_states_in_trajectory(traj_path, domain_path, gt_rate)
-        total_gt_states += gt_states
-    
+    for traj_path, _masking_path, _problem_pddl_path, gt_indices, *_ in prepared_trajectories:
+        total_transitions += count_transitions_in_trajectory(traj_path)
+        total_gt_states += len(gt_indices)
+
     return total_transitions, total_gt_states
 
 

@@ -134,38 +134,3 @@ class LLMNpuzzleFluentClassifier(LLMFluentClassifier):
             predicates.add(f"neighbor({pos2}:position,{pos1}:position)")
 
         return predicates
-
-if __name__ == "__main__":
-    type_to_objects = {
-        "tile": [f"t_{i}" for i in range(1, 25)],
-        "position": [f"p_{i}_{j}" for i in range(1, 6) for j in range(1, 6)],
-    }
-    init_image = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/n_puzzle_typed/multi_problem_06-12-2025T13:32:59__model=gpt-5.1__steps=100__planner/training/trajectories/problem8/state_0000.png")
-
-    openai_backend = OpenAIImageLLMBackend(
-        api_key="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",  # Replace with your actual OpenAI API key,
-        model="gpt-5.1",
-    )
-    hanoi_openai = LLMNpuzzleFluentClassifier(
-        llm_backend=openai_backend,
-        init_state_image_path=init_image,
-        type_to_objects=type_to_objects,
-        temperature=0.0,
-    )
-
-    # Gemini version
-    gemini_backend = GeminiImageLLMBackend(
-        api_key="AIzaSyANQZLrjfLEQqp5gC-Ip7-sLwbP9OR46xs",
-        model="gemini-2.5-flash",
-    )
-    hanoi_gemini = LLMNpuzzleFluentClassifier(
-        llm_backend=gemini_backend,
-        init_state_image_path=init_image,
-        type_to_objects=type_to_objects,
-        temperature=0.0,
-    )
-
-    # Both expose the same API:
-    preds_gemini = hanoi_gemini.classify(init_image.parent / "state_0001.png")
-    preds_openai = hanoi_openai.classify(init_image.parent / "state_0001.png")
-    print("done")

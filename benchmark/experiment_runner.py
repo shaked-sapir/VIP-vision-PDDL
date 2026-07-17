@@ -377,31 +377,33 @@ def main(
                 per_job_timeout = learning_timeout_seconds * 2
                 batch_timeout = n_total_jobs * per_job_timeout
 
-                for future in as_completed(futures, timeout=batch_timeout):
-                    try:
-                        completed_count += 1
-                        elapsed = time.time() - start_time
-                        print(f"  [MAIN] Job {completed_count}/{n_total_jobs} completed after {elapsed:.1f}s, collecting results...")
-                        results_list = future.result(timeout=per_job_timeout)
+                try:
+                    for future in as_completed(futures, timeout=batch_timeout):
+                        try:
+                            results_list = future.result(timeout=per_job_timeout)
+                            completed_count += 1
+                            elapsed = time.time() - start_time
 
-                        fold_num = results_list[0]['fold'] if results_list else '?'
+                            fold_num = results_list[0]['fold'] if results_list else '?'
+                            all_results.extend(results_list)
 
-                        all_results.extend(results_list)
-
-                        print(f"  [MAIN] Fold {fold_num} results processed. Jobs done: {completed_count}/{n_total_jobs}")
-                    except TimeoutError:
-                        print(f"TIMEOUT: Job {completed_count} exceeded time limit")
-                        print(f"  Completed so far: {completed_count}/{n_total_jobs}")
-                    except Exception as e:
-                        print(f"ERROR in job {completed_count}: {e}")
-                        import traceback
-                        traceback.print_exc()
+                            print(f"  [MAIN] Job {completed_count}/{n_total_jobs} completed "
+                                  f"(fold {fold_num}) after {elapsed:.1f}s")
+                        except TimeoutError:
+                            print(f"TIMEOUT: a job exceeded the per-job limit ({per_job_timeout}s); "
+                                  f"completed so far: {completed_count}/{n_total_jobs}")
+                        except Exception as e:
+                            print(f"ERROR in a job: {e}")
+                            import traceback
+                            traceback.print_exc()
+                except TimeoutError:
+                    # Batch-level timeout raised at the for-statement by as_completed:
+                    # keep whatever already completed instead of discarding all results.
+                    print(f"BATCH TIMEOUT after {batch_timeout}s: "
+                          f"{completed_count}/{n_total_jobs} jobs completed; keeping their results")
 
             print(f"✓ All {n_total_jobs} jobs for num_trajectories={num_trajectories}, gt_rate={gt_rate}% completed")
 
-        # Per-cell results are persisted as fold_result.json (the resume marker);
-        # reports are generated on demand from those + run_params.json by
-        # benchmark.evaluation.experiment_report. No results CSVs are written.
         completed_numtrajs = sorted(set(r['num_trajectories'] for r in all_results))
         print(f"\n✓ All folds for num_trajectories={num_trajectories} completed "
               f"(num_trajectories so far: {completed_numtrajs})")

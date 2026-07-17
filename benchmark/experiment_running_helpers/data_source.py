@@ -190,6 +190,14 @@ class SimulatedDataSource(DataSource):
         if self._domain_ref_path is None:
             raise RuntimeError("SimulatedDataSource.setup() must be called before prepare().")
 
+        if gt_rate > 0:
+            # TODO: implement injection if desired to run with gt_rate>0
+            raise NotImplementedError(
+                "SimulatedDataSource.prepare() does not support gt_rate>0 yet "
+                "(GT-state injection is not implemented for simulated runs); "
+                f"got gt_rate={gt_rate}."
+            )
+
         selected_dirs = selected_pool[:num_trajectories]
         selected_gt = select_simulated_gt_trajectories(
             selected_pool, num_trajectories, self._gt_lookup,

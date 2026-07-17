@@ -117,37 +117,3 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             predicates.add(f"holding({block}:block)")
 
         return predicates
-
-if __name__ == "__main__":
-    type_to_objects = {
-        "block": ["red", "cyan", "blue", "green", "yellow", "pink"],
-    }
-    init_image = Path("/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/data/blocksworld/multi_problem_04-12-2025T12:00:44__model=gpt-5.1__steps=50__planner/training/trajectories/problem7/state_0005.png")
-
-    openai_backend = OpenAIImageLLMBackend(
-        api_key="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",  # Replace with your actual OpenAI API key,
-        model="gpt-5.1",
-    )
-    hanoi_openai = LLMBlocksFluentClassifier(
-        llm_backend=openai_backend,
-        init_state_image_path=init_image,
-        type_to_objects=type_to_objects,
-        temperature=0.0,
-    )
-
-    # Gemini version
-    gemini_backend = GeminiImageLLMBackend(
-        api_key="AIzaSyANQZLrjfLEQqp5gC-Ip7-sLwbP9OR46xs",
-        model="gemini-2.5-flash",
-    )
-    hanoi_gemini = LLMBlocksFluentClassifier(
-        llm_backend=gemini_backend,
-        init_state_image_path=init_image,
-        type_to_objects=type_to_objects,
-        temperature=0.0,
-    )
-
-    # Both expose the same API:
-    preds_gemini = hanoi_gemini.classify(init_image.parent / "state_0006.png")
-    preds_openai = hanoi_openai.classify(init_image.parent / "state_0006.png")
-    print("done")
