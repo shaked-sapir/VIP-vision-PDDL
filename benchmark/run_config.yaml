@@ -15,7 +15,6 @@ source: simulated                       # image | simulated
 # Shared benchmark params — forwarded to experiment_runner.main().
 # Any omitted key falls back to main()'s own default.
 shared:
-  mode: masked                          # masked | fullyobs
   n_folds: 5                            # any int >= 1
   num_trajectories: [3, 4, 5, 6, 7, 8]  # list of ints (trajectory counts to evaluate)
   gt_rates: [0]                         # list of ints — GT injection rates in % (e.g. 0, 25, 50)

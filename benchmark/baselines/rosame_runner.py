@@ -13,7 +13,6 @@ in the (degraded) trajectory, so the encoder reads the wrong value directly.
 from __future__ import annotations
 
 import shutil
-import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -23,15 +22,6 @@ from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, Trajector
 from benchmark.baselines.base_runner import BaselineRunner
 from src.utils.masking import load_masking_info, mask_observation
 from src.utils.pddl import ground_observation_completely
-
-
-def _record_timing(profiler, category, step_name, elapsed, traj_idx, problem_name):
-    """Helper to record timing with consistent metadata."""
-    if profiler:
-        profiler.add_detailed_timing(
-            category, step_name, elapsed,
-            {"trajectory_index": traj_idx, "problem_name": problem_name},
-        )
 
 
 def _setup_rosame_workspace(
@@ -90,13 +80,8 @@ class RosameBaselineRunner(BaselineRunner):
     def color(self) -> str:
         return "#e8710a"
 
-    def supports_mode(self, mode: str) -> bool:
-        # One ternary encoder covers both masked and fully-observable cells.
-        return True
-
     def learn(
         self,
-        mode: str,
         domain_path: Path,
         prepared_trajectories: List[Tuple[Path, Path, Path]],
         work_dir: Path,
@@ -111,52 +96,29 @@ class RosameBaselineRunner(BaselineRunner):
         try:
             partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
             rosame = PORosame_Runner(str(domain_path))
-            category = "rosame_trajectory_processing"
 
-            for traj_idx, traj_path_str in enumerate(traj_paths):
+            for traj_path_str in traj_paths:
                 traj_path = Path(traj_path_str)
                 problem_name = traj_path.stem
                 problem_path = traj_path.parent / f"{problem_name}.pddl"
                 masking_info_path = traj_path.parent / f"{problem_name}.masking_info"
 
-                def _time_step(step_name, func):
-                    start = time.perf_counter() if profiler else None
-                    result = func()
-                    _record_timing(
-                        profiler, category, step_name,
-                        time.perf_counter() - start if profiler else 0,
-                        traj_idx, problem_name,
-                    )
-                    return result
-
                 problem = ProblemParser(problem_path, partial_domain).parse_problem()
                 rosame.add_problem(problem)
 
-                observation = _time_step(
-                    "parse_trajectory",
-                    lambda: TrajectoryParser(partial_domain).parse_trajectory(traj_path),
-                )
-                grounded = _time_step(
-                    "ground_observation_completely",
-                    lambda: ground_observation_completely(partial_domain, observation),
-                )
+                observation = TrajectoryParser(partial_domain, problem).parse_trajectory(traj_path)
+                grounded = ground_observation_completely(partial_domain, observation)
 
                 # Apply masking (0.5) when a masking file is present; otherwise the
                 # observation is fully observed and ROSAME degenerates to binary.
                 if masking_info_path.exists():
-                    masking_info = _time_step(
-                        "load_masking_info",
-                        lambda: load_masking_info(masking_info_path, partial_domain),
-                    )
-                    learn_obs = _time_step(
-                        "mask_observation",
-                        lambda: mask_observation(grounded, masking_info),
-                    )
+                    masking_info = load_masking_info(masking_info_path, partial_domain)
+                    learn_obs = mask_observation(grounded, masking_info)
                 else:
                     learn_obs = grounded
 
                 rosame.ground_new_trajectory()
-                _time_step("learn_rosame_single", lambda: rosame.learn_rosame(learn_obs))
+                rosame.learn_rosame(learn_obs)
 
             model = rosame.rosame_to_pddl()
             if model and ":action" in model:

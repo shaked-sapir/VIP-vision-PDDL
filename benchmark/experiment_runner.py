@@ -113,7 +113,6 @@ def main(
     domain_key: str,
     data_dir: Path,
     data_source: DataSource,
-    mode: str = 'masked',
     n_folds: int = 5,
     num_trajectories_list: List[int] = None,
     gt_rate_percentages: List[int] = None,
@@ -145,7 +144,6 @@ def main(
         data_source: DataSource instance controlling where observations come from.
             Use ImageDataSource() for real image-pipeline data (pre-generated files)
             or SimulatedDataSource(...) for synthetic in-memory noise injection.
-        mode: Either 'masked' or 'fullyobs'.
         n_folds: Number of cross-validation folds.
         num_trajectories_list: List of trajectory counts to evaluate.
         gt_rate_percentages: List of GT injection rates (0 = baseline).
@@ -218,7 +216,6 @@ def main(
         "domain_key": domain_key,
         "display_domain_name": display_domain_name,
         "data_dir": str(data_dir),
-        "mode": mode,
         "experiment_name": experiment_name,
         "n_folds": n_folds,
         "num_trajectories_list": num_trajectories_list,
@@ -298,7 +295,6 @@ def main(
 
     # ── Print experiment info ────────────────────────────────────────────
     print(f"\n{'=' * 80}")
-    print(f"RUNNING BENCHMARK IN {mode.upper()} MODE")
     print(f"Domain: {display_domain_name} (config key: {domain_key})")
     print(f"Data dir: {data_dir}")
     print(f"Total problems: {n_problems}")
@@ -352,7 +348,6 @@ def main(
                         domain_ref_path=domain_ref_path,
                         testing_dir=testing_dir,
                         bench_name=display_domain_name,
-                        mode=mode,
                         data_source=data_source,
                         evaluate_model_func=evaluate_model,
                         save_learning_metrics_func=save_learning_metrics,
@@ -480,8 +475,6 @@ if __name__ == "__main__":
     )
 
     # ── Experiment parameters ────────────────────────────────────────────
-    parser.add_argument('--mode', type=str, default='masked', choices=['masked', 'fullyobs'],
-                        help='Mode: "masked" (PISAM/PO_ROSAME) or "fullyobs" (SAM/ROSAME)')
     parser.add_argument('--n-folds', type=int, default=5,
                         help='Number of cross-validation folds (default: 5)')
     parser.add_argument('--num-trajectories', type=str, default='3,4,5,6,7,8',
@@ -634,7 +627,6 @@ if __name__ == "__main__":
         domain_key=args.domain,
         data_dir=data_dir,
         data_source=data_source,
-        mode=args.mode,
         n_folds=args.n_folds,
         num_trajectories_list=num_trajectories_list,
         gt_rate_percentages=gt_rate_percentages,

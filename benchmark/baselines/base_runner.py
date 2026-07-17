@@ -8,13 +8,7 @@ from typing import Dict, List, Optional, Tuple
 
 
 class BaselineRunner(ABC):
-    """Interface for a competitor algorithm that runs alongside the primary learner.
-
-    Subclasses represent a single algorithm variant (e.g. fully-observable
-    ROSAME *or* partially-observable PO-ROSAME, not both).  The experiment
-    pipeline filters runners via :meth:`supports_mode` so only the
-    appropriate variant executes in a given experiment.
-    """
+    """Interface for a competitor algorithm that runs alongside CDPS."""
 
     # ------------------------------------------------------------------ #
     # Identity / display
@@ -37,36 +31,21 @@ class BaselineRunner(ABC):
         return "#888888"
 
     # ------------------------------------------------------------------ #
-    # Mode support
-    # ------------------------------------------------------------------ #
-
-    @abstractmethod
-    def supports_mode(self, mode: str) -> bool:
-        """Return ``True`` if this runner should be used in *mode*.
-
-        Args:
-            mode: ``'masked'`` (partial observability) or ``'fullyobs'``.
-        """
-        ...
-
-    # ------------------------------------------------------------------ #
     # Learning
     # ------------------------------------------------------------------ #
 
     @abstractmethod
     def learn(
         self,
-        mode: str,
         domain_path: Path,
         prepared_trajectories: List[Tuple[Path, Path, Path]],
         work_dir: Path,
         timeout_seconds: int = 60,
         profiler=None,
     ) -> Tuple[Optional[str], Dict]:
-        """Run the baseline learning algorithm.
+        """Run the baseline learning algorithm on the (degraded) trajectories.
 
         Args:
-            mode: ``'masked'`` or ``'fullyobs'``.
             domain_path: Path to the reference PDDL domain file.
             prepared_trajectories: List of ``(trajectory_path, masking_info_path,
                 problem_pddl_path)`` tuples — same format used throughout the

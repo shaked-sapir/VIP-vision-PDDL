@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-**VIP-vision-PDDL** learns PDDL action models from unsupervised visual traces (video/image sequences of agents performing tasks). The pipeline converts video frames into PDDL trajectories via object detection and fluent classification, then feeds those trajectories into a SAM-based learner to construct or refine a partial action model.
+**VIP-vision-PDDL** learns PDDL action models from unsupervised visual traces (video/image sequences of agents performing tasks). The pipeline converts video frames into PDDL trajectories via object detection and fluent classification, then feeds those trajectories into a **PI-SAM** learner with optional **Conflict-Directed Patch Search (CDPS)** to resolve conflicting observations and construct a partial action model.
 
-The system handles **partial observability** (masked/uncertain fluents from noisy classifiers) and **noisy observations** (conflicting trajectories) via the PI-SAM and Noisy-PI-SAM learning variants.
+The system handles **partial observability** (masked/uncertain fluents from noisy classifiers) and **noisy observations** (conflicting trajectories) via PI-SAM masking/noising plus CDPS conflict patching in `src/pi_sam/plan_denoising/`.
 
 ---
 
@@ -16,19 +16,22 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 |---|---|
 | `src/object_detection/` | Detect objects in a single image frame. Input: image. Output: list of `BoundedObject`. |
 | `src/fluent_classification/` | Classify PDDL fluents from a single image frame. Input: image. Output: `Dict[str, PredicateTruthValue]`. LLM path uses `ImageLLMBackend` protocol + `ImageLLMBackendFactory` (OpenAI/Gemini). |
-| `src/trajectory_handlers/` | Image→trajectory pipeline per domain. Split into inference base, PDDLGym source, external source, and LLM mixin layers. |
+| `src/trajectory_handlers/` | Image→trajectory pipeline per domain. Split into inference base, PDDLGym source, external source, LLM mixin layers, and `pddlgym_problem_generator.py` (ROSAME-style problem generation). |
 | `src/pi_sam/` | Learning logic: PI-SAM, Noisy-PI-SAM, masking/noising strategies, conflict patching. |
 | `src/pi_sam/masking/` | Masking strategies (random, percentage, uncertain). Isolated from learning logic. |
 | `src/pi_sam/noising/` | Noising strategies (random, percentage) for flipping unmasked predicate polarity. |
 | `src/pi_sam/noisy_pisam/` | Noise-aware learning variant via mixin composition. |
-| `src/pi_sam/plan_denoising/` | Denoising trajectories at the plan level before learning. |
-| `src/domains/` | Domain PDDL files and domain-specific experiment code. One subdir per domain. |
+| `src/pi_sam/plan_denoising/` | Conflict-Directed Patch Search (CDPS): search over model/fluent patches to resolve trajectory conflicts before final learning. |
+| `src/domains/` | Domain PDDL files and per-domain problem folders (`problems/problemN/`). One subdir per domain. |
 | `src/action_model/` | Parsers between PDDL ↔ gym ↔ SAM formats. |
 | `src/llms/` | LLM integration: prompts, constants, ground-truth files, precision/recall evaluation. |
 | `src/utils/` | **Shared utilities only.** No domain-specific logic here. |
 | `src/typings/` | Shared type aliases and TypedDicts. No logic. |
-| `benchmark/` | Experiment runners, data generators, evaluation scripts, pluggable baselines. Not part of the library. |
-| `benchmark/baselines/` | Pluggable baseline algorithm runners (e.g. ROSAME) registered for `benchmark_runner.py`. |
+| `benchmark/` | Experiment runners, data generators, evaluation scripts. Not part of the library. |
+| `benchmark/experiment_running_helpers/` | Fold execution glue: `run_fold.py` (spine), `data_source.py` (image vs simulated), `learning_helpers.py` (CDPS), `gt_builder.py` (GT export/validation), `collect_results.py` + `result_schema.py` (per-cell JSON → tables). |
+| `benchmark/algorithm_adapters/` | AMLGym-compatible wrappers around `src/pi_sam` learners (`NOISY_PISAM`) and ROSAME encoding helpers. Consumed by `learning_helpers.py` and `baselines/rosame_runner.py`. |
+| `benchmark/baselines/` | Pluggable competitor runners (e.g. ROSAME) registered in `BASELINE_REGISTRY`. |
+| `benchmark/simulated_version/` | Simulated-experiment utilities: `run_simulated_experiment.py`, `noise_injection.py`, `noise_evaluation.py`. |
 
 ---
 
@@ -147,7 +150,7 @@ Every utility function that is not domain-specific belongs in `src/utils/`. Befo
 |---|---|
 | `utils/containers.py` | `to_list`, `serialize`, `group_objects_by_key`, `sort_objects_numerically`, `shrink_whitespaces` |
 | `utils/pddl_state.py` | `get_state_grounded_predicates`, `get_state_unmasked_predicates`, `get_state_masked_predicates`, `compare_states`, `compare_observations`, `observations_equal`, `copy_state`, `copy_observation`, `copy_observation_linked`, `flip_fluent_in_state`, `ground_observation_completely`, `ground_all_predicates_in_state`, `ground_all_states_in_observation`, `get_all_possible_groundings`, `get_all_possible_groundings_for_domain` |
-| `utils/pddl_gym.py` | `set_problem_by_name`, `ground_action`, `parse_gym_to_pddl_literal`, `parse_gym_to_pddl_ground_action`, `multi_replace_predicate`, `translate_pddlgym_state_to_image_predicates`, `extract_objects_from_pddlgym_state` |
+| `utils/pddl_gym.py` | `set_problem_by_name`, `ground_action`, `parse_gym_to_pddl_literal`, `parse_gym_to_pddl_ground_action`, `multi_replace_predicate`, `translate_pddlgym_state_to_image_predicates`, `extract_objects_from_pddlgym_state`, `translate_problem_pddl_text` |
 | `utils/pddl_trajectory.py` | `build_trajectory_file`, `observation_to_trajectory_file`, `ensure_trajectory_json`, `extract_actions_from_trajectory_json`, `propagate_frame_axioms_in_trajectory`, `propagate_frame_axioms_in_memory`, `propagate_frame_axioms_selective`, `inject_gt_states_by_percentage` |
 | `utils/trajectory_json_converter.py` | `convert_trajectory_to_json` — `.trajectory` + `.pddl` → `_trajectory.json` |
 | `utils/masking.py` | `mask_state`, `mask_observation`, `mask_observations`, `save_masking_info`, `load_masking_info`, `load_masked_observation` |
@@ -190,7 +193,7 @@ Avoid global variables and module-level mutable state. Pass config/dependencies 
 
 Checklist when adding support for a new planning domain:
 
-1. `src/domains/{domain}/` — PDDL domain + problem files
+1. `src/domains/{domain}/` — PDDL domain file + `problems/problemN/` folders (each with `{problem}.pddl`; external domains also ship `state_*.png` + GT `.trajectory`)
 2. `src/object_detection/{domain}_object_detector.py` or `llm_{domain}_object_detector.py`
 3. `src/fluent_classification/{domain}_fluent_classifier.py` or `llm_{domain}_fluent_classifier.py`
 4. `src/trajectory_handlers/` — pick the right handler base:
@@ -200,7 +203,7 @@ Checklist when adding support for a new planning domain:
 5. `src/llms/domains/{domain}/` — constants, prompts, ground-truth files (if LLM-based)
 6. `config.yaml` — add domain entry with problem paths and parameters
 7. `benchmark/data/{domain}/` — trajectory data directory
-8. Update domain registry/switch in `simulator_cli.py`, `simulator.py`, or `lab_simulator.py`
+8. Add an entry to `_DOMAIN_REGISTRY` in `benchmark/data_generator.py` and a matching key in `config.yaml`
 
 Do **not** duplicate inference, masking, or trajectory-file logic — inherit from the handler hierarchy. Only implement `init_visual_components` (or LLM class attrs) and domain-specific hooks.
 
@@ -211,7 +214,9 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - **Template Method** — base classes define the pipeline; subclasses fill in domain-specific steps via hooks.
 - **Handler Layering** — `ImageTrajectoryHandler` (inference) ← `PDDLGymImageTrajectoryHandler` / `ExternalImageTrajectoryHandler` (data source) ← domain concrete class. LLM domains add `LLMVisualComponentsMixin` via multiple inheritance.
 - **Mixin Composition** — noise handling (`NoisyLearnerMixin`) and LLM wiring (`LLMVisualComponentsMixin`) are mixins, not deep subclass chains.
-- **Strategy** — masking via `MaskingStrategy`; noising via `NoisingStrategy`. Baseline algorithms via `benchmark/baselines/` registry (`get_baselines`).
+- **Strategy** — masking via `MaskingStrategy`; noising via `NoisingStrategy`. Algorithm selection via `benchmark/algorithms.py` (`cdps` + baseline keys from `benchmark/baselines/`).
+- **DataSource** — `ImageDataSource` vs `SimulatedDataSource` in `benchmark/experiment_running_helpers/data_source.py` decouple observation preparation from fold execution.
+- **Result schema** — per-cell results live in `testing/.../fold_result.json`; `collect_results.py` + `result_schema.py` flatten them for reports (no per-experiment CSVs).
 - **Factory** — LLM vendor/model selection via `ImageLLMBackendFactory.create(vendor, model_type)`; config loaded from `config.yaml`.
 - **Closed-World Assumption** — when a fluent is absent from a state, it is assumed false. `UNCERTAIN` breaks this assumption and triggers masking.
 - **Frame-Axiom Propagation** — unmasked fluents are propagated across states using frame axioms before trajectory files are written (`utils/pddl_trajectory.py`).
@@ -220,14 +225,20 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 
 ## Experiments & Benchmarking
 
-- Entry points: `benchmark/benchmark_runner.py` (config-driven batch runner over domains/noise configs), `benchmark/experiment_runner.py` (single experiment; called per-cell by benchmark_runner), `benchmark/data_generator.py`, `src/simulator_cli.py`
-- Baselines: `benchmark/baselines/` — register runners in `BASELINE_REGISTRY`, select via `--baselines` in `experiment_runner.py`
-- Data lives under `benchmark/data/{domain}/`
-- Evaluation: `benchmark/evaluation/cfm/cfm_quality_analysis.py`, `benchmark/evaluation/cfm/cfm_domain_aggregate.py`, `benchmark/evaluation/cfm/cfm_quality_table.py`, `benchmark/evaluation/fold_filter.py`, `benchmark/evaluation/trajectory_fluent_confusion.py`, `benchmark/evaluation/experiment_report.py`, `benchmark/evaluation/compare_original_observations.py`, `benchmark/evaluation/correlation_analysis.py`
-- Configuration: `config.yaml` at project root
+- Entry points:
+  - `benchmark/benchmark_runner.py` — config-driven batch runner (`benchmark/run_config.yaml`); delegates each cell to `experiment_runner`
+  - `benchmark/experiment_runner.py` — single experiment (one domain, one data source); `--algorithms cdps rosame` (default)
+  - `benchmark/data_generator.py` — multi-problem trajectory generation via `_DOMAIN_REGISTRY`
+  - `benchmark/generate_gt_trajectories.py` — GT backfill/validation CLI (`gt_builder.py`)
+  - `benchmark/simulated_version/run_simulated_experiment.py` — standalone simulated runs
+- Algorithms: `benchmark/algorithms.py` — `cdps` (our learner + conflict search) plus baseline keys from `benchmark/baselines/BASELINE_REGISTRY` (e.g. `rosame`). Legacy run configs may use `baselines: [rosame]` (implies CDPS too).
+- Learning path: `learning_helpers.learn_sam_pisam()` → `NOISY_PISAM` adapter + `ConflictDrivenPatchSearch` (SAM-only paths removed).
+- Data lives under `benchmark/data/{domain}/`; experiment outputs under `benchmark/running_results/{domain}/{experiment_name}/`
+- Evaluation: `benchmark/evaluation/experiment_report.py` (`fully-detailed-report.xlsx`), `benchmark/evaluation/cfm/cfm_quality_analysis.py`, `cfm_quality_table.py`, `cfm_domain_aggregate.py`, `build_dashboard.py`, `combine_dashboard_reports.py` (reads `dashboard_config.yaml`), `fold_filter.py`, `trajectory_fluent_confusion.py`, `compare_original_observations.py`, `correlation_analysis.py`
+- Configuration: `config.yaml` at project root; batch runs via `benchmark/run_config.yaml`
 - Activate environment: `source venv11/bin/activate`
 
-**Supported domains:** blocksworld, hanoi, hiking, maze, n_puzzle (PDDLGym); depot, gripper (external images).
+**Supported domains (config keys):** `blocksworld`, `hanoi`, `hiking`, `maze`, `npuzzle` (PDDLGym / generated); `depot`, `gripper` (external images). Deterministic blocksworld inference uses `BlocksContourFluentClassifier` + `ColorObjectDetector` via `blocks_image_trajectory_handler.py`.
 
 ---
 
@@ -244,6 +255,6 @@ When asked to implement a feature in a new branch:
 ## What Not To Do
 
 - Do not import from `benchmark/` into `src/` — benchmark depends on src, not the reverse.
-- Do not add LLM prompt strings outside of `src/llms/{domain}/`.
+- Do not add LLM prompt strings outside of `src/llms/domains/{domain}/`.
 - Do not write trajectory files manually — use `utils/pddl_trajectory.py`.
 - Do not skip the base class when adding a new detector/classifier — the trajectory handler expects the interface.

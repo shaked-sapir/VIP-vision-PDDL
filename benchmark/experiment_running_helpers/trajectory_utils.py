@@ -196,65 +196,6 @@ def prepare_fold_trajectories(
     return prepared_trajectories
 
 
-def setup_algorithm_workspace(
-    prepared_trajectories: List[Tuple[Path, Path, Path]],
-    algorithm_type: str,
-    working_directory: Path,
-    mode: str
-) -> List[str]:
-    """
-    Set up workspace for an algorithm by copying trajectories and problem files.
-
-    Args:
-        prepared_trajectories: List of (trajectory_path, masking_path, problem_pddl_path)
-        algorithm_type: "sam" or "rosame"
-        working_directory: Directory to create workspace in
-        mode: "masked" or "fullyobs"
-
-    Returns:
-        List of trajectory paths ready for the algorithm
-    """
-    workspace_dir = working_directory / f"temp_{algorithm_type}_workspace"
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-
-    algorithm_traj_paths = []
-
-    for traj_path, masking_path, problem_pddl_path, *_ in prepared_trajectories:
-        problem_name = problem_pddl_path.stem
-
-        # Validate input files before copying
-        if not traj_path.exists():
-            print(f"  Warning: Trajectory file does not exist: {traj_path}")
-            continue
-        if traj_path.stat().st_size == 0:
-            print(f"  Warning: Trajectory file is EMPTY: {traj_path}")
-            continue
-        if not problem_pddl_path.exists():
-            print(f"  Warning: Problem PDDL does not exist: {problem_pddl_path}")
-            continue
-        if problem_pddl_path.stat().st_size == 0:
-            print(f"  Warning: Problem PDDL is EMPTY: {problem_pddl_path}")
-            continue
-
-        problem_dir = workspace_dir / problem_name
-        problem_dir.mkdir(parents=True, exist_ok=True)
-
-        # Copy trajectory file
-        dest_traj_path = problem_dir / f"{problem_name}.trajectory"
-        shutil.copy(traj_path, dest_traj_path)
-
-        # Copy problem PDDL file
-        shutil.copy(problem_pddl_path, problem_dir / f"{problem_name}.pddl")
-
-        # For masked mode, also copy masking_info
-        if mode == "masked" and masking_path.exists():
-            shutil.copy(masking_path, problem_dir / f"{problem_name}.masking_info")
-
-        algorithm_traj_paths.append(str(dest_traj_path))
-
-    return algorithm_traj_paths
-
-
 def save_fold_metadata(
     fold_dir: Path,
     prepared_trajectories: List[Tuple[Path, Path, Path]],

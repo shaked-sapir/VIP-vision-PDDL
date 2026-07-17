@@ -78,7 +78,6 @@ def check_trajectories_equal(
 
 def _run_baselines(
     baselines,
-    mode: str,
     domain_ref_path: Path,
     trajectories: List[Tuple[Path, Path, Path]],
     fold_work_dir: Path,
@@ -103,16 +102,12 @@ def _run_baselines(
         return results
 
     for runner in baselines:
-        if not runner.supports_mode(mode):
-            continue
-
         algo_name = runner.name
         print(f"  [{algo_name}] Starting {runner.display_name} learning...")
 
         learn_start = time.perf_counter()
         with profiler.time_operation(f"learning_{algo_name.lower()}"):
             model, extra_info = runner.learn(
-                mode=mode,
                 domain_path=domain_ref_path,
                 prepared_trajectories=trajectories,
                 work_dir=fold_work_dir,
@@ -149,7 +144,6 @@ def run_single_fold(
     domain_ref_path: Path,
     testing_dir: Path,
     bench_name: str,
-    mode: str,
     data_source: DataSource,
     evaluate_model_func,
     save_learning_metrics_func,
@@ -182,7 +176,6 @@ def run_single_fold(
         domain_ref_path: Path to reference domain PDDL file
         testing_dir: Directory for test results
         bench_name: Benchmark domain name
-        mode: 'masked' (PISAM/PO_ROSAME) or 'fullyobs' (SAM/ROSAME)
         data_source: DataSource instance that supplies observations for this fold.
         evaluate_model_func: Function to evaluate a learned model
         save_learning_metrics_func: Function to save learning metrics
@@ -200,20 +193,18 @@ def run_single_fold(
         trajectory_seed: Optional override for trajectory-pool sampling seed.
         output_subdir: Optional subdirectory under the fold work dir.
         baselines: Optional list of BaselineRunner instances to run alongside
-            our algorithm. When None or empty, only SAM/PISAM is run.
+            CDPS. When None or empty, only CDPS runs (subject to run_cdps).
 
     Returns:
-        List of result dicts. Always includes unclean SAM/PISAM and cleaned
-        SAM/PISAM results. Baseline results are appended when baselines are
-        provided and support the current mode.
+        List of result dicts: the baseline rows plus the CDPS row (when run).
     """
     if baselines is None:
         baselines = []
 
-    print(f"[PID {os.getpid()}] Fold {fold}, num_trajs={num_trajectories}, gt_rate={gt_rate}%, mode={mode}")
+    print(f"[PID {os.getpid()}] Fold {fold}, num_trajs={num_trajectories}, gt_rate={gt_rate}%")
     if baselines:
-        baseline_names = [r.display_name for r in baselines if r.supports_mode(mode)]
-        print(f"  Baselines: {', '.join(baseline_names) if baseline_names else '(none for this mode)'}")
+        baseline_names = [r.display_name for r in baselines]
+        print(f"  Baselines: {', '.join(baseline_names) if baseline_names else '(none)'}")
 
     # Initialize profiling
     profiler = TimingProfiler()
@@ -323,7 +314,6 @@ def run_single_fold(
         # Common kwargs for _run_baselines
         baseline_common = dict(
             baselines=baselines,
-            mode=mode,
             domain_ref_path=domain_ref_path,
             fold_work_dir=fold_work_dir,
             bench_name=bench_name,
@@ -360,11 +350,10 @@ def run_single_fold(
                 if conflict_search_timeout is not None:
                     print(f"  [CDPS] Using conflict search timeout: {conflict_search_timeout}s")
                 # Internal learner name (used for the metrics file lookup only).
-                denoiser_algo_name = 'NOISY_PISAM' if mode == 'masked' else 'NOISY_SAM'
+                denoiser_algo_name = 'NOISY_PISAM'
                 with profiler.time_operation(f"learning_cdps_{denoiser_algo_name}"):
                     cleaned_model, denoising_report, denoiser_algo_name, patched_observations = learn_sam_pisam(
-                        mode, domain_ref_path, prepared_trajectories, testing_dir,
-                        is_denoising=True,
+                        domain_ref_path, prepared_trajectories, testing_dir,
                         conflict_search_timeout=conflict_search_timeout,
                         profiler=profiler,
                         fold_work_dir=fold_work_dir,

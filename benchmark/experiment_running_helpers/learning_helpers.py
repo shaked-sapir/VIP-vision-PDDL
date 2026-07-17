@@ -1,5 +1,9 @@
 """
-Learning algorithm wrapper functions for AMLGym experiments.
+Learning wrapper functions for AMLGym experiments.
+
+Only one learning path exists: PISAM (partial observability) + the
+Conflict-Directed Patch Search (CDPS) denoiser, on masked observations. The old
+fully-observable (SAM) and plain (non-denoising) paths have been removed.
 """
 
 from copy import deepcopy
@@ -9,28 +13,15 @@ from typing import Dict, List, Optional, Set, Tuple
 import time
 
 from pddl_plus_parser.lisp_parsers import DomainParser
-from utilities import NegativePreconditionPolicy
 
 from benchmark.algorithm_adapters.NOISY_PISAM import NOISY_PISAM
-from benchmark.algorithm_adapters.NOISY_SAM import NOISY_SAM
-from benchmark.algorithm_adapters.PISAM import PISAM
-from benchmark.algorithm_adapters.SAM import SAM
 from benchmark.experiment_running_helpers.cleaned_trajectories import (
     save_fold_observations,
     save_observations_to_dir,
 )
-from benchmark.experiment_running_helpers.trajectory_utils import setup_algorithm_workspace
-from src.pi_sam import PISAMLearner
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
 from src.pi_sam.plan_denoising.frontier import ConflictGroupStrategy, FluentBranchMode, NodeChoosingStrategy, SearchMode
 from src.utils.masking import load_masked_observation
-
-
-def _parse_learning_output(learning_output, is_denoising):
-    """Extract model, patched_observations, and report from learning output."""
-    if is_denoising and isinstance(learning_output, tuple) and len(learning_output) == 3:
-        return learning_output[0], learning_output[1], learning_output[2]
-    return learning_output, None, {}
 
 
 def _resolve_search_mode(search_mode: str | SearchMode) -> SearchMode:
@@ -104,15 +95,17 @@ def _resolve_fluent_branch_mode(
 
 
 def _learn_pisam_with_profiling(
-    domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler,
+    domain_ref_path, traj_paths, learner, algo_name, profiler,
     fold_work_dir=None, prepared_trajectories=None, gt_source_indices_by_obs=None,
     pre_built_observations=None, events_tracing: bool = False,
 ):
-    """Learn PISAM with detailed profiling.
+    """Run the Conflict-Directed Patch Search (CDPS) with detailed profiling.
 
     Args:
         pre_built_observations: Optional list of pre-built Observation objects.
-            When provided, file loading from traj_paths is skipped entirely.
+            When provided, file loading from traj_paths is skipped entirely
+            (simulated data); otherwise observations are loaded from disk (image
+            pipeline).
         events_tracing: If True, collect node expansion events and write
             search_trace.json to fold_work_dir after the search completes.
     """
@@ -131,7 +124,7 @@ def _learn_pisam_with_profiling(
 
             def timing_callback(step_name, elapsed):
                 profiler.add_detailed_timing(
-                    f"sam_pisam_trajectory_processing_{phase}",
+                    "sam_pisam_trajectory_processing_cleaned",
                     step_name, elapsed,
                     {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
                 )
@@ -141,15 +134,15 @@ def _learn_pisam_with_profiling(
             load_elapsed = time.perf_counter() - start_load
 
             profiler.add_detailed_timing(
-                f"sam_pisam_trajectory_loading_{phase}",
+                "sam_pisam_trajectory_loading_cleaned",
                 'load_masked_observation_total',
                 load_elapsed,
                 {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
             )
 
             masked_observations.append(masked_obs)
-    
-    if is_denoising and fold_work_dir is not None and prepared_trajectories and masked_observations:
+
+    if fold_work_dir is not None and prepared_trajectories and masked_observations:
         original_obs_dir = fold_work_dir / "original_observations"
         save_fold_observations(
             masked_observations,
@@ -157,86 +150,78 @@ def _learn_pisam_with_profiling(
             original_obs_dir,
             observation_prefix="original_observation",
         )
-        print(f"  [PHASE 2] Saved {len(masked_observations)} original observations to {original_obs_dir.name}/")
+        print(f"  [CDPS] Saved {len(masked_observations)} original observations to {original_obs_dir.name}/")
 
     start_learn = time.perf_counter()
-    
-    if is_denoising:
-        conflict_free_models_dir = (fold_work_dir / "conflict_free_models") if fold_work_dir else None
-        save_t_prime_fn = None
-        if conflict_free_models_dir is not None and prepared_trajectories:
-            save_t_prime_fn = lambda obs, out_dir: save_observations_to_dir(obs, prepared_trajectories, out_dir)
-        conflict_search = ConflictDrivenPatchSearch(
-            partial_domain_template=deepcopy(partial_domain),
-            negative_preconditions_policy=learner.negative_precondition_policy,
-            seed=learner.seed,
-            logger=None,
-            search_mode=_resolve_search_mode(learner.search_mode),
-            fluent_patch_cost=learner.fluent_patch_cost,
-            fluent_patch_weight=learner.fluent_patch_weight,
-            model_patch_cost=learner.model_patch_cost,
-            model_constraint_weight=learner.model_constraint_weight,
-            node_choosing_strategy=_resolve_node_choosing_strategy(learner.node_choosing_strategy),
-            conflict_group_strategy=_resolve_conflict_group_strategy(
-                getattr(learner, 'conflict_group_strategy', ConflictGroupStrategy.FIRST)
-            ),
-            fluent_branch_mode=_resolve_fluent_branch_mode(
-                getattr(learner, 'fluent_branch_mode', FluentBranchMode.GROUP)
-            ),
-            conflict_free_models_dir=conflict_free_models_dir,
-            save_t_prime_fn=save_t_prime_fn,
-        )
-        # Set up tracing callback if requested
-        trace_log = None
-        on_node_expanded = None
-        if events_tracing and is_denoising:
-            from src.pi_sam.plan_denoising.conflict_search import NodeExpansionEvent
-            trace_log = []
-            def on_node_expanded(event: NodeExpansionEvent) -> None:
-                trace_log.append(event)
 
-        learned_model, _, _, _, _, report, patched_observations = conflict_search.run(
-            observations=masked_observations,
-            max_nodes=learner.max_search_nodes,
-            timeout_seconds=learner.timeout_seconds,
-            gt_source_indices_by_obs=gt_source_indices_by_obs,
-            on_node_expanded=on_node_expanded,
-        )
+    conflict_free_models_dir = (fold_work_dir / "conflict_free_models") if fold_work_dir else None
+    save_t_prime_fn = None
+    if conflict_free_models_dir is not None and prepared_trajectories:
+        save_t_prime_fn = lambda obs, out_dir: save_observations_to_dir(obs, prepared_trajectories, out_dir)
+    conflict_search = ConflictDrivenPatchSearch(
+        partial_domain_template=deepcopy(partial_domain),
+        negative_preconditions_policy=learner.negative_precondition_policy,
+        seed=learner.seed,
+        logger=None,
+        search_mode=_resolve_search_mode(learner.search_mode),
+        fluent_patch_cost=learner.fluent_patch_cost,
+        fluent_patch_weight=learner.fluent_patch_weight,
+        model_patch_cost=learner.model_patch_cost,
+        model_constraint_weight=learner.model_constraint_weight,
+        node_choosing_strategy=_resolve_node_choosing_strategy(learner.node_choosing_strategy),
+        conflict_group_strategy=_resolve_conflict_group_strategy(
+            getattr(learner, 'conflict_group_strategy', ConflictGroupStrategy.FIRST)
+        ),
+        fluent_branch_mode=_resolve_fluent_branch_mode(
+            getattr(learner, 'fluent_branch_mode', FluentBranchMode.GROUP)
+        ),
+        conflict_free_models_dir=conflict_free_models_dir,
+        save_t_prime_fn=save_t_prime_fn,
+    )
 
-        # Write trace JSON if tracing was active
-        if trace_log is not None and fold_work_dir is not None:
-            from benchmark.diagnosis.trace_serialization import write_trace_json
-            search_params = {
-                "search_mode": learner.search_mode.value if hasattr(learner.search_mode, 'value') else str(learner.search_mode),
-                "node_choosing_strategy": learner.node_choosing_strategy.value if hasattr(learner.node_choosing_strategy, 'value') else str(learner.node_choosing_strategy),
-                "conflict_group_strategy": learner.conflict_group_strategy.value if hasattr(learner.conflict_group_strategy, 'value') else str(learner.conflict_group_strategy),
-                "fluent_branch_mode": learner.fluent_branch_mode.value if hasattr(learner.fluent_branch_mode, 'value') else str(learner.fluent_branch_mode),
-                "fluent_patch_cost": learner.fluent_patch_cost,
-                "model_patch_cost": learner.model_patch_cost,
-                "timeout_seconds": learner.timeout_seconds,
-            }
-            trace_path = fold_work_dir / "search_trace.json"
-            write_trace_json(trace_log, trace_path, search_params, fold_dir=fold_work_dir)
+    # Set up tracing callback if requested
+    trace_log = None
+    on_node_expanded = None
+    if events_tracing:
+        from src.pi_sam.plan_denoising.conflict_search import NodeExpansionEvent
+        trace_log = []
+        def on_node_expanded(event: NodeExpansionEvent) -> None:
+            trace_log.append(event)
 
-        model = learned_model.to_pddl()
-    else:
-        pi_sam = PISAMLearner(partial_domain=partial_domain, negative_preconditions_policy=NegativePreconditionPolicy.hard)
-        learned_model, _ = pi_sam.learn_action_model(masked_observations)
-        model = learned_model.to_pddl()
-        patched_observations = None
-        report = {}
-    
+    learned_model, _, _, _, _, report, patched_observations = conflict_search.run(
+        observations=masked_observations,
+        max_nodes=learner.max_search_nodes,
+        timeout_seconds=learner.timeout_seconds,
+        gt_source_indices_by_obs=gt_source_indices_by_obs,
+        on_node_expanded=on_node_expanded,
+    )
+
+    # Write trace JSON if tracing was active
+    if trace_log is not None and fold_work_dir is not None:
+        from benchmark.diagnosis.trace_serialization import write_trace_json
+        search_params = {
+            "search_mode": learner.search_mode.value if hasattr(learner.search_mode, 'value') else str(learner.search_mode),
+            "node_choosing_strategy": learner.node_choosing_strategy.value if hasattr(learner.node_choosing_strategy, 'value') else str(learner.node_choosing_strategy),
+            "conflict_group_strategy": learner.conflict_group_strategy.value if hasattr(learner.conflict_group_strategy, 'value') else str(learner.conflict_group_strategy),
+            "fluent_branch_mode": learner.fluent_branch_mode.value if hasattr(learner.fluent_branch_mode, 'value') else str(learner.fluent_branch_mode),
+            "fluent_patch_cost": learner.fluent_patch_cost,
+            "model_patch_cost": learner.model_patch_cost,
+            "timeout_seconds": learner.timeout_seconds,
+        }
+        trace_path = fold_work_dir / "search_trace.json"
+        write_trace_json(trace_log, trace_path, search_params, fold_dir=fold_work_dir)
+
+    model = learned_model.to_pddl()
+
     if profiler:
-        profiler.add_timing(f"learning_process_{algo_name}_{phase}", time.perf_counter() - start_learn)
+        profiler.add_timing(f"learning_process_{algo_name}_cleaned", time.perf_counter() - start_learn)
     return model, report, patched_observations
 
 
 def learn_sam_pisam(
-    mode: str,
     domain_ref_path: Path,
     prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
     testing_dir: Path,
-    is_denoising: bool = False,
     conflict_search_timeout: int = None,
     profiler=None,
     fold_work_dir: Path = None,
@@ -253,43 +238,23 @@ def learn_sam_pisam(
     gt_source_indices_override: Optional[Dict[int, Set[int]]] = None,
     events_tracing: bool = False,
 ) -> Tuple[str, dict, str, any]:
-    """
-    Learn SAM/PISAM model.
+    """Learn a PISAM model via the Conflict-Directed Patch Search (CDPS).
 
     Args:
-        mode: 'masked' or 'fullyobs'
-        domain_ref_path: Path to reference domain PDDL
-        prepared_trajectories: List of (trajectory_path, masking_path, problem_pddl_path, gt_state_indices)
-        testing_dir: Working directory
-        is_denoising: If True, use NOISY_PISAM/NOISY_SAM (returns learning report and patched observations)
-        conflict_search_timeout: Optional timeout in seconds for conflict search (cleaning phase)
-        profiler: Optional TimingProfiler instance for detailed timing
-        fold_work_dir: Optional fold working directory for saving conflict-free models
-        fluent_patch_cost: Per-patch cost for fluent patches in denoising conflict search
-        fluent_patch_weight: Weight multiplier for fluent patch cost in denoising conflict search
-        model_patch_cost: Per-patch cost for model constraints in denoising conflict search
-        model_constraint_weight: Weight multiplier for model constraint cost in denoising conflict search
-        max_search_nodes: Max denoising conflict-search nodes (None = unlimited)
-        search_mode: Conflict-search strategy for denoising ("dfs" or "ucs")
-        node_choosing_strategy: Branch insertion ordering strategy in conflict search
-        conflict_group_strategy: Which conflict group to resolve first at each node
-            ("first", "largest", "largest_model_patchable", "most_observations", "smallest")
-        fluent_branch_mode: How many fluent patches per data-fix branch
-            ("group" = all in group, "single" = one at a time)
-        pre_built_observations: Optional list of pre-built Observation objects.
-            When provided, file-based loading is skipped entirely (simulated data mode).
-        gt_source_indices_override: Optional explicit gt_source_indices_by_obs dict.
-            When provided, overrides the indices extracted from prepared_trajectories.
-        events_tracing: If True, collect node expansion events and write
-            search_trace.json to fold_work_dir after the denoising search.
+        prepared_trajectories: List of (trajectory_path, masking_path,
+            problem_pddl_path, gt_state_indices).
+        conflict_search_timeout: Optional conflict-search timeout in seconds.
+        pre_built_observations: Optional pre-built Observation objects (simulated
+            data); when provided, file loading is skipped.
+        gt_source_indices_override: Optional explicit gt_source_indices_by_obs.
+        (other args configure the conflict search)
 
     Returns:
-        Tuple of (model, learning_report, algorithm_name, patched_observations)
+        Tuple of (model, learning_report, algorithm_name, patched_observations).
     """
-    phase = "cleaned" if is_denoising else "unclean"
-    algo_name = 'PISAM' if mode == 'masked' else 'SAM'
+    algo_name = 'PISAM'
 
-    # Determine GT source indices: explicit override takes priority
+    # Determine GT source indices: explicit override takes priority.
     if gt_source_indices_override is not None:
         gt_source_indices_by_obs = gt_source_indices_override
     else:
@@ -297,74 +262,30 @@ def learn_sam_pisam(
             obs_idx: t[3] for obs_idx, t in enumerate(prepared_trajectories) if len(t) > 3
         } or None
 
-    # Track the actual timeout value used (for cleaned phase only)
-    actual_learning_timeout = None
-    
-    if mode == 'masked':
-        traj_paths = [str(t[0]) for t in prepared_trajectories]
-        learner = NOISY_PISAM() if is_denoising else PISAM()
-        if is_denoising:
-            if conflict_search_timeout is not None:
-                learner.timeout_seconds = conflict_search_timeout
-            learner.fluent_patch_cost = fluent_patch_cost
-            learner.fluent_patch_weight = fluent_patch_weight
-            learner.model_patch_cost = model_patch_cost
-            learner.model_constraint_weight = model_constraint_weight
-            learner.max_search_nodes = max_search_nodes
-            learner.search_mode = _resolve_search_mode(search_mode)
-            learner.node_choosing_strategy = _resolve_node_choosing_strategy(node_choosing_strategy)
-            learner.conflict_group_strategy = _resolve_conflict_group_strategy(conflict_group_strategy)
-            learner.fluent_branch_mode = _resolve_fluent_branch_mode(fluent_branch_mode)
-            # Capture actual timeout used (either explicit or default)
-            actual_learning_timeout = learner.timeout_seconds
+    traj_paths = [str(t[0]) for t in prepared_trajectories]
+    learner = NOISY_PISAM()
+    if conflict_search_timeout is not None:
+        learner.timeout_seconds = conflict_search_timeout
+    learner.fluent_patch_cost = fluent_patch_cost
+    learner.fluent_patch_weight = fluent_patch_weight
+    learner.model_patch_cost = model_patch_cost
+    learner.model_constraint_weight = model_constraint_weight
+    learner.max_search_nodes = max_search_nodes
+    learner.search_mode = _resolve_search_mode(search_mode)
+    learner.node_choosing_strategy = _resolve_node_choosing_strategy(node_choosing_strategy)
+    learner.conflict_group_strategy = _resolve_conflict_group_strategy(conflict_group_strategy)
+    learner.fluent_branch_mode = _resolve_fluent_branch_mode(fluent_branch_mode)
+    actual_learning_timeout = learner.timeout_seconds
 
-        if profiler or pre_built_observations is not None or events_tracing:
-            # Use direct learning path (required when observations are pre-built;
-            # also used when profiler is available for detailed timing or events tracing).
-            model, report, patched_observations = _learn_pisam_with_profiling(
-                domain_ref_path, traj_paths, is_denoising, learner, phase, algo_name, profiler,
-                fold_work_dir=fold_work_dir, prepared_trajectories=prepared_trajectories,
-                gt_source_indices_by_obs=gt_source_indices_by_obs,
-                pre_built_observations=pre_built_observations,
-                events_tracing=events_tracing,
-            )
-        else:
-            learn_kwargs = {}
-            if is_denoising:
-                learn_kwargs["gt_source_indices_by_obs"] = gt_source_indices_by_obs
-            learning_output = learner.learn(
-                str(domain_ref_path), traj_paths, use_problems=False, **learn_kwargs,
-            )
-            model, patched_observations, report = _parse_learning_output(learning_output, is_denoising)
-    else:  # fullyobs
-        workspace_name = "noisy_sam" if is_denoising else "sam_unclean"
-        traj_paths = setup_algorithm_workspace(prepared_trajectories, workspace_name, testing_dir, mode)
-        learner = NOISY_SAM() if is_denoising else SAM()
-        if is_denoising:
-            if conflict_search_timeout is not None:
-                learner.timeout_seconds = conflict_search_timeout
-            learner.fluent_patch_cost = fluent_patch_cost
-            learner.fluent_patch_weight = fluent_patch_weight
-            learner.model_patch_cost = model_patch_cost
-            learner.model_constraint_weight = model_constraint_weight
-            learner.max_search_nodes = max_search_nodes
-            learner.search_mode = _resolve_search_mode(search_mode)
-            learner.node_choosing_strategy = _resolve_node_choosing_strategy(node_choosing_strategy)
-            learner.conflict_group_strategy = _resolve_conflict_group_strategy(conflict_group_strategy)
-            learner.fluent_branch_mode = _resolve_fluent_branch_mode(fluent_branch_mode)
-            # Capture actual timeout used (either explicit or default)
-            actual_learning_timeout = learner.timeout_seconds
+    model, report, patched_observations = _learn_pisam_with_profiling(
+        domain_ref_path, traj_paths, learner, algo_name, profiler,
+        fold_work_dir=fold_work_dir, prepared_trajectories=prepared_trajectories,
+        gt_source_indices_by_obs=gt_source_indices_by_obs,
+        pre_built_observations=pre_built_observations,
+        events_tracing=events_tracing,
+    )
 
-        learn_kwargs = {}
-        if is_denoising:
-            learn_kwargs["gt_source_indices_by_obs"] = gt_source_indices_by_obs
-        learning_output = learner.learn(
-            str(domain_ref_path), traj_paths, use_problems=False, **learn_kwargs,
-        )
-        model, patched_observations, report = _parse_learning_output(learning_output, is_denoising)
-    
-    # Add actual timeout to report if denoising (cleaned phase)
-    if is_denoising and actual_learning_timeout is not None:
+    if actual_learning_timeout is not None:
         if report is None:
             report = {}
         report['actual_timeout_seconds'] = actual_learning_timeout
@@ -374,14 +295,8 @@ def learn_sam_pisam(
         report['model_constraint_weight'] = model_constraint_weight
         report['max_search_nodes'] = max_search_nodes
         report['search_mode'] = _resolve_search_mode(search_mode).value
-        report['node_choosing_strategy'] = (
-            _resolve_node_choosing_strategy(node_choosing_strategy).value
-        )
-        report['conflict_group_strategy'] = (
-            _resolve_conflict_group_strategy(conflict_group_strategy).value
-        )
-        report['fluent_branch_mode'] = (
-            _resolve_fluent_branch_mode(fluent_branch_mode).value
-        )
-    
+        report['node_choosing_strategy'] = _resolve_node_choosing_strategy(node_choosing_strategy).value
+        report['conflict_group_strategy'] = _resolve_conflict_group_strategy(conflict_group_strategy).value
+        report['fluent_branch_mode'] = _resolve_fluent_branch_mode(fluent_branch_mode).value
+
     return model, report, algo_name, patched_observations

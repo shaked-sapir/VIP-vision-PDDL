@@ -262,7 +262,7 @@ def _build_data_source(source: str, sim_cfg: dict, data_dir: Path, cell: dict):
 
 # Shared-config keys that map onto experiment_runner.main() parameters as-is.
 _PASSTHROUGH_KEYS = {
-    "mode", "n_folds", "frame_axiom_mode",
+    "n_folds", "frame_axiom_mode",
     "learning_timeout_seconds", "planning_timeout_seconds",
     "fluent_patch_cost", "fluent_patch_weight",
     "model_patch_cost", "model_constraint_weight",
