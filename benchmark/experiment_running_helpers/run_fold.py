@@ -18,7 +18,7 @@ from benchmark.algorithms import CDPS_ALGORITHM_NAME
 from benchmark.experiment_running_helpers.cleaned_trajectories import save_patched_observations
 from benchmark.experiment_running_helpers.data_source import DataSource
 from benchmark.experiment_running_helpers.post_process_gt_metrics import run_post_process_gt_metrics
-from benchmark.experiment_running_helpers.learning_helpers import learn_sam_pisam
+from benchmark.experiment_running_helpers.learning_helpers import learn_cdps
 from benchmark.experiment_running_helpers.profiling import TimingProfiler
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import fold_instance_dir, save_fold_result
@@ -335,7 +335,7 @@ def run_single_fold(
                 if conflict_search_timeout is not None:
                     print(f"  [CDPS] Using conflict search timeout: {conflict_search_timeout}s")
                 with profiler.time_operation("learning_cdps"):
-                    cleaned_model, denoising_report, patched_observations = learn_sam_pisam(
+                    cleaned_model, denoising_report, patched_observations = learn_cdps(
                         domain_ref_path, prepared_trajectories, testing_dir,
                         conflict_search_timeout=conflict_search_timeout,
                         profiler=profiler,

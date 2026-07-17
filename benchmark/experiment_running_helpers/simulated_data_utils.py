@@ -94,7 +94,7 @@ def prepare_simulated_observations(
 
     This is the simulated-data counterpart of ``prepare_fold_trajectories`` +
     file loading.  It returns pre-built Observation objects ready to be passed
-    directly into ``learn_sam_pisam(..., pre_built_observations=...)``.
+    directly into ``learn_cdps(..., pre_built_observations=...)``.
 
     Args:
         domain_path: Path to the PDDL domain file.

@@ -14,88 +14,17 @@ import time
 
 from pddl_plus_parser.lisp_parsers import DomainParser
 
-from benchmark.algorithm_adapters.NOISY_PISAM import NOISY_PISAM
 from benchmark.experiment_running_helpers.cleaned_trajectories import (
     save_fold_observations,
     save_observations_to_dir,
 )
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
-from src.pi_sam.plan_denoising.frontier import ConflictGroupStrategy, FluentBranchMode, NodeChoosingStrategy, SearchMode
+from src.pi_sam.plan_denoising.conflict_search_config import CDPSConfig
 from src.utils.masking import load_masked_observation
 
 
-def _resolve_search_mode(search_mode: str | SearchMode) -> SearchMode:
-    if isinstance(search_mode, SearchMode):
-        return search_mode
-    normalized = str(search_mode).strip().lower()
-    if normalized == "ucs":
-        return SearchMode.UCS
-    if normalized == "dfs":
-        return SearchMode.ANYTIME_DFS
-    raise ValueError(f"Unsupported search_mode '{search_mode}'. Expected one of: dfs, ucs.")
-
-
-def _resolve_node_choosing_strategy(
-    node_choosing_strategy: str | NodeChoosingStrategy,
-) -> NodeChoosingStrategy:
-    if isinstance(node_choosing_strategy, NodeChoosingStrategy):
-        return node_choosing_strategy
-    normalized = str(node_choosing_strategy).strip().lower()
-    if normalized == "model_patch_first":
-        return NodeChoosingStrategy.MODEL_PATCH_FIRST
-    if normalized == "fluent_patch_first":
-        return NodeChoosingStrategy.FLUENT_PATCH_FIRST
-    if normalized == "fluent_patch_first_then_model":
-        return NodeChoosingStrategy.FLUENT_PATCH_FIRST_THEN_MODEL
-    if normalized == "randomized":
-        return NodeChoosingStrategy.RANDOMIZED
-    raise ValueError(
-        "Unsupported node_choosing_strategy "
-        f"'{node_choosing_strategy}'. Expected one of: "
-        "model_patch_first, fluent_patch_first, fluent_patch_first_then_model, randomized."
-    )
-
-
-def _resolve_conflict_group_strategy(
-    conflict_group_strategy: str | ConflictGroupStrategy,
-) -> ConflictGroupStrategy:
-    if isinstance(conflict_group_strategy, ConflictGroupStrategy):
-        return conflict_group_strategy
-    normalized = str(conflict_group_strategy).strip().lower()
-    if normalized == "first":
-        return ConflictGroupStrategy.FIRST
-    if normalized == "largest":
-        return ConflictGroupStrategy.LARGEST
-    if normalized == "largest_model_patchable":
-        return ConflictGroupStrategy.LARGEST_MODEL_PATCHABLE
-    if normalized == "most_observations":
-        return ConflictGroupStrategy.MOST_OBSERVATIONS
-    if normalized == "smallest":
-        return ConflictGroupStrategy.SMALLEST
-    raise ValueError(
-        f"Unsupported conflict_group_strategy '{conflict_group_strategy}'. "
-        "Expected one of: first, largest, largest_model_patchable, most_observations, smallest."
-    )
-
-
-def _resolve_fluent_branch_mode(
-    fluent_branch_mode: str | FluentBranchMode,
-) -> FluentBranchMode:
-    if isinstance(fluent_branch_mode, FluentBranchMode):
-        return fluent_branch_mode
-    normalized = str(fluent_branch_mode).strip().lower()
-    if normalized == "group":
-        return FluentBranchMode.GROUP
-    if normalized == "single":
-        return FluentBranchMode.SINGLE
-    raise ValueError(
-        f"Unsupported fluent_branch_mode '{fluent_branch_mode}'. "
-        "Expected one of: group, single."
-    )
-
-
-def _learn_pisam_with_profiling(
-    domain_ref_path, traj_paths, learner, algo_name, profiler,
+def _learn_cdps_with_profiling(
+    domain_ref_path, traj_paths, config: CDPSConfig, timeout_seconds, algo_name, profiler,
     fold_work_dir=None, prepared_trajectories=None, gt_source_indices_by_obs=None,
     pre_built_observations=None, events_tracing: bool = False,
 ):
@@ -124,7 +53,7 @@ def _learn_pisam_with_profiling(
 
             def timing_callback(step_name, elapsed):
                 profiler.add_detailed_timing(
-                    "sam_pisam_trajectory_processing",
+                    "cdps_trajectory_processing",
                     step_name, elapsed,
                     {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
                 )
@@ -134,7 +63,7 @@ def _learn_pisam_with_profiling(
             load_elapsed = time.perf_counter() - start_load
 
             profiler.add_detailed_timing(
-                "sam_pisam_trajectory_loading",
+                "cdps_trajectory_loading",
                 'load_masked_observation_total',
                 load_elapsed,
                 {'trajectory_index': traj_idx, 'problem_name': traj_path.stem}
@@ -163,21 +92,17 @@ def _learn_pisam_with_profiling(
         save_t_prime_fn = lambda obs, out_dir: save_observations_to_dir(obs, prepared_trajectories, out_dir)
     conflict_search = ConflictDrivenPatchSearch(
         partial_domain_template=deepcopy(partial_domain),
-        negative_preconditions_policy=learner.negative_precondition_policy,
-        seed=learner.seed,
+        negative_preconditions_policy=config.negative_precondition_policy,
+        seed=config.seed,
         logger=None,
-        search_mode=_resolve_search_mode(learner.search_mode),
-        fluent_patch_cost=learner.fluent_patch_cost,
-        fluent_patch_weight=learner.fluent_patch_weight,
-        model_patch_cost=learner.model_patch_cost,
-        model_constraint_weight=learner.model_constraint_weight,
-        node_choosing_strategy=_resolve_node_choosing_strategy(learner.node_choosing_strategy),
-        conflict_group_strategy=_resolve_conflict_group_strategy(
-            getattr(learner, 'conflict_group_strategy', ConflictGroupStrategy.FIRST)
-        ),
-        fluent_branch_mode=_resolve_fluent_branch_mode(
-            getattr(learner, 'fluent_branch_mode', FluentBranchMode.GROUP)
-        ),
+        search_mode=config.search_mode,
+        fluent_patch_cost=config.fluent_patch_cost,
+        fluent_patch_weight=config.fluent_patch_weight,
+        model_patch_cost=config.model_patch_cost,
+        model_constraint_weight=config.model_constraint_weight,
+        node_choosing_strategy=config.node_choosing_strategy,
+        conflict_group_strategy=config.conflict_group_strategy,
+        fluent_branch_mode=config.fluent_branch_mode,
         conflict_free_models_dir=conflict_free_models_dir,
         save_t_prime_fn=save_t_prime_fn,
     )
@@ -193,8 +118,8 @@ def _learn_pisam_with_profiling(
 
     learned_model, _, _, _, _, report, patched_observations = conflict_search.run(
         observations=masked_observations,
-        max_nodes=learner.max_search_nodes,
-        timeout_seconds=learner.timeout_seconds,
+        max_nodes=config.max_search_nodes,
+        timeout_seconds=timeout_seconds,
         gt_source_indices_by_obs=gt_source_indices_by_obs,
         on_node_expanded=on_node_expanded,
     )
@@ -203,13 +128,13 @@ def _learn_pisam_with_profiling(
     if trace_log is not None and fold_work_dir is not None:
         from benchmark.diagnosis.trace_serialization import write_trace_json
         search_params = {
-            "search_mode": learner.search_mode.value if hasattr(learner.search_mode, 'value') else str(learner.search_mode),
-            "node_choosing_strategy": learner.node_choosing_strategy.value if hasattr(learner.node_choosing_strategy, 'value') else str(learner.node_choosing_strategy),
-            "conflict_group_strategy": learner.conflict_group_strategy.value if hasattr(learner.conflict_group_strategy, 'value') else str(learner.conflict_group_strategy),
-            "fluent_branch_mode": learner.fluent_branch_mode.value if hasattr(learner.fluent_branch_mode, 'value') else str(learner.fluent_branch_mode),
-            "fluent_patch_cost": learner.fluent_patch_cost,
-            "model_patch_cost": learner.model_patch_cost,
-            "timeout_seconds": learner.timeout_seconds,
+            "search_mode": config.search_mode.value,
+            "node_choosing_strategy": config.node_choosing_strategy.value,
+            "conflict_group_strategy": config.conflict_group_strategy.value,
+            "fluent_branch_mode": config.fluent_branch_mode.value,
+            "fluent_patch_cost": config.fluent_patch_cost,
+            "model_patch_cost": config.model_patch_cost,
+            "timeout_seconds": timeout_seconds,
         }
         trace_path = fold_work_dir / "search_trace.json"
         write_trace_json(trace_log, trace_path, search_params, fold_dir=fold_work_dir)
@@ -221,7 +146,7 @@ def _learn_pisam_with_profiling(
     return model, report, patched_observations
 
 
-def learn_sam_pisam(
+def learn_cdps(
     domain_ref_path: Path,
     prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
     testing_dir: Path,
@@ -266,40 +191,41 @@ def learn_sam_pisam(
         } or None
 
     traj_paths = [str(t[0]) for t in prepared_trajectories]
-    learner = NOISY_PISAM()
-    if conflict_search_timeout is not None:
-        learner.timeout_seconds = conflict_search_timeout
-    learner.fluent_patch_cost = fluent_patch_cost
-    learner.fluent_patch_weight = fluent_patch_weight
-    learner.model_patch_cost = model_patch_cost
-    learner.model_constraint_weight = model_constraint_weight
-    learner.max_search_nodes = max_search_nodes
-    learner.search_mode = _resolve_search_mode(search_mode)
-    learner.node_choosing_strategy = _resolve_node_choosing_strategy(node_choosing_strategy)
-    learner.conflict_group_strategy = _resolve_conflict_group_strategy(conflict_group_strategy)
-    learner.fluent_branch_mode = _resolve_fluent_branch_mode(fluent_branch_mode)
-    actual_learning_timeout = learner.timeout_seconds
+    config = CDPSConfig(
+        fluent_patch_cost=fluent_patch_cost,
+        fluent_patch_weight=fluent_patch_weight,
+        model_patch_cost=model_patch_cost,
+        model_constraint_weight=model_constraint_weight,
+        max_search_nodes=max_search_nodes,
+        search_mode=search_mode,
+        node_choosing_strategy=node_choosing_strategy,
+        conflict_group_strategy=conflict_group_strategy,
+        fluent_branch_mode=fluent_branch_mode,
+    )
+    # Runtime budget stays separate from the search-shape config (default 60s,
+    # matching the previous NOISY_PISAM default).
+    timeout_seconds = conflict_search_timeout if conflict_search_timeout is not None else 60
 
-    model, report, patched_observations = _learn_pisam_with_profiling(
-        domain_ref_path, traj_paths, learner, algo_name, profiler,
+    model, report, patched_observations = _learn_cdps_with_profiling(
+        domain_ref_path, traj_paths, config, timeout_seconds, algo_name, profiler,
         fold_work_dir=fold_work_dir, prepared_trajectories=prepared_trajectories,
         gt_source_indices_by_obs=gt_source_indices_by_obs,
         pre_built_observations=pre_built_observations,
         events_tracing=events_tracing,
     )
 
-    if actual_learning_timeout is not None:
+    if timeout_seconds is not None:
         if report is None:
             report = {}
-        report['actual_timeout_seconds'] = actual_learning_timeout
-        report['fluent_patch_cost'] = fluent_patch_cost
-        report['fluent_patch_weight'] = fluent_patch_weight
-        report['model_patch_cost'] = model_patch_cost
-        report['model_constraint_weight'] = model_constraint_weight
-        report['max_search_nodes'] = max_search_nodes
-        report['search_mode'] = _resolve_search_mode(search_mode).value
-        report['node_choosing_strategy'] = _resolve_node_choosing_strategy(node_choosing_strategy).value
-        report['conflict_group_strategy'] = _resolve_conflict_group_strategy(conflict_group_strategy).value
-        report['fluent_branch_mode'] = _resolve_fluent_branch_mode(fluent_branch_mode).value
+        report['actual_timeout_seconds'] = timeout_seconds
+        report['fluent_patch_cost'] = config.fluent_patch_cost
+        report['fluent_patch_weight'] = config.fluent_patch_weight
+        report['model_patch_cost'] = config.model_patch_cost
+        report['model_constraint_weight'] = config.model_constraint_weight
+        report['max_search_nodes'] = config.max_search_nodes
+        report['search_mode'] = config.search_mode.value
+        report['node_choosing_strategy'] = config.node_choosing_strategy.value
+        report['conflict_group_strategy'] = config.conflict_group_strategy.value
+        report['fluent_branch_mode'] = config.fluent_branch_mode.value
 
     return model, report, patched_observations
