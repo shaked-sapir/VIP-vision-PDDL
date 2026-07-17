@@ -95,13 +95,16 @@ def _learn_cdps_core(
         def on_node_expanded(event: NodeExpansionEvent) -> None:
             trace_log.append(event)
 
-    learned_model, _, _, _, _, report, patched_observations = conflict_search.run(
+    search_result = conflict_search.run(
         observations=masked_observations,
         max_nodes=config.max_search_nodes,
         timeout_seconds=timeout_seconds,
         gt_source_indices_by_obs=gt_source_indices_by_obs,
         on_node_expanded=on_node_expanded,
     )
+    learned_model = search_result.learned_domain
+    report = search_result.report
+    patched_observations = search_result.patched_observations
 
     # Write trace JSON if tracing was active
     if trace_log is not None and fold_work_dir is not None:

@@ -143,14 +143,12 @@ def run_simulated_experiment(
         conflict_group_strategy=ConflictGroupStrategy.LARGEST,
     )
 
-    _model, _conflicts, _model_constraints, proposed_patches, _cost, _report, _patched = (
-        conflict_search.run(
-            observations=noisy_observations,
-            max_nodes=max_search_nodes,
-            timeout_seconds=timeout_seconds,
-            gt_source_indices_by_obs=gt_source_indices_by_obs,
-        )
-    )
+    proposed_patches = conflict_search.run(
+        observations=noisy_observations,
+        max_nodes=max_search_nodes,
+        timeout_seconds=timeout_seconds,
+        gt_source_indices_by_obs=gt_source_indices_by_obs,
+    ).fluent_patches
 
     print(f"Proposed patches: {len(proposed_patches)}")
 

@@ -21,7 +21,7 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 | `src/pi_sam/masking/` | Masking strategies (random, percentage, uncertain). Isolated from learning logic. |
 | `src/pi_sam/noising/` | Noising strategies (random, percentage) for flipping unmasked predicate polarity. |
 | `src/pi_sam/noisy_pisam/` | Noise-aware learning variant via mixin composition. |
-| `src/pi_sam/plan_denoising/` | Conflict-Directed Patch Search (CDPS): search over model/fluent patches to resolve trajectory conflicts before final learning. |
+| `src/pi_sam/plan_denoising/` | Conflict-Directed Patch Search (CDPS): `conflict_search.py`, `conflict_search_config.py` (`CDPSConfig`), frontier/node strategies. |
 | `src/domains/` | Domain PDDL files and per-domain problem folders (`problems/problemN/`). One subdir per domain. |
 | `src/action_model/` | Parsers between PDDL ↔ gym ↔ SAM formats. |
 | `src/llms/` | LLM integration: prompts, constants, ground-truth files, precision/recall evaluation. |
@@ -29,8 +29,9 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 | `src/typings/` | Shared type aliases and TypedDicts. No logic. |
 | `benchmark/` | Experiment runners, data generators, evaluation scripts. Not part of the library. |
 | `benchmark/experiment_running_helpers/` | Fold execution glue: `run_fold.py` (spine), `data_source.py` (image vs simulated), `learning_helpers.py` (CDPS), `gt_builder.py` (GT export/validation), `collect_results.py` + `result_schema.py` (per-cell JSON → tables). |
-| `benchmark/algorithm_adapters/` | AMLGym-compatible wrappers around `src/pi_sam` learners (`NOISY_PISAM`) and ROSAME encoding helpers. Consumed by `learning_helpers.py` and `baselines/rosame_runner.py`. |
-| `benchmark/baselines/` | Pluggable competitor runners (e.g. ROSAME) registered in `BASELINE_REGISTRY`. |
+| `benchmark/algorithm_adapters/` | ROSAME partial-observability encoding (`po_rosame_runner.py` → `PORosame_Runner`). Used by `baselines/rosame_runner.py`. CDPS no longer goes through an adapter — it calls `ConflictDrivenPatchSearch` directly from `learning_helpers.py`. |
+| `benchmark/baselines/` | Pluggable competitor runners (e.g. ROSAME with ternary PO encoding) registered in `BASELINE_REGISTRY`. |
+| `benchmark/diagnosis/` | CDPS search-trace tooling: `trace_serialization.py`, `visualize_trace.py`, `retrace_search.py`. |
 | `benchmark/simulated_version/` | Simulated-experiment utilities: `run_simulated_experiment.py`, `noise_injection.py`, `noise_evaluation.py`. |
 
 ---
@@ -216,6 +217,7 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - **Mixin Composition** — noise handling (`NoisyLearnerMixin`) and LLM wiring (`LLMVisualComponentsMixin`) are mixins, not deep subclass chains.
 - **Strategy** — masking via `MaskingStrategy`; noising via `NoisingStrategy`. Algorithm selection via `benchmark/algorithms.py` (`cdps` + baseline keys from `benchmark/baselines/`).
 - **DataSource** — `ImageDataSource` vs `SimulatedDataSource` in `benchmark/experiment_running_helpers/data_source.py` decouple observation preparation from fold execution.
+- **CDPSConfig** — immutable dataclass in `conflict_search_config.py` bundles conflict-search shape params (strategy enums, patch costs); runtime timeout is passed separately to `ConflictDrivenPatchSearch.run`.
 - **Result schema** — per-cell results live in `testing/.../fold_result.json`; `collect_results.py` + `result_schema.py` flatten them for reports (no per-experiment CSVs).
 - **Factory** — LLM vendor/model selection via `ImageLLMBackendFactory.create(vendor, model_type)`; config loaded from `config.yaml`.
 - **Closed-World Assumption** — when a fluent is absent from a state, it is assumed false. `UNCERTAIN` breaks this assumption and triggers masking.
@@ -232,7 +234,7 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
   - `benchmark/generate_gt_trajectories.py` — GT backfill/validation CLI (`gt_builder.py`)
   - `benchmark/simulated_version/run_simulated_experiment.py` — standalone simulated runs
 - Algorithms: `benchmark/algorithms.py` — `cdps` (our learner + conflict search) plus baseline keys from `benchmark/baselines/BASELINE_REGISTRY` (e.g. `rosame`). Legacy run configs may use `baselines: [rosame]` (implies CDPS too).
-- Learning path: `learning_helpers.learn_sam_pisam()` → `NOISY_PISAM` adapter + `ConflictDrivenPatchSearch` (SAM-only paths removed).
+- Learning path: `learning_helpers.learn_cdps()` → `CDPSConfig` + `ConflictDrivenPatchSearch` directly on masked observations (no `NOISY_PISAM` adapter; SAM-only paths removed). Optional `--events-tracing` writes `search_trace.json` per fold via `benchmark/diagnosis/trace_serialization.py`.
 - Data lives under `benchmark/data/{domain}/`; experiment outputs under `benchmark/running_results/{domain}/{experiment_name}/`
 - Evaluation: `benchmark/evaluation/experiment_report.py` (`fully-detailed-report.xlsx`), `benchmark/evaluation/cfm/cfm_quality_analysis.py`, `cfm_quality_table.py`, `cfm_domain_aggregate.py`, `build_dashboard.py`, `combine_dashboard_reports.py` (reads `dashboard_config.yaml`), `fold_filter.py`, `trajectory_fluent_confusion.py`, `compare_original_observations.py`, `correlation_analysis.py`
 - Configuration: `config.yaml` at project root; batch runs via `benchmark/run_config.yaml`

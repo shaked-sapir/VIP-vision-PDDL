@@ -8,8 +8,9 @@ import statistics
 import time
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Set, Tuple, List, Sequence, Optional
+from typing import Any, Callable, Dict, Set, Tuple, List, Sequence, Optional
 
 from pddl_plus_parser.models import Domain, Observation
 from sam_learning.core import LearnerDomain
@@ -39,6 +40,19 @@ from src.pi_sam.plan_denoising.frontier import (
     Frontier,
     make_frontier,
 )
+
+
+@dataclass
+class SearchResult:
+    """Result of ConflictDrivenPatchSearch.run()."""
+
+    learned_domain: LearnerDomain
+    conflicts: List[Conflict]
+    model_constraints: Dict[Key, PatchOperation]
+    fluent_patches: Set[FluentLevelPatch]
+    final_cost: float
+    report: Dict[str, Any]
+    patched_observations: List[Observation]
 
 
 class DefaultSearchLogger(logging.Logger):
@@ -409,20 +423,12 @@ class ConflictDrivenPatchSearchBase(ABC):
         timeout_seconds: int = 60,
         gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None,
         on_node_expanded: Optional[Callable[[NodeExpansionEvent], None]] = None,
-    ) -> Tuple[
-        LearnerDomain,
-        List[Conflict],
-        Dict[Key, PatchOperation],
-        Set[FluentLevelPatch],
-        int,
-        Dict[str, str],
-        List[Observation],
-    ]:
+    ) -> SearchResult:
         """Run the conflict-driven patch search on trajectories T (= observations).
 
         Returns:
-            (learned_domain, conflicts, model_constraints, fluent_patches,
-             patch_count, learning_report, patched_observations)
+            SearchResult(learned_domain, conflicts, model_constraints,
+            fluent_patches, final_cost, report, patched_observations)
         """
         root_constraints: Dict[Key, PatchOperation] = initial_model_constraints or {}
         root_fluent_patches: Set[FluentLevelPatch] = initial_fluent_patches or set()
@@ -742,14 +748,14 @@ class ConflictDrivenPatchSearchBase(ABC):
         )
         self._write_conflict_free_solutions_log(conflict_free_solutions_log)
 
-        return (
-            final_domain,
-            final_conflicts,
-            final_constraints,
-            final_fluent_patches,
-            final_cost,
-            enriched_report,
-            patched_obs,
+        return SearchResult(
+            learned_domain=final_domain,
+            conflicts=final_conflicts,
+            model_constraints=final_constraints,
+            fluent_patches=final_fluent_patches,
+            final_cost=final_cost,
+            report=enriched_report,
+            patched_observations=patched_obs,
         )
 
     # ------------------------------------------------------------------
@@ -943,62 +949,6 @@ class ConflictDrivenPatchSearchBase(ABC):
         )
         return conflict.action_name, model_part, conflict.pbl
 
-    # @staticmethod
-    # def _dedup_patches(patches: Set[FluentLevelPatch]) -> Set[FluentLevelPatch]:
-    #     """Remove contradictory and redundant fluent patches.
-
-    #     Two levels of dedup:
-    #     1. Same-state opposite-polarity: two patches at the same
-    #        (obs, comp, state_type, normalized_fluent) with different fluent
-    #        strings (e.g. "(clear b)" and "(not (clear b))") cancel each
-    #        other — two flips = no change. Remove both.
-    #     2. Cross-component shared-state: a patch at (comp=i, next) and
-    #        (comp=i+1, prev) target the same physical state. If they share
-    #        the same normalized_fluent, remove both.
-    #     """
-    #     # --- Level 1: same-state opposite-polarity cancellation ---
-    #     # Patches are in a Set, so at most 2 patches can share the same
-    #     # (obs, comp, state_type, normalized_fluent): one with the positive
-    #     # fluent string and one with the negated form. Both toggle the same
-    #     # predicate, so applying both = no change. Cancel them.
-    #     groups: dict[tuple, list[FluentLevelPatch]] = defaultdict(list)
-    #     for p in patches:
-    #         key = (p.observation_index, p.component_index,
-    #                p.state_type, p.normalized_fluent)
-    #         groups[key].append(p)
-
-    #     remove: Set[FluentLevelPatch] = set()
-    #     surviving = set()
-    #     for key, group in groups.items():
-    #         if len(group) == 1:
-    #             surviving.add(group[0])
-    #         elif len(group) == 2 and group[0].fluent != group[1].fluent:
-    #             # Opposite polarities — they cancel, remove both
-    #             remove.update(group)
-    #         else:
-    #             # Shouldn't happen (set guarantees no exact duplicates),
-    #             # but keep one defensively.
-    #             surviving.add(group[0])
-
-    #     # --- Level 2: cross-component shared-state cancellation ---
-    #     next_p = {
-    #         (p.observation_index, p.component_index, p.normalized_fluent): p
-    #         for p in surviving if p.state_type == "next"
-    #     }
-    #     prev_p = {
-    #         (p.observation_index, p.component_index, p.normalized_fluent): p
-    #         for p in surviving if p.state_type == "prev"
-    #     }
-    #     for (obs, comp, fluent), p_next in next_p.items():
-    #         p_prev = prev_p.get((obs, comp + 1, fluent))
-    #         if p_prev:
-    #             remove.add(p_next)
-    #             remove.add(p_prev)
-
-    #     return {p for p in surviving if p not in remove}
-
-    # --- ORIGINAL _dedup_patches (cross-component only, no same-state
-    #     opposite-polarity cancellation). Uncomment to revert. ---
     @staticmethod
     def _dedup_patches(patches: Set[FluentLevelPatch]) -> Set[FluentLevelPatch]:
         """Remove (next at (obs,comp), prev at (obs,comp+1)) pairs with same fluent."""

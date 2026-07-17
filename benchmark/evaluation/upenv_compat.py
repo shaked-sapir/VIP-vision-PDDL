@@ -1,4 +1,5 @@
 import os
+import tempfile
 from collections import defaultdict
 from functools import cached_property
 from typing import Any, Dict, List, Set, TypeVar
@@ -41,16 +42,17 @@ class CompatibleUPEnv(Env):
             action.add_effect(dummy_fluent, True)
         _tmp_problem.clear_goals()
 
-        tmp_domain_path = "tmp_domain.pddl"
-        tmp_problem_path = "tmp_problem.pddl"
-        PDDLWriter(_tmp_problem).write_domain(tmp_domain_path)
-        PDDLWriter(_tmp_problem).write_problem(tmp_problem_path)
-        reader = TarskiPDDLReader(raise_on_error=True)
-        reader.parse_domain(tmp_domain_path)
-        reader.parse_instance(tmp_problem_path)
-        os.remove(tmp_domain_path)
-        os.remove(tmp_problem_path)
-        self._grounder = LPGroundingStrategy(reader.problem)
+        # Write the throwaway PDDLs into an isolated temp dir (absolute paths)
+        # so this env never depends on / collides in the current working dir.
+        with tempfile.TemporaryDirectory() as _tmp_dir:
+            tmp_domain_path = os.path.join(_tmp_dir, "tmp_domain.pddl")
+            tmp_problem_path = os.path.join(_tmp_dir, "tmp_problem.pddl")
+            PDDLWriter(_tmp_problem).write_domain(tmp_domain_path)
+            PDDLWriter(_tmp_problem).write_problem(tmp_problem_path)
+            reader = TarskiPDDLReader(raise_on_error=True)
+            reader.parse_domain(tmp_domain_path)
+            reader.parse_instance(tmp_problem_path)
+            self._grounder = LPGroundingStrategy(reader.problem)
 
     def _build_up_state(self, values: Dict[Any, Any]) -> UPState:
         return UPState(values, self.problem)

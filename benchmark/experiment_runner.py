@@ -28,7 +28,6 @@ from amlgym.metrics import print_metrics
 from benchmark.algorithms import available_algorithms, resolve_algorithms
 from benchmark.evaluation.correlation_analysis import aggregate_correlation_tables
 from benchmark.experiment_running_helpers.data_source import DataSource, ImageDataSource, SimulatedDataSource
-from benchmark.experiment_running_helpers.evaluation import evaluate_model, save_learning_metrics
 from benchmark.experiment_running_helpers.normalize import normalize_experiment_data
 from benchmark.experiment_running_helpers.run_fold import run_single_fold
 from benchmark.experiment_running_helpers.resume import (
@@ -349,8 +348,6 @@ def main(
                         testing_dir=testing_dir,
                         bench_name=display_domain_name,
                         data_source=data_source,
-                        evaluate_model_func=evaluate_model,
-                        save_learning_metrics_func=save_learning_metrics,
                         conflict_search_timeout=learning_timeout_seconds,
                         planning_timeout=planning_timeout_seconds,
                         fluent_patch_cost=fluent_patch_cost,

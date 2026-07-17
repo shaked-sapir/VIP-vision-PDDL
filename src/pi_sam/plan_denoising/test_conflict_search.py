@@ -276,9 +276,16 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         print(f"{'─' * 80}")
 
         # Run search with no max_nodes limit
-        learned_domain, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = search.run(
+        search_result = search.run(
             observations=[self.masked_observation], max_nodes=None
         )
+        learned_domain = search_result.learned_domain
+        conflicts = search_result.conflicts
+        model_constraints = search_result.model_constraints
+        fluent_patches = search_result.fluent_patches
+        cost = search_result.final_cost
+        report = search_result.report
+        patched_observations = search_result.patched_observations
 
         # Extract patch diff from report
         patch_diff = report.get("patch_diff", {})
@@ -438,11 +445,18 @@ class TestConflictDrivenPatchSearch(unittest.TestCase):
         )
 
         # Run search with no max_nodes limit
-        learned_domain, conflicts, model_constraints, fluent_patches, cost, report, patched_observations = search.run(
+        search_result = search.run(
             observations=[self.masked_observation],
             max_nodes=None,
             initial_fluent_patches={fluent_patch}
         )
+        learned_domain = search_result.learned_domain
+        conflicts = search_result.conflicts
+        model_constraints = search_result.model_constraints
+        fluent_patches = search_result.fluent_patches
+        cost = search_result.final_cost
+        report = search_result.report
+        patched_observations = search_result.patched_observations
 
         # Extract patch diff from report
         patch_diff = report.get("patch_diff", {})

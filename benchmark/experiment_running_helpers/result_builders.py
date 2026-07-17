@@ -9,6 +9,7 @@ See ``result_schema`` for the field lists.
 from pathlib import Path
 from typing import List, Optional
 
+from benchmark.experiment_running_helpers.evaluation import evaluate_model
 from benchmark.experiment_running_helpers.result_schema import ALGORITHM_SPECIFIC_KEY
 
 
@@ -22,7 +23,6 @@ def evaluate_and_build_result(
     test_problem_paths: List[str],
     domain_ref_path: Path,
     testing_dir: Path,
-    evaluate_model_func,
     null_metrics: dict,
     fold_work_dir: Path = None,
     total_transitions: int = None,
@@ -58,7 +58,7 @@ def evaluate_and_build_result(
             domain_save_path.write_text(model)
             print(f"  [DEBUG] Saved learned domain to {domain_save_path.name}")
 
-        metrics = evaluate_model_func(
+        metrics = evaluate_model(
             str(temp_path), domain_ref_path, test_problem_paths,
             planning_timeout=planning_timeout,
             test_states_path=test_states_path,

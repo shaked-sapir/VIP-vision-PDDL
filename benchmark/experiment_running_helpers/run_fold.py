@@ -21,7 +21,8 @@ from benchmark.experiment_running_helpers.post_process_gt_metrics import run_pos
 from benchmark.experiment_running_helpers.learning_helpers import learn_cdps
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import fold_instance_dir, save_fold_result
-from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt, load_learning_metrics
+from benchmark.experiment_running_helpers.evaluation import evaluate_model, save_learning_metrics
+from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt
 from benchmark.experiment_running_helpers.trajectory_utils import save_fold_metadata, update_fold_metadata
 from benchmark.evaluation.test_states_generator import generate_predictive_power_test_states
 from benchmark.evaluation.multi_solution_evaluator import evaluate_all_solutions
@@ -70,7 +71,6 @@ def _run_baselines(
     num_trajectories: int,
     gt_rate: int,
     test_problem_paths: List[str],
-    evaluate_model_func,
     null_metrics: dict,
     testing_dir: Path,
     total_transitions: int,
@@ -101,7 +101,7 @@ def _run_baselines(
         result = evaluate_and_build_result(
             model, algo_name, bench_name, fold, num_trajectories, gt_rate,
             test_problem_paths, domain_ref_path, testing_dir,
-            evaluate_model_func, null_metrics, fold_work_dir,
+            null_metrics, fold_work_dir,
             total_transitions=total_transitions,
             total_gt_transitions=total_gt_transitions,
             learning_time_seconds=learn_time,
@@ -124,8 +124,6 @@ def run_single_fold(
     testing_dir: Path,
     bench_name: str,
     data_source: DataSource,
-    evaluate_model_func,
-    save_learning_metrics_func,
     conflict_search_timeout: int = None,
     planning_timeout: int = 60,
     fluent_patch_cost: float = 1.0,
@@ -156,8 +154,6 @@ def run_single_fold(
         testing_dir: Directory for test results
         bench_name: Benchmark domain name
         data_source: DataSource instance that supplies observations for this fold.
-        evaluate_model_func: Function to evaluate a learned model
-        save_learning_metrics_func: Function to save learning metrics
         conflict_search_timeout: Optional timeout in seconds for conflict search (cleaning phase)
         planning_timeout: Timeout in seconds for planning during evaluation (default: 60)
         fluent_patch_cost: Per-patch cost for fluent patches in denoising conflict search.
@@ -190,6 +186,9 @@ def run_single_fold(
     if output_subdir is not None:
         fold_work_dir = fold_work_dir / output_subdir
     fold_work_dir.mkdir(parents=True, exist_ok=True)
+    # AMLGym's problem_solving writes a plan file named ./tmp to the *cwd*
+    # (amlgym/metrics/_solving.py); chdir into the per-fold dir so parallel
+    # fold processes don't race on it. Restored in the finally below.
     original_cwd = os.getcwd()
     os.chdir(fold_work_dir)
 
@@ -294,7 +293,6 @@ def run_single_fold(
             num_trajectories=num_trajectories,
             gt_rate=gt_rate,
             test_problem_paths=test_problem_paths,
-            evaluate_model_func=evaluate_model_func,
             null_metrics=null_metrics,
             testing_dir=testing_dir,
             conflict_search_timeout=conflict_search_timeout,
@@ -339,12 +337,9 @@ def run_single_fold(
                     events_tracing=events_tracing,
                 )
                 print(f"  [CDPS] Search complete, saving metrics...")
-                save_learning_metrics_func(fold_work_dir, denoising_report)
-
-                denoising_learning_metrics = load_learning_metrics(fold_work_dir)
+                lm = save_learning_metrics(fold_work_dir, denoising_report) or {}
 
                 # CDPS-owned extras (nested under algorithm_specific).
-                lm = denoising_learning_metrics or {}
                 cdps_specific = {
                     "nodes_in_cleaning_tree": lm.get("nodes_expanded"),
                     "conflict_free_model_count": lm.get("conflict_free_model_count"),
@@ -354,14 +349,14 @@ def run_single_fold(
                         lm.get("actual_timeout_seconds")
                         if lm.get("actual_timeout_seconds") is not None else conflict_search_timeout
                     ),
-                    "timeout_during_cleaning": lm.get("timeout_during_learning"),
+                    "timeout_during_cleaning": (lm.get("terminated_by") == "timeout_exceeded") if lm.get("terminated_by") else None,
                 }
 
                 print(f"  [CDPS] Evaluating learned model...")
                 cdps_result = evaluate_and_build_result(
                     cleaned_model, CDPS_ALGORITHM_NAME, bench_name, fold, num_trajectories, gt_rate,
                     test_problem_paths, domain_ref_path, testing_dir,
-                    evaluate_model_func, null_metrics, fold_work_dir,
+                    null_metrics, fold_work_dir,
                     total_transitions=total_transitions,
                     total_gt_transitions=total_gt_transitions,
                     learning_time_seconds=lm.get("learning_time_seconds"),
@@ -411,7 +406,7 @@ def run_single_fold(
                 cdps_result = evaluate_and_build_result(
                     None, CDPS_ALGORITHM_NAME, bench_name, fold, num_trajectories, gt_rate,
                     test_problem_paths, domain_ref_path, testing_dir,
-                    evaluate_model_func, null_metrics, fold_work_dir,
+                    null_metrics, fold_work_dir,
                     total_transitions=total_transitions,
                     total_gt_transitions=total_gt_transitions,
                     learning_time_seconds=None,

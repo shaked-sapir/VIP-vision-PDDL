@@ -11,8 +11,6 @@ Used by both:
 
 import json
 import logging
-import os
-import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -64,7 +62,6 @@ def evaluate_predictive_power(
     sim_learned_list = []
     sim_ref_list = []
     states_list = []
-    original_cwd = os.getcwd()
 
     for problem_path in test_problem_paths:
         problem_filename = Path(problem_path).name
@@ -77,11 +74,7 @@ def evaluate_predictive_power(
         if not problem_states:
             continue
 
-        # UPEnv writes temp files to cwd — isolate each problem
-        work_dir = test_states_file.parent / f"_upenv_tmp_{problem_filename}"
-        work_dir.mkdir(parents=True, exist_ok=True)
         try:
-            os.chdir(work_dir)
             sim_learned_list.append(CompatibleUPEnv(learned_model_path, problem_path))
             sim_ref_list.append(CompatibleUPEnv(ref_domain_path, problem_path))
             states_list.append(problem_states)
@@ -89,9 +82,6 @@ def evaluate_predictive_power(
             print(f"  [PRED] Failed to create CompatibleUPEnv for {problem_filename}: {e}")
             import traceback
             traceback.print_exc()
-        finally:
-            os.chdir(original_cwd)
-            shutil.rmtree(work_dir, ignore_errors=True)
 
     if not sim_learned_list:
         print(f"  [PRED] No simulators could be created — returning null predictive metrics.")

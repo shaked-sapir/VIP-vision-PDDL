@@ -175,12 +175,16 @@ def retrace_conflict_search(
     )
 
     obs_list = [obs for _, obs in ordered_observations]
-    (learned_model, _, final_constraints, final_fluent_patches, _, report, _) = searcher.run(
+    search_result = searcher.run(
         observations=obs_list,
         max_nodes=max_nodes,
         timeout_seconds=timeout_seconds,
         on_node_expanded=_on_node,
     )
+    learned_model = search_result.learned_domain
+    final_constraints = search_result.model_constraints
+    final_fluent_patches = search_result.fluent_patches
+    report = search_result.report
 
     # --- Serialize trace ---
     from benchmark.diagnosis.trace_serialization import write_trace_json
