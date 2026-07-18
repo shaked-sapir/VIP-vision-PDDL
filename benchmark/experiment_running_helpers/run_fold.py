@@ -97,6 +97,13 @@ def _run_baselines(
         )
         learn_time = time.perf_counter() - learn_start
 
+        # Persist the learned model so algorithm outputs can be compared directly
+        # (mirrors CDPS's conflict_free_models/ artifacts).
+        if model:
+            baseline_model_dir = fold_work_dir / "baseline_models" / algo_name
+            baseline_model_dir.mkdir(parents=True, exist_ok=True)
+            (baseline_model_dir / "model.pddl").write_text(model)
+
         print(f"  [{algo_name}] Evaluating {runner.display_name} model...")
         result = evaluate_and_build_result(
             model, algo_name, bench_name, fold, num_trajectories, gt_rate,

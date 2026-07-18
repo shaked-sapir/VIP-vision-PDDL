@@ -17,22 +17,35 @@ def save_masking_info(experiment_path: Path, problem_name: str, trajectory_maski
             f.write(f"{predicates_str}\n")
 
 
-def _parse_predicate_string(pred_str: str, domain: Domain) -> GroundedPredicate:
+def _parse_masked_predicate_string(pred_str: str, domain: Domain) -> GroundedPredicate:
     """
     Parse a single predicate string into a GroundedPredicate object.
     This function is separated for potential memoization/caching.
-    
+
+    Handles both polarity notations found in .masking_info files:
+      - gym-style tag:        "NOT <pred>" (image pipeline)
+      - PDDL negative form:   "(not (<pred>))" (simulated masking/noising)
+
     :param pred_str: String representation of the predicate
     :param domain: The PDDL domain for predicate parsing
     :return: GroundedPredicate object
     """
-    gym_format_pred = pddlplus_to_gym_predicate(pred_str)
+    stripped = pred_str.strip()
+    is_negative = NEGATION_PREFIX in stripped
+    if stripped.startswith("(not "):
+        # Unwrap "(not (<pred> ...))" -> "(<pred> ...)"
+        is_negative = True
+        stripped = stripped[len("(not "):].rstrip()
+        if stripped.endswith(")"):
+            stripped = stripped[:-1].strip()
+
+    gym_format_pred = pddlplus_to_gym_predicate(stripped)
     predicate_name, lifted_predicate_signature, predicate_object_mapping = lift_predicate(gym_format_pred, domain)
     return GroundedPredicate(
         name=predicate_name,
         signature=lifted_predicate_signature,
         object_mapping=predicate_object_mapping,
-        is_positive=NEGATION_PREFIX not in pred_str,
+        is_positive=not is_negative,
         is_masked=True
     )
 
@@ -70,7 +83,7 @@ def load_masking_info(
             # Since we always set is_masked=True and predicates in sets are compared by value,
             # we can safely reuse the cached object
             return _predicate_cache[pred_str]
-        parsed = _parse_predicate_string(pred_str, domain)
+        parsed = _parse_masked_predicate_string(pred_str, domain)
         _predicate_cache[pred_str] = parsed
         return parsed
 

@@ -21,6 +21,13 @@ results_dashboard:
     - hanoi
     - npuzzle
 
+  # Error band drawn around the mean in the trend plots (for embedded mode):
+  #   std    — mean ± std across folds (historical default)
+  #   ci95   — t-based 95% confidence interval on the mean
+  #   minmax — min/max envelope across folds
+  # Applies when plots are (re)generated, i.e. with --regen-plots.
+  error_band: std
+
   # Metrics to show (key must match the "<key>_trend.png" plot names;
   # label is what appears in the metric nav / table headers).
   metrics:

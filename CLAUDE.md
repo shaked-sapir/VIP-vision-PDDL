@@ -219,6 +219,7 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - **DataSource** — `ImageDataSource` vs `SimulatedDataSource` in `benchmark/experiment_running_helpers/data_source.py` decouple observation preparation from fold execution.
 - **CDPSConfig** — immutable dataclass in `conflict_search_config.py` bundles conflict-search shape params (strategy enums, patch costs); runtime timeout is passed separately to `ConflictDrivenPatchSearch.run`.
 - **Result schema** — per-cell results live in `testing/.../fold_result.json`; `collect_results.py` + `result_schema.py` flatten them for reports (no per-experiment CSVs).
+- **Baseline backfill** — `benchmark/backfill_baseline.py` retrofits baseline rows (e.g. ROSAME) into existing cells using frozen `original_observations/`, without re-running CDPS or regenerating data.
 - **Factory** — LLM vendor/model selection via `ImageLLMBackendFactory.create(vendor, model_type)`; config loaded from `config.yaml`.
 - **Closed-World Assumption** — when a fluent is absent from a state, it is assumed false. `UNCERTAIN` breaks this assumption and triggers masking.
 - **Frame-Axiom Propagation** — unmasked fluents are propagated across states using frame axioms before trajectory files are written (`utils/pddl_trajectory.py`).
@@ -233,10 +234,11 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
   - `benchmark/data_generator.py` — multi-problem trajectory generation via `_DOMAIN_REGISTRY`
   - `benchmark/generate_gt_trajectories.py` — GT backfill/validation CLI (`gt_builder.py`)
   - `benchmark/simulated_version/run_simulated_experiment.py` — standalone simulated runs
+  - `benchmark/backfill_baseline.py` — retrofit baseline results into existing cells (`original_observations/` → learn → evaluate → merge into `fold_result.json`); supports `--workers N` for parallel cells
 - Algorithms: `benchmark/algorithms.py` — `cdps` (our learner + conflict search) plus baseline keys from `benchmark/baselines/BASELINE_REGISTRY` (e.g. `rosame`). Legacy run configs may use `baselines: [rosame]` (implies CDPS too).
 - Learning path: `learning_helpers.learn_cdps()` → `CDPSConfig` + `ConflictDrivenPatchSearch` directly on masked observations (no `NOISY_PISAM` adapter; SAM-only paths removed). Optional `--events-tracing` writes `search_trace.json` per fold via `benchmark/diagnosis/trace_serialization.py`.
 - Data lives under `benchmark/data/{domain}/`; experiment outputs under `benchmark/running_results/{domain}/{experiment_name}/`
-- Evaluation: `benchmark/evaluation/experiment_report.py` (`fully-detailed-report.xlsx`), `benchmark/evaluation/cfm/cfm_quality_analysis.py`, `cfm_quality_table.py`, `cfm_domain_aggregate.py`, `build_dashboard.py`, `combine_dashboard_reports.py` (reads `dashboard_config.yaml`), `fold_filter.py`, `trajectory_fluent_confusion.py`, `compare_original_observations.py`, `correlation_analysis.py`
+- Evaluation: `benchmark/evaluation/experiment_report.py` (`fully-detailed-report.xlsx`), `benchmark/evaluation/cfm/cfm_quality_analysis.py`, `cfm_quality_table.py`, `cfm_domain_aggregate.py`, `build_dashboard.py`, `combine_dashboard_reports.py` (reads `dashboard_config.yaml`), `predictive_metrics.py` + `upenv_compat.py` (predictive-power eval), `fold_filter.py`, `trajectory_fluent_confusion.py`, `compare_original_observations.py`, `correlation_analysis.py`
 - Configuration: `config.yaml` at project root; batch runs via `benchmark/run_config.yaml`
 - Activate environment: `source venv11/bin/activate`
 

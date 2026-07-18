@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import os
 import re
 import statistics
@@ -45,13 +46,20 @@ import numpy as np
 import yaml
 
 from benchmark.evaluation.cfm.cfm_quality_analysis import (
+    ERROR_BANDS,
     compute_padded_trend,
+    compute_padded_trend_band,
     find_instance_dirs,
     get_max_solution_index,
     load_cfm_metrics,
+    load_fluent_patch_counts,
     _apply_axis_scaling,
     _BOUNDED_METRICS,
 )
+
+# Error band drawn around the mean in trend plots (see compute_padded_trend_band).
+# Overridden by the ``error_band`` key in dashboard_config.yaml.
+DEFAULT_ERROR_BAND = "std"
 
 
 def instance_counts(instance_dirs: List[Path]) -> List[int]:
@@ -92,6 +100,101 @@ def find_grid_cells(domain_dir: Path, prefix: Optional[str]) -> List[Path]:
 
 def _metric_source(key: str) -> str:
     return "conflict_free_solutions_log" if key == "fluent_patch_count" else "all_solutions_metrics"
+
+
+# ── Learning-curve data (per-algorithm, per-instance) ──────────────────────
+
+_INSTANCE_RE = re.compile(r"^fold(\d+)_numtrajs(\d+)_gtrate(\d+)$")
+
+# Our own series (derived from CDPS's CFM set); baselines are discovered from
+# fold_result.json rows. Rows carrying these labels belong to us and are NOT
+# baselines ("PISAM" appears in older result files, with _internal_phase).
+_OUR_ROW_LABELS = {"CDPS", "PISAM"}
+CDPS_SERIES = "CDPS"
+ORACLE_SERIES = "CDPS (oracle)"
+
+
+def _finite(v) -> bool:
+    """True for real, finite numbers (guards against NaN leaking into the JSON payload)."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _cfm_last_and_best(instance_dir: Path, metric_keys: List[str]) -> Dict[str, Dict[str, float]]:
+    """Per metric: the last CFM's value (returned model) and the oracle best."""
+    out: Dict[str, Dict[str, float]] = {CDPS_SERIES: {}, ORACLE_SERIES: {}}
+    cfms = load_cfm_metrics(instance_dir)
+    if cfms:
+        cfms = sorted(cfms, key=lambda c: c["solution_index"])
+        for key in metric_keys:
+            vals = [c[key] for c in cfms if _finite(c.get(key))]
+            if not vals:
+                continue
+            last = cfms[-1].get(key)
+            if _finite(last):
+                out[CDPS_SERIES][key] = last
+            out[ORACLE_SERIES][key] = min(vals) if key in INVERT_METRICS else max(vals)
+    if "fluent_patch_count" in metric_keys:
+        entries = load_fluent_patch_counts(instance_dir)
+        if entries:
+            entries = sorted(entries, key=lambda e: e["index"])
+            counts = [e["fluent_patch_count"] for e in entries if _finite(e.get("fluent_patch_count"))]
+            if counts:
+                out[CDPS_SERIES]["fluent_patch_count"] = counts[-1]
+                out[ORACLE_SERIES]["fluent_patch_count"] = min(counts)
+    return out
+
+
+def _baseline_rows(instance_dir: Path, metric_keys: List[str]) -> Dict[str, Dict[str, float]]:
+    """Per baseline algorithm: its metric values from fold_result.json."""
+    marker = instance_dir / "fold_result.json"
+    if not marker.exists():
+        return {}
+    try:
+        rows = json.loads(marker.read_text())
+    except json.JSONDecodeError:
+        return {}
+    out: Dict[str, Dict[str, float]] = {}
+    for row in rows:
+        alg = row.get("algorithm")
+        if not alg or alg in _OUR_ROW_LABELS:
+            continue
+        vals = {k: row[k] for k in metric_keys if _finite(row.get(k))}
+        if vals:
+            out[alg] = vals
+    return out
+
+
+def cell_learning_curves(testing_dir: Path, metric_keys: List[str]) -> Dict:
+    """Assemble per-algorithm learning-curve data for one experiment cell.
+
+    Returns ``{"ntrajs": [...], "algs": {alg: {metric: {ntraj: [fold values]}}}}``
+    where fold values are the raw per-fold metric values at that trajectory
+    count (aggregation — mean/band — happens client-side in the dashboard).
+    """
+    series: Dict[str, Dict[str, Dict[int, List[float]]]] = {}
+    ntrajs: set = set()
+
+    def _add(alg: str, ntraj: int, vals: Dict[str, float]) -> None:
+        for key, v in vals.items():
+            series.setdefault(alg, {}).setdefault(key, {}).setdefault(ntraj, []).append(v)
+
+    for inst in find_instance_dirs(testing_dir):
+        m = _INSTANCE_RE.match(inst.name)
+        if not m:
+            continue
+        ntraj = int(m.group(2))
+        ntrajs.add(ntraj)
+        for alg, vals in _cfm_last_and_best(inst, metric_keys).items():
+            _add(alg, ntraj, vals)
+        for alg, vals in _baseline_rows(inst, metric_keys).items():
+            _add(alg, ntraj, vals)
+
+    return {
+        "ntrajs": sorted(ntrajs),
+        "algs": {alg: {k: {str(t): v for t, v in per.items()}
+                       for k, per in metrics.items()}
+                 for alg, metrics in series.items()},
+    }
 
 
 def metric_stats(instance_dirs: List[Path], key: str) -> Optional[Dict[str, float]]:
@@ -203,9 +306,9 @@ def load_or_compute_stats(domain_dir: Path, cells: List[Path], refresh: bool) ->
 
 # ── Shared-x plot copies (simulation charts) ───────────────────────────────
 
-def _plot_trend_thumb(solution_ids, means, stds, metric_key: str,
+def _plot_trend_thumb(solution_ids, center, lower, upper, metric_key: str,
                       output_path: Path, x_max: Optional[int]) -> None:
-    """A lean grid thumbnail: mean line + std band, tick numbers kept, but no
+    """A lean grid thumbnail: mean line + error band, tick numbers kept, but no
     title, axis labels, legend or footnote (the grid supplies those via the
     domain/config labels and the corner axis key).
     """
@@ -213,16 +316,16 @@ def _plot_trend_thumb(solution_ids, means, stds, metric_key: str,
     if len(solution_ids) == 1:
         # No conflicts: one CFM only. Show a bold point at its value + a note,
         # keeping the same axes as every other cell.
-        val = float(means[0])
-        ax.plot(solution_ids, means, "o", color="#1B6DB5", markersize=8, zorder=5)
+        val = float(center[0])
+        ax.plot(solution_ids, center, "o", color="#1B6DB5", markersize=8, zorder=5)
         label = f"{val:.0f}" if metric_key == "fluent_patch_count" else f"{val:.2f}"
         ax.annotate(label, xy=(0, val), xytext=(8, -3), textcoords="offset points",
                     ha="left", va="top", fontsize=8, fontweight="bold", color="#1B6DB5")
         ax.text(0.5, 0.5, "single model\n(no conflicts)", transform=ax.transAxes,
                 ha="center", va="center", color="#888888", fontsize=8)
     else:
-        ax.plot(solution_ids, means, color="#1B6DB5", linewidth=1.4)
-        lo, hi = means - stds, means + stds
+        ax.plot(solution_ids, center, color="#1B6DB5", linewidth=1.4)
+        lo, hi = np.asarray(lower), np.asarray(upper)
         if metric_key in _BOUNDED_METRICS:
             lo, hi = np.clip(lo, 0.0, 1.0), np.clip(hi, 0.0, 1.0)
         ax.fill_between(solution_ids, lo, hi, color="#1B6DB5", alpha=0.2)
@@ -236,20 +339,23 @@ def _plot_trend_thumb(solution_ids, means, stds, metric_key: str,
     plt.close(fig)
 
 
-def _generate_shared_trend_plots(cell: Path, x_max: int, metrics: List[dict]) -> None:
+def _generate_shared_trend_plots(cell: Path, x_max: int, metrics: List[dict],
+                                 error_band: str = DEFAULT_ERROR_BAND) -> None:
     """Write only the lean per-metric trend PNGs (shared x) the dashboard uses."""
     out_dir = cell / "evaluation_results" / SHARED_SUBDIR
     out_dir.mkdir(parents=True, exist_ok=True)
     instance_dirs = find_instance_dirs(cell / "testing")
     for m in metrics:
         key = m["key"]
-        sol, means, stds, _n = compute_padded_trend(instance_dirs, key, source=_metric_source(key))
+        sol, center, lower, upper, _n = compute_padded_trend_band(
+            instance_dirs, key, source=_metric_source(key), band=error_band)
         if len(sol) == 0:
             continue
-        _plot_trend_thumb(sol, means, stds, key, out_dir / f"{key}_trend.png", x_max)
+        _plot_trend_thumb(sol, center, lower, upper, key, out_dir / f"{key}_trend.png", x_max)
 
 
-def regenerate_shared_x_plots(cells: List[Path], metrics: List[dict]) -> None:
+def regenerate_shared_x_plots(cells: List[Path], metrics: List[dict],
+                              error_band: str = DEFAULT_ERROR_BAND) -> None:
     """Write shared-x trend PNGs (CFM_quality_shared/) for a domain's cells."""
     per_max = {c: (get_max_solution_index(c) or 0) for c in cells}
     domain_max = max(per_max.values(), default=0)
@@ -258,7 +364,7 @@ def regenerate_shared_x_plots(cells: List[Path], metrics: List[dict]) -> None:
     # Includes single-CFM cells (noise=0): they get a one-point plot with the
     # same shared x-axis and a "single model" note (see _plot_trend_thumb).
     for cell in cells:
-        _generate_shared_trend_plots(cell, domain_max, metrics)
+        _generate_shared_trend_plots(cell, domain_max, metrics, error_band)
 
 
 # ── Data assembly ──────────────────────────────────────────────────────────
@@ -291,7 +397,7 @@ def build_sim_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
         print(f"  [sim] {domain}: {len(cells)} cells")
         if regen:
             print("    regenerating shared-x trend plots...")
-            regenerate_shared_x_plots(cells, metrics)
+            regenerate_shared_x_plots(cells, metrics, error_band=cfg.get("error_band", DEFAULT_ERROR_BAND))
         fluent = load_or_compute_stats(domain_dir, cells, refresh)
 
         cells_out[domain] = {}
@@ -311,6 +417,7 @@ def build_sim_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
                 "status": status, "stats": stats, "pngs": pngs,
                 "masked": fl.get("masked"), "flipped": fl.get("flipped"),
                 "n": instance_counts(instance_dirs),
+                "curves": cell_learning_curves(cell / "testing", [mk["key"] for mk in metrics]),
             }
 
     return {
@@ -320,17 +427,19 @@ def build_sim_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
     }
 
 
-def regenerate_image_thumbs(exp: Path, metrics: List[dict]) -> None:
+def regenerate_image_thumbs(exp: Path, metrics: List[dict],
+                            error_band: str = DEFAULT_ERROR_BAND) -> None:
     """Write lean trend thumbnails for one image experiment (own x-axis)."""
     out_dir = exp / "evaluation_results" / SHARED_SUBDIR
     out_dir.mkdir(parents=True, exist_ok=True)
     instance_dirs = find_instance_dirs(exp / "testing")
     for m in metrics:
         key = m["key"]
-        sol, means, stds, _n = compute_padded_trend(instance_dirs, key, source=_metric_source(key))
+        sol, center, lower, upper, _n = compute_padded_trend_band(
+            instance_dirs, key, source=_metric_source(key), band=error_band)
         if len(sol) == 0:
             continue
-        _plot_trend_thumb(sol, means, stds, key, out_dir / f"{key}_trend.png", None)  # own x
+        _plot_trend_thumb(sol, center, lower, upper, key, out_dir / f"{key}_trend.png", None)  # own x
 
 
 def build_image_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
@@ -347,13 +456,14 @@ def build_image_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
             print(f"  [img] {domain}: SKIP (no testing/ at {rel})")
             continue
         if regen:
-            regenerate_image_thumbs(exp, metrics)
+            regenerate_image_thumbs(exp, metrics, error_band=cfg.get("error_band", DEFAULT_ERROR_BAND))
         instance_dirs = find_instance_dirs(testing)
         stats = all_metric_stats(instance_dirs, metrics)
         cfmq = exp / "evaluation_results" / SHARED_SUBDIR
         pngs = {mk["key"]: img_src(cfmq / f'{mk["key"]}_trend.png', out_dir, embed)
                 for mk in metrics if (cfmq / f'{mk["key"]}_trend.png').exists()}
-        out[domain] = {"stats": stats, "pngs": pngs, "n": instance_counts(instance_dirs)}
+        out[domain] = {"stats": stats, "pngs": pngs, "n": instance_counts(instance_dirs),
+                       "curves": cell_learning_curves(testing, [mk["key"] for mk in metrics])}
         print(f"  [img] {domain}: ok")
     return {"domains_data": out}
 
@@ -363,6 +473,12 @@ def build(config_path: Path, regen: bool, refresh: bool,
     cfg = yaml.safe_load(config_path.read_text())["results_dashboard"]
     if domains:
         cfg["domains"] = [d for d in cfg["domains"] if d in domains]
+    band = cfg.get("error_band", DEFAULT_ERROR_BAND)
+    if band not in ERROR_BANDS:
+        raise ValueError(
+            f"dashboard_config.yaml: unknown error_band '{band}'. "
+            f"Available: {', '.join(ERROR_BANDS)}")
+    print(f"Error band: {band}")
     root = (_PROJECT_ROOT / cfg["results_root"]).resolve()
     out_html = (_PROJECT_ROOT / cfg["output_html"]).resolve()
     out_dir = out_html.parent
@@ -380,9 +496,13 @@ def build(config_path: Path, regen: bool, refresh: bool,
     payload = {
         "domains": cfg["domains"],
         "metrics": [{"key": m["key"], "label": m["label"],
-                     "invert": m["key"] in INVERT_METRICS} for m in metrics],
+                     "invert": m["key"] in INVERT_METRICS,
+                     "bounded": m["key"] in _BOUNDED_METRICS} for m in metrics],
         "sim": sim,
         "image": img,
+        "error_band": band,
+        "cdps_series": CDPS_SERIES,
+        "oracle_series": ORACLE_SERIES,
     }
     out_html.write_text(_HTML.replace("__DATA__", json.dumps(payload)))
     size_mb = out_html.stat().st_size / 1e6
@@ -430,6 +550,7 @@ _HTML = r"""<!DOCTYPE html>
   table.heat td.na{width:50px;text-align:center;color:#5b616b;}
   .msep{border-left:3px solid #ffffff !important;}
   td.hl{box-shadow:inset 0 0 0 2px #ef4444;}
+  tr.hlr{outline:2px solid #ef4444;outline-offset:-2px;}
   .domhead,.colhead{text-align:center;font-size:12px;color:#c3c8d0;font-weight:500;align-self:center;}
   .cfglab{font-size:10.5px;color:#c8cdd6;border-left:2px solid #3b6fe0;padding-left:6px;line-height:1.3;align-self:center;}
   .cfglab span{display:block;color:#8b929c;font-size:10.5px;}
@@ -458,8 +579,21 @@ _HTML = r"""<!DOCTYPE html>
   .dgrid .cell img{max-height:210px;object-fit:contain;}
   .ctab{background:none;border:1px solid transparent;color:#8b929c;padding:4px 11px;cursor:pointer;font-size:12.5px;border-radius:6px;}
   .ctab.on{color:#fff;background:#243049;border-color:#3b6fe0;}
+  #ctrlbar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:8px 0 10px;border-bottom:1px solid #333842;margin-bottom:14px;font-size:12.5px;color:#c3c8d0;}
+  #ctrlbar select{background:#1f232b;color:#cfd3da;border:1px solid #333842;border-radius:6px;padding:4px 6px;font-size:12px;}
+  .algchk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:#c3c8d0;}
+  .algchk input{accent-color:#3b6fe0;}
+  .gflex{flex:1 1 460px;min-width:0;}
+  .lcgrid{max-width:1000px;}
+  table.lctbl{font-size:14px;height:100%;}
+  table.lctbl th{font-size:13px;padding:6px 12px;}
+  table.lctbl td{padding:7px 12px;}
+  .lctcard{flex:0 0 auto;display:flex;flex-direction:column;}
+  .lctwrap{flex:1 1 auto;display:flex;overflow-x:auto;}
+  .gexpl{flex:0 0 400px;display:flex;flex-direction:column;}
+  .gexpl .gtext p{font-size:11.5px;line-height:1.45;margin:4px 0;}
   .chdr{display:flex;align-items:center;gap:6px;border-bottom:1px solid #2b303a;padding-bottom:8px;margin-bottom:12px;flex-wrap:wrap;}
-  .legkey{margin-left:auto;font-size:11px;color:#9aa0a8;display:flex;gap:12px;}
+  .legkey{margin-left:auto;font-size:13px;color:#c3c8d0;display:flex;gap:16px;align-items:center;}
   .legkey i{display:inline-block;vertical-align:middle;}
   .cap{font-size:11px;color:#9aa0a8;text-align:center;margin-bottom:3px;}
   .note{font-size:11px;color:#7d828b;margin-top:8px;}
@@ -471,19 +605,106 @@ _HTML = r"""<!DOCTYPE html>
   <div style="margin-left:auto;display:flex;gap:6px;background:#1f232b;border:1px solid #333842;border-radius:8px;padding:3px;">
     <button class="et on" data-et="sim">Simulation</button><button class="et" data-et="img">Image</button></div>
 </div>
-<div id="metricnav" style="display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid #333842;padding-bottom:10px;margin-bottom:14px;"></div>
+<div id="metricnav" style="display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid #333842;padding-bottom:10px;margin-bottom:8px;"></div>
+<div id="ctrlbar"></div>
 <div id="view"></div>
 <div id="lb" onclick="this.style.display='none'"><div style="text-align:center;"><div id="lbcap" style="color:#cbd2dc;font-size:13px;margin-bottom:8px;"></div><img id="lbimg" src="" alt=""></div></div>
 <script>
 const DATA=__DATA__;
 const MASKS=DATA.sim.masks, NOISES=DATA.sim.noises, DOMAINS=DATA.domains, METRICS=DATA.metrics;
-const S={et:"sim",metric:METRICS[0].key,stat:"last",tab:"all"};
+const CDPS=DATA.cdps_series, ORACLE=DATA.oracle_series;
+const S={et:"sim",metric:METRICS[0].key,stat:"last",tab:"all",ltab:"all",cmp:false,band:DATA.error_band||"ci95",off:{},base:null};
 const $=id=>document.getElementById(id);
 const meta=k=>METRICS.find(m=>m.key===k)||{};
 const CONFIGS=[]; for(const m of MASKS)for(const n of NOISES)CONFIGS.push([m,n]);
+
+/* ── learning-curve helpers ─────────────────────────────────────────── */
+const TCRIT={1:12.706,2:4.303,3:3.182,4:2.776,5:2.571,6:2.447,7:2.365,8:2.306,9:2.262,10:2.228,
+ 11:2.201,12:2.179,13:2.160,14:2.145,15:2.131,16:2.120,17:2.110,18:2.101,19:2.093,20:2.086,25:2.060,30:2.042};
+function tcrit(df){if(df<=0)return 0;if(TCRIT[df])return TCRIT[df];for(const b of[25,30])if(df<=b)return TCRIT[b];return 1.96;}
+function bandStats(v){const n=v.length;if(!n)return null;const mean=v.reduce((s,x)=>s+x,0)/n;
+ if(S.band==="minmax")return[mean,Math.min(...v),Math.max(...v)];
+ const dd=(S.band==="ci95"&&n>1)?n-1:n;
+ const sd=Math.sqrt(v.reduce((s,x)=>s+(x-mean)*(x-mean),0)/dd);
+ const hw=S.band==="ci95"?(n>1?tcrit(n-1)*sd/Math.sqrt(n):0):sd;
+ return[mean,mean-hw,mean+hw];}
+function discoverBaselines(){const set=new Set();
+ for(const d of DOMAINS)for(const[m,n]of CONFIGS){const c=cellOf(d,m,n);
+  if(c&&c.curves)for(const a of Object.keys(c.curves.algs))if(a!==CDPS&&a!==ORACLE)set.add(a);}
+ const dd=DATA.image.domains_data||{};
+ for(const d of Object.keys(dd))if(dd[d].curves)for(const a of Object.keys(dd[d].curves.algs))if(a!==CDPS&&a!==ORACLE)set.add(a);
+ return[...set].sort();}
+const PAL=["#e8710a","#1baf7a","#d55181","#9085e9","#c98500","#e66767"];
+function algStyle(a){if(a===CDPS)return{c:"#4b8fe2",dash:null};if(a===ORACLE)return{c:"#9dc1f0",dash:"5 4"};
+ return{c:PAL[Math.max(0,BASES.indexOf(a))%PAL.length],dash:"2 3"};}
+function algLabel(a){return a===ORACLE?"oracle":a;}
+function enabledAlgs(){return [CDPS,ORACLE,...(S.cmp?BASES:[])].filter(a=>!S.off[a]);}
+
+function curveSVG(cv){
+ const mk=S.metric;
+ if(!cv||!cv.ntrajs||!cv.ntrajs.length)return `<div class="empty" style="min-height:120px;">no data</div>`;
+ const NT=cv.ntrajs;
+ const algs=enabledAlgs().filter(a=>cv.algs[a]&&cv.algs[a][mk]);
+ if(!algs.length)return `<div class="empty" style="min-height:120px;">no data</div>`;
+ const per={};let ymax=1;
+ for(const a of algs)per[a]=NT.map(t=>{const v=(cv.algs[a][mk]||{})[String(t)];return v&&v.length?bandStats(v):null;});
+ if(!meta(mk).bounded){ymax=0;for(const a of algs)for(const q of per[a])if(q)ymax=Math.max(ymax,q[2]);ymax=ymax>0?ymax*1.08:1;}
+ const W=210,H=150,L=31,B=17,T=6,R=7,pw=W-L-R,ph=H-B-T;
+ const t0=NT[0],t1=NT[NT.length-1]>t0?NT[NT.length-1]:t0+1;
+ const X=t=>L+pw*(t-t0)/(t1-t0), Y=v=>T+ph*(1-Math.max(0,Math.min(1,v/ymax)));
+ let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;background:#12151b;border:1px solid #2b303a;border-radius:6px;">`;
+ for(const g of [0,ymax/2,ymax]){s+=`<line x1="${L}" y1="${Y(g)}" x2="${W-R}" y2="${Y(g)}" stroke="#2b303a"/>`
+  +`<text x="${L-3}" y="${Y(g)+3}" font-size="8.5" text-anchor="end" fill="#9aa0a8">${meta(mk).bounded?g.toFixed(1):Math.round(g)}</text>`;}
+ for(const t of NT)s+=`<text x="${X(t)}" y="${H-4}" font-size="8.5" text-anchor="middle" fill="#9aa0a8">${t}</text>`;
+ for(const a of algs){const st=algStyle(a);
+  const pts=NT.map((t,i)=>per[a][i]?{t:t,q:per[a][i]}:null).filter(p=>p);
+  if(!pts.length)continue;
+  if(pts.length>1){
+   let band="M"+pts.map(p=>`${X(p.t)} ${Y(p.q[2])}`).join(" L");
+   band+=" L"+pts.slice().reverse().map(p=>`${X(p.t)} ${Y(p.q[1])}`).join(" L")+" Z";
+   s+=`<path d="${band}" fill="${st.c}" opacity="0.14"/>`;
+   s+=`<path d="M${pts.map(p=>`${X(p.t)} ${Y(p.q[0])}`).join(" L")}" fill="none" stroke="${st.c}" stroke-width="1.8"${st.dash?` stroke-dasharray="${st.dash}"`:""}/>`;
+  }
+  for(const p of pts)s+=`<circle cx="${X(p.t)}" cy="${Y(p.q[0])}" r="2.2" fill="${st.c}"/>`;
+ }
+ return s+"</svg>";}
+
+function bandLabel(){return S.band==="ci95"?"95% CI":(S.band==="minmax"?"min–max":"±1 std");}
+function lcLegend(){return `<span class="legkey">`+enabledAlgs().map(a=>{const st=algStyle(a);
+ return `<span><i style="width:20px;height:0;border-top:3px ${st.dash?"dashed":"solid"} ${st.c};"></i> ${algLabel(a)}</span>`;}).join("")
+ +`<span><i style="width:20px;height:12px;background:rgba(75,143,226,0.25);border-radius:2px;"></i> ${bandLabel()}</span></span>`;}
+
+function curveTable(entries){
+ const algs=enabledAlgs();
+ let head=`<tr><th></th>`+algs.map(a=>`<th>${algLabel(a)}</th>`).join("")+`</tr>`,body="";
+ for(const e of entries){body+=`<tr${e.key?` data-lcr="${e.key}"`:""}><td class="dom">${e.label}</td>`;
+  for(const a of algs){let cellv=`<span style="color:#5b616b;">–</span>`;
+   const cv=e.cv;
+   if(cv&&cv.ntrajs&&cv.ntrajs.length&&cv.algs[a]&&cv.algs[a][S.metric]){
+    const t=cv.ntrajs[cv.ntrajs.length-1],v=cv.algs[a][S.metric][String(t)];
+    if(v&&v.length){const q=bandStats(v);
+     cellv=`${q[0].toFixed(2)}<br><span style="color:#8b929c;">±${((q[2]-q[1])/2).toFixed(2)}</span>`;}}
+   body+=`<td style="text-align:center;padding:4px 7px;color:#e8e8e8;">${cellv}</td>`;}
+  body+=`</tr>`;}
+ return `<table class="heat lctbl"><thead>${head}</thead><tbody>${body}</tbody></table>`;}
+
+function deltaOf(d,m,n){const c=cellOf(d,m,n);if(!c||!c.curves||!S.base)return null;
+ const our=c.curves.algs[S.stat==="best"?ORACLE:CDPS],base=c.curves.algs[S.base];
+ if(!our||!base)return null;
+ const om=our[S.metric],bm=base[S.metric];if(!om||!bm)return null;
+ let s=0,k=0;
+ for(const t of Object.keys(om)){const A=om[t],B=bm[t];if(!A||!B)continue;
+  const len=Math.min(A.length,B.length);for(let i=0;i<len;i++){s+=A[i]-B[i];k++;}}
+ return k?s/k:null;}
+function dheat(v){const t=Math.max(-0.5,Math.min(0.5,v))/0.5;
+ const neg=[124,52,52],zero=[38,41,48],pos=[46,110,64];
+ const c=t<0?zero.map((x,i)=>Math.round(x+(neg[i]-x)*(-t))):zero.map((x,i)=>Math.round(x+(pos[i]-x)*t));
+ return `rgb(${c})`;}
 function heat(v){const t=Math.max(0,Math.min(1,v));const lo=[124,52,52],mid=[132,110,52],hi=[46,110,64];const c=t<.5?lo.map((x,i)=>Math.round(x+(mid[i]-x)*t*2)):mid.map((x,i)=>Math.round(x+(hi[i]-x)*(t-.5)*2));return `rgb(${c})`;}
 function amber(t){t=Math.max(0,Math.min(1,t));const lo=[38,41,48],hi=[205,124,38];return `rgb(${lo.map((x,i)=>Math.round(x+(hi[i]-x)*t))})`;}
 function cellOf(d,m,n){return ((DATA.sim.cells[d]||{})[`${m}_${n}`])||null;}
+const BASES=discoverBaselines();
+if(BASES.length)S.base=BASES[0];
 
 function simHeat(){
   const ml=meta(S.metric).label;
@@ -491,7 +712,73 @@ function simHeat(){
   let h2=`<tr><th></th>`+MASKS.map((m,gi)=>NOISES.map((n,ni)=>`<th${(gi>0&&ni===0)?' class="msep"':''}>p_n = ${n}</th>`).join("")).join("")+`</tr>`;
   let body="";
   for(const d of DOMAINS){body+=`<tr><td class="dom">${d}</td>`;for(const[m,n]of CONFIGS){const sep=(n===NOISES[0]&&m!==MASKS[0])?' msep':'';const c=cellOf(d,m,n),s=c&&c.stats[S.metric];if(!s){body+=`<td class="na${sep}">–</td>`;continue;}body+=`<td class="hc${sep}" style="background:${heat(s[S.stat])}">${s[S.stat].toFixed(2)}</td>`;}body+=`</tr>`;}
-  return `<div class="card"><h4>${ml} — summary heatmap<span style="margin-left:auto;display:flex;gap:6px;"><button class="seg ${S.stat==='best'?'on':''}" onclick="setStat('best')">Best CFM</button><button class="seg ${S.stat==='last'?'on':''}" onclick="setStat('last')">Last CFM</button></span></h4><div class="twrap"><table class="heat"><thead>${h1}${h2}</thead><tbody>${body}</tbody></table></div><div class="note">fixed colour scale · 0.0 red · 0.5 amber · 1.0 green (same for all metrics; fluent patch count is a raw count, so its colours are only indicative) · “–” = no data</div></div>`;
+  return `<div class="card gflex"><h4>${ml} — summary heatmap<span style="margin-left:auto;display:flex;gap:6px;"><button class="seg ${S.stat==='best'?'on':''}" onclick="setStat('best')">Best CFM</button><button class="seg ${S.stat==='last'?'on':''}" onclick="setStat('last')">Last CFM</button></span></h4><div class="twrap"><table class="heat"><thead>${h1}${h2}</thead><tbody>${body}</tbody></table></div><div class="note">fixed colour scale · 0.0 red · 0.5 amber · 1.0 green (same for all metrics; fluent patch count is a raw count, so its colours are only indicative) · “–” = no data</div></div>`;
+}
+function simDeltaCard(){
+  const ml=meta(S.metric).label;
+  let h1=`<tr><th></th>`+MASKS.map((m,gi)=>`<th colspan="${NOISES.length}"${gi>0?' class="msep"':''}>p_mask = ${m}</th>`).join("")+`</tr>`;
+  let h2=`<tr><th></th>`+MASKS.map((m,gi)=>NOISES.map((n,ni)=>`<th${(gi>0&&ni===0)?' class="msep"':''}>p_n = ${n}</th>`).join("")).join("")+`</tr>`;
+  let body="";
+  for(const d of DOMAINS){body+=`<tr><td class="dom">${d}</td>`;
+    for(const[m,n]of CONFIGS){const sep=(n===NOISES[0]&&m!==MASKS[0])?' msep':'';
+      const dv=deltaOf(d,m,n);
+      if(dv==null){body+=`<td class="na${sep}">–</td>`;continue;}
+      body+=`<td class="hc${sep}" style="background:${dheat(meta(S.metric).invert?-dv:dv)}">${dv>=0?"+":""}${dv.toFixed(2)}</td>`;}
+    body+=`</tr>`;}
+  return `<div class="card gflex"><h4>${ml} — Δ vs ${S.base} <span style="color:#7d828b;font-weight:400;font-size:11px;">(${S.stat==='best'?'oracle-best':'last'} CFM − ${S.base}, paired per instance)</span></h4><div class="twrap"><table class="heat"><thead>${h1}${h2}</thead><tbody>${body}</tbody></table></div><div class="note">green = CDPS ahead · red = ${S.base} ahead · “–” = ${S.base} not backfilled for this cell</div></div>`;
+}
+function heatRow(){
+  if(!(S.cmp&&S.base))return simHeat();
+  return `<div class="grow">${simHeat()}${simDeltaCard()}</div>`;
+}
+/* ── learning-curve views ───────────────────────────────────────────── */
+function lcDomainGrid(d){
+  let grid=`<div class="lcgrid" style="min-width:0;display:grid;grid-template-columns:70px repeat(${MASKS.length},1fr);gap:7px;">`;
+  grid+=`<div></div>`+MASKS.map(m=>`<div class="colhead">p_mask = ${m}</div>`).join("");
+  const entries=[];
+  for(const n of NOISES){grid+=`<div class="rowlab">p_n = ${n}</div>`;
+    for(const m of MASKS){const c=cellOf(d,m,n);
+      grid+=`<div onmouseenter="hlCorr('${d}|${m}|${n}',true)" onmouseleave="hlCorr('${d}|${m}|${n}',false)">${curveSVG(c&&c.curves)}</div>`;
+      entries.push({label:`m=${m} n=${n}`,cv:c&&c.curves,key:`${m}|${n}`});}}
+  grid+=`</div>`;
+  return {grid:grid,entries:entries};
+}
+function lcTableCard(entries){
+  return `<div class="card lctcard"><h4>at max #trajectories (mean ± ${S.band})</h4><div class="lctwrap">${curveTable(entries)}</div></div>`;
+}
+function lcAll(){
+  const cols=`84px 1fr`+` 1px 1fr`.repeat(DOMAINS.length-1);
+  let head=`<div class="allhead" style="display:grid;grid-template-columns:${cols};gap:7px;"><div></div>`+DOMAINS.map((d,i)=>(i?`<div class="colsep"></div>`:"")+`<div class="domhead">${d}</div>`).join("")+`</div>`;
+  let body=`<div style="display:grid;grid-template-columns:${cols};gap:7px;">`;
+  CONFIGS.forEach(([m,n],ri)=>{
+    body+=`<div class="cfglab">p_mask = ${m}<span>p_n = ${n}</span></div>`+DOMAINS.map((d,i)=>{const c=cellOf(d,m,n);
+      return (i?`<div class="colsep"></div>`:"")+`<div onmouseenter="hlCorr('${d}|${m}|${n}',true)" onmouseleave="hlCorr('${d}|${m}|${n}',false)">${curveSVG(c&&c.curves)}</div>`;}).join("");
+    if(ri<CONFIGS.length-1)body+=`<div class="rowsep"></div>`;
+  });
+  return `<div class="allscroll">${head}${body}</div>`;
+}
+function simCurvesCard(){
+  const tabs=["all",...DOMAINS];
+  const tabbar=tabs.map(t=>`<button class="ctab ${t===S.ltab?'on':''}" onclick="setLTab('${t}')">${t}</button>`).join("");
+  const hdr=`<h4>${meta(S.metric).label} — learning curves (value vs #training trajectories)</h4><div class="chdr">${tabbar}${lcLegend()}</div>`;
+  if(S.ltab==="all")return `<div class="card">${hdr}${lcAll()}</div>`;
+  const g=lcDomainGrid(S.ltab);
+  return `<div class="grow" style="align-items:stretch;">`
+    +`<div class="card" style="flex:1 1 auto;min-width:0;">${hdr}${g.grid}</div>`
+    +lcTableCard(g.entries)+`</div>`;
+}
+function imgCurvesCard(){
+  const dd=DATA.image.domains_data||{};
+  const have=DOMAINS.filter(d=>dd[d]&&dd[d].curves&&dd[d].curves.ntrajs&&dd[d].curves.ntrajs.length);
+  if(!have.length)return "";
+  let grid=`<div class="lcgrid" style="min-width:0;display:grid;grid-template-columns:repeat(${have.length},1fr);gap:7px;">`;
+  grid+=have.map(d=>`<div class="domhead">${d}</div>`).join("");
+  grid+=have.map(d=>`<div onmouseenter="hlLcr('${d}',true)" onmouseleave="hlLcr('${d}',false)">${curveSVG(dd[d].curves)}</div>`).join("")+`</div>`;
+  const entries=have.map(d=>({label:d,cv:dd[d].curves,key:d}));
+  const hdr=`<h4>${meta(S.metric).label} — learning curves (value vs #training trajectories)</h4><div class="chdr" style="border-bottom:none;padding-bottom:0;margin-bottom:8px;">${lcLegend()}</div>`;
+  return `<div class="grow" style="align-items:stretch;">`
+    +`<div class="card" style="flex:1 1 auto;min-width:0;">${hdr}${grid}</div>`
+    +lcTableCard(entries)+`</div>`;
 }
 function corruption(){
   const fmax=Math.max(1,...DOMAINS.flatMap(d=>CONFIGS.map(([m,n])=>{const c=cellOf(d,m,n);return c&&c.flipped!=null?c.flipped:0;})));
@@ -531,7 +818,43 @@ function explainCard(){return `<div class="card gexp"><h4>How to read the plots<
     `<p><b>“padded” mean.</b> Each instance is forward-filled — once it stops finding new models its last value is carried forward, so every instance contributes at every index (the mean flattens on the right).</p>`+
     `<p class="ex"><b>Example:</b> index 5 → 0.80 = the mean over instances of each one's value at its 6th CFM (or its last value, if it found fewer).</p>`+
   `</div></div>`;}
-function guideRow(){return `<div class="grow">${corruption()}${exampleCard()}${explainCard()}</div>`;}
+function lcGuideSVG(){const w=300,h=210,lp=32,bp=26,tp=10,rp=12;
+  const NT=[3,4,5,6,7,8];
+  const X=t=>lp+(w-lp-rp)*(t-3)/5,Y=v=>h-bp-(h-tp-bp)*v;
+  const cd=[.48,.58,.66,.72,.77,.80],hw=[.14,.12,.10,.09,.08,.07];
+  const orc=cd.map((v,i)=>Math.min(.98,v+.09));
+  const bs=[.38,.46,.52,.57,.61,.64];
+  let band="M"+NT.map((t,i)=>`${X(t)},${Y(Math.min(1,cd[i]+hw[i]))}`).join(" L");
+  band+=" L"+NT.slice().reverse().map((t,ri)=>{const i=NT.length-1-ri;return `${X(t)},${Y(Math.max(0,cd[i]-hw[i]))}`;}).join(" L")+" Z";
+  const path=a=>"M"+NT.map((t,i)=>`${X(t)},${Y(a[i])}`).join(" L");
+  const YT=[0,.5,1];
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:100%;display:block;background:#12151b;border:1px solid #2b303a;border-radius:6px;">
+    <line x1="${lp}" y1="${tp}" x2="${lp}" y2="${h-bp}" stroke="#8a93a3"/><line x1="${lp}" y1="${h-bp}" x2="${w-rp}" y2="${h-bp}" stroke="#8a93a3"/>
+    ${YT.map(t=>`<text x="${lp-4}" y="${Y(t)+3}" font-size="8.5" text-anchor="end" fill="#9aa0a8">${t.toFixed(1)}</text>`).join("")}
+    ${NT.map(t=>`<text x="${X(t)}" y="${h-bp+11}" font-size="8.5" text-anchor="middle" fill="#9aa0a8">${t}</text>`).join("")}
+    <text x="9" y="${(h-bp)/2}" font-size="9" fill="#aeb6c2" transform="rotate(-90 9 ${(h-bp)/2})" text-anchor="middle">metric value</text>
+    <text x="${lp+(w-lp-rp)/2}" y="${h-4}" font-size="9" fill="#aeb6c2" text-anchor="middle"># training trajectories</text>
+    <path d="${band}" fill="#4b8fe2" opacity="0.16"/>
+    <path d="${path(cd)}" fill="none" stroke="#4b8fe2" stroke-width="2.2"/>
+    <path d="${path(orc)}" fill="none" stroke="#9dc1f0" stroke-width="1.8" stroke-dasharray="5 4"/>
+    <path d="${path(bs)}" fill="none" stroke="#e8710a" stroke-width="1.8" stroke-dasharray="2 3"/>
+    ${NT.map((t,i)=>`<circle cx="${X(t)}" cy="${Y(cd[i])}" r="2.3" fill="#4b8fe2"/>`).join("")}
+    <text x="${X(8)-4}" y="${Y(orc[5])-6}" font-size="9" fill="#9dc1f0" text-anchor="end">oracle</text>
+    <text x="${X(8)-4}" y="${Y(cd[5])+13}" font-size="9" fill="#7aa2ff" text-anchor="end">CDPS</text>
+    <text x="${X(8)-4}" y="${Y(bs[5])+13}" font-size="9" fill="#e8965a" text-anchor="end">baseline</text></svg>`;
+}
+function lcExampleCard(){return `<div class="card gex"><h4>Example plot</h4><div class="gexfig">${lcGuideSVG()}</div></div>`;}
+function lcExplainCard(){return `<div class="card gexpl"><h4>How to read the plots</h4><div class="gtext">`+
+    `<p><b>x — # training trajectories.</b> Each point is one experiment instance size (all its folds).</p>`+
+    `<p><b>y — metric value.</b> Mean over the folds at that trajectory count; the shaded band is the selected statistic (${bandLabel()} — switch it in the bar above).</p>`+
+    `<p><b>Lines.</b> <b>CDPS</b> = the model the search returns (its last CFM). <b>oracle</b> = the best CFM in each instance's set, picked per metric with hindsight — an upper bound on what a better selection rule could return, not a separate algorithm. <b>Baselines</b> (e.g. ROSAME) = their single learned model, trained on the identical degraded trajectories.</p>`+
+    `<p class="ex"><b>Δ heatmap:</b> the paired per-instance difference (CDPS − baseline) averaged over the cell; green = CDPS ahead. The side table lists values at the largest trajectory count.</p>`+
+  `</div></div>`;}
+function guideRow(){
+  return S.cmp
+    ? `<div class="grow">${corruption()}${lcExampleCard()}${lcExplainCard()}</div>`
+    : `<div class="grow">${corruption()}${exampleCard()}${explainCard()}</div>`;
+}
 function ncap(c){return (c&&c.n)?`<div class="ncap">instances: ${c.n[0]}(${c.n[1]})</div>`:"";}
 function chartCell(c,cap,hk){
   const hov=hk?` onmouseenter="hlCorr('${hk}',true)" onmouseleave="hlCorr('${hk}',false)"`:"";
@@ -541,6 +864,10 @@ function chartCell(c,cap,hk){
 }
 function hlCorr(key,on){const p=key.split("|");
   document.querySelectorAll(`[data-mk="${p[0]}|${p[1]}"],[data-fc="${p[0]}|${p[1]}|${p[2]}"]`).forEach(e=>e.classList.toggle("hl",on));
+  hlLcr(`${p[1]}|${p[2]}`,on);
+}
+function hlLcr(key,on){
+  document.querySelectorAll(`tr[data-lcr="${key}"]`).forEach(e=>e.classList.toggle("hlr",on));
 }
 function allView(){
   const cols=`84px 1fr`+` 1px 1fr`.repeat(DOMAINS.length-1);
@@ -564,7 +891,7 @@ function chartsBody(){return S.tab==="all"?allView():domainView(S.tab);}
 function simCharts(){
   const tabs=["all",...DOMAINS];
   const tabbar=tabs.map(t=>`<button class="ctab ${t===S.tab?'on':''}" data-tab="${t}" onclick="setTab('${t}')">${t}</button>`).join("");
-  const legend=`<span class="legkey"><span><i style="width:14px;height:2px;background:#1B6DB5;"></i> mean</span><span><i style="width:14px;height:9px;background:#B5D4F4;border-radius:2px;"></i> ±1 std</span></span>`;
+  const legend=`<span class="legkey"><span><i style="width:20px;height:3px;background:#1B6DB5;"></i> mean</span><span><i style="width:20px;height:12px;background:#B5D4F4;border-radius:2px;"></i> ${bandLabel()}</span></span>`;
   return `<div class="card"><div class="chdr">${tabbar}${legend}</div><div id="chgrid">${chartsBody()}</div></div>`;
 }
 function imgView(){
@@ -574,20 +901,39 @@ function imgView(){
   const head=`<tr><th></th>`+have.map(d=>`<th>${d}</th>`).join("")+`</tr>`;
   const row=(label,key)=>`<tr><td class="dom">${label}</td>`+have.map(d=>{const s=dd[d].stats[S.metric];return s?`<td class="hc" style="min-width:80px;background:${heat(s[key])}">${s[key].toFixed(2)}</td>`:`<td class="na">–</td>`;}).join("")+`</tr>`;
   const table=`<div class="card"><h4>${ml} — image experiments</h4><div class="twrap"><table class="heat"><thead>${head}</thead><tbody>${row("best CFM","best")}${row("last CFM","last")}</tbody></table></div></div>`;
-  const guide=`<div class="grow">${exampleCard()}${explainCard()}</div>`;
-  let charts=`<div class="card"><h4>${ml} — per domain (single config)<span class="legkey"><span><i style="width:14px;height:2px;background:#1B6DB5;"></i> mean</span><span><i style="width:14px;height:9px;background:#B5D4F4;border-radius:2px;"></i> ±1 std</span></span></h4>`;
+  const guide=S.cmp?`<div class="grow">${lcExampleCard()}${lcExplainCard()}</div>`:`<div class="grow">${exampleCard()}${explainCard()}</div>`;
+  if(S.cmp)return table+guide+imgCurvesCard();
+  let charts=`<div class="card"><h4>${ml} — per domain (single config)<span class="legkey"><span><i style="width:20px;height:3px;background:#1B6DB5;"></i> mean</span><span><i style="width:20px;height:12px;background:#B5D4F4;border-radius:2px;"></i> ${bandLabel()}</span></span></h4>`;
   charts+=`<div style="display:grid;grid-template-columns:repeat(${have.length},1fr);gap:7px;margin-bottom:6px;">`+have.map(d=>`<div class="domhead">${d}</div>`).join("")+`</div>`;
   charts+=`<div style="display:grid;grid-template-columns:repeat(${have.length},1fr);gap:7px;">`+have.map(d=>{const p=dd[d].pngs[S.metric],cap=`${d} · ${ml}`,nc=dd[d].n?`<div class="ncap">instances: ${dd[d].n[0]}(${dd[d].n[1]})</div>`:"";return `<div>${p?`<div class="cell"><img loading="lazy" src="${p}" onclick="zoom('${p}','${cap}')"></div>`:`<div class="empty">no plot</div>`}${nc}</div>`;}).join("")+`</div></div>`;
   return table+guide+charts;
+}
+function ctrlBar(){
+  const modes=`<span style="display:flex;gap:6px;"><button class="seg ${!S.cmp?'on':''}" onclick="setCmp(false)">CDPS only</button><button class="seg ${S.cmp?'on':''}" onclick="setCmp(true)">vs baselines</button></span>`;
+  const band=`<label>band <select onchange="setBand(this.value)">${["std","ci95","minmax"].map(b=>`<option ${b===S.band?"selected":""}>${b}</option>`).join("")}</select></label>`;
+  const chk=a=>{const st=algStyle(a);
+    return `<label class="algchk"><input type="checkbox" ${S.off[a]?"":"checked"} ${a===CDPS?"disabled":""} onchange="toggleAlg('${a.replace(/'/g,"\\'")}')"><i style="width:12px;height:0;border-top:2px ${st.dash?"dashed":"solid"} ${st.c};display:inline-block;"></i>${algLabel(a)}</label>`;};
+  const boxes=[CDPS,ORACLE,...(S.cmp?BASES:[])].map(chk).join("");
+  const baseSel=(S.cmp&&BASES.length>1)?`<label>Δ vs <select onchange="setBase(this.value)">${BASES.map(b=>`<option ${b===S.base?"selected":""}>${b}</option>`).join("")}</select></label>`:"";
+  const note=(S.cmp&&!BASES.length)?`<span style="color:#7d828b;">no baseline rows found (run the backfill)</span>`:"";
+  $("ctrlbar").innerHTML=modes+band+boxes+baseSel+note;
 }
 function render(){
   $("modelabel").textContent=S.et==="sim"?"mask × noise grid per domain":"single config per domain";
   $("metricnav").innerHTML=METRICS.map(m=>`<button class="${m.key===S.metric?'on':''}" onclick="setMetric('${m.key}')">${m.label}</button>`).join("");
   document.querySelectorAll(".et[data-et]").forEach(b=>b.classList.toggle("on",b.dataset.et===S.et));
-  $("view").innerHTML=S.et==="sim"?simHeat()+guideRow()+simCharts():imgView();
+  ctrlBar();
+  $("view").innerHTML=S.et==="sim"
+    ? heatRow()+guideRow()+(S.cmp?simCurvesCard():simCharts())
+    : imgView();
 }
 function setMetric(k){S.metric=k;render();}
 function setStat(s){S.stat=s;render();}
+function setCmp(v){S.cmp=v;render();}
+function setBand(b){S.band=b;render();}
+function setBase(b){S.base=b;render();}
+function toggleAlg(a){S.off[a]=!S.off[a];render();}
+function setLTab(t){S.ltab=t;render();}
 function renderCharts(){
   const g=$("chgrid");
   if(!g){render();return;}

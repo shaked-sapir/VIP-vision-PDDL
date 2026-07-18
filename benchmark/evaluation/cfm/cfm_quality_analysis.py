@@ -341,6 +341,28 @@ def compute_padded_trend(
     Returns:
         (solution_ids, means, stds, n_instances) where solution_ids is 0..max_id.
     """
+    solution_ids, padded, n_instances = _padded_matrix(instance_dirs, metric_key, source)
+    if n_instances == 0:
+        return np.array([]), np.array([]), np.array([]), 0
+
+    means = np.nanmean(padded, axis=0)
+    stds = np.nanstd(padded, axis=0)
+
+    return solution_ids, means, stds, n_instances
+
+
+def _padded_matrix(
+    instance_dirs: List[Path],
+    metric_key: str,
+    source: str = "all_solutions_metrics",
+) -> Tuple[np.ndarray, np.ndarray, int]:
+    """Load per-instance metric series and forward-fill them into one matrix.
+
+    Returns:
+        (solution_ids, padded, n_instances) where ``padded`` has shape
+        ``(n_instances, len(solution_ids))``. Entries before an instance's first
+        recorded solution remain NaN.
+    """
     all_series: List[List[float]] = []
 
     for d in instance_dirs:
@@ -359,7 +381,7 @@ def compute_padded_trend(
             all_series.append(series)
 
     if not all_series:
-        return np.array([]), np.array([]), np.array([]), 0
+        return np.array([]), np.empty((0, 0)), 0
 
     # Determine this experiment's own max solution_index
     max_id = max(idx for series in all_series for idx, _ in series)
@@ -382,10 +404,84 @@ def compute_padded_trend(
     padded = padded[:, valid_mask]
     solution_ids = np.arange(max_id + 1)[valid_mask]
 
-    means = np.nanmean(padded, axis=0)
-    stds = np.nanstd(padded, axis=0)
+    return solution_ids, padded, len(all_series)
 
-    return solution_ids, means, stds, len(all_series)
+
+# ── Pluggable error bands ──────────────────────────────────────────────────
+
+ERROR_BANDS = ("std", "ci95", "minmax")
+
+# Two-sided 95% critical values of Student's t distribution, by degrees of
+# freedom (df = n - 1). Beyond the table we fall back to the normal z value.
+_T_CRIT_95 = {
+    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571,
+    6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
+    11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131,
+    16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086,
+    21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064, 25: 2.060,
+    26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042,
+    40: 2.021, 60: 2.000, 120: 1.980,
+}
+
+
+def _t_critical_95(df: int) -> float:
+    """Two-sided 95% t critical value for ``df`` degrees of freedom."""
+    if df <= 0:
+        return 0.0
+    if df in _T_CRIT_95:
+        return _T_CRIT_95[df]
+    for bound in (30, 40, 60, 120):
+        if df <= bound:
+            return _T_CRIT_95[bound]
+    return 1.96
+
+
+def compute_padded_trend_band(
+    instance_dirs: List[Path],
+    metric_key: str,
+    source: str = "all_solutions_metrics",
+    band: str = "std",
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
+    """Like :func:`compute_padded_trend`, but with a pluggable error band.
+
+    Args:
+        band: Which band to compute around the per-index mean:
+            ``std``    — mean ± population std (the historical behavior).
+            ``ci95``   — t-based 95% confidence interval on the mean
+                         (mean ± t_{0.975, n-1} * s / sqrt(n), sample std,
+                         per-index n = instances with a value at that index).
+            ``minmax`` — min/max envelope across instances.
+
+    Returns:
+        (solution_ids, center, lower, upper, n_instances) where ``center`` is
+        the per-index mean and ``lower``/``upper`` are the band edges.
+    """
+    if band not in ERROR_BANDS:
+        raise ValueError(f"Unknown error band '{band}'. Available: {', '.join(ERROR_BANDS)}")
+
+    solution_ids, padded, n_instances = _padded_matrix(instance_dirs, metric_key, source)
+    if n_instances == 0:
+        empty = np.array([])
+        return empty, empty, empty, empty, 0
+
+    center = np.nanmean(padded, axis=0)
+
+    if band == "std":
+        stds = np.nanstd(padded, axis=0)
+        return solution_ids, center, center - stds, center + stds, n_instances
+
+    if band == "minmax":
+        return solution_ids, center, np.nanmin(padded, axis=0), np.nanmax(padded, axis=0), n_instances
+
+    # ci95 — per-index n varies (instances contribute only from their first CFM on)
+    n_col = np.sum(~np.isnan(padded), axis=0)
+    half = np.zeros_like(center)
+    for j in range(padded.shape[1]):
+        n = int(n_col[j])
+        if n > 1:
+            s = np.nanstd(padded[:, j], ddof=1)
+            half[j] = _t_critical_95(n - 1) * s / np.sqrt(n)
+    return solution_ids, center, center - half, center + half, n_instances
 
 
 def _draw_trend_on_ax(
