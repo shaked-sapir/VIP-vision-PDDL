@@ -1,0 +1,328 @@
+"""ROSAME-I runner (ICAPS-24): joint CV state predictor + ROSAME action model.
+
+Unlike plain ROSAME (which encodes VLM-inferred symbolic states), ROSAME-I trains
+a randomly-initialised ResNet-18 CV head *from the raw state images* jointly with
+the ROSAME action schemas, using only the observed action sequence and the GT
+final state as supervision. This is a faithful single-trace port of the reference
+``train.py::run`` (branch ``main`` of the user's ROSAME clone); see
+``docs/rosame-i-implementation-plan.md`` for the design and the decisions behind
+the raw-logit CV head, device handling, and the two training schedules.
+
+Subclasses :class:`PORosame_Runner` to inherit the build-once / re-ground-after
+``add_problem`` fix (see plan §8.5). Its ``prepare_rosame_data`` (0.5-masking
+encoder) is unused here and harmless.
+"""
+
+from __future__ import annotations
+
+import random
+from pathlib import Path
+from typing import Callable, List, Optional, Sequence, Tuple
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision
+from PIL import Image
+from torchvision import transforms
+
+from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
+
+
+# Paper synth/resnet preprocessing: resize to 64x64, to float tensor in [0, 1].
+_IMAGE_TF = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
+
+
+def _resolve_device(device: Optional[str | torch.device]) -> torch.device:
+    """Autodetect cuda > mps > cpu, or honour an explicit override."""
+    if device is not None:
+        return torch.device(device)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def _set_seed(seed: int) -> None:
+    """Seed python/numpy/torch RNGs for a reproducible per-seed model."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def _build_cv_model(n_props: int) -> nn.Module:
+    """Random-init ResNet-18 + MLP head → raw proposition logits (paper synth path)."""
+    model = torchvision.models.resnet18(weights=None)
+    model.fc = nn.Sequential(
+        nn.Linear(512, 512), nn.ReLU(),
+        nn.Linear(512, 256), nn.ReLU(),
+        nn.Linear(256, n_props),
+    )
+    return model
+
+
+class _PreparedTrace:
+    """Per-trajectory training tensors, all pinned to the model device."""
+
+    def __init__(
+        self,
+        images: torch.Tensor,          # (T+1, 3, 64, 64)
+        action_indices: List[int],     # length T, ROSAME action indices
+        final_state_vec: torch.Tensor, # (n_props,) GT final state, {0,1}
+        name: str,
+    ) -> None:
+        self.images = images
+        self.action_indices = action_indices
+        self.final_state_vec = final_state_vec
+        self.name = name
+
+
+class RosameI_Runner(PORosame_Runner):
+    """Joint CV + ROSAME learner with per-trajectory and pooled training loops."""
+
+    def __init__(
+        self,
+        domain_file,
+        device: Optional[str | torch.device] = None,
+        seed: int = 8800,
+        lr_schema: float = 1e-3,
+        lr_cv: float = 1e-3,
+    ) -> None:
+        super().__init__(domain_file)
+        self.device = _resolve_device(device)
+        self.seed = seed
+        self.lr_schema = lr_schema
+        self.lr_cv = lr_cv
+        self.cv_model: Optional[nn.Module] = None
+        self.optimizer: Optional[torch.optim.Optimizer] = None
+        self._proposition_signature: Optional[Tuple[str, ...]] = None
+
+    # ------------------------------------------------------------------ grounding
+
+    def ground_problem(self, problem) -> None:
+        """Ground the domain on ``problem`` and (lazily) build the CV head.
+
+        Uses the inherited build-once / re-ground-after ``add_problem`` so schema
+        and CV parameters persist across trajectories.
+        """
+        self.add_problem(problem)
+        self._ensure_cv_model()
+
+    def _ensure_cv_model(self) -> None:
+        """Create the CV head on the first grounding; assert stable grounding after."""
+        props = tuple(self.rosame.propositions.keys())
+        if self.cv_model is None:
+            self._proposition_signature = props
+            self.cv_model = _build_cv_model(len(props)).to(self.device)
+            self.cv_model.train()
+            self._build_optimizer()
+        elif props != self._proposition_signature:
+            raise ValueError(
+                "ROSAME-I requires a shared object universe across trajectories; "
+                f"got differing groundings ({len(props)} vs "
+                f"{len(self._proposition_signature)} propositions). The CV head is "
+                "a fixed-size proposition vector fixed at the first grounding."
+            )
+
+    def _build_optimizer(self) -> None:
+        """Adam over schema MLP params (CPU) + CV params (device); mixed-device ok."""
+        param_groups = [
+            {"params": schema.parameters(), "lr": self.lr_schema}
+            for schema in self.rosame.action_schemas
+        ]
+        param_groups.append({"params": self.cv_model.parameters(), "lr": self.lr_cv})
+        self.optimizer = torch.optim.Adam(param_groups)
+
+    # ------------------------------------------------------------------ data prep
+
+    def _load_image(self, path: Path) -> torch.Tensor:
+        """PNG → (3, 64, 64) float tensor (PIL; torchvision.io is broken in venv11)."""
+        with Image.open(path) as img:
+            return _IMAGE_TF(img.convert("RGB"))
+
+    def _encode_state(self, positive_predicate_strings: Sequence[str]) -> torch.Tensor:
+        """Binary vector over ``rosame.propositions`` (matched positives → 1, CWA → 0)."""
+        matched = set()
+        for pred_str in positive_predicate_strings:
+            prop = self.check_predicate(pred_str)
+            if prop is not None:
+                matched.add(prop)
+        vec = [1.0 if p in matched else 0.0 for p in self.rosame.propositions]
+        return torch.tensor(vec, dtype=torch.float32)
+
+    def _prepare_trace(
+        self,
+        image_paths: Sequence[Path],
+        action_strings: Sequence[str],
+        final_state_predicates: Sequence[str],
+        name: str,
+    ) -> Optional[_PreparedTrace]:
+        """Build a :class:`_PreparedTrace`, or ``None`` (skip) on any misalignment."""
+        action_indices: List[int] = []
+        for action_str in action_strings:
+            idx = self.check_action(action_str)
+            if idx is None:
+                print(
+                    f"  [ROSAME-I] skipping trajectory {name}: action "
+                    f"'{action_str}' does not map to the shared grounding"
+                )
+                return None
+            action_indices.append(idx)
+
+        num_actions = len(action_indices)
+        if len(image_paths) != num_actions + 1:
+            print(
+                f"  [ROSAME-I] skipping trajectory {name}: {len(image_paths)} images "
+                f"!= T+1={num_actions + 1}"
+            )
+            return None
+
+        images = torch.stack([self._load_image(p) for p in image_paths]).to(self.device)
+        final_vec = self._encode_state(final_state_predicates).to(self.device)
+        return _PreparedTrace(images, action_indices, final_vec, name)
+
+    # ------------------------------------------------------------------ loss
+
+    def _trajectory_loss(
+        self, trace: _PreparedTrace, gamma: float, lambda_: float, augment: bool
+    ) -> torch.Tensor:
+        """Single-trace ROSAME-I loss (faithful port of ``train.py::run``).
+
+        Consistency (t=1..T-1) + gamma-anchored GT final state + applicability
+        + lambda-weighted precondition prior. RAW logits, ``reduction='sum'``.
+        """
+        images = trace.images
+        if augment:  # per-image horizontal flip (blocksworld symmetry), prob 0.5
+            flip_mask = torch.rand(images.shape[0], device=images.device) < 0.5
+            if bool(flip_mask.any()):
+                images = images.clone()
+                images[flip_mask] = torch.flip(images[flip_mask], dims=[-1])
+
+        preds = self.cv_model(images)                      # (T+1, n_props) raw logits
+        pre, add, dele = self.rosame.build(trace.action_indices)  # CPU tensors
+        pre = pre.to(self.device)
+        add = add.to(self.device)
+        dele = dele.to(self.device)
+
+        # Predicted next state from each pre-state under the (soft) action model.
+        domain_preds = preds[:-1] * (1 - dele) + (1 - preds[:-1]) * add  # (T, n_props)
+
+        if domain_preds.shape[0] > 1:  # consistency: domain_preds[0..T-2] vs preds[1..T-1]
+            loss = F.mse_loss(domain_preds[:-1], preds[1:-1], reduction="sum")
+        else:
+            loss = torch.zeros((), device=self.device)
+
+        # gamma-anchor the LAST predicted state to the GT final state (decision #2).
+        loss = loss + gamma * F.mse_loss(
+            domain_preds[-1], trace.final_state_vec, reduction="sum"
+        )
+        # Applicability: a false pre-state fluent must not be a precondition.
+        loss = loss + F.mse_loss(
+            (1 - preds[:-1]) * pre, torch.zeros_like(pre), reduction="sum"
+        )
+        # Precondition prior (pushes preconditions toward 1).
+        loss = loss + lambda_ * F.mse_loss(pre, torch.ones_like(pre), reduction="sum")
+        return loss
+
+    def _total_loss(
+        self, traces: Sequence[_PreparedTrace], gamma: float, lambda_: float
+    ) -> float:
+        """Sum of per-trace losses (no grad, no augment) — the seed-selection metric."""
+        self.cv_model.eval()
+        total = 0.0
+        with torch.no_grad():
+            for trace in traces:
+                total += self._trajectory_loss(trace, gamma, lambda_, augment=False).item()
+        self.cv_model.train()
+        return total
+
+    # ------------------------------------------------------------------ loops
+
+    def learn_per_trajectory(
+        self,
+        traces: Sequence[_PreparedTrace],
+        epochs: int,
+        gamma: float,
+        lambda_: float,
+        augment: bool,
+        timeout_check: Optional[Callable[[], bool]] = None,
+    ) -> float:
+        """Continual schedule: fully train each trace's frames before the next."""
+        for trace in traces:
+            for _ in range(epochs):
+                self.optimizer.zero_grad()
+                loss = self._trajectory_loss(trace, gamma, lambda_, augment)
+                loss.backward()
+                self.optimizer.step()
+            if timeout_check is not None and timeout_check():
+                break
+        return self._total_loss(traces, gamma, lambda_)
+
+    def learn_pooled(
+        self,
+        traces: Sequence[_PreparedTrace],
+        epochs: int,
+        gamma: float,
+        lambda_: float,
+        augment: bool,
+        timeout_check: Optional[Callable[[], bool]] = None,
+    ) -> float:
+        """Interleaved schedule (paper-faithful): each epoch steps over all traces."""
+        order = list(range(len(traces)))
+        for _ in range(epochs):
+            random.shuffle(order)
+            for i in order:
+                self.optimizer.zero_grad()
+                loss = self._trajectory_loss(traces[i], gamma, lambda_, augment)
+                loss.backward()
+                self.optimizer.step()
+            if timeout_check is not None and timeout_check():
+                break
+        return self._total_loss(traces, gamma, lambda_)
+
+    # ------------------------------------------------------------------ orchestration
+
+    def learn_full(
+        self,
+        prepared_problems: Sequence[Tuple[object, Sequence[Path], Sequence[str], Sequence[str]]],
+        train_per_trajectory: bool,
+        epochs: int,
+        gamma: float,
+        lambda_: float,
+        augment: bool,
+        timeout_check: Optional[Callable[[], bool]] = None,
+    ) -> Optional[float]:
+        """Ground, prepare all traces, and run the selected training schedule.
+
+        ``prepared_problems`` items are
+        ``(problem, image_paths, action_strings, final_state_predicates)``.
+        Returns the final total training loss, or ``None`` if no trace is usable.
+        """
+        _set_seed(self.seed)
+
+        traces: List[_PreparedTrace] = []
+        for idx, (problem, image_paths, action_strings, final_preds) in enumerate(
+            prepared_problems
+        ):
+            self.ground_problem(problem)
+            name = getattr(problem, "name", None) or f"problem{idx}"
+            trace = self._prepare_trace(image_paths, action_strings, final_preds, name)
+            if trace is not None:
+                traces.append(trace)
+
+        if not traces:
+            return None
+
+        if train_per_trajectory:
+            return self.learn_per_trajectory(
+                traces, epochs, gamma, lambda_, augment, timeout_check
+            )
+        return self.learn_pooled(traces, epochs, gamma, lambda_, augment, timeout_check)
+
+    def to_pddl(self) -> str:
+        """Threshold the learned schemas into a PDDL domain string."""
+        return self.rosame_to_pddl()

@@ -12,8 +12,9 @@ the existing ones — no data regeneration, no re-running of CDPS.
 Behavior per cell:
   - Reads identity from the directory name and ``fold_info.json``.
   - Rebuilds ``prepared_trajectories`` from ``original_observations/``
-    (trajectory + optional ``.masking_info``) and the problem PDDLs in
-    ``--data-dir``.
+    (trajectory + optional ``.masking_info``) and the problem PDDLs in the
+    experiment's ``data_dir`` (read from its ``run_params.json``, or overridden
+    by ``--data-dir``).
   - Runs each requested baseline, saves its model to
     ``baseline_models/<name>/model.pddl``, evaluates it against the cell's
     saved test problems and predictive-power test states.
@@ -24,18 +25,19 @@ Behavior per cell:
     file containing only the baseline rows.
 
 Usage:
+    # data_dir is read automatically from the experiment's run_params.json:
     python -m benchmark.backfill_baseline \
-        --experiment-dir benchmark/running_results/hanoi/simulation-checkup-after-gtfixed__mask=0.1__noise=0.1 \
-        --data-dir benchmark/data/hanoi/hanoi_generated_problem1__final-version_fixed \
-        --baselines rosame
+        --experiment-dir benchmark/running_results/hanoi/TO=600__hanoi_generated_problem1__final-version \
+        --baselines rosame_i
 
-    # Whole grid at once (shell glob):
+    # Whole grid at once (shell glob) — each experiment uses its own data_dir:
     python -m benchmark.backfill_baseline \
-        --experiment-dir benchmark/running_results/hanoi/simulation-checkup-after-gtfixed__mask=* \
-        --data-dir benchmark/data/hanoi/hanoi_generated_problem1__final-version_fixed \
-        --baselines rosame
+        --experiment-dir benchmark/running_results/hanoi/TO=600__* \
+        --baselines rosame_i
 
 Options:
+    --data-dir  Override the per-experiment data_dir (only needed for old
+                experiments without a run_params.json).
     --dry-run   List what would run without learning/writing anything.
     --force     Re-run and replace rows even if the algorithm already has one.
     --cells     Restrict to cell dirs whose name contains this substring.
@@ -291,6 +293,7 @@ def _backfill_cell_worker(
     planning_timeout: int,
     learn_timeout: int,
     force: bool,
+    train_per_trajectory: bool = True,
 ) -> Tuple[str, str]:
     """Process-pool entry point: resolve runners locally (no pickling of torch
     objects across processes) and backfill one cell.
@@ -305,7 +308,9 @@ def _backfill_cell_worker(
             torch.set_num_threads(1)
         except ImportError:
             pass
-        baselines = resolve_baselines(baseline_keys)
+        baselines = resolve_baselines(
+            baseline_keys, train_per_trajectory=train_per_trajectory
+        )
         status = backfill_cell(
             Path(cell_str), Path(data_dir_str), bench_name, baselines,
             planning_timeout=planning_timeout, learn_timeout=learn_timeout,
@@ -316,15 +321,77 @@ def _backfill_cell_worker(
         return cell_str, f"error: {e}"
 
 
+def _read_data_dir_from_run_params(exp_dir: Path) -> Optional[Path]:
+    """Return the ``data_dir`` recorded in an experiment's run_params.json.
+
+    The experiment runner writes ``evaluation_results/run_params.json`` with the
+    exact ``data_dir`` the experiment used. Reading it here keeps backfill pinned
+    to the same data the cells were frozen against, instead of relying on the
+    operator to re-supply the right (and easily-confused, e.g. ``*_fixed``)
+    directory.
+
+    Args:
+        exp_dir: The experiment directory (``running_results/<domain>/<name>``).
+
+    Returns:
+        The resolved ``data_dir`` path, or ``None`` if run_params.json is missing,
+        unreadable, or has no ``data_dir`` field.
+    """
+    run_params = exp_dir / "evaluation_results" / "run_params.json"
+    if not run_params.is_file():
+        return None
+    try:
+        params = json.loads(run_params.read_text())
+    except (json.JSONDecodeError, OSError) as err:
+        print(f"[WARN] could not read {run_params}: {err}")
+        return None
+    data_dir = params.get("data_dir")
+    if not data_dir:
+        return None
+    return Path(data_dir).resolve()
+
+
+def _resolve_data_dir(
+    exp_dir: Path, override: Optional[Path]
+) -> Tuple[Optional[Path], str]:
+    """Resolve the data_dir for one experiment from an authoritative source.
+
+    Resolution order (so the operator can just point backfill at the
+    dashboard_config experiment dirs and get the right data with no confusion):
+      1. ``--data-dir`` override, if given.
+      2. run_params.json's ``data_dir`` — the exact folder the experiment used.
+
+    No name-based guessing: experiment folders and data folders don't share a
+    naming convention (data dirs like ``multi_problem_<timestamp>`` can't be
+    derived from the experiment name), and sibling data folders can differ, so a
+    guess could silently resolve to the wrong-but-existing dir. If run_params.json
+    is stale/missing, the caller skips loudly and the operator passes ``--data-dir``.
+
+    Returns:
+        ``(data_dir, source_label)``; ``data_dir`` is ``None`` if unresolved.
+    """
+    if override is not None:
+        return override, "override"
+
+    recorded = _read_data_dir_from_run_params(exp_dir)
+    if recorded is not None:
+        return recorded, "run_params.json"
+
+    return None, "unresolved"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Backfill baseline results into existing experiment cells.")
     ap.add_argument("--experiment-dir", type=Path, nargs="+", required=True,
                     help="Experiment director(y/ies) containing testing/ "
                          "(shell globs expand to multiple dirs).")
-    ap.add_argument("--data-dir", type=Path, required=True,
-                    help="The data_dir the experiment was run with "
-                         "(problem PDDLs are resolved against it).")
+    ap.add_argument("--data-dir", type=Path, default=None,
+                    help="Override the data_dir problem PDDLs/images are "
+                         "resolved against. By default each experiment's "
+                         "data_dir is read from its evaluation_results/"
+                         "run_params.json; pass this only to override that "
+                         "(e.g. for old experiments without run_params.json).")
     ap.add_argument("--baselines", nargs="+", default=["rosame"],
                     help="Baseline registry keys to backfill (default: rosame).")
     ap.add_argument("--domain", default=None,
@@ -337,6 +404,11 @@ def main() -> None:
                     help="Only process cell dirs whose name contains this substring.")
     ap.add_argument("--force", action="store_true",
                     help="Re-run baselines even when their row already exists.")
+    ap.add_argument("--train-per-trajectory", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="ROSAME-I training schedule: per-trajectory (default) "
+                         "vs pooled (--no-train-per-trajectory). Ignored by "
+                         "baselines that don't accept it.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--workers", type=int, default=1,
                     help="Number of cells to backfill in parallel (one process "
@@ -345,19 +417,31 @@ def main() -> None:
                          "always sequential.")
     args = ap.parse_args()
 
-    data_dir = args.data_dir.resolve()
-    if not data_dir.is_dir():
-        raise SystemExit(f"--data-dir does not exist: {data_dir}")
+    override_data_dir = args.data_dir.resolve() if args.data_dir else None
+    if override_data_dir and not override_data_dir.is_dir():
+        raise SystemExit(f"--data-dir does not exist: {override_data_dir}")
     if args.workers < 1:
         raise SystemExit("--workers must be >= 1")
 
-    # Gather (bench_name, cell) work items across all experiment dirs.
-    tasks: List[Tuple[str, Path]] = []
+    # Gather (bench_name, cell, data_dir) work items across all experiment dirs.
+    # Each experiment's data_dir is read from its own run_params.json so the
+    # operator can't accidentally point at a regenerated/sibling dir (e.g.
+    # *_fixed); --data-dir, when given, overrides this for every experiment.
+    tasks: List[Tuple[str, Path, Path]] = []
     for exp_dir in args.experiment_dir:
         exp_dir = exp_dir.resolve()
         testing = exp_dir / "testing"
         if not testing.is_dir():
             print(f"[SKIP] {exp_dir}: no testing/ directory")
+            continue
+
+        data_dir, src = _resolve_data_dir(exp_dir, override_data_dir)
+        if data_dir is None:
+            print(f"[SKIP] {exp_dir}: no data_dir in run_params.json; "
+                  f"pass --data-dir explicitly")
+            continue
+        if not data_dir.is_dir():
+            print(f"[SKIP] {exp_dir}: resolved data_dir does not exist: {data_dir}")
             continue
 
         # running_results/<domain>/<experiment_name> → domain
@@ -367,8 +451,9 @@ def main() -> None:
         if args.cells:
             cells = [c for c in cells if args.cells in c.name]
 
-        print(f"[{bench_name}] {exp_dir.name}: {len(cells)} cells")
-        tasks.extend((bench_name, cell) for cell in cells)
+        print(f"[{bench_name}] {exp_dir.name}: {len(cells)} cells "
+              f"(data_dir from {src}: {data_dir})")
+        tasks.extend((bench_name, cell, data_dir) for cell in cells)
 
     if not tasks:
         print("Nothing to do.")
@@ -378,8 +463,10 @@ def main() -> None:
 
     if workers == 1:
         # Sequential — identical to the original behavior.
-        baselines = resolve_baselines(args.baselines)
-        for bench_name, cell in tasks:
+        baselines = resolve_baselines(
+            args.baselines, train_per_trajectory=args.train_per_trajectory
+        )
+        for bench_name, cell, data_dir in tasks:
             backfill_cell(
                 cell, data_dir, bench_name, baselines,
                 planning_timeout=args.planning_timeout,
@@ -398,8 +485,9 @@ def main() -> None:
                 _backfill_cell_worker,
                 str(cell), str(data_dir), bench_name, args.baselines,
                 args.planning_timeout, args.learn_timeout, args.force,
+                args.train_per_trajectory,
             ): cell
-            for bench_name, cell in tasks
+            for bench_name, cell, data_dir in tasks
         }
         for i, future in enumerate(as_completed(futures), start=1):
             try:

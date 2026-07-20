@@ -66,7 +66,17 @@ def _setup_rosame_workspace(
 
 
 class RosameBaselineRunner(BaselineRunner):
-    """ROSAME baseline — always ternary (0.5 for masked, degenerates to binary)."""
+    """ROSAME baseline — always ternary (0.5 for masked, degenerates to binary).
+
+    Two training schedules are selectable via ``train_per_trajectory`` (default
+    ``True`` = the historical continual loop):
+      - per-trajectory: fully train each trace before the next (ordering bias);
+      - pooled: one persistent optimizer, all traces interleaved per epoch.
+    Pooled needs no shared object universe (plain ROSAME has no CV head).
+    """
+
+    def __init__(self, train_per_trajectory: bool = True) -> None:
+        self.train_per_trajectory = train_per_trajectory
 
     @property
     def name(self) -> str:
@@ -80,6 +90,35 @@ class RosameBaselineRunner(BaselineRunner):
     def color(self) -> str:
         return "#e8710a"
 
+    def _build_prepared(
+        self, traj_paths: List[str], partial_domain
+    ) -> List[Tuple[object, object]]:
+        """Parse each workspace trajectory into a ``(problem, masked_obs)`` pair.
+
+        Applies ternary masking (0.5) when a ``.masking_info`` file is present;
+        otherwise the observation is fully observed and ROSAME degenerates to
+        binary.
+        """
+        prepared: List[Tuple[object, object]] = []
+        for traj_path_str in traj_paths:
+            traj_path = Path(traj_path_str)
+            problem_name = traj_path.stem
+            problem_path = traj_path.parent / f"{problem_name}.pddl"
+            masking_info_path = traj_path.parent / f"{problem_name}.masking_info"
+
+            problem = ProblemParser(problem_path, partial_domain).parse_problem()
+            observation = TrajectoryParser(partial_domain, problem).parse_trajectory(traj_path)
+            grounded = ground_observation_completely(partial_domain, observation)
+
+            if masking_info_path.exists():
+                masking_info = load_masking_info(masking_info_path, partial_domain)
+                learn_obs = mask_observation(grounded, masking_info)
+            else:
+                learn_obs = grounded
+
+            prepared.append((problem, learn_obs))
+        return prepared
+
     def learn(
         self,
         domain_path: Path,
@@ -92,38 +131,19 @@ class RosameBaselineRunner(BaselineRunner):
             print("  [ROSAME] No valid trajectories, skipping")
             return None, {}
 
+        extra_info = {"train_per_trajectory": self.train_per_trajectory}
         try:
             partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
             rosame = PORosame_Runner(str(domain_path))
 
-            for traj_path_str in traj_paths:
-                traj_path = Path(traj_path_str)
-                problem_name = traj_path.stem
-                problem_path = traj_path.parent / f"{problem_name}.pddl"
-                masking_info_path = traj_path.parent / f"{problem_name}.masking_info"
-
-                problem = ProblemParser(problem_path, partial_domain).parse_problem()
-                rosame.add_problem(problem)
-
-                observation = TrajectoryParser(partial_domain, problem).parse_trajectory(traj_path)
-                grounded = ground_observation_completely(partial_domain, observation)
-
-                # Apply masking (0.5) when a masking file is present; otherwise the
-                # observation is fully observed and ROSAME degenerates to binary.
-                if masking_info_path.exists():
-                    masking_info = load_masking_info(masking_info_path, partial_domain)
-                    learn_obs = mask_observation(grounded, masking_info)
-                else:
-                    learn_obs = grounded
-
-                rosame.ground_new_trajectory()
-                rosame.learn_rosame(learn_obs)
-
-            model = rosame.rosame_to_pddl()
+            prepared = self._build_prepared(traj_paths, partial_domain)
+            model = rosame.learn_full(
+                prepared, train_per_trajectory=self.train_per_trajectory
+            )
             if model and ":action" in model:
-                return model, {}
+                return model, extra_info
             raise ValueError("Invalid ROSAME model")
 
         except Exception as e:
             print(f"  Warning: ROSAME learning failed: {e}")
-            return None, {}
+            return None, extra_info

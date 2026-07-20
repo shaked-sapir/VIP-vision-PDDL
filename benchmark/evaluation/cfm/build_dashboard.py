@@ -493,6 +493,11 @@ def build(config_path: Path, regen: bool, refresh: bool,
     print("Assembling image data...")
     img = build_image_data(cfg, root, out_dir, metrics, regen, embed)
 
+    # Baseline registry → {algorithm: [modes]}. Unlisted baselines default to
+    # both modes (they still only render where they actually have data).
+    alg_modes = {a["key"]: [str(x).lower() for x in a.get("modes", ["simulation", "image"])]
+                 for a in cfg.get("algorithms", [])}
+
     payload = {
         "domains": cfg["domains"],
         "metrics": [{"key": m["key"], "label": m["label"],
@@ -503,6 +508,7 @@ def build(config_path: Path, regen: bool, refresh: bool,
         "error_band": band,
         "cdps_series": CDPS_SERIES,
         "oracle_series": ORACLE_SERIES,
+        "alg_modes": alg_modes,
     }
     out_html.write_text(_HTML.replace("__DATA__", json.dumps(payload)))
     size_mb = out_html.stat().st_size / 1e6
@@ -613,6 +619,9 @@ _HTML = r"""<!DOCTYPE html>
 const DATA=__DATA__;
 const MASKS=DATA.sim.masks, NOISES=DATA.sim.noises, DOMAINS=DATA.domains, METRICS=DATA.metrics;
 const CDPS=DATA.cdps_series, ORACLE=DATA.oracle_series;
+const ALG_MODES=DATA.alg_modes||{};
+function etMode(){return S.et==="sim"?"simulation":"image";}
+function algAllowed(a){const m=ALG_MODES[a];return !m||m.indexOf(etMode())>=0;}
 const S={et:"sim",metric:METRICS[0].key,stat:"last",tab:"all",ltab:"all",cmp:false,band:DATA.error_band||"ci95",off:{},base:null};
 const $=id=>document.getElementById(id);
 const meta=k=>METRICS.find(m=>m.key===k)||{};
@@ -628,12 +637,18 @@ function bandStats(v){const n=v.length;if(!n)return null;const mean=v.reduce((s,
  const sd=Math.sqrt(v.reduce((s,x)=>s+(x-mean)*(x-mean),0)/dd);
  const hw=S.band==="ci95"?(n>1?tcrit(n-1)*sd/Math.sqrt(n):0):sd;
  return[mean,mean-hw,mean+hw];}
-function discoverBaselines(){const set=new Set();
- for(const d of DOMAINS)for(const[m,n]of CONFIGS){const c=cellOf(d,m,n);
-  if(c&&c.curves)for(const a of Object.keys(c.curves.algs))if(a!==CDPS&&a!==ORACLE)set.add(a);}
- const dd=DATA.image.domains_data||{};
- for(const d of Object.keys(dd))if(dd[d].curves)for(const a of Object.keys(dd[d].curves.algs))if(a!==CDPS&&a!==ORACLE)set.add(a);
- return[...set].sort();}
+function bases(){
+ // Baselines available in the CURRENT mode only, then filtered by the registry
+ // (hard mode gating). Our CDPS/oracle series are excluded — they're not baselines.
+ const set=new Set();
+ if(S.et==="sim"){
+  for(const d of DOMAINS)for(const[m,n]of CONFIGS){const c=cellOf(d,m,n);
+   if(c&&c.curves)for(const a of Object.keys(c.curves.algs))if(a!==CDPS&&a!==ORACLE)set.add(a);}
+ }else{
+  const dd=DATA.image.domains_data||{};
+  for(const d of Object.keys(dd))if(dd[d].curves)for(const a of Object.keys(dd[d].curves.algs))if(a!==CDPS&&a!==ORACLE)set.add(a);
+ }
+ return[...set].filter(algAllowed).sort();}
 const PAL=["#e8710a","#1baf7a","#d55181","#9085e9","#c98500","#e66767"];
 function algStyle(a){if(a===CDPS)return{c:"#4b8fe2",dash:null};if(a===ORACLE)return{c:"#9dc1f0",dash:"5 4"};
  return{c:PAL[Math.max(0,BASES.indexOf(a))%PAL.length],dash:"2 3"};}
@@ -703,8 +718,7 @@ function dheat(v){const t=Math.max(-0.5,Math.min(0.5,v))/0.5;
 function heat(v){const t=Math.max(0,Math.min(1,v));const lo=[124,52,52],mid=[132,110,52],hi=[46,110,64];const c=t<.5?lo.map((x,i)=>Math.round(x+(mid[i]-x)*t*2)):mid.map((x,i)=>Math.round(x+(hi[i]-x)*(t-.5)*2));return `rgb(${c})`;}
 function amber(t){t=Math.max(0,Math.min(1,t));const lo=[38,41,48],hi=[205,124,38];return `rgb(${lo.map((x,i)=>Math.round(x+(hi[i]-x)*t))})`;}
 function cellOf(d,m,n){return ((DATA.sim.cells[d]||{})[`${m}_${n}`])||null;}
-const BASES=discoverBaselines();
-if(BASES.length)S.base=BASES[0];
+let BASES=[];  // baselines for the current mode; recomputed in render()
 
 function simHeat(){
   const ml=meta(S.metric).label;
@@ -919,6 +933,9 @@ function ctrlBar(){
   $("ctrlbar").innerHTML=modes+band+boxes+baseSel+note;
 }
 function render(){
+  BASES=bases();                                   // mode-gated baselines
+  if(S.base&&BASES.indexOf(S.base)<0)S.base=null;  // drop a baseline not in this mode
+  if(!S.base&&BASES.length)S.base=BASES[0];
   $("modelabel").textContent=S.et==="sim"?"mask × noise grid per domain":"single config per domain";
   $("metricnav").innerHTML=METRICS.map(m=>`<button class="${m.key===S.metric?'on':''}" onclick="setMetric('${m.key}')">${m.label}</button>`).join("");
   document.querySelectorAll(".et[data-et]").forEach(b=>b.classList.toggle("on",b.dataset.et===S.et));

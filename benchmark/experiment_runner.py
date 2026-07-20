@@ -557,6 +557,11 @@ if __name__ == "__main__":
         help=f'Algorithms to run (any subset, standalone allowed). '
              f'Available: {", ".join(available_algorithms())}. Default: cdps rosame.',
     )
+    parser.add_argument(
+        '--train-per-trajectory', action=argparse.BooleanOptionalAction, default=True,
+        help='ROSAME-I training schedule: per-trajectory (default) vs pooled '
+             '(--no-train-per-trajectory). Ignored by baselines that do not accept it.',
+    )
 
     args = parser.parse_args()
 
@@ -589,7 +594,8 @@ if __name__ == "__main__":
     if not args.algorithms:
         parser.error(f"--algorithms requires a value (available: {', '.join(available_algorithms())})")
     try:
-        run_cdps, baseline_runners = resolve_algorithms(args.algorithms)
+        run_cdps, baseline_runners = resolve_algorithms(
+            args.algorithms, train_per_trajectory=args.train_per_trajectory)
     except ValueError as err:
         parser.error(str(err))
     selected = (['CDPS'] if run_cdps else []) + [r.display_name for r in baseline_runners]

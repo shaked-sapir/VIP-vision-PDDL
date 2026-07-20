@@ -44,6 +44,17 @@ results_dashboard:
     - key: fluent_patch_count
       label: "Fluent patch count"
 
+  # Baseline / competitor registry. Declares which experiment modes each series
+  # belongs to, so a mode-only algorithm never shows in the wrong tab. The key
+  # must match the "algorithm" field in fold_result.json. Our own series (CDPS,
+  # its oracle) always appear in both modes and need no entry here. Any baseline
+  # NOT listed defaults to whichever mode it has data in.
+  algorithms:
+    - key: ROSAME       # simulation baseline (degraded PDDL trajectories)
+      modes: [simulation]
+    - key: ROSAME-I     # image baseline (learned straight from visual traces)
+      modes: [image]
+
   # ── Simulation section (mask x noise grid-search per domain) ──
   simulation:
     # Per-domain experiment-name prefix of the grid-search runs. The generator

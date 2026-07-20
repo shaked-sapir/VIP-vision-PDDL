@@ -30,11 +30,16 @@ def available_algorithms() -> List[str]:
     return [CDPS] + sorted(BASELINE_REGISTRY)
 
 
-def resolve_algorithms(names: List[str]) -> Tuple[bool, List[BaselineRunner]]:
+def resolve_algorithms(
+    names: List[str], **runner_kwargs
+) -> Tuple[bool, List[BaselineRunner]]:
     """Split selected algorithm names into ``(run_cdps, baseline_runners)``.
 
     Args:
         names: Algorithm keys, e.g. ``["cdps", "rosame"]``, ``["rosame"]``.
+        **runner_kwargs: Optional per-baseline options forwarded only to the
+            runners whose ``__init__`` accepts them (e.g.
+            ``train_per_trajectory`` for ROSAME-I).
 
     Returns:
         run_cdps: Whether to run our conflict-search learner.
@@ -51,7 +56,9 @@ def resolve_algorithms(names: List[str]) -> Tuple[bool, List[BaselineRunner]]:
 
     run_cdps = CDPS in lowered
     baseline_names = [n for n in lowered if n != CDPS]
-    baseline_runners = resolve_baselines(baseline_names) if baseline_names else []
+    baseline_runners = (
+        resolve_baselines(baseline_names, **runner_kwargs) if baseline_names else []
+    )
 
     if not run_cdps and not baseline_runners:
         raise ValueError(

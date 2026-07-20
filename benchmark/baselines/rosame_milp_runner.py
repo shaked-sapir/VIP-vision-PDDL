@@ -1,0 +1,325 @@
+"""ROSAME+MILP baseline runners (simulation mode).
+
+Two registered variants (see ``benchmark/algorithm_adapters/rosame_milp/``):
+
+- ``rosame_milp_base`` (:class:`RosameMilpBaseRunner`) — one-shot: train ROSAME
+  exactly like the ``rosame`` baseline, then solve a single MILP over the whole
+  fold (actions observed, s0 + GT-final anchored) and decode its binary model
+  to PDDL.
+- ``rosame_milp`` (:class:`RosameMilpRunner`) — the ICAPS-26 iterative loop:
+  ``pre_mip_epochs`` warmup, then a MILP solve every ``mip_interval`` epochs
+  whose 4-way model pseudo-labels supervise further training (undecayed, per
+  upstream code); output = decode of the final MILP solution.
+
+Both fall back to the plain ROSAME model (with ``milp_failed=True`` in the
+report) when no feasible MILP solution is found.
+"""
+
+from __future__ import annotations
+
+import random
+import time
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+from pddl_plus_parser.lisp_parsers import DomainParser
+
+import benchmark.algorithm_adapters.rosame_milp  # noqa: F401  (vendor sys.path bootstrap)
+from benchmark.algorithm_adapters.rosame_milp import encoder as _encoder_module  # noqa: F401  (factory registration)
+from benchmark.algorithm_adapters.rosame_milp.converter import (
+    build_ps_domain,
+    build_ps_instance,
+    find_gt_trajectory,
+    gt_final_state_fluents,
+    observation_to_trace,
+)
+from benchmark.algorithm_adapters.rosame_milp.milp_loop import MilpPORosame
+from benchmark.algorithm_adapters.rosame_milp.model_bridge import (
+    extract_model_labels,
+    model_agreement,
+    rosame_to_observation_m,
+    solution_to_pddl,
+)
+from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
+from benchmark.baselines.rosame_runner import RosameBaselineRunner, _setup_rosame_workspace
+
+from constraint_opt.factory import resolve as resolve_encoder
+from planning_structs.traces import Traces
+
+_OBJECTIVES = {"state", "model"}
+
+
+class RosameMilpBaseRunner(RosameBaselineRunner):
+    """One-shot variant: fully train ROSAME, then a single MILP projection."""
+
+    def __init__(
+        self,
+        train_per_trajectory: bool = True,
+        epochs: int = 100,
+        mip_time_limit: int = 60,
+        enforce_nonempty_schemas: bool = True,
+        forbid_redundant_adds: bool = True,
+        goal_mode: str = "gt",
+        milp_solver: str = "cp-sat-observed",
+    ) -> None:
+        super().__init__(train_per_trajectory=train_per_trajectory)
+        self.epochs = epochs
+        self.mip_time_limit = mip_time_limit
+        self.enforce_nonempty_schemas = enforce_nonempty_schemas
+        self.forbid_redundant_adds = forbid_redundant_adds
+        self.goal_mode = goal_mode
+        self.milp_solver = milp_solver
+
+    @property
+    def name(self) -> str:
+        return "ROSAME_MILP_BASE"
+
+    @property
+    def display_name(self) -> str:
+        return "ROSAME+MILP (one-shot)"
+
+    @property
+    def color(self) -> str:
+        return "#1baf7a"
+
+    # ------------------------------------------------------------ MILP plumbing
+
+    def _goal_fluents_for(self, problem_pddl_path: Optional[Path]):
+        """GT final-state fluents for one problem, or None (-> soft final state)."""
+        if self.goal_mode != "gt" or problem_pddl_path is None:
+            return None
+        gt_path = find_gt_trajectory(problem_pddl_path)
+        if gt_path is None:
+            print(f"  [MILP] Warning: no GT trajectory for "
+                  f"{problem_pddl_path.stem} — final state left soft")
+            return None
+        return gt_final_state_fluents(gt_path)
+
+    def _build_milp_traces(
+        self,
+        partial_domain,
+        prepared: List[Tuple[object, object]],
+        original_problem_paths: Dict[str, Path],
+    ):
+        """(ps_domain, obs_t list) from the trained-side prepared pairs."""
+        ps_domain = build_ps_domain(partial_domain)
+        obs_t = []
+        n_gt_goals = 0
+        for problem, observation in prepared:
+            instance = build_ps_instance(ps_domain, partial_domain, problem)
+            goal = self._goal_fluents_for(original_problem_paths.get(problem.name))
+            trace = observation_to_trace(instance, observation, goal)
+            if trace is None:
+                continue
+            if goal is not None:
+                n_gt_goals += 1
+            obs_t.append(trace)
+        return ps_domain, obs_t, n_gt_goals
+
+    def _solve(self, ps_domain, obs_t, obs_m):
+        """One MILP solve; returns (encoder, ok)."""
+        traces = Traces(instance=None, obs_m=obs_m, obs_t=obs_t)
+        encoder = resolve_encoder(self.milp_solver)(
+            ps_domain,
+            traces,
+            _OBJECTIVES,
+            enforce_nonempty_schemas=self.enforce_nonempty_schemas,
+            forbid_redundant_adds=self.forbid_redundant_adds,
+        )
+        ok = encoder.solve(time_limit=self.mip_time_limit)
+        return encoder, ok
+
+    @staticmethod
+    def _original_problem_paths(prepared_trajectories) -> Dict[str, Path]:
+        """problem name -> original problem PDDL path (for GT trajectory lookup)."""
+        return {
+            problem_pddl_path.stem: problem_pddl_path
+            for _traj, _mask, problem_pddl_path, *_ in prepared_trajectories
+        }
+
+    # ------------------------------------------------------------ learn
+
+    def learn(
+        self,
+        domain_path: Path,
+        prepared_trajectories: List[Tuple[Path, Path, Path]],
+        work_dir: Path,
+        timeout_seconds: int = 60,
+    ) -> Tuple[Optional[str], Dict]:
+        traj_paths = _setup_rosame_workspace(prepared_trajectories, work_dir)
+        if not traj_paths:
+            print(f"  [{self.name}] No valid trajectories, skipping")
+            return None, {}
+
+        extra: Dict = {
+            "train_per_trajectory": self.train_per_trajectory,
+            "goal_mode": self.goal_mode,
+            "milp_solver": self.milp_solver,
+        }
+        try:
+            partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
+            rosame = PORosame_Runner(str(domain_path))
+            prepared = self._build_prepared(traj_paths, partial_domain)
+
+            rosame.learn_full(
+                prepared, train_per_trajectory=self.train_per_trajectory, epochs=self.epochs
+            )
+
+            ps_domain, obs_t, n_gt_goals = self._build_milp_traces(
+                partial_domain, prepared, self._original_problem_paths(prepared_trajectories)
+            )
+            extra["n_traces"] = len(obs_t)
+            extra["n_gt_goals"] = n_gt_goals
+            if not obs_t:
+                raise ValueError("No usable traces for the MILP")
+
+            obs_m = rosame_to_observation_m(rosame, ps_domain)
+            encoder, ok = self._solve(ps_domain, obs_t, obs_m)
+            extra["milp"] = encoder.solve_stats
+
+            if ok:
+                model = solution_to_pddl(rosame, ps_domain, encoder.action_model_sol())
+                extra["milp_failed"] = False
+            else:
+                print(f"  [{self.name}] MILP failed — falling back to plain ROSAME model")
+                model = rosame.rosame_to_pddl()
+                extra["milp_failed"] = True
+
+            if model and ":action" in model:
+                return model, extra
+            raise ValueError("Invalid ROSAME+MILP model")
+
+        except Exception as e:
+            print(f"  Warning: {self.name} learning failed: {e}")
+            return None, extra
+
+
+class RosameMilpRunner(RosameMilpBaseRunner):
+    """Iterative variant: the paper's train/solve/pseudo-label loop.
+
+    Runs on the pooled schedule only (the paper trains pooled batches);
+    ``train_per_trajectory`` is fixed to False.
+    """
+
+    def __init__(
+        self,
+        epochs: int = 100,
+        pre_mip_epochs: int = 50,
+        mip_interval: int = 1,
+        mip_traces: Optional[int] = None,
+        agreement_stop: float = 1.0,
+        mip_time_limit: int = 60,
+        enforce_nonempty_schemas: bool = True,
+        forbid_redundant_adds: bool = True,
+        goal_mode: str = "gt",
+        milp_solver: str = "cp-sat-observed",
+    ) -> None:
+        super().__init__(
+            train_per_trajectory=False,
+            epochs=epochs,
+            mip_time_limit=mip_time_limit,
+            enforce_nonempty_schemas=enforce_nonempty_schemas,
+            forbid_redundant_adds=forbid_redundant_adds,
+            goal_mode=goal_mode,
+            milp_solver=milp_solver,
+        )
+        self.pre_mip_epochs = pre_mip_epochs
+        self.mip_interval = mip_interval
+        self.mip_traces = mip_traces
+        self.agreement_stop = agreement_stop
+
+    @property
+    def name(self) -> str:
+        return "ROSAME_MILP"
+
+    @property
+    def display_name(self) -> str:
+        return "ROSAME+MILP"
+
+    @property
+    def color(self) -> str:
+        return "#9085e9"
+
+    def learn(
+        self,
+        domain_path: Path,
+        prepared_trajectories: List[Tuple[Path, Path, Path]],
+        work_dir: Path,
+        timeout_seconds: int = 60,
+    ) -> Tuple[Optional[str], Dict]:
+        traj_paths = _setup_rosame_workspace(prepared_trajectories, work_dir)
+        if not traj_paths:
+            print(f"  [{self.name}] No valid trajectories, skipping")
+            return None, {}
+
+        extra: Dict = {
+            "goal_mode": self.goal_mode,
+            "milp_solver": self.milp_solver,
+            "pre_mip_epochs": self.pre_mip_epochs,
+            "mip_interval": self.mip_interval,
+            "mip_traces": self.mip_traces,
+        }
+        try:
+            partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
+            rosame = MilpPORosame(str(domain_path))
+            prepared = self._build_prepared(traj_paths, partial_domain)
+
+            ps_domain, obs_t, n_gt_goals = self._build_milp_traces(
+                partial_domain, prepared, self._original_problem_paths(prepared_trajectories)
+            )
+            extra["n_traces"] = len(obs_t)
+            extra["n_gt_goals"] = n_gt_goals
+            if not obs_t:
+                raise ValueError("No usable traces for the MILP")
+
+            def milp_round():
+                round_obs_t = obs_t
+                if self.mip_traces is not None and self.mip_traces < len(obs_t):
+                    round_obs_t = random.sample(obs_t, self.mip_traces)
+                obs_m = rosame_to_observation_m(rosame, ps_domain)
+                encoder, ok = self._solve(ps_domain, round_obs_t, obs_m)
+                if not ok:
+                    return {}, 0.0, encoder.solve_stats, None
+                solution = encoder.action_model_sol()
+                labels = extract_model_labels(rosame, ps_domain, solution)
+                agreement = model_agreement(rosame, labels)
+                return labels, agreement, encoder.solve_stats, solution
+
+            start = time.perf_counter()
+            report = rosame.learn_pooled_with_milp(
+                prepared,
+                milp_round,
+                epochs=self.epochs,
+                pre_mip_epochs=self.pre_mip_epochs,
+                mip_interval=self.mip_interval,
+                agreement_stop=self.agreement_stop,
+            )
+            extra["loop_seconds"] = round(time.perf_counter() - start, 2)
+            extra["milp_rounds"] = report["rounds"]
+            extra["stop_reason"] = report["stop_reason"]
+            extra["final_agreement"] = report["final_agreement"]
+
+            solution = report["final_solution"]
+            if solution is None:
+                # last-chance whole-fold solve before giving up on the MILP
+                obs_m = rosame_to_observation_m(rosame, ps_domain)
+                encoder, ok = self._solve(ps_domain, obs_t, obs_m)
+                extra.setdefault("milp_rounds", []).append(
+                    {"epoch": "final_fallback", **encoder.solve_stats})
+                solution = encoder.action_model_sol() if ok else None
+
+            if solution is not None:
+                model = solution_to_pddl(rosame, ps_domain, solution)
+                extra["milp_failed"] = False
+            else:
+                print(f"  [{self.name}] MILP failed — falling back to plain ROSAME model")
+                model = rosame.rosame_to_pddl()
+                extra["milp_failed"] = True
+
+            if model and ":action" in model:
+                return model, extra
+            raise ValueError("Invalid ROSAME+MILP model")
+
+        except Exception as e:
+            print(f"  Warning: {self.name} learning failed: {e}")
+            return None, extra

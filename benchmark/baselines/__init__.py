@@ -10,23 +10,46 @@ Usage::
 
 from __future__ import annotations
 
+import inspect
 from typing import Dict, List, Type
 
 from benchmark.baselines.base_runner import BaselineRunner
 from benchmark.baselines.rosame_runner import RosameBaselineRunner
+from benchmark.baselines.rosame_i_runner import RosameIBaselineRunner
+from benchmark.baselines.rosame_milp_runner import (
+    RosameMilpBaseRunner,
+    RosameMilpRunner,
+)
 
 # Maps a short CLI name to the concrete runner classes it activates.
 BASELINE_REGISTRY: Dict[str, List[Type[BaselineRunner]]] = {
     "rosame": [RosameBaselineRunner],
+    "rosame_i": [RosameIBaselineRunner],
+    "rosame_milp": [RosameMilpRunner],
+    "rosame_milp_base": [RosameMilpBaseRunner],
 }
 
 
-def get_baselines(names: List[str]) -> List[BaselineRunner]:
+def _instantiate(cls: Type[BaselineRunner], **kwargs) -> BaselineRunner:
+    """Instantiate ``cls`` forwarding only the kwargs its ``__init__`` accepts.
+
+    Lets us thread runner-specific options (e.g. ``train_per_trajectory`` for
+    ROSAME-I) without leaking them into runners that don't take them.
+    """
+    params = inspect.signature(cls.__init__).parameters
+    accepted = {k: v for k, v in kwargs.items() if k in params}
+    return cls(**accepted)
+
+
+def get_baselines(names: List[str], **runner_kwargs) -> List[BaselineRunner]:
     """Instantiate baseline runners from CLI-provided names.
 
     Args:
         names: List of short names (keys of ``BASELINE_REGISTRY``).
             An empty list returns an empty list (no baselines).
+        **runner_kwargs: Optional per-runner options forwarded only to the
+            runners whose ``__init__`` accepts them (e.g.
+            ``train_per_trajectory`` for ROSAME-I).
 
     Returns:
         Flat list of instantiated ``BaselineRunner`` objects.
@@ -43,11 +66,11 @@ def get_baselines(names: List[str]) -> List[BaselineRunner]:
                 f"Unknown baseline '{key}'. Available: {available}"
             )
         for cls in BASELINE_REGISTRY[key]:
-            runners.append(cls())
+            runners.append(_instantiate(cls, **runner_kwargs))
     return runners
 
 
-def resolve_baselines(names: List[str]) -> List[BaselineRunner]:
+def resolve_baselines(names: List[str], **runner_kwargs) -> List[BaselineRunner]:
     """Resolve baseline names to runners, treating ``"none"`` as "skip".
 
     A single ``"none"`` (case-insensitive) yields an empty list. ``"none"`` may
@@ -56,6 +79,7 @@ def resolve_baselines(names: List[str]) -> List[BaselineRunner]:
 
     Args:
         names: List of short baseline names, or a single ``["none"]``.
+        **runner_kwargs: Optional per-runner options (see :func:`get_baselines`).
 
     Returns:
         Instantiated ``BaselineRunner`` objects (empty for ``["none"]``).
@@ -69,4 +93,4 @@ def resolve_baselines(names: List[str]) -> List[BaselineRunner]:
         if len(lowered) > 1:
             raise ValueError("Cannot combine 'none' with other baseline names")
         return []
-    return get_baselines(names)
+    return get_baselines(names, **runner_kwargs)
