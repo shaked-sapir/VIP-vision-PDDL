@@ -1,5 +1,5 @@
 (define (domain hanoi)
-    (:requirements :strips)
+    (:requirements :strips :typing)
     (:types peg disc)
     (:predicates
         (clear-peg ?x - peg) ; means that the peg ?x is clear, i.e., nothing is on it
