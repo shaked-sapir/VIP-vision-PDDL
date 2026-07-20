@@ -18,14 +18,16 @@ message and returns ``(None, {})`` so the harness records a null row.
 from __future__ import annotations
 
 import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
-from pddl_plus_parser.models import Domain, State
+from pddl_plus_parser.models import Domain, Problem, State
 
 from benchmark.baselines.base_runner import BaselineRunner
+from benchmark.experiment_running_helpers.normalize import _normalize_hyphens
 
 # Paper per-domain defaults (epochs, lambda_, gamma), keyed by our bench names.
 _HYPERPARAMS: Dict[str, Dict[str, float]] = {
@@ -182,10 +184,10 @@ class RosameIBaselineRunner(BaselineRunner):
             if not image_paths:
                 continue
 
-            problem = ProblemParser(problem_pddl_path, partial_domain).parse_problem()
+            problem = self._parse_problem_normalized(partial_domain, problem_pddl_path)
 
             # Actions only (states here are degraded and must NOT be used).
-            observation = TrajectoryParser(partial_domain, problem).parse_trajectory(traj_path)
+            observation = self._parse_trajectory_normalized(partial_domain, problem, traj_path)
             action_strings = [
                 str(component.grounded_action_call)[1:-1]
                 for component in observation.components
@@ -238,13 +240,47 @@ class RosameIBaselineRunner(BaselineRunner):
         for cand in candidates:
             if not cand.exists():
                 continue
-            observation = TrajectoryParser(partial_domain, problem).parse_trajectory(cand)
+            observation = self._parse_trajectory_normalized(partial_domain, problem, cand)
             if observation.components:
                 return self._state_positive_predicates(observation.components[-1].next_state)
 
         print(f"    [ROSAME-I] warning: no GT trajectory for {problem_name}; "
               f"final-state anchor will be empty (all-false)")
         return []
+
+    # In image mode the reference domain is hyphen-normalized (underscores), but
+    # the problem PDDLs and gt_trajectories on disk keep their original (often
+    # hyphenated) identifiers. Parsing those raw against the normalized domain
+    # raises an ``illegal state component`` error, so every input is normalized to
+    # underscores first — a no-op for domains that never used hyphens.
+
+    @staticmethod
+    def _normalized_tempfile(source: Path, suffix: str) -> Path:
+        """Write a hyphen→underscore-normalized copy of ``source`` to a temp file."""
+        normalized_text = _normalize_hyphens(source.read_text())
+        with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False) as tmp:
+            tmp.write(normalized_text)
+            return Path(tmp.name)
+
+    @classmethod
+    def _parse_problem_normalized(cls, partial_domain: Domain, problem_pddl_path: Path) -> Problem:
+        """Parse a problem PDDL whose identifiers may be hyphenated."""
+        tmp_path = cls._normalized_tempfile(problem_pddl_path, ".pddl")
+        try:
+            return ProblemParser(tmp_path, partial_domain).parse_problem()
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    @classmethod
+    def _parse_trajectory_normalized(
+        cls, partial_domain: Domain, problem: Problem, trajectory_path: Path
+    ):
+        """Parse a trajectory whose identifiers may be hyphenated."""
+        tmp_path = cls._normalized_tempfile(trajectory_path, ".trajectory")
+        try:
+            return TrajectoryParser(partial_domain, problem).parse_trajectory(tmp_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     @staticmethod
     def _state_positive_predicates(state: State) -> List[str]:
