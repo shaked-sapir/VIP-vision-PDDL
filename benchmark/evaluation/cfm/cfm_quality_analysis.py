@@ -43,6 +43,8 @@ METRICS = [
     ("pred_eff_precision", "Predicted effects precision"),
     ("pred_eff_recall", "Predicted effects recall"),
     ("solving_ratio", "Problem solving ratio"),
+    ("false_plans_ratio", "False Plans ratio"),
+    ("unsolvable_ratio", "Unsolvable ratio")
 ]
 
 # Syntactic (non-predictive-power) metrics from all_solutions_metrics.json
@@ -573,7 +575,7 @@ def _draw_trend_on_ax(
 _BOUNDED_METRICS = {
     "pred_app_precision", "pred_app_recall",
     "pred_eff_precision", "pred_eff_recall",
-    "solving_ratio",
+    "solving_ratio", "false_plans_ratio", "unsolvable_ratio",
     *(key for key, _ in SYNTACTIC_PRECISION_METRICS),
     *(key for key, _ in SYNTACTIC_RECALL_METRICS),
 }
@@ -583,7 +585,7 @@ _BOUNDED_METRICS = {
 # comparable. solving_ratio is excluded (it swings far more than the others and
 # would flatten them); fluent_patch_count is unbounded and keeps its own scale
 # so its monotonic-decrease shape stays readable.
-_SHARED_SCALE_METRICS = _BOUNDED_METRICS - {"solving_ratio"}
+_SHARED_SCALE_METRICS = _BOUNDED_METRICS - {"solving_ratio", "false_plans_ratio", "unsolvable_ratio"}
 
 # Tiny headroom above 1.0 so the y=1.0 marker/line sits just below the top spine
 # (border above it) without ever drawing a tick label greater than 1.0.

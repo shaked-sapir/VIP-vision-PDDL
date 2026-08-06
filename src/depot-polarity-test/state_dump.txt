@@ -1,0 +1,90 @@
+source trajectory : benchmark/running_results/depot/sim_run__mask=0.0__noise=0.0/testing/fold0_numtrajs3_gtrate0/original_observations/original_observation_problem3.trajectory
+problem pddl      : benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100/training/trajectories/problem3/problem3.pddl
+domain pddl       : src/domains/depot/depot.pddl
+
+STATE-BY-STATE SUMMARY (after ground_observation_completely)
+state  raw fluents  completed  both-polarity fluents
+    0           15         52  -
+    1           15         52  -
+    2           14         52  -
+    3           14         52  -
+    4           13         52  -
+    5           13         52  -
+    6           13         52  -
+    7           13         52  -
+    8           15         52  -
+    9           15         52  -
+
+======================================================================
+FULL STATE 0 (initial state) AFTER ground_observation_completely
+  '>>>' marks fluents present in BOTH polarities (the corruption)
+======================================================================
+    (at p1 - package d1 - depot)
+    (at p2 - package d2 - depot)
+    (at p3 - package d2 - depot)
+    (not (at p1 - package d2 - depot))
+    (not (at p2 - package d1 - depot))
+    (not (at p3 - package d1 - depot))
+    (at-crane c1 - crane d1 - depot)
+    (at-crane c2 - crane d2 - depot)
+    (not (at-crane c1 - crane d2 - depot))
+    (not (at-crane c2 - crane d1 - depot))
+    (at-pile pile1 - pile d1 - depot)
+    (at-pile pile2 - pile d2 - depot)
+    (not (at-pile pile1 - pile d2 - depot))
+    (not (at-pile pile2 - pile d1 - depot))
+    (at-truck t1 - truck d1 - depot)
+    (not (at-truck t1 - truck d2 - depot))
+    (clear p1 - package)
+    (clear p3 - package)
+    (not (clear c1 - crane))
+    (not (clear c2 - crane))
+    (not (clear d1 - depot))
+    (not (clear d2 - depot))
+    (not (clear p2 - package))
+    (not (clear pile1 - pile))
+    (not (clear pile2 - pile))
+    (not (clear t1 - truck))
+    (empty-crane c1 - crane)
+    (empty-crane c2 - crane)
+    (not (holding c1 - crane p1 - package))
+    (not (holding c1 - crane p2 - package))
+    (not (holding c1 - crane p3 - package))
+    (not (holding c2 - crane p1 - package))
+    (not (holding c2 - crane p2 - package))
+    (not (holding c2 - crane p3 - package))
+    (not (in-truck p1 - package t1 - truck))
+    (not (in-truck p2 - package t1 - truck))
+    (not (in-truck p3 - package t1 - truck))
+    (not (on p1 - package p1 - package))
+    (not (on p1 - package p2 - package))
+    (not (on p1 - package p3 - package))
+    (not (on p2 - package p1 - package))
+    (not (on p2 - package p2 - package))
+    (not (on p2 - package p3 - package))
+    (not (on p3 - package p1 - package))
+    (not (on p3 - package p3 - package))
+    (on p3 - package p2 - package)
+    (not (on-pile p1 - package pile2 - pile))
+    (not (on-pile p2 - package pile1 - pile))
+    (not (on-pile p3 - package pile1 - pile))
+    (not (on-pile p3 - package pile2 - pile))
+    (on-pile p1 - package pile1 - pile)
+    (on-pile p2 - package pile2 - pile)
+
+RAW STATE 0 AS PARSED FROM THE TRAJECTORY FILE (before completion)
+    (at p1 - package d1 - depot)
+    (at p2 - package d2 - depot)
+    (at p3 - package d2 - depot)
+    (at-crane c1 - crane d1 - depot)
+    (at-crane c2 - crane d2 - depot)
+    (at-pile pile1 - pile d1 - depot)
+    (at-pile pile2 - pile d2 - depot)
+    (at-truck t1 - truck d1 - depot)
+    (clear p1 - package)
+    (clear p3 - package)
+    (empty-crane c1 - crane)
+    (empty-crane c2 - crane)
+    (on p3 - package p2 - package)
+    (on-pile p1 - package pile1 - pile)
+    (on-pile p2 - package pile2 - pile)

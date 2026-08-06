@@ -11,6 +11,7 @@ canonicalization is needed anywhere in the encoder.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
@@ -113,6 +114,15 @@ def observation_to_trace(
                 )
                 if prop is not None:
                     entries.append(ObservationP(prop, _state_prob(gp)))
+        seen = Counter(op.proposition for op in entries)
+        duplicated = [str(p) for p, n in seen.items() if n > 1]
+        if duplicated:
+            raise ValueError(
+                f"State {t} maps multiple grounded predicates to the same "
+                f"proposition(s) {duplicated} — the observation is "
+                f"contradictory (e.g. both polarities of one fluent). "
+                f"See src/depot-polarity-test/README.md."
+            )
         obs_p[t] = entries
 
     # init: positive unmasked fluents of state 1 (GT by assumption)

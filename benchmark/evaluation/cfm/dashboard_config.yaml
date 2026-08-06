@@ -41,6 +41,10 @@ results_dashboard:
       label: "Predicted effects recall"
     - key: solving_ratio
       label: "Problem solving ratio"
+    - key: false_plans_ratio
+      label: "False Plans ratio"
+    - key: unsolvable_ratio
+      label: "Unsolvable ratio"
     - key: fluent_patch_count
       label: "Fluent patch count"
 
@@ -55,13 +59,18 @@ results_dashboard:
     - key: ROSAME-I     # image baseline (learned straight from visual traces)
       modes: [image]
 
+  # Baselines present in fold_result.json but omitted from learning-curve plots,
+  # legend, and Δ tables. Keys must match the "algorithm" field exactly.
+  exclude_algorithms:
+    - ROSAME_MILP_BASE
+
   # ── Simulation section (mask x noise grid-search per domain) ──
   simulation:
     # Per-domain experiment-name prefix of the grid-search runs. The generator
     # globs "<results_root>/<domain>/<prefix>*mask=*noise=*" for the 9 cells.
     prefix:
       blocksworld: sim_run
-      depot: sim_run
+      depot: simulation-after-pred-fix 
       gripper: sim_run
       hanoi: simulation-checkup-after-gtfixed
       npuzzle: simulation-checkup-after-gtfixed
@@ -72,7 +81,7 @@ results_dashboard:
     # (each contains testing/ and evaluation_results/).
     experiment_dir:
       blocksworld: benchmark/running_results/blocksworld/TO=600__blocks_predefined_problems1-10_final-version
-      depot: benchmark/running_results/depot/TO=600__depot_data_from_PV
+      depot: benchmark/running_results/depot/TO=600__depot_data_from_PV__groundfix
       gripper: benchmark/running_results/gripper/TO=600__gripper_data_from_PV
       hanoi: benchmark/running_results/hanoi/TO=600__hanoi_generated_problem1__final-version
       npuzzle: benchmark/running_results/npuzzle/TO=600__npuzzle_prob0_6-10steps_generate  

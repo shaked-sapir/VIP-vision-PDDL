@@ -245,9 +245,37 @@ def get_all_possible_groundings(
     grounded_predicates = set()
     for values in itertools.product(*object_domains):
         mapping = dict(zip(param_names, values))
+        # --- PREVIOUS implementation (kept for reference) ------------------
+        # Used the LIFTED declared signature. Broken for predicates whose
+        # parameter is declared with a non-leaf type (e.g. depot's untyped
+        # "(clear ?x)" -> "?x - object"): GroundedPredicate hashes on
+        # str(self), which embeds the signature types, while
+        # TrajectoryParser.parse_grounded_predicate stores fluents with each
+        # object's CONCRETE type — so the generated fluent hashed differently
+        # from the parsed one, set membership in
+        # ground_all_predicates_in_state silently failed, and CWA-completion
+        # added a contradictory negative next to a present positive.
+        # See src/depot-polarity-test/README.md.
+        #
+        # grounded_predicates.add(GroundedPredicate(
+        #     name=predicate.name,
+        #     signature=predicate.signature,
+        #     object_mapping=mapping,
+        #     is_positive=predicate.is_positive,
+        # ))
+        # -------------------------------------------------------------------
+        # CURRENT implementation: refine parameter types to each object's
+        # concrete type, exactly like TrajectoryParser.parse_grounded_predicate
+        # does, so generated and parsed fluents are byte-identical (same str,
+        # same hash). For leaf-typed parameters (declared == concrete type)
+        # the output is unchanged.
+        refined_signature = {
+            name: grounded_objects[obj_name].type
+            for name, obj_name in mapping.items()
+        }
         grounded_predicates.add(GroundedPredicate(
             name=predicate.name,
-            signature=predicate.signature,
+            signature=refined_signature,
             object_mapping=mapping,
             is_positive=predicate.is_positive,
         ))

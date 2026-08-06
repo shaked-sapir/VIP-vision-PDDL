@@ -497,6 +497,7 @@ def build(config_path: Path, regen: bool, refresh: bool,
     # both modes (they still only render where they actually have data).
     alg_modes = {a["key"]: [str(x).lower() for x in a.get("modes", ["simulation", "image"])]
                  for a in cfg.get("algorithms", [])}
+    exclude_algs = [str(a) for a in cfg.get("exclude_algorithms", [])]
 
     payload = {
         "domains": cfg["domains"],
@@ -509,6 +510,7 @@ def build(config_path: Path, regen: bool, refresh: bool,
         "cdps_series": CDPS_SERIES,
         "oracle_series": ORACLE_SERIES,
         "alg_modes": alg_modes,
+        "exclude_algs": exclude_algs,
     }
     out_html.write_text(_HTML.replace("__DATA__", json.dumps(payload)))
     size_mb = out_html.stat().st_size / 1e6
@@ -620,8 +622,9 @@ const DATA=__DATA__;
 const MASKS=DATA.sim.masks, NOISES=DATA.sim.noises, DOMAINS=DATA.domains, METRICS=DATA.metrics;
 const CDPS=DATA.cdps_series, ORACLE=DATA.oracle_series;
 const ALG_MODES=DATA.alg_modes||{};
+const EXCLUDE=new Set(DATA.exclude_algs||[]);
 function etMode(){return S.et==="sim"?"simulation":"image";}
-function algAllowed(a){const m=ALG_MODES[a];return !m||m.indexOf(etMode())>=0;}
+function algAllowed(a){if(EXCLUDE.has(a))return false;const m=ALG_MODES[a];return !m||m.indexOf(etMode())>=0;}
 const S={et:"sim",metric:METRICS[0].key,stat:"last",tab:"all",ltab:"all",cmp:false,band:DATA.error_band||"ci95",off:{},base:null};
 const $=id=>document.getElementById(id);
 const meta=k=>METRICS.find(m=>m.key===k)||{};
@@ -639,7 +642,8 @@ function bandStats(v){const n=v.length;if(!n)return null;const mean=v.reduce((s,
  return[mean,mean-hw,mean+hw];}
 function bases(){
  // Baselines available in the CURRENT mode only, then filtered by the registry
- // (hard mode gating). Our CDPS/oracle series are excluded — they're not baselines.
+ // (hard mode gating) and exclude_algorithms. Our CDPS/oracle series are
+ // excluded — they're not baselines.
  const set=new Set();
  if(S.et==="sim"){
   for(const d of DOMAINS)for(const[m,n]of CONFIGS){const c=cellOf(d,m,n);

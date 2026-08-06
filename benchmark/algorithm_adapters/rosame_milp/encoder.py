@@ -18,10 +18,11 @@ trajectories from different problems, s0 + optionally GT-final anchoring):
    final-state constraints (its final state participates via the soft ``obs_p``
    objective instead). Traces with a goal keep upstream's hard fixing
    (paper eqs. 21–22).
-5. **Flagged undocumented constraints** — ``enforce_nonempty_schemas`` and
-   ``forbid_redundant_adds`` reproduce two constraint families present in the
-   released code but absent from the paper (default True = upstream behavior);
-   see vendor/UPSTREAM.md.
+5. **Config-driven undocumented constraints** — the per-schema non-empty rule
+   and the redundant-add ban reproduce two constraint families present in the
+   released code but absent from the paper. They are bundled in a
+   :class:`encoding_config.MilpEncodingConfig` (preset ``upstream()`` = released
+   behavior, ``tag()`` = the ``rosame_milp_tag`` variant); see vendor/UPSTREAM.md.
 
 Expected trace objects: vendored ``ObservationT`` instances with two extra
 attributes attached by our converter:
@@ -45,6 +46,11 @@ from planning_structs.domain import ActionSchema, Predicate
 from planning_structs.instance import Action, Proposition
 from planning_structs.traces import ObservationM
 
+from benchmark.algorithm_adapters.rosame_milp.encoding_config import (
+    MilpEncodingConfig,
+    SchemaNonemptyRule,
+)
+
 
 class CPSATObservedActions:
     """CP-SAT encoding of the MILP fixer with actions fixed to observations."""
@@ -54,8 +60,9 @@ class CPSATObservedActions:
         domain,
         traces,
         objectives,
-        enforce_nonempty_schemas: bool = True,
-        forbid_redundant_adds: bool = True,
+        config: Optional[MilpEncodingConfig] = None,
+        enforce_nonempty_schemas: Optional[bool] = None,
+        forbid_redundant_adds: Optional[bool] = None,
         obj_scale: int = 10**6,
         verbose: bool = False,
     ):
@@ -63,8 +70,11 @@ class CPSATObservedActions:
         self.traces = traces
         self.n_traces = len(traces.obs_t)
         self.objectives = objectives
-        self.enforce_nonempty_schemas = enforce_nonempty_schemas
-        self.forbid_redundant_adds = forbid_redundant_adds
+        # Prefer the config object; fall back to the legacy boolean kwargs so
+        # older callers/tests keep working (None => upstream defaults).
+        self.config = config if config is not None else self._config_from_legacy(
+            enforce_nonempty_schemas, forbid_redundant_adds
+        )
         self.obj_scale = obj_scale
         self.verbose = verbose
 
@@ -88,6 +98,24 @@ class CPSATObservedActions:
         self.build_objectives()
 
     # ---------- helpers ----------
+
+    @staticmethod
+    def _config_from_legacy(
+        enforce_nonempty_schemas: Optional[bool],
+        forbid_redundant_adds: Optional[bool],
+    ) -> MilpEncodingConfig:
+        """Build a config from the legacy boolean kwargs (None => upstream)."""
+        rule = (
+            SchemaNonemptyRule.NONE
+            if enforce_nonempty_schemas is False
+            else SchemaNonemptyRule.PRE_AND_ADD
+        )
+        return MilpEncodingConfig(
+            schema_nonempty=rule,
+            forbid_redundant_adds=(
+                True if forbid_redundant_adds is None else forbid_redundant_adds
+            ),
+        )
 
     def _trace(self, i: int):
         return self.traces.obs_t[i - 1]
@@ -152,10 +180,15 @@ class CPSATObservedActions:
                     cons.append(~(self.pre[(a, p, x)] & self.add[(a, p, x)]))
                     epre_terms.append(self.pre[(a, p, x)])
                     eadd_terms.append(self.add[(a, p, x)])
-            if self.enforce_nonempty_schemas and epre_terms:
-                # NOT in the paper — upstream code extra (see vendor/UPSTREAM.md)
-                cons.append(cp.sum(epre_terms) >= 1)
-                cons.append(cp.sum(eadd_terms) >= 1)
+            # NOT in the paper — upstream code extra (see vendor/UPSTREAM.md).
+            # Rule selected via MilpEncodingConfig.schema_nonempty.
+            if epre_terms:
+                rule = self.config.schema_nonempty
+                if rule is SchemaNonemptyRule.PRE_AND_ADD:
+                    cons.append(cp.sum(epre_terms) >= 1)
+                    cons.append(cp.sum(eadd_terms) >= 1)
+                elif rule is SchemaNonemptyRule.ADD:
+                    cons.append(cp.sum(eadd_terms) >= 1)
         self.model += cons
         self.report_time()
 
@@ -215,7 +248,7 @@ class CPSATObservedActions:
                         cons.append(~self.stepadd[(i, t, p)])
                         cons.append(~self.stepdel[(i, t, p)])
                         cons.append(~self.steppre[(i, t, p)])
-                    if self.forbid_redundant_adds:
+                    if self.config.forbid_redundant_adds:
                         # NOT in the paper — upstream code extra; can make the GT
                         # model infeasible under legal redundant adds
                         # (see vendor/UPSTREAM.md)
@@ -318,8 +351,7 @@ class CPSATObservedActions:
             "n_model_vars": 3 * len(self.pre),
             "n_trace_vars": len(self.hol) + 3 * len(self.stepadd),
             "n_traces": self.n_traces,
-            "enforce_nonempty_schemas": self.enforce_nonempty_schemas,
-            "forbid_redundant_adds": self.forbid_redundant_adds,
+            **self.config.as_stats(),
         }
 
         if st.exitstatus == ExitStatus.UNKNOWN:

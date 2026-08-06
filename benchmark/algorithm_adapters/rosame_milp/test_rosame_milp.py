@@ -8,6 +8,8 @@ Covers:
   3. ``forbid_redundant_adds`` reproduces the infeasibility we predicted for
      legal redundant adds (and turning the flag off restores feasibility).
   4. Bridge binding table maps ``forward()`` rows to PDDL parameter positions.
+  5. ``MilpEncodingConfig.tag`` (add-only schema rule + no redundant-add ban)
+     makes the legal-redundant-add scenario feasible.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from collections import OrderedDict, defaultdict
 
 import benchmark.algorithm_adapters.rosame_milp  # noqa: F401  (vendor sys.path)
 from benchmark.algorithm_adapters.rosame_milp.encoder import CPSATObservedActions
+from benchmark.algorithm_adapters.rosame_milp.encoding_config import MilpEncodingConfig
 from benchmark.algorithm_adapters.rosame_milp.model_bridge import binding_table
 
 from planning_structs.domain import Domain as PSDomain
@@ -160,6 +163,28 @@ def test_forbid_redundant_adds_infeasibility():
     print("PASS  forbid_redundant_adds on->infeasible / off->feasible")
 
 
+def test_tag_config_allows_redundant_add():
+    """MilpEncodingConfig.tag (add-only schema rule + no redundant-add ban)
+    makes the legal-redundant-add scenario feasible."""
+    domain, instance = _micro_world()
+    at_r1, at_r2 = _prop(instance, "at", ["r1"]), _prop(instance, "at", ["r2"])
+    move = _action(instance, "move", ["r1", "r2"])
+
+    # at(r2) already true before move(r1,r2): the add of at(?to) is redundant —
+    # infeasible under upstream rules, admissible under the tag config.
+    states = [{at_r1, at_r2}, {at_r2}]
+    trace = _trace(instance, states, [move])
+
+    traces = Traces(instance=None, obs_m=_flat_obs_m(domain), obs_t=[trace])
+    enc = CPSATObservedActions(domain, traces, {"state", "model"},
+                               config=MilpEncodingConfig.tag())
+    assert enc.solve(time_limit=30), "expected feasibility under tag config"
+    sol = enc.action_model_sol()
+    assert sol.add[_key(domain, "move", "at", (2,))] == 1
+    assert sol.dele[_key(domain, "move", "at", (1,))] == 1
+    print("PASS  tag config admits the legal redundant add")
+
+
 # ------------------------------------------------- bridge (torch-free fakes)
 
 class _FakeType:
@@ -234,4 +259,5 @@ if __name__ == "__main__":
     test_encoder_recovers_gt_model()
     test_masked_fluent_free()
     test_forbid_redundant_adds_infeasibility()
+    test_tag_config_allows_redundant_add()
     print("ALL TESTS PASSED")

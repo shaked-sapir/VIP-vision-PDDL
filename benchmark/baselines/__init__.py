@@ -19,6 +19,7 @@ from benchmark.baselines.rosame_i_runner import RosameIBaselineRunner
 from benchmark.baselines.rosame_milp_runner import (
     RosameMilpBaseRunner,
     RosameMilpRunner,
+    RosameMilpTagRunner,
 )
 
 # Maps a short CLI name to the concrete runner classes it activates.
@@ -26,6 +27,7 @@ BASELINE_REGISTRY: Dict[str, List[Type[BaselineRunner]]] = {
     "rosame": [RosameBaselineRunner],
     "rosame_i": [RosameIBaselineRunner],
     "rosame_milp": [RosameMilpRunner],
+    "rosame_milp_tag": [RosameMilpTagRunner],
     "rosame_milp_base": [RosameMilpBaseRunner],
 }
 

@@ -10,6 +10,13 @@ Two registered variants (see ``benchmark/algorithm_adapters/rosame_milp/``):
   ``pre_mip_epochs`` warmup, then a MILP solve every ``mip_interval`` epochs
   whose 4-way model pseudo-labels supervise further training (undecayed, per
   upstream code); output = decode of the final MILP solution.
+- ``rosame_milp_tag`` (:class:`RosameMilpTagRunner`) — the iterative loop with
+  the ``tag`` encoding rules (``MilpEncodingConfig.tag``): >=1 add effect per
+  schema (no precondition requirement) and no redundant-add ban.
+
+The MILP constraint rule-set is bundled in
+:class:`~benchmark.algorithm_adapters.rosame_milp.encoding_config.MilpEncodingConfig`
+and passed to the runners via ``encoding_config`` (default ``upstream()``).
 
 Both fall back to the plain ROSAME model (with ``milp_failed=True`` in the
 report) when no feasible MILP solution is found.
@@ -33,6 +40,7 @@ from benchmark.algorithm_adapters.rosame_milp.converter import (
     gt_final_state_fluents,
     observation_to_trace,
 )
+from benchmark.algorithm_adapters.rosame_milp.encoding_config import MilpEncodingConfig
 from benchmark.algorithm_adapters.rosame_milp.milp_loop import MilpPORosame
 from benchmark.algorithm_adapters.rosame_milp.model_bridge import (
     extract_model_labels,
@@ -57,16 +65,14 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         train_per_trajectory: bool = True,
         epochs: int = 100,
         mip_time_limit: int = 60,
-        enforce_nonempty_schemas: bool = True,
-        forbid_redundant_adds: bool = True,
+        encoding_config: Optional[MilpEncodingConfig] = None,
         goal_mode: str = "gt",
         milp_solver: str = "cp-sat-observed",
     ) -> None:
         super().__init__(train_per_trajectory=train_per_trajectory)
         self.epochs = epochs
         self.mip_time_limit = mip_time_limit
-        self.enforce_nonempty_schemas = enforce_nonempty_schemas
-        self.forbid_redundant_adds = forbid_redundant_adds
+        self.encoding_config = encoding_config or MilpEncodingConfig.upstream()
         self.goal_mode = goal_mode
         self.milp_solver = milp_solver
 
@@ -123,8 +129,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             ps_domain,
             traces,
             _OBJECTIVES,
-            enforce_nonempty_schemas=self.enforce_nonempty_schemas,
-            forbid_redundant_adds=self.forbid_redundant_adds,
+            config=self.encoding_config,
         )
         ok = encoder.solve(time_limit=self.mip_time_limit)
         return encoder, ok
@@ -155,6 +160,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             "train_per_trajectory": self.train_per_trajectory,
             "goal_mode": self.goal_mode,
             "milp_solver": self.milp_solver,
+            "encoding_config": self.encoding_config.as_stats(),
         }
         try:
             partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
@@ -209,8 +215,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         mip_traces: Optional[int] = None,
         agreement_stop: float = 1.0,
         mip_time_limit: int = 60,
-        enforce_nonempty_schemas: bool = True,
-        forbid_redundant_adds: bool = True,
+        encoding_config: Optional[MilpEncodingConfig] = None,
         goal_mode: str = "gt",
         milp_solver: str = "cp-sat-observed",
     ) -> None:
@@ -218,8 +223,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             train_per_trajectory=False,
             epochs=epochs,
             mip_time_limit=mip_time_limit,
-            enforce_nonempty_schemas=enforce_nonempty_schemas,
-            forbid_redundant_adds=forbid_redundant_adds,
+            encoding_config=encoding_config,
             goal_mode=goal_mode,
             milp_solver=milp_solver,
         )
@@ -255,6 +259,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         extra: Dict = {
             "goal_mode": self.goal_mode,
             "milp_solver": self.milp_solver,
+            "encoding_config": self.encoding_config.as_stats(),
             "pre_mip_epochs": self.pre_mip_epochs,
             "mip_interval": self.mip_interval,
             "mip_traces": self.mip_traces,
@@ -323,3 +328,28 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         except Exception as e:
             print(f"  Warning: {self.name} learning failed: {e}")
             return None, extra
+
+
+class RosameMilpTagRunner(RosameMilpRunner):
+    """Iterative loop with the ``tag`` encoding rules.
+
+    Same train/solve/pseudo-label loop as :class:`RosameMilpRunner`, but the
+    MILP uses :meth:`MilpEncodingConfig.tag`: every schema must have >=1 add
+    effect (no precondition requirement) and the redundant-add ban is dropped.
+    """
+
+    def __init__(self, **kwargs) -> None:
+        kwargs.setdefault("encoding_config", MilpEncodingConfig.tag())
+        super().__init__(**kwargs)
+
+    @property
+    def name(self) -> str:
+        return "ROSAME_MILP_TAG"
+
+    @property
+    def display_name(self) -> str:
+        return "ROSAME+MILP (tag)"
+
+    @property
+    def color(self) -> str:
+        return "#e98545"
