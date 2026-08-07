@@ -89,19 +89,23 @@ class NoisyLearnerMixin:
         self.conflicts: List[Conflict] = []
         self.current_observation_index: int = 0
         self.current_component_index: int = 0
-        # obs_idx -> component indices whose source state is GT. None = only state 0.
-        self.gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None
+        # obs_idx -> STATE indices that are ground truth (state s is the source
+        # of component s and the target of component s-1). State 0 is always
+        # GT, whether listed or not. None = only state 0.
+        self.gt_states_by_obs: Optional[Dict[int, Set[int]]] = None
         # Pre-grouped fluent patches by (obs_idx, comp_idx). Built once in
         # set_patches() so that apply_fluent_patches() can iterate directly
         # without regrouping on every call — this enables the lazy deep-copy
         # optimization where only targeted components are copied.
         self._patches_by_comp: DefaultDict[Tuple[int, int], List[FluentLevelPatch]] = defaultdict(list)
 
-    def _should_check_frame_axiom(self, obs_idx: int, comp_idx: int) -> bool:
-        """True when the source state of this component is ground truth."""
-        if self.gt_source_indices_by_obs is None:
-            return comp_idx == 0
-        return comp_idx in self.gt_source_indices_by_obs.get(obs_idx, set())
+    def _source_state_is_gt(self, obs_idx: int, comp_idx: int) -> bool:
+        """True when the source state (state ``comp_idx``) of this component is GT."""
+        if comp_idx == 0:
+            return True
+        if self.gt_states_by_obs is None:
+            return False
+        return comp_idx in self.gt_states_by_obs.get(obs_idx, set())
 
     # ------------------------------------------------------------------
     # Patch management
@@ -111,12 +115,12 @@ class NoisyLearnerMixin:
         self,
         fluent_patches: Set[FluentLevelPatch],
         model_patches: Set[ModelLevelPatch],
-        gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None,
+        gt_states_by_obs: Optional[Dict[int, Set[int]]] = None,
     ) -> None:
         self.fluent_patches = fluent_patches
         self.model_patches = model_patches
         self.conflicts = []
-        self.gt_source_indices_by_obs = gt_source_indices_by_obs
+        self.gt_states_by_obs = gt_states_by_obs
 
         self.forbidden_effects.clear()
         self.required_effects.clear()
@@ -374,7 +378,7 @@ class NoisyLearnerMixin:
 
         # Frame-axiom conflicts (at every transition; source_is_gt tag drives
         # the search's branching strategy: single-child for GT, two-child for non-GT)
-        source_is_gt = self._should_check_frame_axiom(
+        source_is_gt = self._source_state_is_gt(
             self.current_observation_index, self.current_component_index
         )
         local_conflicts.extend(
@@ -530,9 +534,9 @@ class NoisyLearnerMixin:
         observations: List[Observation],
         fluent_patches: Set[FluentLevelPatch],
         model_patches: Set[ModelLevelPatch],
-        gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = None,
+        gt_states_by_obs: Optional[Dict[int, Set[int]]] = None,
         **kwargs,
     ) -> Tuple[LearnerDomain, List[Conflict], Dict[str, str]]:
-        self.set_patches(fluent_patches, model_patches, gt_source_indices_by_obs)
+        self.set_patches(fluent_patches, model_patches, gt_states_by_obs)
         learned_domain, learning_report = self.learn_action_model(observations, **kwargs)
         return learned_domain, self.conflicts, learning_report

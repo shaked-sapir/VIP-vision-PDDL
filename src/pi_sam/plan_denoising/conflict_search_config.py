@@ -105,6 +105,10 @@ class CDPSConfig:
     fluent_branch_mode: FluentBranchMode = FluentBranchMode.GROUP
     negative_precondition_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard
     seed: int = 42
+    # NOTE: GT awareness is no longer a config switch. The search always
+    # respects the GT states passed to ConflictDrivenPatchSearch.run() via
+    # gt_states_by_obs (init state is always GT). The anchored variant differs
+    # only in its DATA PREP: it injects the final state as GT before learning.
 
     def __post_init__(self) -> None:
         # frozen=True → assign through object.__setattr__ to coerce strings → enums.

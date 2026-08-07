@@ -132,6 +132,7 @@ def main(
     force_normalize: bool = False,
     baselines: list = None,
     run_cdps: bool = True,
+    run_cdps_anchored: bool = False,
     events_tracing: bool = False,
     resume: bool = False,
 ):
@@ -232,7 +233,10 @@ def main(
         "conflict_group_strategy": conflict_group_strategy,
         "fluent_branch_mode": fluent_branch_mode,
         "run_cdps": run_cdps,
-        "algorithms": (["CDPS"] if run_cdps else []) + [r.name for r in (baselines or [])],
+        "run_cdps_anchored": run_cdps_anchored,
+        "algorithms": (["CDPS"] if run_cdps else [])
+        + (["CDPS_ANCHORED"] if run_cdps_anchored else [])
+        + [r.name for r in (baselines or [])],
         "normalized": norm_trajs_dir is not None,
         "data_source_type": type(data_source).__name__,
     }
@@ -359,8 +363,10 @@ def main(
                         node_choosing_strategy=node_choosing_strategy,
                         conflict_group_strategy=conflict_group_strategy,
                         fluent_branch_mode=fluent_branch_mode,
+                        frame_axiom_mode=frame_axiom_mode,
                         baselines=baselines,
                         run_cdps=run_cdps,
+                        run_cdps_anchored=run_cdps_anchored,
                         events_tracing=events_tracing,
                     )
                     future = executor.submit(run_single_fold, **fold_kwargs)
@@ -594,11 +600,13 @@ if __name__ == "__main__":
     if not args.algorithms:
         parser.error(f"--algorithms requires a value (available: {', '.join(available_algorithms())})")
     try:
-        run_cdps, baseline_runners = resolve_algorithms(
+        run_cdps, run_cdps_anchored, baseline_runners = resolve_algorithms(
             args.algorithms, train_per_trajectory=args.train_per_trajectory)
     except ValueError as err:
         parser.error(str(err))
-    selected = (['CDPS'] if run_cdps else []) + [r.display_name for r in baseline_runners]
+    selected = (['CDPS'] if run_cdps else []) \
+        + (['CDPS_ANCHORED'] if run_cdps_anchored else []) \
+        + [r.display_name for r in baseline_runners]
     print(f"Algorithms: {', '.join(selected)}")
 
     # ── Construct data source ─────────────────────────────────────────────
@@ -652,6 +660,7 @@ if __name__ == "__main__":
         force_normalize=args.force_normalize,
         baselines=baseline_runners,
         run_cdps=run_cdps,
+        run_cdps_anchored=run_cdps_anchored,
         events_tracing=args.events_tracing,
         resume=args.resume,
     )

@@ -112,6 +112,10 @@ _INSTANCE_RE = re.compile(r"^fold(\d+)_numtrajs(\d+)_gtrate(\d+)$")
 _OUR_ROW_LABELS = {"CDPS", "PISAM"}
 CDPS_SERIES = "CDPS"
 ORACLE_SERIES = "CDPS (oracle)"
+# The init+final-anchored CDPS variant. It carries its own fold_result.json row
+# (and its own CFM set under cdps_anchored/), so the dashboard discovers it like
+# a baseline series but gives it a fixed CDPS-family label/colour below.
+ANCHORED_SERIES = "CDPS_ANCHORED"
 
 
 def _finite(v) -> bool:
@@ -509,6 +513,7 @@ def build(config_path: Path, regen: bool, refresh: bool,
         "error_band": band,
         "cdps_series": CDPS_SERIES,
         "oracle_series": ORACLE_SERIES,
+        "anchored_series": ANCHORED_SERIES,
         "alg_modes": alg_modes,
         "exclude_algs": exclude_algs,
     }
@@ -620,7 +625,7 @@ _HTML = r"""<!DOCTYPE html>
 <script>
 const DATA=__DATA__;
 const MASKS=DATA.sim.masks, NOISES=DATA.sim.noises, DOMAINS=DATA.domains, METRICS=DATA.metrics;
-const CDPS=DATA.cdps_series, ORACLE=DATA.oracle_series;
+const CDPS=DATA.cdps_series, ORACLE=DATA.oracle_series, ANCHORED=DATA.anchored_series;
 const ALG_MODES=DATA.alg_modes||{};
 const EXCLUDE=new Set(DATA.exclude_algs||[]);
 function etMode(){return S.et==="sim"?"simulation":"image";}
@@ -655,8 +660,9 @@ function bases(){
  return[...set].filter(algAllowed).sort();}
 const PAL=["#e8710a","#1baf7a","#d55181","#9085e9","#c98500","#e66767"];
 function algStyle(a){if(a===CDPS)return{c:"#4b8fe2",dash:null};if(a===ORACLE)return{c:"#9dc1f0",dash:"5 4"};
+ if(a===ANCHORED)return{c:"#2f6fb0",dash:"6 3"};
  return{c:PAL[Math.max(0,BASES.indexOf(a))%PAL.length],dash:"2 3"};}
-function algLabel(a){return a===ORACLE?"oracle":a;}
+function algLabel(a){return a===ORACLE?"oracle":a===ANCHORED?"CDPS (anchored)":a;}
 function enabledAlgs(){return [CDPS,ORACLE,...(S.cmp?BASES:[])].filter(a=>!S.off[a]);}
 
 function curveSVG(cv){

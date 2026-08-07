@@ -23,7 +23,7 @@ from src.utils.masking import load_masked_observation
 
 def _learn_cdps_core(
     domain_ref_path, traj_paths, config: CDPSConfig, timeout_seconds,
-    fold_work_dir=None, prepared_trajectories=None, gt_source_indices_by_obs=None,
+    fold_work_dir=None, prepared_trajectories=None, gt_states_by_obs=None,
     pre_built_observations=None, events_tracing: bool = False,
 ):
     """Run the Conflict-Directed Patch Search (CDPS).
@@ -99,7 +99,7 @@ def _learn_cdps_core(
         observations=masked_observations,
         max_nodes=config.max_search_nodes,
         timeout_seconds=timeout_seconds,
-        gt_source_indices_by_obs=gt_source_indices_by_obs,
+        gt_states_by_obs=gt_states_by_obs,
         on_node_expanded=on_node_expanded,
     )
     learned_model = search_result.learned_domain
@@ -143,28 +143,38 @@ def learn_cdps(
     fluent_branch_mode: str = "group",
     pre_built_observations: Optional[list] = None,
     gt_source_indices_override: Optional[Dict[int, Set[int]]] = None,
+    anchor_endpoints: bool = False,
     events_tracing: bool = False,
 ) -> Tuple[str, dict, any]:
     """Learn a PISAM model via the Conflict-Directed Patch Search (CDPS).
 
     Args:
         prepared_trajectories: List of (trajectory_path, masking_path,
-            problem_pddl_path, gt_state_indices).
+            problem_pddl_path, gt_state_indices). ``gt_state_indices`` are
+            STATE indices (state s = source of component s = target of
+            component s-1); they feed the search's single GT map.
         conflict_search_timeout: Optional conflict-search timeout in seconds.
         pre_built_observations: Optional pre-built Observation objects (simulated
             data); when provided, file loading is skipped.
-        gt_source_indices_override: Optional explicit gt_source_indices_by_obs.
+        gt_source_indices_override: Optional explicit gt_states_by_obs map
+            (obs_idx -> GT state indices), overriding the per-tuple indices.
+        anchor_endpoints: Label for the ``cdps_anchored`` variant. GT protection
+            itself is ALWAYS on (the search never patches a GT state and never
+            keeps constraints refuted by GT evidence); this flag no longer
+            changes search behavior — the anchored variant differs only in its
+            trajectory prep, which injects the final state as GT so it shows up
+            in ``gt_state_indices``.
         (other args configure the conflict search)
 
     Returns:
         Tuple of (model, learning_report, patched_observations).
     """
-    # Determine GT source indices: explicit override takes priority.
+    # Single GT map: obs_idx -> GT state indices. Explicit override wins.
     if gt_source_indices_override is not None:
-        gt_source_indices_by_obs = gt_source_indices_override
+        gt_states_by_obs = gt_source_indices_override
     else:
-        gt_source_indices_by_obs: Optional[Dict[int, Set[int]]] = {
-            obs_idx: t[3] for obs_idx, t in enumerate(prepared_trajectories) if len(t) > 3
+        gt_states_by_obs: Optional[Dict[int, Set[int]]] = {
+            obs_idx: set(t[3]) for obs_idx, t in enumerate(prepared_trajectories) if len(t) > 3
         } or None
 
     traj_paths = [str(t[0]) for t in prepared_trajectories]
@@ -186,7 +196,7 @@ def learn_cdps(
     model, report, patched_observations = _learn_cdps_core(
         domain_ref_path, traj_paths, config, timeout_seconds,
         fold_work_dir=fold_work_dir, prepared_trajectories=prepared_trajectories,
-        gt_source_indices_by_obs=gt_source_indices_by_obs,
+        gt_states_by_obs=gt_states_by_obs,
         pre_built_observations=pre_built_observations,
         events_tracing=events_tracing,
     )

@@ -20,29 +20,37 @@ from typing import List, Tuple
 
 from benchmark.baselines import BASELINE_REGISTRY, BaselineRunner, resolve_baselines
 
-# Selector key (CLI/config) and the display/results label for our algorithm.
+# Selector keys (CLI/config) and the display/results labels for our algorithm.
+# ``cdps`` anchors only the init state as GT; ``cdps_anchored`` also anchors the
+# final state (init + final GT) — see ConflictDrivenPatchSearch.anchor_endpoints.
 CDPS = "cdps"
 CDPS_ALGORITHM_NAME = "CDPS"
+CDPS_ANCHORED = "cdps_anchored"
+CDPS_ANCHORED_ALGORITHM_NAME = "CDPS_ANCHORED"
+
+# CDPS variant keys (our learner), distinct from BaselineRunner competitors.
+_CDPS_KEYS = {CDPS, CDPS_ANCHORED}
 
 
 def available_algorithms() -> List[str]:
-    """All valid ``--algorithms`` names: our learner plus the baseline keys."""
-    return [CDPS] + sorted(BASELINE_REGISTRY)
+    """All valid ``--algorithms`` names: our learner variants plus baseline keys."""
+    return [CDPS, CDPS_ANCHORED] + sorted(BASELINE_REGISTRY)
 
 
 def resolve_algorithms(
     names: List[str], **runner_kwargs
-) -> Tuple[bool, List[BaselineRunner]]:
-    """Split selected algorithm names into ``(run_cdps, baseline_runners)``.
+) -> Tuple[bool, bool, List[BaselineRunner]]:
+    """Split selected algorithm names into ``(run_cdps, run_cdps_anchored, baselines)``.
 
     Args:
-        names: Algorithm keys, e.g. ``["cdps", "rosame"]``, ``["rosame"]``.
+        names: Algorithm keys, e.g. ``["cdps", "rosame"]``, ``["cdps_anchored"]``.
         **runner_kwargs: Optional per-baseline options forwarded only to the
             runners whose ``__init__`` accepts them (e.g.
             ``train_per_trajectory`` for ROSAME-I).
 
     Returns:
-        run_cdps: Whether to run our conflict-search learner.
+        run_cdps: Whether to run our (init-anchored) conflict-search learner.
+        run_cdps_anchored: Whether to run the init+final-anchored variant.
         baseline_runners: Instantiated ``BaselineRunner`` objects for the rest.
 
     Raises:
@@ -55,13 +63,14 @@ def resolve_algorithms(
         )
 
     run_cdps = CDPS in lowered
-    baseline_names = [n for n in lowered if n != CDPS]
+    run_cdps_anchored = CDPS_ANCHORED in lowered
+    baseline_names = [n for n in lowered if n not in _CDPS_KEYS]
     baseline_runners = (
         resolve_baselines(baseline_names, **runner_kwargs) if baseline_names else []
     )
 
-    if not run_cdps and not baseline_runners:
+    if not run_cdps and not run_cdps_anchored and not baseline_runners:
         raise ValueError(
             f"No algorithms selected. Available: {', '.join(available_algorithms())}"
         )
-    return run_cdps, baseline_runners
+    return run_cdps, run_cdps_anchored, baseline_runners

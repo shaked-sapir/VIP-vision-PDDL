@@ -48,57 +48,25 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
-import shutil
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from benchmark.backfill_common import (
+    NULL_METRIC_KEYS,
+    existing_algorithms,
+    find_problem_pddl,
+    is_cell_dir,
+    merge_row,
+    parse_cell_name,
+    resolve_data_dir,
+    worker_init,
+)
 from benchmark.baselines import resolve_baselines
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import FOLD_RESULT_FILENAME
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt
-
-_CELL_RE = re.compile(r"^fold(\d+)_numtrajs(\d+)_gtrate(\d+)$")
-
-# Same metric keys run_fold uses for its null record.
-_NULL_METRIC_KEYS = [
-    "precision_precs_pos", "precision_precs_neg",
-    "precision_eff_pos", "precision_eff_neg", "precision_overall",
-    "recall_precs_pos", "recall_precs_neg", "recall_eff_pos",
-    "recall_eff_neg", "recall_overall", "solving_ratio",
-    "false_plans_ratio", "unsolvable_ratio", "planning_timed_out_ratio",
-    "pred_app_precision", "pred_app_recall",
-    "pred_eff_precision", "pred_eff_recall",
-]
-
-
-def _find_problem_pddl(data_dir: Path, problem_name: str) -> Optional[Path]:
-    """Locate a problem's PDDL file under the experiment's data directory.
-
-    Covers the known data_dir layouts:
-      <data_dir>/training/trajectories/<problem>/<problem>.pddl  (standard)
-      <data_dir>/<problem>/<problem>.pddl
-      <data_dir>/problems/<problem>/<problem>.pddl
-      <data_dir>/<problem>.pddl
-    """
-    candidates = [
-        data_dir / "training" / "trajectories" / problem_name / f"{problem_name}.pddl",
-        data_dir / problem_name / f"{problem_name}.pddl",
-        data_dir / "problems" / problem_name / f"{problem_name}.pddl",
-        data_dir / f"{problem_name}.pddl",
-    ]
-    for c in candidates:
-        if c.exists():
-            return c
-    for parent in (data_dir / "training" / "trajectories", data_dir, data_dir / "problems"):
-        problem_dir = parent / problem_name
-        if problem_dir.is_dir():
-            pddl_files = sorted(problem_dir.glob("*.pddl"))
-            if pddl_files:
-                return pddl_files[0]
-    return None
 
 
 def _build_prepared_trajectories(
@@ -120,7 +88,7 @@ def _build_prepared_trajectories(
         masking = traj.with_suffix(".masking_info")
         masking_path = masking if masking.exists() else None
 
-        problem_pddl = _find_problem_pddl(data_dir, problem)
+        problem_pddl = find_problem_pddl(data_dir, problem)
         if problem_pddl is None:
             print(f"    Warning: no problem PDDL for {problem} under {data_dir}, skipping")
             continue
@@ -129,30 +97,6 @@ def _build_prepared_trajectories(
         prepared.append((traj, masking_path, problem_pddl, set()))
 
     return prepared
-
-
-def _merge_row(fold_result_path: Path, row: dict) -> None:
-    """Merge one algorithm row into fold_result.json (replace same-algorithm)."""
-    if fold_result_path.exists():
-        backup = fold_result_path.with_suffix(".json.bak")
-        if not backup.exists():
-            shutil.copy2(fold_result_path, backup)
-        rows = json.loads(fold_result_path.read_text())
-    else:
-        rows = []
-
-    rows = [r for r in rows if r.get("algorithm") != row["algorithm"]]
-    rows.append(row)
-    fold_result_path.write_text(json.dumps(rows, indent=2))
-
-
-def _existing_algorithms(fold_result_path: Path) -> List[str]:
-    if not fold_result_path.exists():
-        return []
-    try:
-        return [r.get("algorithm") for r in json.loads(fold_result_path.read_text())]
-    except (json.JSONDecodeError, AttributeError):
-        return []
 
 
 def _copy_shared_fields(fold_result_path: Path) -> dict:
@@ -183,10 +127,10 @@ def backfill_cell(
     dry_run: bool,
 ) -> str:
     """Backfill one cell. Returns a status string: done | dry | skip | invalid."""
-    m = _CELL_RE.match(cell.name)
-    if not m:
+    parsed = parse_cell_name(cell.name)
+    if parsed is None:
         return "invalid"
-    fold, num_trajs, gt_rate = (int(g) for g in m.groups())
+    fold, num_trajs, gt_rate = parsed
 
     fold_info_path = cell / "fold_info.json"
     domain_ref = cell / "domain_reference.pddl"
@@ -196,7 +140,7 @@ def backfill_cell(
     fold_info = json.loads(fold_info_path.read_text())
 
     fold_result_path = cell / FOLD_RESULT_FILENAME
-    existing = _existing_algorithms(fold_result_path)
+    existing = existing_algorithms(fold_result_path)
     todo = [r for r in baselines if force or r.name not in existing]
     if not todo:
         print(f"  [SKIP] {cell.name}: all requested baselines already present")
@@ -210,7 +154,7 @@ def backfill_cell(
 
     test_problem_paths: List[str] = []
     for problem in fold_info.get("test_problems", []):
-        p = _find_problem_pddl(data_dir, problem)
+        p = find_problem_pddl(data_dir, problem)
         if p is not None:
             test_problem_paths.append(str(p))
         else:
@@ -234,7 +178,7 @@ def backfill_cell(
               f"{'' if test_states_str else ' (no test states!)'}")
         return "dry"
 
-    null_metrics = {k: None for k in _NULL_METRIC_KEYS}
+    null_metrics = {k: None for k in NULL_METRIC_KEYS}
 
     # AMLGym's problem_solving writes ./tmp to the cwd — work inside the cell
     # (same protection as run_fold).
@@ -269,7 +213,7 @@ def backfill_cell(
                 planning_timeout=planning_timeout,
                 test_states_path=test_states_str,
             )
-            _merge_row(fold_result_path, row)
+            merge_row(fold_result_path, row)
             print(f"  [{runner.name}] {cell.name}: row merged into {FOLD_RESULT_FILENAME}")
     finally:
         os.chdir(original_cwd)
@@ -277,13 +221,6 @@ def backfill_cell(
 
 
 # ── Parallel execution (one process per cell) ──────────────────────────────
-
-def _worker_init() -> None:
-    """Pool-worker initializer: cap BLAS/torch thread pools so parallelism
-    comes from the process count, not from N workers x M torch threads."""
-    for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
-        os.environ.setdefault(var, "1")
-
 
 def _backfill_cell_worker(
     cell_str: str,
@@ -319,65 +256,6 @@ def _backfill_cell_worker(
         return cell_str, status
     except Exception as e:  # keep one failing cell from killing the whole run
         return cell_str, f"error: {e}"
-
-
-def _read_data_dir_from_run_params(exp_dir: Path) -> Optional[Path]:
-    """Return the ``data_dir`` recorded in an experiment's run_params.json.
-
-    The experiment runner writes ``evaluation_results/run_params.json`` with the
-    exact ``data_dir`` the experiment used. Reading it here keeps backfill pinned
-    to the same data the cells were frozen against, instead of relying on the
-    operator to re-supply the right (and easily-confused, e.g. ``*_fixed``)
-    directory.
-
-    Args:
-        exp_dir: The experiment directory (``running_results/<domain>/<name>``).
-
-    Returns:
-        The resolved ``data_dir`` path, or ``None`` if run_params.json is missing,
-        unreadable, or has no ``data_dir`` field.
-    """
-    run_params = exp_dir / "evaluation_results" / "run_params.json"
-    if not run_params.is_file():
-        return None
-    try:
-        params = json.loads(run_params.read_text())
-    except (json.JSONDecodeError, OSError) as err:
-        print(f"[WARN] could not read {run_params}: {err}")
-        return None
-    data_dir = params.get("data_dir")
-    if not data_dir:
-        return None
-    return Path(data_dir).resolve()
-
-
-def _resolve_data_dir(
-    exp_dir: Path, override: Optional[Path]
-) -> Tuple[Optional[Path], str]:
-    """Resolve the data_dir for one experiment from an authoritative source.
-
-    Resolution order (so the operator can just point backfill at the
-    dashboard_config experiment dirs and get the right data with no confusion):
-      1. ``--data-dir`` override, if given.
-      2. run_params.json's ``data_dir`` — the exact folder the experiment used.
-
-    No name-based guessing: experiment folders and data folders don't share a
-    naming convention (data dirs like ``multi_problem_<timestamp>`` can't be
-    derived from the experiment name), and sibling data folders can differ, so a
-    guess could silently resolve to the wrong-but-existing dir. If run_params.json
-    is stale/missing, the caller skips loudly and the operator passes ``--data-dir``.
-
-    Returns:
-        ``(data_dir, source_label)``; ``data_dir`` is ``None`` if unresolved.
-    """
-    if override is not None:
-        return override, "override"
-
-    recorded = _read_data_dir_from_run_params(exp_dir)
-    if recorded is not None:
-        return recorded, "run_params.json"
-
-    return None, "unresolved"
 
 
 def main() -> None:
@@ -435,7 +313,7 @@ def main() -> None:
             print(f"[SKIP] {exp_dir}: no testing/ directory")
             continue
 
-        data_dir, src = _resolve_data_dir(exp_dir, override_data_dir)
+        data_dir, src = resolve_data_dir(exp_dir, override_data_dir)
         if data_dir is None:
             print(f"[SKIP] {exp_dir}: no data_dir in run_params.json; "
                   f"pass --data-dir explicitly")
@@ -446,8 +324,7 @@ def main() -> None:
 
         # running_results/<domain>/<experiment_name> → domain
         bench_name = args.domain or exp_dir.parent.name
-        cells = sorted(d for d in testing.iterdir()
-                       if d.is_dir() and _CELL_RE.match(d.name))
+        cells = sorted(d for d in testing.iterdir() if is_cell_dir(d))
         if args.cells:
             cells = [c for c in cells if args.cells in c.name]
 
@@ -479,7 +356,7 @@ def main() -> None:
     # (nothing torch-adjacent is pickled across processes).
     print(f"\nRunning {len(tasks)} cells with {workers} workers...")
     statuses: dict = {}
-    with ProcessPoolExecutor(max_workers=workers, initializer=_worker_init) as executor:
+    with ProcessPoolExecutor(max_workers=workers, initializer=worker_init) as executor:
         futures = {
             executor.submit(
                 _backfill_cell_worker,

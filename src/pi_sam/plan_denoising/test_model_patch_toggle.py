@@ -51,13 +51,16 @@ class TestModelPatchToggleBehavior(unittest.TestCase):
 
         self.assertEqual(updated, constraints)
 
-    def test_builder_replaces_opposite_constraint(self):
+    def test_builder_keeps_noop_when_key_holds_opposite_constraint(self):
+        # An occupied key is never overwritten (REQUIRE<->FORBID oscillation);
+        # the opposite direction was explored as a sibling when the constraint
+        # was first introduced, so backtracking reaches it.
         conflict = _make_conflict(ConflictType.REQUIRE_EFFECT_VS_CANNOT)
         constraints: Dict[Key, PatchOperation] = {self.key: PatchOperation.REQUIRE}
 
         updated = self.search._build_model_patch(conflict, constraints)
 
-        self.assertEqual(updated[self.key], PatchOperation.FORBID)
+        self.assertEqual(updated, constraints)
 
     def test_builder_adds_missing_constraint(self):
         conflict = _make_conflict(ConflictType.FORBID_EFFECT_VS_MUST)

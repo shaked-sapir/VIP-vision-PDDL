@@ -382,15 +382,44 @@ def propagate_frame_axioms_selective(
 # Ground-truth state injection
 # ============================================================================
 
-def _compute_gt_indices(num_states: int, gt_rate: int) -> Set[int]:
-    """Pick evenly-spaced state indices to replace with ground truth."""
+def _compute_gt_indices(num_states: int, gt_rate: int, anchor_final: bool = False) -> Set[int]:
+    """Pick evenly-spaced state indices to replace with ground truth.
+
+    Args:
+        num_states: Total number of states in the trajectory (steps + 1).
+        gt_rate: Percentage of states to inject as GT (0 = init only).
+        anchor_final: When True, always include the final state (``num_states - 1``)
+            as GT — used by the ``cdps_anchored`` variant to anchor both endpoints.
+    """
     indices = {0}
     if gt_rate > 0:
         num_gt = max(1, math.ceil(num_states * gt_rate / 100.0))
         if num_gt > 1:
             interval = num_states / num_gt
             indices |= {int(i * interval) for i in range(num_gt) if int(i * interval) < num_states}
+    if anchor_final and num_states > 0:
+        indices.add(num_states - 1)
     return indices
+
+
+def _gt_state_literals(gt_trajectory: List[dict], num_steps: int) -> List[Set[str]]:
+    """Per-state positive-literal sets (indices 0..num_steps) from clean GT JSON."""
+    states = [set(gt_trajectory[0]['current_state']['literals'])]
+    for i in range(num_steps):
+        states.append(set(gt_trajectory[i]['next_state']['literals']))
+    return states
+
+
+def _degraded_state_literals(obs: Observation, num_steps: int) -> List[Set[str]]:
+    """Per-state positive-literal sets (indices 0..num_steps) from the degraded obs.
+
+    Masked predicates are absent from file-based trajectories, so
+    ``_positive_gym_literals`` already yields only the noisy *unmasked* positives.
+    """
+    states = [_positive_gym_literals(obs.components[0].previous_state)]
+    for i in range(num_steps):
+        states.append(_positive_gym_literals(obs.components[i].next_state))
+    return states
 
 
 def inject_gt_states_by_percentage(
@@ -399,8 +428,14 @@ def inject_gt_states_by_percentage(
     json_trajectory_path: Union[str, Path],
     domain_path: Union[str, Path],
     gt_rate: int,
+    anchor_final: bool = False,
 ) -> Tuple[Path, Path, Set[int]]:
-    """Inject ground truth states at percentage-based intervals throughout the trajectory."""
+    """Inject ground truth states at percentage-based intervals throughout the trajectory.
+
+    When ``anchor_final`` is True, the final state is also injected + unmasked as
+    GT (in addition to the init state and any gt_rate picks), and the output files
+    get an ``_anchored`` suffix so they never collide with the plain-CDPS files.
+    """
     trajectory_path, masking_info_path = Path(trajectory_path), Path(masking_info_path)
     json_trajectory_path, domain_path = Path(json_trajectory_path), Path(domain_path)
 
@@ -410,24 +445,54 @@ def inject_gt_states_by_percentage(
     with open(json_trajectory_path, 'r') as f:
         gt_trajectory = json.load(f)
 
-    gt_state_indices = _compute_gt_indices(num_steps + 1, gt_rate)
+    gt_state_indices = _compute_gt_indices(num_steps + 1, gt_rate, anchor_final=anchor_final)
+    n = min(num_steps, len(gt_trajectory))
 
-    new_trajectory_data = []
-    for i in range(min(num_steps, len(gt_trajectory))):
-        step_data = gt_trajectory[i]
-        state_idx = i + 1
+    if anchor_final:
+        # Anchored variant: keep the degraded (noisy) interior states and inject
+        # clean GT literals only at gt_state_indices (init + final + any gt_rate
+        # picks). This preserves noise/partial-observability so CDPS still sees
+        # conflicts — mirroring how the ROSAME+MILP / ROSAME-I baselines anchor
+        # only the endpoints instead of rewriting the whole trajectory.
+        gt_states = _gt_state_literals(gt_trajectory, n)
+        degraded_states = _degraded_state_literals(obs, n)
+        state_literals = [
+            gt_states[idx] if idx in gt_state_indices else degraded_states[idx]
+            for idx in range(n + 1)
+        ]
+        if 0 in gt_state_indices and len(masking) > 0:
+            masking[0] = set()
 
-        if state_idx in gt_state_indices and state_idx < len(masking):
-            masking[state_idx] = set()
+        new_trajectory_data = []
+        for i in range(n):
+            state_idx = i + 1
+            if state_idx in gt_state_indices and state_idx < len(masking):
+                masking[state_idx] = set()
+            new_trajectory_data.append({
+                'step': state_idx,
+                'current_state': {'literals': sorted(state_literals[i])},
+                'ground_action': gt_trajectory[i]['ground_action'],
+                'next_state': {'literals': sorted(state_literals[i + 1])},
+            })
+    else:
+        new_trajectory_data = []
+        for i in range(n):
+            step_data = gt_trajectory[i]
+            state_idx = i + 1
 
-        new_trajectory_data.append({
-            'step': state_idx,
-            'current_state': step_data['current_state'],
-            'ground_action': step_data['ground_action'],
-            'next_state': {'literals': step_data['next_state']['literals']},
-        })
+            if state_idx in gt_state_indices and state_idx < len(masking):
+                masking[state_idx] = set()
+
+            new_trajectory_data.append({
+                'step': state_idx,
+                'current_state': step_data['current_state'],
+                'ground_action': step_data['ground_action'],
+                'next_state': {'literals': step_data['next_state']['literals']},
+            })
 
     problem_name = trajectory_path.stem.split('_gtrate')[0]
     out_name = f"{problem_name}_gtrate{gt_rate}" if gt_rate > 0 else problem_name
+    if anchor_final:
+        out_name = f"{out_name}_anchored"
     traj_path, mask_path = _save_trajectory_and_return(new_trajectory_data, masking, out_name, trajectory_path.parent, masking_info_path.parent)
     return traj_path, mask_path, gt_state_indices

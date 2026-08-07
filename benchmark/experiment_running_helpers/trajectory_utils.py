@@ -10,6 +10,19 @@ from typing import List, Set, Tuple
 from src.utils.pddl import inject_gt_states_by_percentage, propagate_frame_axioms_selective
 
 
+# Name fragments that mark a .trajectory as *derived* (GT-injected, frame-axiom
+# propagated, truncated, or a final/anchored output) rather than the original.
+_DERIVED_TRAJ_MARKERS = ("truncated", "final", "frame_axioms", "gt", "gtrate")
+
+
+def _original_trajectory_files(prob_dir: Path) -> List[Path]:
+    """The original (pre-GT/pre-frame-axiom) .trajectory files in a problem dir."""
+    return [
+        f for f in prob_dir.glob("*.trajectory")
+        if not any(marker in f.stem for marker in _DERIVED_TRAJ_MARKERS)
+    ]
+
+
 def _resolve_gt_json_path(prob_dir: Path, problem_name: str) -> Path:
     """Resolve the ground-truth trajectory JSON for GT-rate injection.
 
@@ -71,9 +84,7 @@ def pregenerate_all_gt_frame_axiom_files(
         print(f"  Processing {prob_dir.name}...")
 
         # Find original trajectory files
-        traj_files = [f for f in prob_dir.glob("*.trajectory")
-                     if 'truncated' not in f.stem and 'final' not in f.stem
-                     and 'frame_axioms' not in f.stem and 'gt' not in f.stem and 'gtrate' not in f.stem]
+        traj_files = _original_trajectory_files(prob_dir)
 
         if not traj_files:
             print(f"    ⚠ No trajectory file found, skipping")
@@ -160,9 +171,7 @@ def prepare_fold_trajectories(
 
     for prob_dir in selected_dirs:
         # Find original trajectory to get problem name
-        traj_files = [f for f in prob_dir.glob("*.trajectory")
-                     if 'truncated' not in f.stem and 'final' not in f.stem
-                     and 'frame_axioms' not in f.stem and 'gt' not in f.stem and 'gtrate' not in f.stem]
+        traj_files = _original_trajectory_files(prob_dir)
 
         if not traj_files:
             print(f"  Warning: No trajectory file found in {prob_dir}")
@@ -194,6 +203,69 @@ def prepare_fold_trajectories(
         prepared_trajectories.append((final_traj_path, final_masking_path, problem_pddl_path, gt_indices))
 
     return prepared_trajectories
+
+
+def prepare_anchored_fold_trajectories(
+    prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
+    domain_path: Path,
+    gt_rate: int,
+    out_dir: Path,
+    frame_axiom_mode: str = "after_gt_only",
+) -> List[Tuple[Path, Path, Path, Set[int]]]:
+    """Build anchored (init + final GT) fold trajectories under ``out_dir``.
+
+    For each already-prepared trajectory, locate its ORIGINAL trajectory,
+    masking, and clean GT JSON; copy them into ``out_dir`` and re-run GT
+    injection with ``anchor_final=True`` followed by selective frame-axiom
+    propagation. Self-contained: writes only under ``out_dir``, so the shared
+    data dir and the plain-CDPS files are left untouched.
+
+    Args:
+        prepared_trajectories: The plain-CDPS fold tuples (trajectory_path,
+            masking_path, problem_pddl_path, gt_state_indices).
+        domain_path: Path to the domain PDDL file.
+        gt_rate: GT injection percentage (same as the plain-CDPS fold).
+        out_dir: Directory to write the anchored trajectory files into.
+        frame_axiom_mode: "after_gt_only" or "all_states".
+
+    Returns:
+        Fold tuples pointing at the anchored files, with gt_state_indices that
+        include the final state.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    anchored: List[Tuple[Path, Path, Path, Set[int]]] = []
+
+    for traj_path, _masking_path, problem_pddl_path, _gt in prepared_trajectories:
+        prob_dir = traj_path.parent
+        orig_files = _original_trajectory_files(prob_dir)
+        if not orig_files:
+            print(f"    ⚠ No original trajectory in {prob_dir.name}; skipping anchored prep")
+            continue
+        orig_traj = orig_files[0]
+        problem_name = orig_traj.stem
+        orig_masking = prob_dir / f"{problem_name}.masking_info"
+        gt_json = _resolve_gt_json_path(prob_dir, problem_name)
+
+        if not orig_masking.exists() or not gt_json.exists():
+            print(f"    ⚠ Missing original masking or GT JSON for {problem_name}; skipping anchored prep")
+            continue
+
+        work = out_dir / problem_name
+        work.mkdir(parents=True, exist_ok=True)
+        local_traj = work / orig_traj.name
+        local_masking = work / orig_masking.name
+        shutil.copy2(orig_traj, local_traj)
+        shutil.copy2(orig_masking, local_masking)
+
+        gt_traj_path, gt_masking_path, gt_state_indices = inject_gt_states_by_percentage(
+            local_traj, local_masking, gt_json, domain_path, gt_rate, anchor_final=True,
+        )
+        final_traj_path, final_masking_path = propagate_frame_axioms_selective(
+            gt_traj_path, gt_masking_path, domain_path, gt_state_indices, mode=frame_axiom_mode,
+        )
+        anchored.append((final_traj_path, final_masking_path, problem_pddl_path, gt_state_indices))
+
+    return anchored
 
 
 def save_fold_metadata(
