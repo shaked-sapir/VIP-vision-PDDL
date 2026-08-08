@@ -155,8 +155,11 @@ def main() -> None:
         else:
             rows.append(base)
 
+    # lineterminator="\n": csv's default excel dialect emits CRLF, and the sbatch
+    # templates parse rows with `sed` + `IFS=, read`, which leave the trailing \r
+    # glued to the last field — it then leaks into the created directory names.
     with open(manifest_path, "w", newline="") as f:
-        writer = csv.writer(f)
+        writer = csv.writer(f, lineterminator="\n")
         writer.writerow(header)
         writer.writerows(rows)
 

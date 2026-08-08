@@ -27,7 +27,7 @@ MANIFEST="${1:-scripts/cluster/manifest.csv}"
 source "$(dirname "$MANIFEST")/run_flags.sh"   # defines COMMON_FLAGS
 
 # Row for this task: +1 to skip the CSV header, +1 because sed is 1-based.
-LINE="$(sed -n "$((SLURM_ARRAY_TASK_ID + 2))p" "$MANIFEST")"
+LINE="$(sed -n "$((SLURM_ARRAY_TASK_ID + 2))p" "$MANIFEST" | tr -d '\r')"
 if [ -z "$LINE" ]; then
     echo "ERROR: no manifest row for array index ${SLURM_ARRAY_TASK_ID} in ${MANIFEST}" >&2
     exit 1
