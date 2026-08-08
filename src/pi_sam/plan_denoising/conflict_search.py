@@ -103,17 +103,14 @@ class ConflictDrivenPatchSearchBase(ABC):
                  prematurely by branch-and-bound.
 
     Ground-truth awareness (``gt_states_by_obs`` in :meth:`run`):
-      GT states are never fluent-patched. Each conflict's data fix targets
-      its transition's *next* state by default; when that state is GT the
-      fix falls back to the (non-GT) *prev* state where the conflict
-      semantics allow it (must-effect / frame-axiom evidence depends on
-      both endpoints, so dissolving it from the prev side is equally
-      valid). ``REQUIRE_EFFECT_VS_CANNOT`` evidence lives entirely in the
-      next state, so with a GT next state it has no data fix at all.
-      Model constraints that are contradicted by GT evidence (e.g. a
-      REQUIRE whose grounded effect literal is false in some GT next
-      state of the same action) are never generated, and nodes carrying
-      an unresolvable conflict are pruned instead of expanded.
+      GT states are never fluent-patched: a conflict whose next state is GT
+      contributes no Child-A patch, and frame-axiom prev-fixes skip members
+      whose prev state is GT. Model constraints that are contradicted by GT
+      evidence (e.g. a REQUIRE whose grounded effect literal is false in
+      some GT next state of the same action) are never generated, and nodes
+      carrying an unresolvable conflict are pruned instead of expanded.
+      Branching structure and child ordering are otherwise identical to the
+      original (pre-GT) search.
 
     Subclasses implement ``_create_learner`` to select the SAM-family
     learner (NoisyPisamLearner, NoisySAMLearner, etc.).
@@ -635,10 +632,6 @@ class ConflictDrivenPatchSearchBase(ABC):
             ]
             if unresolvable:
                 pruned_unresolvable += 1
-                self.logger.debug(
-                    f"Pruning node: {len(unresolvable)} unresolvable conflict(s), "
-                    f"e.g. {unresolvable[0]}"
-                )
                 if on_node_expanded is not None:
                     self._fire_node_event(
                         on_node_expanded, node, nodes_expanded - 1, conflicts,
@@ -646,12 +639,15 @@ class ConflictDrivenPatchSearchBase(ABC):
                 continue
 
             # --- Branch on conflicts ---
-            # Try conflict groups in strategy-preference order until one yields
-            # at least one child leading to an UNVISITED state. A group can be
-            # fully blocked (all its data fixes hit GT states or re-enter
-            # visited states, and its model key is occupied/refuted); falling
-            # back to the next group keeps viable siblings reachable instead of
-            # silently dead-ending the node.
+            # Try conflict groups in strategy-preference order until one
+            # builds at least one child. A group can be fully blocked (all
+            # its data fixes hit GT states and its model key is occupied or
+            # GT-refuted); falling back to the next group keeps viable
+            # siblings reachable instead of silently dead-ending the node.
+            # NOTE: children whose state was already visited are still pushed
+            # (and skipped at pop) — filtering them here and jumping to a
+            # different group turns DFS backtracking into deep detours and
+            # starves the search at high noise.
             conflict_groups = self._ordered_conflict_groups(
                 self._group_conflicts(conflicts)
             )
@@ -664,14 +660,6 @@ class ConflictDrivenPatchSearchBase(ABC):
                 child_a_node, child_b_node = self._build_children_for_group(
                     node, candidate_group, current_node_index,
                 )
-                if child_a_node is not None and \
-                        self._encode_state(child_a_node.model_constraints,
-                                           child_a_node.fluent_patches) in visited:
-                    child_a_node = None
-                if child_b_node is not None and \
-                        self._encode_state(child_b_node.model_constraints,
-                                           child_b_node.fluent_patches) in visited:
-                    child_b_node = None
                 if child_a_node is not None or child_b_node is not None:
                     group = candidate_group
                     break
@@ -878,30 +866,28 @@ class ConflictDrivenPatchSearchBase(ABC):
     ) -> Tuple[Optional[SearchNode], Optional[SearchNode]]:
         """Build the (data-fix, model-or-prev-fix) children for one group.
 
-        Child A (data-fix): per conflict, the preferred GT-legal fluent patch
-        (next state by default; prev state when next is GT and the conflict's
-        evidence is two-sided). In GROUP mode all conflicts contribute; in
-        SINGLE mode only the first novel patch does.
+        Original branching structure, with GT states excluded as patch targets:
+
+        Child A (data-fix): per conflict, its next-state fluent patch — or
+        nothing when that state is GT. In GROUP mode all conflicts contribute;
+        in SINGLE mode only the first novel patch does.
 
         Child B: for effect conflicts, a model constraint (unless the key is
         occupied or the constraint is refuted by GT evidence); for frame-axiom
-        conflicts, prev-state patches for the conflicts whose BOTH endpoints
-        are non-GT (per-conflict gate — a GT prev is never patched, and with a
-        GT next Child A already took the prev-side fix).
+        conflicts whose representative has a non-GT source, prev-state patches
+        for the members whose own prev state is non-GT.
         """
         child_a_node: Optional[SearchNode] = None
         child_b_node: Optional[SearchNode] = None
 
-        # Child A: DATA-FIX
+        # Child A: DATA-FIX (original semantics)
+        # Each conflict contributes its next-state patch; a conflict whose
+        # next state is GT contributes nothing (GT states are never patched).
         child_a_fluent_patches = set(node.fluent_patches)
         changed = False
         for c in group:
-            fp = next(
-                (p for p in self._candidate_data_patches(c)
-                 if p not in child_a_fluent_patches),
-                None,
-            )
-            if fp is not None:
+            fp = self._build_data_patch(c)
+            if fp is not None and fp not in child_a_fluent_patches:
                 child_a_fluent_patches.add(fp)
                 changed = True
                 if self.fluent_branch_mode == FluentBranchMode.SINGLE:
@@ -934,18 +920,20 @@ class ConflictDrivenPatchSearchBase(ABC):
                     parent_index=current_node_index,
                     branch_type="model_fix",
                 )
-        else:
-            # FRAME-AXIOM: Child B = fix prev_state (trust post-state).
-            # Child A already fixes next_state (trust pre-state).  Both
-            # branches are data-fixes because frame axioms have no
-            # model-level resolution.
+        elif not self._state_is_gt(
+            rep_conflict.observation_index, rep_conflict.component_index
+        ):
+            # FRAME-AXIOM at non-GT source (original structure): Child B = fix
+            # prev_state (trust post-state). Child A already fixes next_state
+            # (trust pre-state). Both branches are data-fixes because frame
+            # axioms have no model-level resolution. Per-member GT gate: a
+            # member whose OWN prev state is GT is skipped (mixed groups used
+            # to leak prev-patches onto GT states through the rep-only gate).
             child_b_fluent_patches = set(node.fluent_patches)
             child_b_changed = False
             for c in group:
                 if self._state_is_gt(c.observation_index, c.component_index):
                     continue  # prev state is GT — never patch it
-                if self._state_is_gt(c.observation_index, c.component_index + 1):
-                    continue  # next is GT — Child A already fixes prev
                 fp = self._build_frame_axiom_prev_patch(c)
                 if fp not in child_b_fluent_patches:
                     child_b_fluent_patches.add(fp)
@@ -1060,32 +1048,18 @@ class ConflictDrivenPatchSearchBase(ABC):
             fluent=conflict.grounded_fluent,
         )
 
-    def _candidate_data_patches(self, conflict: Conflict) -> List[FluentLevelPatch]:
-        """All GT-legal fluent patches that could dissolve this conflict.
+    def _build_data_patch(self, conflict: Conflict) -> Optional[FluentLevelPatch]:
+        """The Child-A fluent patch for this conflict, or None if GT-blocked.
 
-        Effect conflicts are evidence about a single transition (prev, a, next):
-
-          - FORBID_EFFECT_VS_MUST / FRAME_AXIOM: the evidence is a *change*
-            (must-effect), so flipping the fluent on EITHER side dissolves it.
-            The next-state fix is preferred; the prev-state fix is the GT
-            fallback (used when next is GT but prev is not).
-          - REQUIRE_EFFECT_VS_CANNOT: cannot-be-effect evidence (N-Rule 3)
-            lives entirely in the next state, so only the next-state fix
-            exists; with a GT next state the conflict has NO data fix.
-
-        GT states are never patch targets. Order = preference order.
+        Original semantics: every conflict type patches the transition's NEXT
+        state (precondition conflicts, which patched prev, are never raised).
+        A GT next state is never patched — the conflict then has no Child-A
+        contribution (frame-axiom conflicts may still get a prev-side fix via
+        Child B when their source state is non-GT).
         """
-        obs, comp = conflict.observation_index, conflict.component_index
-        next_gt = self._state_is_gt(obs, comp + 1)
-        prev_gt = self._state_is_gt(obs, comp)
-
-        candidates: List[FluentLevelPatch] = []
-        if not next_gt:
-            candidates.append(self._make_patch(conflict, "next"))
-        if conflict.conflict_type in {ConflictType.FORBID_EFFECT_VS_MUST, ConflictType.FRAME_AXIOM} \
-                and not prev_gt:
-            candidates.append(self._make_patch(conflict, "prev"))
-        return candidates
+        if self._state_is_gt(conflict.observation_index, conflict.component_index + 1):
+            return None
+        return self._make_patch(conflict, "next")
 
     @staticmethod
     def _build_frame_axiom_prev_patch(conflict: Conflict) -> FluentLevelPatch:
@@ -1107,23 +1081,28 @@ class ConflictDrivenPatchSearchBase(ABC):
         Pruning must be SOUND (never cut a subtree that contains a solution),
         so a conflict counts as unresolvable only on locally-certain grounds:
 
-          - no GT-legal local data patch remains unapplied, AND
-          - it has no model-level escape: FRAME_AXIOM has none by nature; an
-            effect conflict has none when its constraint key is already
-            occupied on this path (occupied keys are never overwritten, and
-            constraints are only ever added along a path).
+          - its next-state (Child A) patch is GT-blocked or already applied, AND
+          - for FRAME_AXIOM: its prev-state (Child B) patch is GT-blocked or
+            already applied too (frame axioms have no model-level fix), OR
+          - for effect conflicts: its constraint key is already occupied on
+            this path (occupied keys are never overwritten, and constraints
+            are only ever added along a path).
 
         A free constraint key always counts as an escape — even when the GT
         guard would refuse the constraint — because data-only conflicts
         (prior-history vs current transition) can also dissolve via patches
         to EARLIER transitions, which this local test cannot see.
         """
-        for fp in self._candidate_data_patches(conflict):
-            if fp not in node.fluent_patches:
-                return True
+        fp = self._build_data_patch(conflict)
+        if fp is not None and fp not in node.fluent_patches:
+            return True
 
         if conflict.conflict_type not in _DESIRED_MODEL_OP:
-            return False  # FRAME_AXIOM (and never-raised types): data fixes only
+            # FRAME_AXIOM: the only other escape is the prev-side fix.
+            if self._state_is_gt(conflict.observation_index, conflict.component_index):
+                return False
+            prev_fp = self._build_frame_axiom_prev_patch(conflict)
+            return prev_fp not in node.fluent_patches
         return self._conflict_to_key(conflict) not in node.model_constraints
 
     # ------------------------------------------------------------------
@@ -1155,6 +1134,10 @@ class ConflictDrivenPatchSearchBase(ABC):
         self._gt_pair_evidence = defaultdict(list)
         for obs_idx, obs in enumerate(observations):
             for comp_idx, comp in enumerate(obs.components):
+                if not comp.is_successful:
+                    # A failed transition's next state says nothing about the
+                    # action's effects (the learner skips it too).
+                    continue
                 if not self._state_is_gt(obs_idx, comp_idx + 1):
                     continue
                 call = comp.grounded_action_call

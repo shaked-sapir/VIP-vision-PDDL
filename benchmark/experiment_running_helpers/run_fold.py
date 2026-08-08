@@ -162,8 +162,9 @@ def run_cdps_phase(
     All heavy per-run artifacts (original/final observations, conflict-free
     models, search trace, multi-eval, correlation) are written under
     ``cdps_work_dir``; the anchored variant passes a nested subdir so it never
-    collides with the plain-CDPS artifacts. ``anchor_endpoints`` toggles the
-    init+final GT anchoring inside the search.
+    collides with the plain-CDPS artifacts. ``anchor_endpoints`` only labels
+    the variant: GT protection is always on in the search, and the anchored
+    variant differs upstream (its trajectories embed the final state as GT).
     """
     cdps_work_dir.mkdir(parents=True, exist_ok=True)
     test_states_path_str = str(test_states_path)
@@ -483,8 +484,10 @@ def run_single_fold(
         # Shared kwargs for every CDPS variant. Each variant supplies its own
         # anchor flag, algorithm label, work dir, and (possibly re-prepared)
         # trajectories so its heavy artifacts never collide with the others.
+        # NOTE: gt_source_indices and the transition counts are deliberately
+        # NOT shared — each variant must use the GT map and counts of ITS OWN
+        # trajectories (the anchored ones embed the final state as GT).
         cdps_common = dict(
-            gt_source_indices=gt_source_indices,
             pre_built_observations=pre_built_observations,
             domain_ref_path=domain_ref_path,
             testing_dir=testing_dir,
@@ -494,8 +497,6 @@ def run_single_fold(
             gt_rate=gt_rate,
             test_problem_paths=test_problem_paths,
             null_metrics=null_metrics,
-            total_transitions=total_transitions,
-            total_gt_transitions=total_gt_transitions,
             conflict_search_timeout=conflict_search_timeout,
             planning_timeout=planning_timeout,
             fluent_patch_cost=fluent_patch_cost,
@@ -520,6 +521,9 @@ def run_single_fold(
                 algo_name=CDPS_ALGORITHM_NAME,
                 cdps_work_dir=fold_work_dir,
                 trajectories=prepared_trajectories,
+                gt_source_indices=gt_source_indices,
+                total_transitions=total_transitions,
+                total_gt_transitions=total_gt_transitions,
                 **cdps_common,
             )
             if plain is not None:
@@ -540,11 +544,19 @@ def run_single_fold(
                 anchored_work_dir,
                 frame_axiom_mode=frame_axiom_mode,
             )
+            anchored_transitions, anchored_gt = count_total_transitions_and_gt(
+                anchored_trajectories
+            )
             anchored = run_cdps_phase(
                 anchor_endpoints=True,
                 algo_name=CDPS_ANCHORED_ALGORITHM_NAME,
                 cdps_work_dir=anchored_work_dir,
                 trajectories=anchored_trajectories,
+                # None -> learn_cdps derives the GT map from the anchored
+                # tuples' own gt_state_indices (which include the final state).
+                gt_source_indices=None,
+                total_transitions=anchored_transitions,
+                total_gt_transitions=anchored_gt,
                 **cdps_common,
             )
             if anchored is not None:

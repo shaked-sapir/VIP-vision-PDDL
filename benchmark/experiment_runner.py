@@ -113,6 +113,7 @@ def main(
     data_dir: Path,
     data_source: DataSource,
     n_folds: int = 5,
+    folds: Optional[List[int]] = None,
     num_trajectories_list: List[int] = None,
     gt_rate_percentages: List[int] = None,
     frame_axiom_mode: str = "after_gt_only",
@@ -144,7 +145,12 @@ def main(
         data_source: DataSource instance controlling where observations come from.
             Use ImageDataSource() for real image-pipeline data (pre-generated files)
             or SimulatedDataSource(...) for synthetic in-memory noise injection.
-        n_folds: Number of cross-validation folds.
+        n_folds: Number of cross-validation folds (defines the CV split).
+        folds: Optional subset of fold indices to run (e.g. [2]). None runs
+            all folds 0..n_folds-1. The CV split itself is still defined by
+            n_folds, so results are identical to a full run restricted to
+            these folds — this is what lets a SLURM array run each fold as
+            an independent job against the same experiment directory.
         num_trajectories_list: List of trajectory counts to evaluate.
         gt_rate_percentages: List of GT injection rates (0 = baseline).
         frame_axiom_mode: "after_gt_only" or "all_states".
@@ -159,6 +165,15 @@ def main(
         num_trajectories_list = [3, 4, 5, 6, 7, 8]
     if gt_rate_percentages is None:
         gt_rate_percentages = [0]
+
+    # Resolve which folds to run (None → all folds of the CV split).
+    fold_list = list(range(n_folds)) if folds is None else sorted(set(folds))
+    out_of_range = [f for f in fold_list if f < 0 or f >= n_folds]
+    if out_of_range:
+        raise ValueError(
+            f"folds {out_of_range} out of range for n_folds={n_folds} "
+            f"(valid: 0..{n_folds - 1})"
+        )
 
     # Print metrics banner (was previously a module-level side effect)
     print_metrics()
@@ -218,6 +233,7 @@ def main(
         "data_dir": str(data_dir),
         "experiment_name": experiment_name,
         "n_folds": n_folds,
+        "folds": fold_list,
         "num_trajectories_list": num_trajectories_list,
         "gt_rate_percentages": gt_rate_percentages,
         "frame_axiom_mode": frame_axiom_mode,
@@ -317,7 +333,7 @@ def main(
         f"conflict_group_strategy={conflict_group_strategy}, "
         f"fluent_branch_mode={fluent_branch_mode}"
     )
-    print(f"CV folds: {n_folds}")
+    print(f"CV folds: {n_folds} (running: {fold_list})")
     print(f"{'=' * 80}\n")
 
     # One-time data source setup (pre-generates files for ImageDataSource; no-op for SimulatedDataSource)
@@ -331,9 +347,9 @@ def main(
             gt_info = f"GT rate: {gt_rate}%" if gt_rate > 0 else "Baseline (GT only at t=0)"
             print(f"\n{'-'*60}\n{gt_info}\n{'-'*60}")
 
-            with ProcessPoolExecutor(max_workers=n_folds) as executor:
+            with ProcessPoolExecutor(max_workers=len(fold_list)) as executor:
                 futures = []
-                for fold in range(n_folds):
+                for fold in fold_list:
                     if resume:
                         cached = try_load_fold_result(
                             fold_instance_dir(testing_dir, fold, num_trajectories, gt_rate)
@@ -482,6 +498,10 @@ if __name__ == "__main__":
     # ── Experiment parameters ────────────────────────────────────────────
     parser.add_argument('--n-folds', type=int, default=5,
                         help='Number of cross-validation folds (default: 5)')
+    parser.add_argument('--folds', type=str, default=None,
+                        help='Comma-separated subset of fold indices to run (e.g. "2" or "0,3"). '
+                             'Default: all folds 0..n_folds-1. The CV split is still defined by '
+                             '--n-folds; use this to run folds as independent cluster jobs.')
     parser.add_argument('--num-trajectories', type=str, default='3,4,5,6,7,8',
                         help='Comma-separated trajectory counts to evaluate (default: 3,4,5,6,7,8)')
     parser.add_argument('--gt-rates', type=str, default='0',
@@ -590,6 +610,7 @@ if __name__ == "__main__":
     # Parse list arguments
     num_trajectories_list = _parse_int_list(args.num_trajectories)
     gt_rate_percentages = _parse_int_list(args.gt_rates)
+    folds = _parse_int_list(args.folds) if args.folds else None
 
     # Resolve data dir (allow relative paths)
     data_dir = Path(args.data_dir)
@@ -641,6 +662,7 @@ if __name__ == "__main__":
         data_dir=data_dir,
         data_source=data_source,
         n_folds=args.n_folds,
+        folds=folds,
         num_trajectories_list=num_trajectories_list,
         gt_rate_percentages=gt_rate_percentages,
         frame_axiom_mode=args.frame_axiom_mode,

@@ -18,11 +18,13 @@ FOLD_RESULT_FILENAME = "fold_result.json"
 
 # run_params.json keys that may legitimately differ between the original run and
 # a resume without invalidating already-computed folds (the grid may be extended;
-# the timestamp always changes).
+# the timestamp always changes; fold-level cluster jobs each run a different
+# subset of folds of the same experiment).
 RESUME_IGNORED_PARAMS = frozenset({
     "timestamp",
     "num_trajectories_list",
     "gt_rate_percentages",
+    "folds",
 })
 
 

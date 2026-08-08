@@ -432,9 +432,19 @@ def inject_gt_states_by_percentage(
 ) -> Tuple[Path, Path, Set[int]]:
     """Inject ground truth states at percentage-based intervals throughout the trajectory.
 
-    When ``anchor_final`` is True, the final state is also injected + unmasked as
-    GT (in addition to the init state and any gt_rate picks), and the output files
-    get an ``_anchored`` suffix so they never collide with the plain-CDPS files.
+    Selective injection (single code path for plain AND anchored CDPS): keep
+    the degraded (noisy) states everywhere and inject clean GT literals ONLY at
+    ``gt_state_indices`` (init + any gt_rate picks; + final when
+    ``anchor_final``), unmasking exactly those states. This preserves
+    noise/partial observability in the interior so CDPS still sees conflicts.
+
+    NOTE: an earlier version rewrote EVERY state from the JSON in the plain
+    path. That was a silent no-op while the in-dir JSON equaled the degraded
+    trajectory, but after the gt_builder split repointed injection at the
+    CLEAN gt_trajectories JSON it destroyed all interior noise for gt_rate>0.
+    Injection is now selective for both variants; ``anchor_final`` only adds
+    the final state index and the ``_anchored`` filename suffix (so anchored
+    files never collide with the plain-CDPS files).
     """
     trajectory_path, masking_info_path = Path(trajectory_path), Path(masking_info_path)
     json_trajectory_path, domain_path = Path(json_trajectory_path), Path(domain_path)
@@ -448,47 +458,26 @@ def inject_gt_states_by_percentage(
     gt_state_indices = _compute_gt_indices(num_steps + 1, gt_rate, anchor_final=anchor_final)
     n = min(num_steps, len(gt_trajectory))
 
-    if anchor_final:
-        # Anchored variant: keep the degraded (noisy) interior states and inject
-        # clean GT literals only at gt_state_indices (init + final + any gt_rate
-        # picks). This preserves noise/partial-observability so CDPS still sees
-        # conflicts — mirroring how the ROSAME+MILP / ROSAME-I baselines anchor
-        # only the endpoints instead of rewriting the whole trajectory.
-        gt_states = _gt_state_literals(gt_trajectory, n)
-        degraded_states = _degraded_state_literals(obs, n)
-        state_literals = [
-            gt_states[idx] if idx in gt_state_indices else degraded_states[idx]
-            for idx in range(n + 1)
-        ]
-        if 0 in gt_state_indices and len(masking) > 0:
-            masking[0] = set()
+    gt_states = _gt_state_literals(gt_trajectory, n)
+    degraded_states = _degraded_state_literals(obs, n)
+    state_literals = [
+        gt_states[idx] if idx in gt_state_indices else degraded_states[idx]
+        for idx in range(n + 1)
+    ]
+    if 0 in gt_state_indices and len(masking) > 0:
+        masking[0] = set()
 
-        new_trajectory_data = []
-        for i in range(n):
-            state_idx = i + 1
-            if state_idx in gt_state_indices and state_idx < len(masking):
-                masking[state_idx] = set()
-            new_trajectory_data.append({
-                'step': state_idx,
-                'current_state': {'literals': sorted(state_literals[i])},
-                'ground_action': gt_trajectory[i]['ground_action'],
-                'next_state': {'literals': sorted(state_literals[i + 1])},
-            })
-    else:
-        new_trajectory_data = []
-        for i in range(n):
-            step_data = gt_trajectory[i]
-            state_idx = i + 1
-
-            if state_idx in gt_state_indices and state_idx < len(masking):
-                masking[state_idx] = set()
-
-            new_trajectory_data.append({
-                'step': state_idx,
-                'current_state': step_data['current_state'],
-                'ground_action': step_data['ground_action'],
-                'next_state': {'literals': step_data['next_state']['literals']},
-            })
+    new_trajectory_data = []
+    for i in range(n):
+        state_idx = i + 1
+        if state_idx in gt_state_indices and state_idx < len(masking):
+            masking[state_idx] = set()
+        new_trajectory_data.append({
+            'step': state_idx,
+            'current_state': {'literals': sorted(state_literals[i])},
+            'ground_action': gt_trajectory[i]['ground_action'],
+            'next_state': {'literals': sorted(state_literals[i + 1])},
+        })
 
     problem_name = trajectory_path.stem.split('_gtrate')[0]
     out_name = f"{problem_name}_gtrate{gt_rate}" if gt_rate > 0 else problem_name

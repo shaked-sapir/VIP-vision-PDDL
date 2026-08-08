@@ -136,11 +136,17 @@ class _GtSearchTestBase(unittest.TestCase):
             )
 
 
-class TestTwoSidedFixAtGtFinal(_GtSearchTestBase):
-    """A must-effect conflict at the final (GT) transition is fixed from prev."""
+class TestMustConflictAtGtFinal(_GtSearchTestBase):
+    """A seeded FORBID contradicted by the GT final transition dead-ends safely.
+
+    Child A patches only the next state; with the final state GT and the
+    constraint key occupied, the conflict at the last component has no fix —
+    the search must prune (never patching the GT state) rather than "solve" it
+    by corrupting the final state.
+    """
 
     def _run(self, gt_states: Optional[Dict[int, Set[int]]]):
-        obs = self._load_observation(CLEAN_STATES, ACTIONS, name="clean_two_sided")
+        obs = self._load_observation(CLEAN_STATES, ACTIONS, name="clean_must_final")
         search = self._make_search()
         # Forbid (ontable ?x) as an effect of put_down. The trajectory shows it
         # as a must-effect of put_down at components 1 and 3 (the last one).
@@ -153,21 +159,12 @@ class TestTwoSidedFixAtGtFinal(_GtSearchTestBase):
             gt_states_by_obs=gt_states,
         )
 
-    def test_finds_cfm_without_touching_gt_final_state(self):
+    def test_gt_final_state_is_never_patched_and_subtree_pruned(self):
         result = self._run(gt_states={0: {0, 4}})
-        self.assertEqual(result.conflicts, [], "expected a conflict-free model")
+        self.assertTrue(result.conflicts, "the seeded FORBID cannot be satisfied")
         self._assert_no_gt_patch(result, gt_states={0, 4})
-        # The last transition's fix must have landed on its prev side (state 3):
-        # (ontable b) appears in s4 (GT) and not in s3, so the must-evidence at
-        # component 3 can only be dissolved by asserting it in s3.
-        prev_fixes = [
-            fp for fp in result.fluent_patches
-            if fp.component_index == 3 and fp.state_type == "prev"
-        ]
-        self.assertTrue(
-            prev_fixes,
-            f"expected a prev-side fix at the final transition, got {result.fluent_patches}",
-        )
+        self.assertGreaterEqual(result.report["pruned_unresolvable_nodes"], 1)
+        self.assertEqual(result.report["conflict_free_model_count"], 0)
 
     def test_without_final_gt_next_side_fix_is_allowed(self):
         result = self._run(gt_states={0: {0}})
@@ -275,8 +272,8 @@ class TestForbidRefutedOnlyByGtPair(_GtSearchTestBase):
         self.assertTrue(search._gt_evidence_contradicts(key, PatchOperation.FORBID))
 
 
-class TestCandidatePatchSides(_GtSearchTestBase):
-    """Unit checks of the GT-aware per-conflict patch-side selection."""
+class TestDataPatchGtGate(_GtSearchTestBase):
+    """Unit checks: Child-A patches target next state, GT next -> no patch."""
 
     def _search_with_gt(self, gt_states):
         search = self._make_search()
@@ -295,38 +292,29 @@ class TestCandidatePatchSides(_GtSearchTestBase):
 
     def test_default_is_next_side(self):
         search = self._search_with_gt({0: {0}})
-        c = self._conflict(ConflictType.FORBID_EFFECT_VS_MUST, comp=3)
-        sides = [p.state_type for p in search._candidate_data_patches(c)]
-        self.assertEqual(sides, ["next", "prev"])
+        for ctype in (ConflictType.FORBID_EFFECT_VS_MUST,
+                      ConflictType.REQUIRE_EFFECT_VS_CANNOT,
+                      ConflictType.FRAME_AXIOM):
+            fp = search._build_data_patch(self._conflict(ctype, comp=3))
+            self.assertEqual(fp.state_type, "next")
+            self.assertEqual(fp.component_index, 3)
 
-    def test_must_conflict_falls_back_to_prev_when_next_is_gt(self):
+    def test_no_patch_when_next_is_gt(self):
         search = self._search_with_gt({0: {0, 4}})
-        c = self._conflict(ConflictType.FORBID_EFFECT_VS_MUST, comp=3)
-        sides = [p.state_type for p in search._candidate_data_patches(c)]
-        self.assertEqual(sides, ["prev"])
+        for ctype in (ConflictType.FORBID_EFFECT_VS_MUST,
+                      ConflictType.REQUIRE_EFFECT_VS_CANNOT,
+                      ConflictType.FRAME_AXIOM):
+            self.assertIsNone(search._build_data_patch(self._conflict(ctype, comp=3)))
 
-    def test_require_conflict_has_no_fix_when_next_is_gt(self):
-        search = self._search_with_gt({0: {0, 4}})
-        c = self._conflict(ConflictType.REQUIRE_EFFECT_VS_CANNOT, comp=3)
-        self.assertEqual(search._candidate_data_patches(c), [])
-
-    def test_require_conflict_next_only_when_next_not_gt(self):
-        search = self._search_with_gt({0: {0}})
-        c = self._conflict(ConflictType.REQUIRE_EFFECT_VS_CANNOT, comp=3)
-        sides = [p.state_type for p in search._candidate_data_patches(c)]
-        self.assertEqual(sides, ["next"])
-
-    def test_frame_axiom_between_two_gt_states_has_no_fix(self):
-        search = self._search_with_gt({0: {0, 3, 4}})
-        c = self._conflict(ConflictType.FRAME_AXIOM, comp=3)
-        self.assertEqual(search._candidate_data_patches(c), [])
-
-    def test_prev_side_blocked_at_init_state(self):
-        # comp 0: prev is state 0 (always GT) -> only next-side fix.
-        search = self._search_with_gt({})
-        c = self._conflict(ConflictType.FORBID_EFFECT_VS_MUST, comp=0)
-        sides = [p.state_type for p in search._candidate_data_patches(c)]
-        self.assertEqual(sides, ["next"])
+    def test_interior_gt_state_blocks_its_incoming_patch(self):
+        search = self._search_with_gt({0: {0, 2}})
+        # state 2 is GT: comp 1's next-patch is blocked, comp 2's is fine.
+        self.assertIsNone(
+            search._build_data_patch(self._conflict(ConflictType.FORBID_EFFECT_VS_MUST, comp=1))
+        )
+        self.assertIsNotNone(
+            search._build_data_patch(self._conflict(ConflictType.FORBID_EFFECT_VS_MUST, comp=2))
+        )
 
 
 class TestUnresolvablePruning(_GtSearchTestBase):
