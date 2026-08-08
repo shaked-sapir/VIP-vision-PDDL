@@ -16,7 +16,7 @@
 #SBATCH --time 0-02:00:00
 #SBATCH --cpus-per-task 2
 #SBATCH --gpus=0
-#SBATCH --mem 16
+#SBATCH --mem 16G
 
 set -euo pipefail
 shopt -s failglob   # empty GT-trajectory glob must fail loudly, not fall back to ImageDataSource
