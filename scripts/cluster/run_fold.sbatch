@@ -1,6 +1,6 @@
 #!/bin/bash
 # Fold-level SLURM array template: each task = one (domain, p_mask, p_noise,
-# num_trajs, fold) manifest row — a single fold instance as an independent job.
+# num_trajs, fold) manifest row - a single fold instance as an independent job.
 # Requires the --folds flag on benchmark/experiment_runner.py.
 #
 # Usage (from the project root on the cluster):
@@ -10,11 +10,15 @@
 #
 # Conda env: defaults to "vip_venv11"; override with  export VIP_ENV=my_env  before sbatch.
 #
+# Hardware pinning: see the rationale in run_cell.sbatch. One fold = one CPU-bound
+# process, so 2 logical CPUs (= 1 full physical core, ThreadsPerCore=2) is right;
+# the constraint is what matters here, to keep the wall-clock budget comparable.
 #SBATCH --partition main
 #SBATCH --job-name vip-fold
 #SBATCH --output logs/%x-%A_%a.out
 #SBATCH --time 0-02:00:00
 #SBATCH --cpus-per-task 2
+#SBATCH --constraint cpu256
 #SBATCH --gpus=0
 #SBATCH --mem 16G
 
@@ -38,8 +42,19 @@ echo "SLURM_JOBID=${SLURM_JOB_ID:-?} node=${SLURM_JOB_NODELIST:-?}"
 echo "task=${SLURM_ARRAY_TASK_ID}: domain=${DOMAIN} mask=${P_MASK} noise=${P_NOISE} numtrajs=${NUM_TRAJS} fold=${FOLD}"
 echo "experiment_name=${EXPERIMENT_NAME}"
 
+# Record the hardware -- a wall-clock search budget makes results hardware-dependent.
+echo "cpu_model=$(awk -F': ' '/^model name/{print $2; exit}' /proc/cpuinfo)"
+echo "cpus_allocated=${SLURM_CPUS_PER_TASK:-?} (logical; ThreadsPerCore=2 on this cluster)"
+
 module load anaconda
 source activate "${VIP_ENV:-vip_venv11}"
+
+# Keep BLAS/OpenMP single-threaded so nothing oversubscribes the allocation.
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1
 
 # shellcheck disable=SC2086  # COMMON_FLAGS is intentionally word-split
 python -m benchmark.experiment_runner \
