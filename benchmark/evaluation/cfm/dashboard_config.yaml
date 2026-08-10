@@ -69,11 +69,16 @@ results_dashboard:
     # Per-domain experiment-name prefix of the grid-search runs. The generator
     # globs "<results_root>/<domain>/<prefix>*mask=*noise=*" for the 9 cells.
     prefix:
-      blocksworld: sim_run
-      depot: simulation-after-pred-fix 
-      gripper: sim_run
-      hanoi: simulation-checkup-after-gtfixed
-      npuzzle: simulation-checkup-after-gtfixed
+      # blocksworld: sim_run
+      # depot: simulation-after-pred-fix 
+      # gripper: sim_run
+      # hanoi: simulation-checkup-after-gtfixed
+      # npuzzle: simulation-checkup-after-gtfixed
+      blocksworld: simulation-cluster-run-cpu256-10min
+      depot: simulation-cluster-run-cpu256-10min
+      gripper: simulation-cluster-run-cpu256-10min
+      hanoi: simulation-cluster-run-cpu256-10min
+      npuzzle: simulation-cluster-run-cpu256-10min
 
   # ── Image section (single experiment per domain) ──
   image:

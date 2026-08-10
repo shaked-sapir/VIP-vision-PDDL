@@ -8,12 +8,14 @@ cell identity parsing, problem-PDDL resolution, ``fold_result.json`` merging, an
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
 import shutil
+from contextlib import contextmanager
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple
 
 _CELL_RE = re.compile(r"^fold(\d+)_numtrajs(\d+)_gtrate(\d+)$")
 
@@ -69,19 +71,47 @@ def find_problem_pddl(data_dir: Path, problem_name: str) -> Optional[Path]:
     return None
 
 
-def merge_row(fold_result_path: Path, row: dict) -> None:
-    """Merge one algorithm row into fold_result.json (replace same-algorithm)."""
-    if fold_result_path.exists():
-        backup = fold_result_path.with_suffix(".json.bak")
-        if not backup.exists():
-            shutil.copy2(fold_result_path, backup)
-        rows = json.loads(fold_result_path.read_text())
-    else:
-        rows = []
+@contextmanager
+def _fold_result_lock(fold_result_path: Path) -> Iterator[None]:
+    """Hold an exclusive advisory lock on a cell's fold_result.json.
 
-    rows = [r for r in rows if r.get("algorithm") != row["algorithm"]]
-    rows.append(row)
-    fold_result_path.write_text(json.dumps(rows, indent=2))
+    Two backfills (e.g. ``backfill_baseline`` and ``backfill_cdps``) may target
+    the same cells at the same time — different algorithms, same file. Without
+    a lock, their read-modify-write cycles interleave and the slower writer's
+    row is silently dropped. The lock lives in a sidecar ``.json.lock`` file so
+    it is independent of the result file being replaced underneath it.
+    """
+    lock_path = fold_result_path.with_suffix(".json.lock")
+    with open(lock_path, "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def merge_row(fold_result_path: Path, row: dict) -> None:
+    """Merge one algorithm row into fold_result.json (replace same-algorithm).
+
+    Concurrency-safe: the read-modify-write runs under an exclusive file lock,
+    and the result is swapped in with an atomic rename so a reader never sees a
+    half-written file.
+    """
+    with _fold_result_lock(fold_result_path):
+        if fold_result_path.exists():
+            backup = fold_result_path.with_suffix(".json.bak")
+            if not backup.exists():
+                shutil.copy2(fold_result_path, backup)
+            rows = json.loads(fold_result_path.read_text())
+        else:
+            rows = []
+
+        rows = [r for r in rows if r.get("algorithm") != row["algorithm"]]
+        rows.append(row)
+
+        tmp_path = fold_result_path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(rows, indent=2))
+        os.replace(tmp_path, fold_result_path)
 
 
 def existing_algorithms(fold_result_path: Path) -> List[str]:

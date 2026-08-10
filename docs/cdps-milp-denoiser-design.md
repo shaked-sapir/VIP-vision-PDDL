@@ -46,12 +46,28 @@ CDPS.
    between `hol` and the observation **on observed fluents only** — the
    exact analog of CDPS fluent patches.
 3. **All fold trajectories enter one MILP.** Global consistency across
-   trajectories is the point (the lifted `pre/add/del` are shared; per-trace
-   `hol` blocks are independent given the model). Our instances are tiny
-   (3–8 traces × ~10 steps × a few hundred grounded fluents ≈ low tens of
-   thousands of binaries). The '26 paper subsets traces only because their
-   MILP also frees the actions and their datasets have hundreds of traces —
-   neither applies here. If scale ever bites, decompose then; not now.
+   trajectories is the point: the lifted `pre/add/del` are the ONLY coupling
+   between traces (per-trace `hol` blocks are independent given the model),
+   and the joint solve produces one witness model explaining every repaired
+   trajectory simultaneously — which is exactly what §4.1 (feasibility ⟹
+   PI-SAM conflict-freeness over the WHOLE set) requires. Subset-solving
+   would break that: traces repaired in different solves need not be
+   mutually consistent, and PI-SAM could raise conflicts between a repaired
+   trace and an untouched one.
+   Note the '26 paper's subsetting is not a counterexample: their MILP is
+   far larger per trace (free `act` variables, permutation symmetry) over
+   hundreds of traces, and cross-subset inconsistency is absorbed *softly*
+   by gradient training with ψ-aged pseudo-labels — consistency is only
+   asymptotic, never a per-solve guarantee. Our per-fold instance (3–8
+   traces × ~10 steps, actions fixed ≈ low tens of thousands of binaries)
+   makes the joint solve trivially tractable.
+   **Fallback if scale ever bites** (100+ traces; not now): (a)
+   model-communication rounds — solve subset k, pass its `pre/add/del` as
+   hard constraints/priors to subset k+1, finish with a feasibility pass
+   over all traces under the fixed model; or (b) lazy expansion — solve a
+   subset, verify the model on held-out traces, add violated traces'
+   blocks and re-solve. Both restore joint consistency but forfeit global
+   optimality (upper bound only, like CDPS).
 4. **Single pass, no iteration.** The '26 iterate because the MILP's inputs
    are *neural predictions that improve with training* — the loop co-trains
    predictors and solver. Our inputs are fixed observations; the MILP is
