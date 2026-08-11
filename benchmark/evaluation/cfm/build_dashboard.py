@@ -67,6 +67,21 @@ def instance_counts(instance_dirs: List[Path]) -> List[int]:
     contrib = sum(1 for d in instance_dirs if load_cfm_metrics(d))
     return [contrib, len(instance_dirs)]
 
+
+def anchored_instance_counts(instance_dirs: List[Path]) -> Optional[List[int]]:
+    """[contributing, total] for the anchored variant, or None if not backfilled.
+
+    An instance contributes when its ``cdps_anchored/`` subdir holds >= 1
+    numbered CFM; the total is ALL fold instances (same denominator as the
+    plain count), so the two badges are directly comparable.
+    """
+    anch = [d / "cdps_anchored" for d in instance_dirs]
+    present = [d for d in anch if (d / "all_solutions_metrics.json").exists()]
+    if not present:
+        return None
+    contrib = sum(1 for d in present if load_cfm_metrics(d))
+    return [contrib, len(instance_dirs)]
+
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_CONFIG = Path(__file__).resolve().parent / "dashboard_config.yaml"
 
@@ -124,7 +139,15 @@ def _finite(v) -> bool:
 
 
 def _cfm_last_and_best(instance_dir: Path, metric_keys: List[str]) -> Dict[str, Dict[str, float]]:
-    """Per metric: the last CFM's value (returned model) and the oracle best."""
+    """Per metric: the last CFM's value (returned model) and the oracle best.
+
+    The anchored variant's series is built the SAME way from its own CFM set
+    (``cdps_anchored/all_solutions_metrics.json``): last-CFM values, and no
+    entry at all when it found no CFM. This mirrors the plain-CDPS convention —
+    both series drop their failures — instead of the old row-based source,
+    which fell back to the conflicted final model on failed instances and made
+    the anchored averages incomparable.
+    """
     out: Dict[str, Dict[str, float]] = {CDPS_SERIES: {}, ORACLE_SERIES: {}}
     cfms = load_cfm_metrics(instance_dir)
     if cfms:
@@ -137,6 +160,19 @@ def _cfm_last_and_best(instance_dir: Path, metric_keys: List[str]) -> Dict[str, 
             if _finite(last):
                 out[CDPS_SERIES][key] = last
             out[ORACLE_SERIES][key] = min(vals) if key in INVERT_METRICS else max(vals)
+
+    anch_dir = instance_dir / "cdps_anchored"
+    if (anch_dir / "all_solutions_metrics.json").exists():
+        acfms = load_cfm_metrics(anch_dir)
+        if acfms:
+            acfms = sorted(acfms, key=lambda c: c["solution_index"])
+            avals = {}
+            for key in metric_keys:
+                last = acfms[-1].get(key)
+                if _finite(last):
+                    avals[key] = last
+            if avals:
+                out[ANCHORED_SERIES] = avals
     if "fluent_patch_count" in metric_keys:
         entries = load_fluent_patch_counts(instance_dir)
         if entries:
@@ -145,6 +181,16 @@ def _cfm_last_and_best(instance_dir: Path, metric_keys: List[str]) -> Dict[str, 
             if counts:
                 out[CDPS_SERIES]["fluent_patch_count"] = counts[-1]
                 out[ORACLE_SERIES]["fluent_patch_count"] = min(counts)
+        # CDPS-family metric for the anchored variant too: its own CFM log,
+        # same last-entry convention, absent when it found no CFM. This lets
+        # the fluent-patch-count heat/Δ/curves compare CDPS vs CDPS_ANCHORED
+        # instead of showing "–" for the anchored side.
+        aentries = load_fluent_patch_counts(anch_dir)
+        if aentries:
+            aentries = sorted(aentries, key=lambda e: e["index"])
+            acounts = [e["fluent_patch_count"] for e in aentries if _finite(e.get("fluent_patch_count"))]
+            if acounts:
+                out.setdefault(ANCHORED_SERIES, {})["fluent_patch_count"] = acounts[-1]
     return out
 
 
@@ -160,7 +206,11 @@ def _baseline_rows(instance_dir: Path, metric_keys: List[str]) -> Dict[str, Dict
     out: Dict[str, Dict[str, float]] = {}
     for row in rows:
         alg = row.get("algorithm")
-        if not alg or alg in _OUR_ROW_LABELS:
+        if not alg or alg in _OUR_ROW_LABELS or alg == ANCHORED_SERIES:
+            # CDPS_ANCHORED is ours: its series comes from its own CFM set
+            # (see _cfm_last_and_best), not from the returned-model row —
+            # the row falls back to a conflicted final model when the search
+            # found no CFM, which would mix failures into the series.
             continue
         vals = {k: row[k] for k in metric_keys if _finite(row.get(k))}
         if vals:
@@ -421,6 +471,7 @@ def build_sim_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
                 "status": status, "stats": stats, "pngs": pngs,
                 "masked": fl.get("masked"), "flipped": fl.get("flipped"),
                 "n": instance_counts(instance_dirs),
+                "n_anch": anchored_instance_counts(instance_dirs),
                 "curves": cell_learning_curves(cell / "testing", [mk["key"] for mk in metrics]),
             }
 
@@ -762,7 +813,7 @@ function lcDomainGrid(d){
   const entries=[];
   for(const n of NOISES){grid+=`<div class="rowlab">p_n = ${n}</div>`;
     for(const m of MASKS){const c=cellOf(d,m,n);
-      grid+=`<div onmouseenter="hlCorr('${d}|${m}|${n}',true)" onmouseleave="hlCorr('${d}|${m}|${n}',false)">${curveSVG(c&&c.curves)}</div>`;
+      grid+=`<div onmouseenter="hlCorr('${d}|${m}|${n}',true)" onmouseleave="hlCorr('${d}|${m}|${n}',false)">${curveSVG(c&&c.curves)}${ncap(c)}</div>`;
       entries.push({label:`m=${m} n=${n}`,cv:c&&c.curves,key:`${m}|${n}`});}}
   grid+=`</div>`;
   return {grid:grid,entries:entries};
@@ -776,7 +827,7 @@ function lcAll(){
   let body=`<div style="display:grid;grid-template-columns:${cols};gap:7px;">`;
   CONFIGS.forEach(([m,n],ri)=>{
     body+=`<div class="cfglab">p_mask = ${m}<span>p_n = ${n}</span></div>`+DOMAINS.map((d,i)=>{const c=cellOf(d,m,n);
-      return (i?`<div class="colsep"></div>`:"")+`<div onmouseenter="hlCorr('${d}|${m}|${n}',true)" onmouseleave="hlCorr('${d}|${m}|${n}',false)">${curveSVG(c&&c.curves)}</div>`;}).join("");
+      return (i?`<div class="colsep"></div>`:"")+`<div onmouseenter="hlCorr('${d}|${m}|${n}',true)" onmouseleave="hlCorr('${d}|${m}|${n}',false)">${curveSVG(c&&c.curves)}${ncap(c)}</div>`;}).join("");
     if(ri<CONFIGS.length-1)body+=`<div class="rowsep"></div>`;
   });
   return `<div class="allscroll">${head}${body}</div>`;
@@ -879,7 +930,12 @@ function guideRow(){
     ? `<div class="grow">${corruption()}${lcExampleCard()}${lcExplainCard()}</div>`
     : `<div class="grow">${corruption()}${exampleCard()}${explainCard()}</div>`;
 }
-function ncap(c){return (c&&c.n)?`<div class="ncap">instances: ${c.n[0]}(${c.n[1]})</div>`:"";}
+function ncap(c){
+ if(!(c&&c.n))return "";
+ let t=`instances: ${c.n[0]}(${c.n[1]})`;
+ if(c.n_anch)t+=` · anchored ${c.n_anch[0]}(${c.n_anch[1]})`;
+ return `<div class="ncap">${t}</div>`;
+}
 function chartCell(c,cap,hk){
   const hov=hk?` onmouseenter="hlCorr('${hk}',true)" onmouseleave="hlCorr('${hk}',false)"`:"";
   if(c&&c.pngs[S.metric]) return `<div${hov}><div class="cell"><img loading="lazy" src="${c.pngs[S.metric]}" onclick="zoom('${c.pngs[S.metric]}','${cap}')"></div>${ncap(c)}</div>`;

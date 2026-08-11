@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -86,11 +87,20 @@ def _title_with_domain(domain_name: str, title: str) -> str:
     return f"{domain_name.upper()} — {title}"
 
 
+# Only fold-instance dirs count as instances. The recursive glob below also
+# hits nested per-variant copies (e.g. <fold>/cdps_anchored/all_solutions_
+# metrics.json written by the anchored backfill); without this filter each
+# fold was counted twice and the anchored CFM sets leaked into the plain
+# CDPS series.
+_INSTANCE_DIR_RE = re.compile(r"^fold\d+_numtrajs\d+_gtrate\d+$")
+
+
 def find_instance_dirs(testing_dir: Path) -> List[Path]:
-    """Return all instance directories that contain all_solutions_metrics.json."""
+    """Return all fold-instance directories containing all_solutions_metrics.json."""
     instances = []
     for metrics_file in testing_dir.rglob("all_solutions_metrics.json"):
-        instances.append(metrics_file.parent)
+        if _INSTANCE_DIR_RE.match(metrics_file.parent.name):
+            instances.append(metrics_file.parent)
     return sorted(instances)
 
 
