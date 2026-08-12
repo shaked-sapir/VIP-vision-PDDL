@@ -16,6 +16,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from benchmark.algorithm_adapters.anytime_snapshots import SnapshotWriter
 from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 
@@ -73,10 +74,21 @@ class RosameBaselineRunner(BaselineRunner):
       - per-trajectory: fully train each trace before the next (ordering bias);
       - pooled: one persistent optimizer, all traces interleaved per epoch.
     Pooled needs no shared object universe (plain ROSAME has no CV head).
+
+    ``snapshot_interval`` turns on anytime instrumentation: every Nth epoch the
+    current model is written under ``anytime_snapshots/ROSAME/``. It is off by
+    default because ROSAME otherwise emits a single model, and every existing
+    result was produced that way — a run that silently started writing hundreds
+    of extra files per fold would be a surprise, not a feature.
     """
 
-    def __init__(self, train_per_trajectory: bool = True) -> None:
+    def __init__(
+        self,
+        train_per_trajectory: bool = True,
+        snapshot_interval: Optional[int] = None,
+    ) -> None:
         self.train_per_trajectory = train_per_trajectory
+        self.snapshot_interval = snapshot_interval
 
     @property
     def name(self) -> str:
@@ -132,13 +144,23 @@ class RosameBaselineRunner(BaselineRunner):
             return None, {}
 
         extra_info = {"train_per_trajectory": self.train_per_trajectory}
+        snapshot = None
+        if self.snapshot_interval is not None:
+            snapshot = SnapshotWriter(
+                work_dir / "anytime_snapshots" / self.name,
+                interval=self.snapshot_interval,
+            )
+            extra_info["snapshot_interval"] = self.snapshot_interval
+
         try:
             partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
             rosame = PORosame_Runner(str(domain_path))
 
             prepared = self._build_prepared(traj_paths, partial_domain)
             model = rosame.learn_full(
-                prepared, train_per_trajectory=self.train_per_trajectory
+                prepared,
+                train_per_trajectory=self.train_per_trajectory,
+                snapshot=snapshot,
             )
             if model and ":action" in model:
                 return model, extra_info

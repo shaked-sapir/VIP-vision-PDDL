@@ -1,7 +1,7 @@
 import random
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -19,6 +19,9 @@ except ModuleNotFoundError:
     if str(rosame_root) not in sys.path:
         sys.path.insert(0, str(rosame_root))
     from experiment_runner.rosame_runner import Rosame_Runner
+
+if TYPE_CHECKING:  # import-cycle-free: only needed for the annotation
+    from benchmark.algorithm_adapters.anytime_snapshots import SnapshotWriter
 
 
 # Matches the vendored ``learn_rosame`` batch size, so pooled and per-trajectory
@@ -198,26 +201,71 @@ class PORosame_Runner(Rosame_Runner):
     # ------------------------------------------------------------ training loops
 
     def learn_per_trajectory(
-        self, prepared: List[Tuple[object, object]], epochs: int = 100
-    ) -> None:
+        self,
+        prepared: List[Tuple[object, object]],
+        epochs: int = 100,
+        snapshot: Optional["SnapshotWriter"] = None,
+        step_offset: int = 0,
+    ) -> int:
         """Continual schedule (default): fully train each trace before the next.
 
-        Byte-identical to the historical ROSAME baseline loop — delegates to the
-        vendored ``learn_rosame`` (fresh optimizer per trace; schema weights carry
-        over). Handles heterogeneous object sets naturally by regrounding.
+        Equivalent to the vendored ``learn_rosame`` — fresh optimizer per trace,
+        schema weights carrying over, contiguous batches of ``_BATCH_SZ`` in file
+        order — but written out here rather than delegated, because the vendored
+        loop offers no per-epoch hook and this is the schedule the benchmark
+        actually runs. ``test_po_rosame_runner.test_local_loop_matches_vendored``
+        pins the two together; that test is what licenses the rewrite, so do not
+        drop it.
 
         Args:
             prepared: ``(problem, observation)`` pairs, in order.
-            epochs: Epochs of ``learn_rosame`` per trajectory.
+            epochs: Epochs per trajectory.
+            snapshot: Optional writer for anytime curves.
+            step_offset: Starting value for the global step counter.
+
+        Returns:
+            The global step counter after the last epoch.
         """
-        for problem, observation in prepared:
+        step = step_offset
+        for traj_index, (problem, observation) in enumerate(prepared):
             self.add_problem(problem)
             self.ground_new_trajectory()
-            self.learn_rosame(observation, epochs)
+            encoded = self._encode_observation(observation)
+            if encoded is None:
+                # The vendored loop would spin `epochs` times over an empty
+                # DataLoader here; skipping is the same no-op on the weights.
+                continue
+            s1, a, s2 = encoded
+
+            optimizer = self._build_optimizer()
+            for epoch in range(epochs):
+                loss_final = 0.0
+                for lo in range(0, s1.shape[0], _BATCH_SZ):
+                    hi = lo + _BATCH_SZ
+                    loss_final += (
+                        self._train_step(s1[lo:hi], a[lo:hi], s2[lo:hi], optimizer)
+                        / _BATCH_SZ
+                    )
+                if epoch % 10 == 0:
+                    print(f"Epoch {epoch} RESULTS: Average loss: {loss_final:.10f}")
+
+                step += 1
+                if snapshot is not None:
+                    snapshot.maybe_capture(
+                        step=step,
+                        trajectory=traj_index,
+                        epoch=epoch,
+                        render=self._render_pddl,
+                    )
+        return step
 
     def learn_pooled(
-        self, prepared: List[Tuple[object, object]], epochs: int = 100
-    ) -> None:
+        self,
+        prepared: List[Tuple[object, object]],
+        epochs: int = 100,
+        snapshot: Optional["SnapshotWriter"] = None,
+        step_offset: int = 0,
+    ) -> int:
         """Interleaved schedule: one persistent optimizer, all traces per epoch.
 
         Removes the per-trajectory ordering bias of the continual loop. Because
@@ -228,6 +276,11 @@ class PORosame_Runner(Rosame_Runner):
         Args:
             prepared: ``(problem, observation)`` pairs.
             epochs: Epochs over the pooled set of traces.
+            snapshot: Optional writer for anytime curves.
+            step_offset: Starting value for the global step counter.
+
+        Returns:
+            The global step counter after the last epoch.
         """
         # Ground + encode each trace once, caching its problem and tensors.
         cached: List[Tuple[object, torch.Tensor, torch.Tensor, torch.Tensor]] = []
@@ -239,8 +292,9 @@ class PORosame_Runner(Rosame_Runner):
             cached.append((problem, *encoded))
 
         if not cached:
-            return
+            return step_offset
 
+        step = step_offset
         optimizer = self._build_optimizer()
         order = list(range(len(cached)))
         for epoch in range(epochs):
@@ -257,15 +311,49 @@ class PORosame_Runner(Rosame_Runner):
             if epoch % 10 == 0:
                 print(f"Epoch {epoch} RESULTS: Pooled average loss: {loss_final:.10f}")
 
+            step += 1
+            if snapshot is not None:
+                # No single trace owns a pooled epoch, hence -1.
+                snapshot.maybe_capture(
+                    step=step, trajectory=-1, epoch=epoch, render=self._render_pddl
+                )
+        return step
+
+    # ------------------------------------------------------------- snapshots
+
+    def _render_pddl(self) -> str:
+        """Serialize the current model, for mid-training snapshots.
+
+        Safe to call between optimizer steps: ``rosame_to_pddl`` reaches
+        ``Action_Schema.pretty_print``, which runs the schema MLP over a *fixed*
+        buffer created at init and argmaxes it. That consumes no RNG, touches no
+        grounding, and mutates nothing, so a snapshot cannot perturb the run it
+        is observing. ``no_grad`` only avoids building a throwaway graph.
+        """
+        with torch.no_grad():
+            return self.rosame_to_pddl()
+
     def learn_full(
         self,
         prepared: List[Tuple[object, object]],
         train_per_trajectory: bool = True,
         epochs: int = 100,
+        snapshot: Optional["SnapshotWriter"] = None,
     ) -> str:
-        """Run the selected schedule and return the learned PDDL domain string."""
-        if train_per_trajectory:
-            self.learn_per_trajectory(prepared, epochs)
-        else:
-            self.learn_pooled(prepared, epochs)
+        """Run the selected schedule and return the learned PDDL domain string.
+
+        When ``snapshot`` is given, its clock starts here and is closed on the
+        way out, so the recorded times cover training only — not the caller's
+        parsing or evaluation.
+        """
+        if snapshot is not None:
+            snapshot.start()
+        try:
+            if train_per_trajectory:
+                self.learn_per_trajectory(prepared, epochs, snapshot=snapshot)
+            else:
+                self.learn_pooled(prepared, epochs, snapshot=snapshot)
+        finally:
+            if snapshot is not None:
+                snapshot.close()
         return self.rosame_to_pddl()
