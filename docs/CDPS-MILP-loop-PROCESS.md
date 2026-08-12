@@ -636,8 +636,8 @@ run *emits* lands before the run itself.
 | 1 | **D4** — `round_{i}/model.pddl` per round | Must precede any run, or those runs cannot be re-scored. **Done, §7.2.** |
 | 2 | **D1** — `--algorithm` selector in `backfill_cdps.py` | Unlocks the existing 3–8-trajectory cells without regenerating data. `run_cdps_phase` already takes `milp_config`, so this is CLI wiring, not new machinery. **Done, §7.3.** |
 | 3 | **D1** — verify the loop at small and large n | Confirms no special-casing is needed; produces the small-n finding of §7.1bis as data. **Done, §7.4** — and it corrected the framing: the deciding variable is the domain, not n. |
-| 4 | **D3** — per-epoch snapshot callback in the ROSAME adapter | Makes the plot 3-way. Changes what a run emits, so it precedes the run. |
-| 5 | **D5/D7** — the anytime harness: snapshot reader + offline scorer + curves | Consumes 1 and 4. Offline, so it can be iterated on after the run. |
+| 4 | **D3** — per-epoch snapshot callback in the ROSAME adapter | Makes the plot 3-way. Changes what a run emits, so it precedes the run. **Done, §7.5.** |
+| 5 | **D5/D7** — the anytime harness: snapshot reader + offline scorer + curves | Consumes 1 and 4. Offline, so it can be iterated on after the run. **Done, §7.6.** |
 | 6 | **D6** — config-driven ablation selection | Determines *which* cells the run covers. |
 | 7 | the benchmark run, with the eq16 on/off comparison riding along | Everything above is a precondition. |
 
@@ -794,3 +794,103 @@ same proposition(s) ['clear_p1', 'clear_p3'] — the observation is contradictor
 `No usable traces for the MILP loop`, which is the correct behaviour — it cannot
 repair what it cannot encode. This affects the whole MILP family, single round
 included, and must be settled before P5.7 covers depot.
+
+### 7.5 D3 — ROSAME per-epoch snapshots (done)
+
+Written with the code but recorded here late; this section is retrospective.
+
+CDPS gets intermediate models for free — one per round, and §7.2 now keeps the
+losers too. ROSAME produces exactly one model, at the end, so on an anytime axis
+it would be a single point no matter how long it trained. `SnapshotWriter`
+(`benchmark/algorithm_adapters/anytime_snapshots.py`) supplies the missing half:
+`snapshot_{i:04d}.pddl` every `interval` steps plus a `snapshots.json` index,
+under `anytime_snapshots/{arm}/`. Rendering is injected as a callable, so the
+writer knows nothing about ROSAME and the ROSAME adapter owns `rosame_to_pddl`.
+
+**The recorded clock excludes the cost of snapshotting.** That is not fussiness.
+Measured on real folds: one blocksworld epoch costs ~6.4 ms against ~0.8 ms per
+snapshot, and depot 8.9 ms against 1.5 ms — **12 % and 17 %**. Charging that to
+the learner would shift ROSAME's curve right by more than the gaps the plot
+exists to show, and it would penalise ROSAME exactly in proportion to how
+densely *we* chose to measure it. `elapsed_seconds()` therefore subtracts
+accumulated overhead, and `snapshots.json` carries both the total and a
+`timing_note` saying so.
+
+**The asymmetry with CDPS is left in place rather than modelled away.** CDPS and
+the loop do *not* subtract the cost of writing their own models. Those writes are
+milliseconds against solves measured in seconds, so the correction would be
+noise; adding it would mean maintaining two timing conventions to move a curve by
+less than its line width. Stated here so a later reader finds it recorded rather
+than discovers it.
+
+### 7.6 D5/D7 — the anytime harness (done)
+
+`benchmark/evaluation/anytime/`: `checkpoints.py` (reader), `score.py` (offline
+scorer), `curves.py` (profiles + figure), `run_anytime.py` (CLI),
+`test_anytime.py` (9 tests). Run it at a cell or a single fold:
+
+    python -m benchmark.evaluation.anytime.run_anytime \
+        benchmark/running_results/blocksworld/sim_run__mask=0.1__noise=0.2
+
+Each fold gets `anytime_scores.json` and `anytime_curve.png`. Nothing re-runs a
+learner, so it is safe to point at a finished run and safe to re-run after
+changing how the score is computed — which is the whole reason D5 put scoring
+here instead of inside each arm.
+
+**Four artifact shapes, one checkpoint stream.** Every arm already wrote
+intermediate models; no two wrote them the same way. Plain CDPS, the anchored
+variant and single-round MILP all use `conflict_free_solutions_log.json` +
+`conflict_free_models/conflict_free_model_{i}/model.pddl`; the loop uses
+`milp_loop_rounds.json` + `milp_loop_round_models/round_{i}/`; ROSAME uses
+§7.5's snapshot index. The reader normalises all four into `Checkpoint(arm,
+index, elapsed_seconds, model_path)` and nothing downstream knows the difference.
+
+Two decisions inside it that a future reader would otherwise have to rediscover:
+
+1. **All arms are scored against the *fold-level* `original_observations/`.**
+   `cdps_anchored/` keeps its own copy, and using each arm's own would have been
+   the easy default. But anchoring is part of the arm, not part of the yardstick
+   — scoring an arm against inputs it improved for itself measures the wrong
+   thing. One reference, recorded in the output JSON.
+2. **`single_round` gets a `final_model/` fallback.** When it ends *with*
+   conflicts it writes an **empty** solutions log and parks its model under
+   `final_model/`. Reading an empty log as "no checkpoints" would erase the arm
+   from the plot precisely in the runs where it did worst — the one direction of
+   error a performance profile must not have. It contributes one point, not a
+   curve, which is the honest shape for a one-shot solver.
+
+**Scoring is ground-truth-free**, via `observations_reconstruction_score`, not
+`evaluate_model`. The latter scores against the GT domain and exists for offline
+reporting; using it here would make the plot a different claim than the one the
+loop's own selection rule makes. The y-axis is `success_rate`, already a bounded
+ratio, so §4bis.5's `v_raw` non-comparability never reaches it — `v_raw` and
+`v_per_transition` are recorded alongside but not plotted.
+
+**A model that will not parse is carried as a point with no score**, never
+dropped. Dropping it would quietly flatter whichever arm emitted it; carrying it
+means it appears in the scatter but can never advance the running best.
+
+**The dedup cache keys on file text with the `:requirements` line stripped.**
+This sits close to §7.2's warning that model identity must come from the log's
+`model_hash`, never from file text, so the distinction matters: this digest is a
+*cache key*, never an identity claim in a reported number. `to_pddl` rebuilds
+`:requirements` from a set, so without the strip one model renders as several and
+the cache misses — a false negative, which costs only time. A false *positive*
+would need two models whose text agrees on everything except that line, i.e.
+identical actions. Real effect on real data: the anchored arm's 17 checkpoints in
+one fold collapsed to **3 distinct models**.
+
+**The load-bearing test is `test_density_does_not_change_the_curve`.** It is what
+licenses drawing ROSAME's hundreds of snapshots against the loop's handful of
+rounds on one axis: a dense arm seeing the same models at the same times as a
+sparse one, plus repeats in between, produces the identical profile and the
+identical staircase. Without that property the plot would reward instrumentation
+rather than learning. The tests build fold layouts in temp dirs rather than
+pointing at a real run, because `benchmark/running_results/` is gitignored and a
+test needing a fold on disk is a test that passes on one machine.
+
+Verified on all 30 folds of blocksworld `sim_run__mask=0.1__noise=0.2`: every
+fold read, scored and plotted; one fold hand-checked at 3 observations / 15
+transitions, scored in 0.1 s. That cell predates §7.5 and the MILP arms, so only
+`cdps` and `cdps_anchored` appear in it — the other two shapes are covered by the
+tests until P5.7 produces runs that hold them.
