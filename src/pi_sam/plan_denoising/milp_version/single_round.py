@@ -48,7 +48,7 @@ from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
 from src.pi_sam.plan_denoising.milp_version.converter import (
     build_ps_domain,
     build_ps_instance_from_objects,
-    observation_to_trace,
+    try_observation_to_trace,
 )
 from src.pi_sam.plan_denoising.milp_version.trajectory_extraction import (
     ExtractionResult,
@@ -74,7 +74,10 @@ class SingleRoundResult:
             see the module docstring.
         observations: T', the repaired (and still masked) observations.
         solved: Whether the solver returned a usable solution.
-        repair_cost: Number of observed fluents the MILP flipped.
+        repair_cost: Number of observed fluents the MILP flipped, across *all*
+            observations in the fold — the scope the design §7.1 lower-bound
+            check needs. (``cdps_milp_loop`` cannot report this, because no
+            single solve there covers the whole fold; see ``loop.as_report``.)
         stats: Everything the report needs (solver status, timings, config).
     """
 
@@ -134,7 +137,7 @@ def _build_traces(
             observation.grounded_objects,
             include_repeated_args=True,
         )
-        trace = observation_to_trace(
+        trace = try_observation_to_trace(
             instance,
             observation,
             goal_fluents=None,  # the final state is soft unless it is known GT

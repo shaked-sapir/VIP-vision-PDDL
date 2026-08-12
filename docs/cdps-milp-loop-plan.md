@@ -5,6 +5,11 @@
 > (Evaluate/Learn pseudo-functions + min_V graph), with Eqs. 11–16 verified
 > against the ICAPS-26 paper PDF. This document is the execution plan; the
 > design doc remains the authority on the MILP encoding details.
+>
+> **Amended 2026-08-12 after P4.** Points that the implementation settled
+> differently are marked **AMENDED** / **SUPERSEDED** in place rather than
+> rewritten, so the reasoning stays auditable. P1–P4 are done; §7 carries the
+> per-phase status. `docs/CDPS-MILP-loop-PROCESS.md` is the running log.
 
 ---
 
@@ -122,7 +127,9 @@ function, no solver dependency, unit-testable with hand-built models.
 - `hardest_first`: m traces with worst per-trace V under M_best (random
   until M_best exists); cooldown: a trace sampled in round r is ineligible
   in round r+1.
-- Subset size `m`: config, default 2.
+- Subset size `m`: config. **AMENDED (P4, Q9a):** the default is `half`
+  = `max(2, ceil(n/2))`, not the literal 2 written here — this line and §5's
+  expression string disagreed, and `half` is the one that was implemented.
 - Optional heuristic (with `learner_input: accumulated`): after a mixed-set
   conflict, co-sample the conflicting traces in the next round — forces the
   MILP to resolve their disagreement jointly; turns conflicts into the
@@ -255,11 +262,12 @@ cdps_milp:
                                  #   random        = m traces uniformly w/o replacement  [default]
                                  #   hardest_first = m traces with worst per-trace V under M_best
                                  #                   (+1-round cooldown per sampled trace)
-  subset_size: "max(2, ceil(n_trajectories / 2))"
-                                 # EXPRESSION resolved once per fold, not a bare constant.
-                                 #   Variables: n_trajectories.
-                                 #   Allowed: int literals, min, max, ceil, floor, round,
-                                 #   + - * / //.  A plain constant ("2") is also valid.
+  subset_size: half              # AMENDED (P4, Q9b): NAMED POLICIES, not an expression.
+                                 #   half = max(2, ceil(n/2))  [default] | all | <int>
+                                 #   The expression language written here originally
+                                 #   (min/max/ceil/floor/round over n_trajectories, to be
+                                 #   parsed with an ast whitelist) was dropped: three named
+                                 #   values need no evaluator to be trusted.
   learner_input: subset_only     # options: subset_only | accumulated
                                  #   subset_only = PISAM on this round's T′ only
                                  #                 (conflict-impossible)  [default]
@@ -268,13 +276,29 @@ cdps_milp:
                                  #                 falls back to subset_only on mixed-set
                                  #                 conflict, and logs it
   co_sample_conflicts: false     # options: true | false; meaningful only with accumulated
+  pool_policy: frozen            # ADDED (P4, Q6a): frozen [default] | replace | frozen_with_hints
+                                 #   frozen  = the pool is always the ORIGINAL noisy traces;
+                                 #             repairs are only learned from
+                                 #   replace = repairs go back into the pool. Auto-disables
+                                 #             dedup AND the fixpoint rule (the pool is no
+                                 #             longer a fixed set, so neither is well-defined)
   stop:                          # any-of semantics: first satisfied rule stops the loop
-    budget_seconds: 3600         # wall-clock budget (set = CDPS's search budget per cell)
+    budget_seconds: null         # AMENDED (P4, Q7a): blank/null = INHERIT the fold's CDPS
+                                 #   denoiser timeout. The literal 3600 written here was stale
+                                 #   (finished runs use TO=600) and would have made the
+                                 #   head-to-head against CDPS unfair by 6x.
+                                 #   NOTE: this caps the WHOLE loop. The cap on ONE solve is
+                                 #   `time_limit_seconds` above — two independent budgets that
+                                 #   were originally one parameter.
     no_improvement_rounds: 5     # stop after this many rounds without V improving (null = off)
     stop_on_perfect_fit: true    # stop if V(M_best) == 0 — the model reproduces ALL original
                                  #   observations exactly. Rare (noise puts V's floor > 0);
                                  #   a free early-exit, nothing more.  (was: v_zero)
     max_rounds: null             # hard cap on number of rounds (null = off)
+    stop_on_fixpoint: true       # ADDED (P4, Q6c): with a frozen pool the admissible
+                                 #   (subset, M_best) pairs for one incumbent number exactly
+                                 #   C(len(pool), m); once all are solved no further round can
+                                 #   change anything, so stop.
 
   # --- Evaluate ---
   eval:
@@ -291,13 +315,20 @@ cdps_milp:
    consistency; w_prior=0 = random restarts, no trend). Default tie-break
    `0.9/#model-bits`; ablate {0, tiebreak, rosame} via config.
 2. **Sampler/m — revisit after smoke runs** under the no-hybrid decision:
-   defaults m=2 + random; compare against hardest_first on per-round V
-   trend slope. (Coverage-epoch partitioning dropped from scope; random +
-   cooldown approximates it at our n.)
+   defaults ~~m=2~~ **m=`half`** (Q9a) + random; compare against
+   hardest_first on per-round V trend slope. (Coverage-epoch partitioning
+   dropped from scope; random + cooldown approximates it at our n.)
 3. **Learner input — DECIDED**: implement both (§2.3); **default
    `subset_only`**; `accumulated` available for the ablation (conflict-rate
    + V-trend comparison).
-4. **Pool — DECIDED**: k=1, pool machinery out of scope.
+4. **Pool — ~~DECIDED: k=1, pool machinery out of scope~~ SUPERSEDED by Q6a
+   (2026-08-11).** The real question turned out not to be k, but whether a
+   round's *repairs* replace their noisy originals in the pool the next round
+   samples from. Three policies implemented — `frozen` (default) | `replace` |
+   `frozen_with_hints`. `frozen` wins by default because feeding repairs back
+   creates a ratchet: round r's repair becomes round r+1's evidence, so an
+   early wrong repair can never be argued away by the data it overwrote, and
+   V is then scored against a pool that has drifted from the observations.
 5. **w₁:w₂ — DECIDED**: frozen at 1:1 (live only inside Evaluate, §1.5);
    revisit later only if needed — post-hoc from logs, no reruns.
 6. **Claim structure — DECIDED**: single_round claims cost-optimality
@@ -330,6 +361,15 @@ and a MILP that skipped them would emit T′ never constrained on those
 transitions — PI-SAM could then raise conflicts on a "feasible" T′,
 breaking §4.1. Hence the P1 unit test on a repeated-type domain, with the
 encoder aggregating bindings instead of skipping.
+
+**P4 addendum (2026-08-12) — a related guard that cannot fire.**
+`model_prior._binding` carries a distinctness check meant to reject a lifted
+literal that binds the same parameter twice (e.g. `(on ?x ?x)`). It is
+**unreachable**: `Predicate.signature` in `pddl_plus_parser` is a **dict**, so
+`(on ?x ?x)` has already collapsed to arity 1 by the time the code sees it.
+Harmless, but nobody should read it as protection that exists. This is a
+property of the *prior* channel only; the encoder's own binding aggregation
+(above) is unaffected and remains covered by the P1 test.
 
 ## 7. Implementation phases
 
@@ -383,10 +423,38 @@ encoder aggregating bindings instead of skipping.
      unrepairably). Deferred out of P3 because it changes s₀ for *all*
      algorithms and invalidates every existing image-mode result. P3 only
      asserts-and-logs.
-4. **P4 — Loop driver.** Sampler flavors, learner-input flavors +
-   conflict fallback + co-sampling, stop rules, round log. Exit: loop runs
-   to budget on one npuzzle fold; log complete; M_best ≥ first-round model
-   on V.
+4. **P4 — Loop driver. DONE** (2026-08-12). Sampler flavors, learner-input
+   flavors + conflict fallback + co-sampling, stop rules, round log.
+   `milp_version/loop.py` + `model_prior.py` + 61 unit tests (73 green in
+   `milp_version/`). Decided/amended during implementation:
+   - **The exit criterion above is vacuous** and was replaced. "M_best ≥
+     first-round model on V" is true *by construction* — the incumbent only
+     ever moves on strict `V_r < min_V`. What is actually read instead: the
+     round log's `rounds_improved`, `rounds_tied`, `best_round` and
+     `stop_reason`.
+   - **Greedy strict `<`, no tolerance band** (Q8a). Measured over 19,852
+     within-fold pairs, V's accuracy rises *smoothly* with the gap (0.898 at
+     gap ≥ 1 → 0.975 at gap ≥ 50); a band would refuse the 4,734 pairs in
+     `[1,10)` that are still 79.5% correct for a mean f1 gain of +0.047.
+   - **Ties break to the incumbent** (Q8c) — which strict `<` already gives,
+     so no extra machinery. Tie events are counted so a degenerate run shows.
+   - **Round identity is `(subset, M_best)`** (Q6c), which is what lets the
+     same subset be re-drawn under a *new* incumbent and gives the exact
+     fixpoint rule. It needs a **structural** model hash: `to_pddl()` is not
+     stable across calls (it rebuilds `:requirements` from a set), so hashing
+     the text would silently disable dedup.
+   - **CP-SAT `random_seed` + `num_workers` are pinned** (Q6d). Consequence
+     worth stating: `rosame_milp` results produced *before* this pin were not
+     bit-reproducible.
+   - **The algorithm key beats the config's `variant:` field.**
+     `milp_config_for(key, cfg)` pins `MilpVariant` from the selected key, so
+     ONE `cdps_milp:` block drives both arms in one run — which a single
+     `variant:` value cannot express.
+   - **V is scored on ALL original observations**, never on the round's own
+     subset: scoring a candidate on its own training sample would reward
+     overfitting and make rounds incomparable.
+   - **`--resume` caveat**: `run_cdps_milp_loop` is a new `run_params` key, so
+     resuming a pre-P4 experiment dir reports a spurious conflict on it.
 5. **P5 — Plots + benchmark.** §3 protocol; npuzzle (starving domain) +
    blocksworld (control); 3-way comparison vs `cdps` and `rosame_milp`;
    ablations: eq16 (on single_round), w_prior 3-arm, sampler, learner_input,

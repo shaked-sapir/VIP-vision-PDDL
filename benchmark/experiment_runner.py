@@ -26,9 +26,8 @@ from typing import List, Optional
 from amlgym.metrics import print_metrics
 
 from benchmark.algorithms import (
-    CDPS_MILP_SINGLE_ROUND_ALGORITHM_NAME,
     available_algorithms,
-    cdps_milp_algorithm_name,
+    cdps_family_names,
     resolve_algorithms,
 )
 from benchmark.evaluation.correlation_analysis import aggregate_correlation_tables
@@ -141,6 +140,7 @@ def main(
     run_cdps: bool = True,
     run_cdps_anchored: bool = False,
     run_cdps_milp: bool = False,
+    run_cdps_milp_loop: bool = False,
     cdps_milp_config: Optional[CdpsMilpConfig] = None,
     events_tracing: bool = False,
     resume: bool = False,
@@ -259,11 +259,11 @@ def main(
         "run_cdps": run_cdps,
         "run_cdps_anchored": run_cdps_anchored,
         "run_cdps_milp": run_cdps_milp,
-        "algorithms": (["CDPS"] if run_cdps else [])
-        + (["CDPS_ANCHORED"] if run_cdps_anchored else [])
-        + ([cdps_milp_algorithm_name(cdps_milp_config or CdpsMilpConfig())]
-           if run_cdps_milp else [])
-        + [r.name for r in (baselines or [])],
+        "run_cdps_milp_loop": run_cdps_milp_loop,
+        "algorithms": cdps_family_names(
+            run_cdps, run_cdps_anchored, run_cdps_milp, run_cdps_milp_loop,
+            cdps_milp_config,
+        ) + [r.name for r in (baselines or [])],
         "normalized": norm_trajs_dir is not None,
         "data_source_type": type(data_source).__name__,
     }
@@ -395,6 +395,7 @@ def main(
                         run_cdps=run_cdps,
                         run_cdps_anchored=run_cdps_anchored,
                         run_cdps_milp=run_cdps_milp,
+                        run_cdps_milp_loop=run_cdps_milp_loop,
                         cdps_milp_config=cdps_milp_config,
                         events_tracing=events_tracing,
                     )
@@ -634,14 +635,16 @@ if __name__ == "__main__":
     if not args.algorithms:
         parser.error(f"--algorithms requires a value (available: {', '.join(available_algorithms())})")
     try:
-        run_cdps, run_cdps_anchored, run_cdps_milp, baseline_runners = resolve_algorithms(
+        (run_cdps, run_cdps_anchored, run_cdps_milp, run_cdps_milp_loop,
+         baseline_runners) = resolve_algorithms(
             args.algorithms, train_per_trajectory=args.train_per_trajectory)
     except ValueError as err:
         parser.error(str(err))
-    selected = (['CDPS'] if run_cdps else []) \
-        + (['CDPS_ANCHORED'] if run_cdps_anchored else []) \
-        + ([CDPS_MILP_SINGLE_ROUND_ALGORITHM_NAME] if run_cdps_milp else []) \
-        + [r.display_name for r in baseline_runners]
+    # The CLI has no `cdps_milp` surface, so the MILP arms run on defaults here;
+    # `benchmark_runner` is the path that can configure them.
+    selected = cdps_family_names(
+        run_cdps, run_cdps_anchored, run_cdps_milp, run_cdps_milp_loop,
+    ) + [r.display_name for r in baseline_runners]
     print(f"Algorithms: {', '.join(selected)}")
 
     # ── Construct data source ─────────────────────────────────────────────
@@ -698,6 +701,7 @@ if __name__ == "__main__":
         run_cdps=run_cdps,
         run_cdps_anchored=run_cdps_anchored,
         run_cdps_milp=run_cdps_milp,
+        run_cdps_milp_loop=run_cdps_milp_loop,
         events_tracing=args.events_tracing,
         resume=args.resume,
     )

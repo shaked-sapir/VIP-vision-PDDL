@@ -17,13 +17,17 @@ from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 from benchmark.algorithms import (
     CDPS_ALGORITHM_NAME,
     CDPS_ANCHORED_ALGORITHM_NAME,
+    CDPS_MILP_LOOP,
+    CDPS_MILP_SINGLE_ROUND,
     cdps_milp_algorithm_name,
+    milp_config_for,
 )
 from benchmark.experiment_running_helpers.cleaned_trajectories import save_patched_observations
 from benchmark.experiment_running_helpers.data_source import DataSource
 from benchmark.experiment_running_helpers.post_process_gt_metrics import run_post_process_gt_metrics
 from benchmark.experiment_running_helpers.learning_helpers import (
     learn_cdps,
+    learn_cdps_milp_loop,
     learn_cdps_milp_single_round,
 )
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
@@ -38,7 +42,7 @@ from benchmark.experiment_running_helpers.trajectory_utils import (
 from benchmark.evaluation.test_states_generator import generate_predictive_power_test_states
 from benchmark.evaluation.multi_solution_evaluator import evaluate_all_solutions
 from benchmark.evaluation.correlation_analysis import build_correlation_table
-from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
+from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig, MilpVariant
 from src.utils.pddl import ground_observation_completely, observations_equal
 
 
@@ -134,12 +138,24 @@ def _run_baselines(
 
 
 def _milp_specific(report: dict) -> dict:
-    """The MILP arm's own diagnostics, flattened for ``algorithm_specific``.
+    """A MILP arm's own diagnostics, flattened for ``algorithm_specific``.
 
     ``save_learning_metrics`` only knows the search's vocabulary, so the two
     numbers that decide whether a MILP row is trustworthy — did the solver
     prove optimality, and did PI-SAM really see no conflict on T′ (design
     §4.1) — would otherwise be buried in ``learning_metrics.json``.
+
+    Both MILP variants go through here and get the same keys: the loop-only
+    ones stay present-but-``None`` for the single round, exactly as the
+    search-only keys do for the MILP arms, so every row shares one schema. The
+    loop's per-round detail is too large for a result row and lives in
+    ``milp_loop_rounds.json`` instead.
+
+    ``milp_repair_cost`` is fold-wide and therefore single-round-only; the loop
+    reports ``None`` there and fills ``milp_loop_best_round_repair_cost`` +
+    ``..._subset_size`` instead, because its cost covers a subset (see
+    ``LoopResult.as_report``). Putting a subset cost in the fold-wide column
+    would read as "the loop repaired more cheaply" when it only repaired less.
     """
     milp = report.get("milp") or {}
     extraction = report.get("extraction") or {}
@@ -151,6 +167,16 @@ def _milp_specific(report: dict) -> dict:
         "pisam_conflicts_on_feasible": report.get("pisam_conflicts_on_feasible"),
         "n_traces_dropped": report.get("n_traces_dropped"),
         "n_unmapped_fluents": extraction.get("n_unmapped_fluents"),
+        "milp_loop_rounds": report.get("n_rounds"),
+        "milp_loop_rounds_solved": report.get("n_rounds_solved"),
+        "milp_loop_rounds_improved": report.get("n_rounds_improved"),
+        "milp_loop_rounds_tied": report.get("n_rounds_tied"),
+        "milp_loop_mixed_set_conflicts": report.get("n_mixed_set_conflicts"),
+        "milp_loop_best_v": report.get("best_v"),
+        "milp_loop_best_round": report.get("best_round"),
+        "milp_loop_best_round_repair_cost": report.get("best_round_repair_cost"),
+        "milp_loop_best_round_subset_size": report.get("best_round_subset_size"),
+        "milp_loop_stop_reason": report.get("stop_reason"),
     }
 
 
@@ -196,22 +222,27 @@ def run_cdps_phase(
     the variant: GT protection is always on in the search, and the anchored
     variant differs upstream (its trajectories embed the final state as GT).
 
-    ``milp_config`` swaps the *denoiser only*: the repairs come from one CP-SAT
-    solve instead of the conflict search, but the learner (PI-SAM) and every
-    downstream step are the same. Keeping the two in one function is the point
-    — a row from either denoiser is directly comparable, and neither can drift
-    into a different evaluation path.
+    ``milp_config`` swaps the *denoiser only*: the repairs come from CP-SAT
+    solves instead of the conflict search, but the learner (PI-SAM) and every
+    downstream step are the same, and ``milp_config.variant`` picks which MILP
+    driver runs. Keeping all of them in one function is the point — a row from
+    any denoiser is directly comparable, and none can drift into a different
+    evaluation path.
     """
     cdps_work_dir.mkdir(parents=True, exist_ok=True)
     test_states_path_str = str(test_states_path)
     use_milp = milp_config is not None
+    is_loop = use_milp and milp_config.variant is MilpVariant.LOOP
     try:
-        denoiser = "single-round MILP solve" if use_milp else "conflict-directed patch search"
+        denoiser = "conflict-directed patch search"
+        if use_milp:
+            denoiser = "multi-round MILP loop" if is_loop else "single-round MILP solve"
         print(f"  [{algo_name}] Starting {denoiser}...")
         if conflict_search_timeout is not None:
             print(f"  [{algo_name}] Using denoising timeout: {conflict_search_timeout}s")
         if use_milp:
-            cleaned_model, denoising_report, patched_observations = learn_cdps_milp_single_round(
+            learn_milp = learn_cdps_milp_loop if is_loop else learn_cdps_milp_single_round
+            cleaned_model, denoising_report, patched_observations = learn_milp(
                 domain_ref_path, trajectories, testing_dir,
                 conflict_search_timeout=conflict_search_timeout,
                 fold_work_dir=cdps_work_dir,
@@ -352,6 +383,7 @@ def run_single_fold(
     run_cdps: bool = True,
     run_cdps_anchored: bool = False,
     run_cdps_milp: bool = False,
+    run_cdps_milp_loop: bool = False,
     cdps_milp_config: Optional[CdpsMilpConfig] = None,
     frame_axiom_mode: str = "after_gt_only",
     events_tracing: bool = False,
@@ -393,8 +425,15 @@ def run_single_fold(
             the *same* trajectories as plain CDPS. Artifacts live under
             ``<fold>/cdps_milp_single_round``; the row label is arm-suffixed
             by ``cdps_milp_algorithm_name``.
-        cdps_milp_config: Config for that arm; defaults to ``CdpsMilpConfig()``
-            (eq16 off, init-only GT anchoring) when the arm is on.
+        run_cdps_milp_loop: Whether to also run the multi-round MILP loop, again
+            on the *same* trajectories. Artifacts live under
+            ``<fold>/cdps_milp_loop``, so the two MILP arms can run side by side
+            in one fold without overwriting each other.
+        cdps_milp_config: Config shared by both MILP arms; defaults to
+            ``CdpsMilpConfig()`` (eq16 off, init-only GT anchoring) when either
+            arm is on. Its ``variant`` field is ignored — each arm pins its own
+            via ``milp_config_for``, which is what lets one config block serve
+            both arms in a single run.
         frame_axiom_mode: Frame-axiom propagation mode used when preparing the
             anchored variant's trajectories (default "after_gt_only").
 
@@ -622,15 +661,26 @@ def run_single_fold(
             if anchored is not None:
                 cdps_results.append(anchored)
 
-        # Single-round MILP denoiser: same trajectories and same GT map as plain
-        # CDPS (that is what makes cost(MILP) <= cost(CDPS) checkable), isolated
-        # under cdps_milp_single_round/.
-        if run_cdps_milp:
-            milp_config = cdps_milp_config or CdpsMilpConfig()
+        # MILP denoisers: same trajectories and same GT map as plain CDPS (that
+        # is what makes cost(MILP) <= cost(CDPS) checkable). Each arm writes to
+        # its own subdir, so both can run in the same fold without one
+        # overwriting the other's artifacts.
+        milp_arms = [
+            (key, subdir)
+            for key, subdir, selected in (
+                (CDPS_MILP_SINGLE_ROUND, "cdps_milp_single_round", run_cdps_milp),
+                (CDPS_MILP_LOOP, "cdps_milp_loop", run_cdps_milp_loop),
+            )
+            if selected
+        ]
+        for milp_key, milp_subdir in milp_arms:
+            # The selected key — not the config's own ``variant`` — decides which
+            # driver runs, so one ``cdps_milp`` config block serves both arms.
+            milp_config = milp_config_for(milp_key, cdps_milp_config or CdpsMilpConfig())
             milp = run_cdps_phase(
                 anchor_endpoints=False,
                 algo_name=cdps_milp_algorithm_name(milp_config),
-                cdps_work_dir=fold_work_dir / "cdps_milp_single_round",
+                cdps_work_dir=fold_work_dir / milp_subdir,
                 trajectories=prepared_trajectories,
                 gt_source_indices=gt_source_indices,
                 total_transitions=total_transitions,

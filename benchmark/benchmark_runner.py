@@ -311,11 +311,14 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     else:
         algorithm_names = ["cdps", "rosame"]
     (kwargs["run_cdps"], kwargs["run_cdps_anchored"], kwargs["run_cdps_milp"],
-     kwargs["baselines"]) = resolve_algorithms(algorithm_names)
+     kwargs["run_cdps_milp_loop"], kwargs["baselines"]) = resolve_algorithms(
+        algorithm_names
+    )
 
-    # The MILP arm's own block. Validated (and rejected on a typo) even when the
-    # arm is off, so a bad `cdps_milp:` never sits unnoticed in a config that
-    # will later enable it.
+    # The block both MILP arms share; each arm pins its own variant from the
+    # selected key. Validated (and rejected on a typo) even when both arms are
+    # off, so a bad `cdps_milp:` never sits unnoticed in a config that will
+    # later enable one.
     kwargs["cdps_milp_config"] = CdpsMilpConfig.from_dict(shared.get("cdps_milp"))
 
     return kwargs

@@ -1,17 +1,19 @@
 """
 Learning wrapper functions for AMLGym experiments.
 
-Two denoisers share one learner. Both run PI-SAM (partial observability) on
+Three denoisers share one learner. All run PI-SAM (partial observability) on
 masked observations; they differ only in how they decide which observations to
 distrust:
 
 - ``learn_cdps``                     — Conflict-Directed Patch Search (search).
 - ``learn_cdps_milp_single_round``   — one CP-SAT solve (see
   ``src/pi_sam/plan_denoising/milp_version/``).
+- ``learn_cdps_milp_loop``           — repeated CP-SAT solves over sampled
+  subsets, keeping the best-scoring model.
 
-Both return the same ``(model_pddl, report, patched_observations)`` triple and
-write the same ``conflict_free_models/`` artifact layout, so ``run_fold`` and
-the dashboard stack treat them interchangeably.
+All three return the same ``(model_pddl, report, patched_observations)`` triple
+and write the same ``conflict_free_models/`` artifact layout, so ``run_fold``
+and the dashboard stack treat them interchangeably.
 
 The old fully-observable (SAM) and plain (non-denoising) paths were removed.
 """
@@ -29,6 +31,7 @@ from benchmark.experiment_running_helpers.cleaned_trajectories import (
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
 from src.pi_sam.plan_denoising.conflict_search_config import CDPSConfig
 from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
+from src.pi_sam.plan_denoising.milp_version.loop import run_loop
 from src.pi_sam.plan_denoising.milp_version.single_round import run_single_round
 from src.utils.masking import load_masked_observation
 
@@ -276,6 +279,54 @@ def _resolve_gt_states_by_obs(
     } or None
 
 
+def _prepare_milp_driver_inputs(
+    domain_ref_path: Path,
+    prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
+    fold_work_dir: Optional[Path],
+    pre_built_observations: Optional[list],
+    gt_source_indices_override: Optional[Dict[int, Set[int]]],
+    tag: str,
+) -> dict:
+    """The keyword arguments both MILP drivers take, built identically for both.
+
+    Building them in one place is what makes the two arms comparable: they see
+    the same observations, the same GT map and the same PI-SAM settings, so any
+    difference in their results comes from the denoiser and nothing else.
+    """
+    cdps_defaults = CDPSConfig()
+    partial_domain = DomainParser(
+        Path(str(domain_ref_path)), partial_parsing=True
+    ).parse_domain()
+
+    observations = _load_masked_observations(
+        partial_domain, [str(t[0]) for t in prepared_trajectories], pre_built_observations
+    )
+    _save_original_observations(
+        observations, fold_work_dir, prepared_trajectories,
+        pre_built_observations, tag=tag,
+    )
+
+    return {
+        "partial_domain": partial_domain,
+        "observations": observations,
+        "gt_states_by_obs": _resolve_gt_states_by_obs(
+            prepared_trajectories, gt_source_indices_override
+        ),
+        "negative_preconditions_policy": cdps_defaults.negative_precondition_policy,
+        "seed": cdps_defaults.seed,
+        "fold_work_dir": fold_work_dir,
+        "save_observations_fn": _make_save_observations_fn(prepared_trajectories),
+    }
+
+
+def _milp_outcome(result, conflict_search_timeout: Optional[int]):
+    """A driver result as the ``(model, report, observations)`` triple ``run_fold`` wants."""
+    report = result.as_report()
+    report["actual_timeout_seconds"] = conflict_search_timeout
+    model = result.learned_domain.to_pddl() if result.learned_domain is not None else None
+    return model, report, result.observations
+
+
 def learn_cdps_milp_single_round(
     domain_ref_path: Path,
     prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
@@ -310,35 +361,51 @@ def learn_cdps_milp_single_round(
         nothing downstream should be evaluated.
     """
     config = milp_config if milp_config is not None else CdpsMilpConfig()
-    cdps_defaults = CDPSConfig()
-
-    partial_domain = DomainParser(
-        Path(str(domain_ref_path)), partial_parsing=True
-    ).parse_domain()
-
-    observations = _load_masked_observations(
-        partial_domain, [str(t[0]) for t in prepared_trajectories], pre_built_observations
-    )
-    _save_original_observations(
-        observations, fold_work_dir, prepared_trajectories,
-        pre_built_observations, tag="MILP",
-    )
-
     result = run_single_round(
-        partial_domain=partial_domain,
-        observations=observations,
         config=config,
         time_limit_seconds=config.resolve_time_limit(conflict_search_timeout),
-        gt_states_by_obs=_resolve_gt_states_by_obs(
-            prepared_trajectories, gt_source_indices_override
+        **_prepare_milp_driver_inputs(
+            domain_ref_path, prepared_trajectories, fold_work_dir,
+            pre_built_observations, gt_source_indices_override, tag="MILP",
         ),
-        negative_preconditions_policy=cdps_defaults.negative_precondition_policy,
-        seed=cdps_defaults.seed,
-        fold_work_dir=fold_work_dir,
-        save_observations_fn=_make_save_observations_fn(prepared_trajectories),
     )
+    return _milp_outcome(result, conflict_search_timeout)
 
-    report = result.as_report()
-    report["actual_timeout_seconds"] = conflict_search_timeout
-    model = result.learned_domain.to_pddl() if result.learned_domain is not None else None
-    return model, report, result.observations
+
+def learn_cdps_milp_loop(
+    domain_ref_path: Path,
+    prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
+    testing_dir: Path,
+    conflict_search_timeout: int = None,
+    fold_work_dir: Path = None,
+    milp_config: Optional[CdpsMilpConfig] = None,
+    pre_built_observations: Optional[list] = None,
+    gt_source_indices_override: Optional[Dict[int, Set[int]]] = None,
+) -> Tuple[Optional[str], dict, list]:
+    """Learn a PI-SAM model by repeating the MILP solve over sampled subsets.
+
+    Same contract as :func:`learn_cdps_milp_single_round`; the denoiser is the
+    multi-round driver, which scores each round's model against the *original*
+    noisy observations and keeps the best (``docs/cdps-milp-loop-plan.md``).
+
+    Args:
+        conflict_search_timeout: The fold's denoiser budget. Unlike the
+            single-round arm, this caps the **whole loop**, not one solve — so
+            the two arms and CDPS all get the same wall clock. ``stop.
+            budget_seconds`` and ``time_limit_seconds`` override the loop total
+            and the per-solve cap respectively, independently of each other.
+
+    Returns:
+        ``(model_pddl_or_None, report, patched_observations)``. ``None`` means
+        no round ever produced a model.
+    """
+    config = milp_config if milp_config is not None else CdpsMilpConfig()
+    result = run_loop(
+        config=config,
+        cdps_budget_seconds=conflict_search_timeout,
+        **_prepare_milp_driver_inputs(
+            domain_ref_path, prepared_trajectories, fold_work_dir,
+            pre_built_observations, gt_source_indices_override, tag="MILP-LOOP",
+        ),
+    )
+    return _milp_outcome(result, conflict_search_timeout)

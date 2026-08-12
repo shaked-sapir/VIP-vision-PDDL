@@ -69,6 +69,13 @@ from src.pi_sam.plan_denoising.milp_version.encoding_config import (
     SchemaNonemptyRule,
 )
 
+# CP-SAT solver determinism. The encoding usually has many equally-optimal
+# solutions (the objective counts repairs, and different repair sets often cost
+# the same), so which optimum comes back is a real choice, not a formality.
+# Leaving it to the solver made repeated runs of the same fold disagree.
+DEFAULT_RANDOM_SEED = 42
+DEFAULT_NUM_WORKERS = 1
+
 
 class CPSATObservedActions:
     """CP-SAT encoding of the MILP fixer with actions fixed to observations."""
@@ -95,6 +102,9 @@ class CPSATObservedActions:
         )
         self.obj_scale = obj_scale
         self.verbose = verbose
+        # Optional warm-start override; see make_solution_hints. Aligned 1:1 with
+        # traces.obs_t. Affects search order only, never the objective.
+        self.state_hint_traces: Optional[list] = None
 
         self.model = Model()
 
@@ -380,13 +390,25 @@ class CPSATObservedActions:
     # ---------- solving ----------
 
     def make_solution_hints(self, threshold: float = 0.5):
+        """Warm start: the observations themselves, plus the prior if there is one.
+
+        ``state_hint_traces`` (set by the loop's ``frozen_with_hints`` policy) lets
+        a caller hint the *state* variables from somewhere other than the encoded
+        traces — e.g. a previous round's repair of the same traces. It is a hint
+        only: the objective still prices flips against the encoded observations,
+        so the optimum is unchanged and only the time to reach it can differ.
+        """
         hint_vars, hint_vals = [], []
 
+        hint_source = self.state_hint_traces or self.traces.obs_t
         for i in range(1, self.n_traces + 1):
-            obs = self._trace(i)
+            obs = hint_source[i - 1]
             for t in range(1, self._steps(i) + 2):
                 for op in obs.obs_p.get(t, []):
-                    hint_vars.append(self.hol[(i, t, op.proposition)])
+                    variable = self.hol.get((i, t, op.proposition))
+                    if variable is None:
+                        continue  # a hint source may name a fluent this trace lacks
+                    hint_vars.append(variable)
                     hint_vals.append(1 if op.prob > threshold else 0)
 
         # No reference model (e.g. cdps_milp single round) => hint the states only.
@@ -406,12 +428,40 @@ class CPSATObservedActions:
 
         return hint_vars, hint_vals
 
-    def solve(self, time_limit: Optional[int] = None, log_search_progress: bool = False) -> bool:
+    def solve(
+        self,
+        time_limit: Optional[int] = None,
+        log_search_progress: bool = False,
+        random_seed: int = DEFAULT_RANDOM_SEED,
+        num_workers: int = DEFAULT_NUM_WORKERS,
+    ) -> bool:
+        """Solve the encoding, returning True when a usable solution was found.
+
+        Args:
+            time_limit: wall-clock cap in seconds; None means no cap.
+            log_search_progress: forward CP-SAT's search log to stdout.
+            random_seed: CP-SAT's ``random_seed`` parameter. Pinned so that two
+                solves of the same encoding break ties among equally-optimal
+                solutions the same way.
+            num_workers: CP-SAT's ``num_search_workers``. Defaults to 1 because
+                parallel workers race, and whichever one finishes first decides
+                which optimum is returned — seeding alone does not remove that.
+
+        Reproducibility caveat: pinning both makes a solve that *proves optimality*
+        reproducible. A solve that exhausts ``time_limit`` is still not, since the
+        cap is wall-clock rather than CP-SAT deterministic time; the answer then
+        depends on how much search the machine happened to fit in the budget.
+        """
         start = time.time()
         solver = SolverLookup.get("ortools", self.model)
         hint_vars, hint_vals = self.make_solution_hints()
         solver.solution_hint(hint_vars, hint_vals)
-        solver.solve(time_limit=time_limit, log_search_progress=log_search_progress)
+        solver.solve(
+            time_limit=time_limit,
+            log_search_progress=log_search_progress,
+            random_seed=random_seed,
+            num_search_workers=num_workers,
+        )
 
         st = solver.status()
         # update(), not reassign: build-time facts (e.g. prior_bit_scale) live here too
@@ -422,6 +472,8 @@ class CPSATObservedActions:
             "n_model_vars": 3 * len(self.pre),
             "n_trace_vars": len(self.hol) + 3 * len(self.stepadd),
             "n_traces": self.n_traces,
+            "random_seed": random_seed,
+            "num_workers": num_workers,
             **self.config.as_stats(),
         })
 

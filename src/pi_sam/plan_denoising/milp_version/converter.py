@@ -13,6 +13,7 @@ Grounding width: see :class:`RepeatedArgsInstance` and the
 
 from __future__ import annotations
 
+import logging
 import re
 from collections import Counter
 from enum import Enum
@@ -25,6 +26,8 @@ from planning_structs.instance import Action as PSAction
 from planning_structs.instance import Instance as PSInstance
 from planning_structs.instance import Proposition as PSProposition
 from planning_structs.traces import ObservationP, ObservationT
+
+logger = logging.getLogger(__name__)
 
 _EPS = 1e-5
 
@@ -272,6 +275,25 @@ def observation_to_trace(
     trace.actions = actions
     trace.hard_states = hard_states
     return trace
+
+
+def try_observation_to_trace(*args, **kwargs) -> Optional[ObservationT]:
+    """:func:`observation_to_trace`, reporting *every* failure as ``None``.
+
+    ``observation_to_trace`` has two ways of saying "this cannot be encoded": it
+    returns ``None`` for a structural mismatch, but *raises* for a contradictory
+    observation (both polarities of one fluent in one state). Both mean the same
+    thing to a caller whose policy is to drop what it cannot encode, and a
+    single bad trace should not take a whole fold down with it.
+
+    The raise is kept — it is the right signal for a caller that wants to know —
+    so this wrapper logs the reason rather than swallowing it silently.
+    """
+    try:
+        return observation_to_trace(*args, **kwargs)
+    except ValueError as error:
+        logger.warning("Observation could not be encoded, dropping it: %s", error)
+        return None
 
 
 def gt_final_state_fluents(gt_trajectory_path: Path) -> Optional[Set[Tuple[str, Tuple[str, ...]]]]:

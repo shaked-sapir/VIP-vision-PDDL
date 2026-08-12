@@ -1,13 +1,17 @@
 # CDPS-MILP loop — mid-process log
 
 > Written 2026-08-11, mid-session, as a resume point.
+> Updated 2026-08-12 (P4 complete).
 > **Authority:** `docs/cdps-milp-loop-plan.md` (execution plan) and
 > `docs/cdps-milp-denoiser-design.md` (encoding details). This file is a
 > *status snapshot*, not a spec — if it disagrees with those, they win.
 
-**Branch:** `cdps-with-milp-implmenetation` (uncommitted; see §5)
-**Status:** P1 + P2 **DONE and validated**. P3 designed and agreed, not yet
-written. Four P4/P5 questions still awaiting answers (§4).
+**Branch:** `cdps-with-milp-implmenetation` (see §5)
+**Status:** P1 + P2 **DONE and validated** (`4600b5b76`). P3 **DONE**, both exit
+gates passed (`b19fb8d69`). Q6–Q9 **answered** (§4). P4 **DONE** — loop driver
++ benchmark integration, 74 unit tests, both MILP arms verified side by side in
+one fold (§4ter), and the `milp_repair_cost` scope collision fixed (§4ter.5).
+Next: P5, then P6.
 
 ---
 
@@ -28,8 +32,8 @@ Two algorithms, no hybrid:
 
 | key | what | status |
 |---|---|---|
-| `cdps_milp_single_round` | ONE joint MILP over ALL fold trajectories | **implemented** |
-| `cdps_milp_loop` | homogeneous rounds, each samples a subset | P4, not started |
+| `cdps_milp_single_round` | ONE joint MILP over ALL fold trajectories | **implemented** (P2) |
+| `cdps_milp_loop` | homogeneous rounds, each samples a subset | **implemented** (P4) |
 
 ---
 
@@ -200,26 +204,28 @@ with a one-way import rule, as **one mechanical import-only commit after P5**.
 
 ---
 
-## 4. OPEN — awaiting answers before P4
+## 4. Q6–Q9 — ANSWERED (the decision record that governs P4)
 
-1. **Q6 — the loop has nothing to show at `num_trajectories: 3`.**
-   `subset_size: max(2, ceil(n/2))` → m=2, so every subset is 2/3 of the data,
-   rounds are near-duplicates and the loop degenerates into a jittery
-   single_round. Bump npuzzle folds to ~10–20 trajectories for the loop
-   experiments, or is there a reason to hold at 3?
-2. **Q7 — budget accounting.** §3 says Evaluate is charged to no method, but
-   the loop needs V *online* to select, so it pays and CDPS doesn't.
-   Proposal: `budget_seconds` = the loop's **total** wall-clock including
-   online Evaluate (honest — it's part of the algorithm), while the *plot*
-   re-scores all snapshots offline for every method.
-3. **Q8 — P4's exit criterion is vacuous.** "M_best ≥ round-1 model on V" is
-   true by construction (`if V_r < min_V`). Proposal: require a **strict**
-   improvement over round-1 V on ≥1 npuzzle fold, else the prior term and
-   sampler contribute nothing and we want to know immediately.
-4. **Q9 — `subset_size` is an expression language** (`min/max/ceil/floor/round`,
-   arithmetic, variable `n_trajectories`). Proposal: `ast.parse(mode="eval")`
-   + node/name whitelist, ~25 lines, no raw `eval`, unit-tested, no new
-   dependency.
+| # | question | decision |
+|---|---|---|
+| **Q6a** | pool policy — do repaired traces replace their noisy originals? | `pool_policy: frozen \| replace \| frozen_with_hints`, **default `frozen`**. All three implemented. `replace` **auto-disables** dedup and the fixpoint stop rule (the pool is no longer a fixed set, so neither is well-defined). |
+| **Q6b** | "with/without replacement" — the ambiguity the user flagged | Resolved as *neither of the naive readings*: a subset is a **set** (no repeated trajectory inside one round), and the same subset **may** be drawn again in a later round — but only if `M_best` has changed since. |
+| **Q6c** | dedup key | **`(subset, M_best)`**. Skip a round only when that exact pair was already solved. This is what makes the same subset re-drawable *and* gives an exact fixpoint rule (`math.comb(len(pool), subset_size)` admissible pairs per incumbent). |
+| **Q6d** | determinism | **Pin** `random_seed` **and** `num_workers` in `encoder.solve()`. CP-SAT's portfolio is otherwise nondeterministic across worker counts, which would make a round's own dedup key lie. |
+| **Q7a** | budget | The loop, `single_round` **and** `rosame_milp` all inherit the **CDPS per-fold timeout**, not the plan's stale literal `3600`. That is what makes the head-to-head fair. |
+| **Q7b** | is online V charged? | Yes, and it is **negligible**: measured ~10 ms/round. Recorded rather than engineered around. |
+| **Q8a** | incumbent update rule | Greedy **strict** `V_r < min_V`. **No tolerance band** — §4bis.5(1) shows accuracy rises smoothly with the gap, so a band forgoes real improvement. |
+| **Q8b** | the vacuous exit criterion | The plan's "M_best ≥ round-1 on V" is true by construction. **Replaced** by reading the per-round logs (`rounds_improved`, `rounds_tied`, `best_round`, `stop_reason`), which say what actually happened. |
+| **Q8c** | tie-break | Option **C — incumbent wins**, which is exactly what strict `<` already does. No extra machinery; tie *events* are counted and logged so a degenerate run is visible. |
+| **Q9a** | subset size | `half` = `max(2, ceil(n/2))`, the default. |
+| **Q9b** | how it is configured | **Named policies** (`half \| all \| <int>`) — **not** the proposed `ast.parse` expression whitelist. A three-value enum needs no parser. |
+
+Q6's original framing ("the loop has nothing to show at `num_trajectories: 3`")
+still stands as an *experiment-design* note, not a code question: at n=3,
+`half` → m=2, every subset is 2/3 of the data and the loop is a jittery
+`single_round`. **P5 must run the loop at ~10–20 trajectories** for its
+behaviour to be distinguishable at all. The smoke runs deliberately use n=3
+because they test wiring, not behaviour.
 
 ---
 
@@ -307,13 +313,49 @@ mean f1 regret of argmin-V: 0.0024      max: 0.1084
 All three fall out of the exit-B data and are **inherent to a GT-free
 metric**, not defects:
 
-1. **V has a resolution floor of a few points.** All 11 argmin-V misses are
-   near-ties — the V-winner leads the GT-best by 1–7 points while losing
-   0.009–0.108 f1. Worst case: `mask=0.0 noise=0.2 fold2_numtrajs5`,
-   V=209 (f1 0.892) beat V=210 (f1 1.000). → the loop must **not** treat a
-   1-point V gain as progress. It needs a tolerance band plus a deterministic
-   tie-break, and Q8's exit criterion should demand an improvement larger
-   than the band.
+1. **V's failure mode is exact ties, not small gaps.**
+   *(Corrected. An earlier revision of this section claimed "V has a resolution
+   floor of a few points" and asked for a tolerance band. That was inferred from
+   the 11 argmin-V misses alone — a selection-effect view, since argmin is by
+   construction the decision most exposed to near-ties. The full pairwise
+   measurement below does not support it.)*
+
+   Over all **19,852** within-fold pairs with distinct V, accuracy rises
+   *smoothly* with the gap — there is no threshold:
+
+   | V gap ≥ | pairs | P(V correct) | mean f1 gain |
+   |---|---|---|---|
+   | 1 | 19,852 | 0.898 | +0.115 |
+   | 5 | 17,588 | 0.912 | +0.125 |
+   | 10 | 15,118 | 0.930 | +0.136 |
+   | 20 | 10,883 | 0.954 | +0.160 |
+   | 50 | 3,725 | 0.975 | +0.211 |
+
+   A 1-point gap is already right ~90% of the time. A band would be actively
+   harmful: the 4,734 pairs in gap `[1,10)` are decided correctly 79.5% of the
+   time for a **mean f1 gain of +0.047** — refusing them forgoes real
+   improvement. → **no tolerance band**; greedy `V < V_best` is correct.
+
+   What *does* need handling is exact ties — but the tie is **smaller than an
+   earlier revision of this file claimed**. Those numbers counted textually
+   identical models as separate candidates: CDPS writes several
+   `conflict_free_model_*/model.pddl` per fold that are byte-for-byte clones,
+   and a "tie" between a model and its own copy is not a decision. Deduplicating
+   by PDDL-text hash over the same 2519 (fold, model) pairs:
+
+   | measure | folds | mean tie size | max |
+   |---|---|---|---|
+   | raw argmin tie (clones counted) | 150/150 | 6.7 | 13 |
+   | **argmin tie, distinct models** | **117/150** | **3.4** | **5** |
+
+   Of those 117, the tied models actually differ in f1 (>0.01) in **96/150**
+   folds — mean spread **0.0367**, max **0.1485**.
+
+   So the tie is real and consequential in ~2/3 of folds, but it is a choice
+   among ~3 genuinely different models, not ~7. → the loop still needs a
+   **deterministic GT-free tie-break**, and Q8's exit criterion must not rest on
+   "V improved" alone. (Q8c settled this as *incumbent wins*, which strict `<`
+   already gives for free.)
 2. **V cannot rank at all when the data is clean.** In the
    `noise=0.0` cell *every* candidate scores V=0 while f1 spreads 0.969–1.000.
    That residual is generalisation beyond the observed data, which nothing
@@ -326,16 +368,162 @@ metric**, not defects:
 
 ---
 
+## 4ter. P4 — DONE (loop driver + benchmark integration)
+
+Split into **P4a** (the driver, in `src/`) and **P4b** (wiring, in `benchmark/`).
+
+### 4ter.1 P4a — what was built
+
+| file | lines | role |
+|---|---|---|
+| `milp_version/loop.py` | 845 | `run_loop` — the round loop, samplers, dedup, stop rules, per-round log |
+| `milp_version/model_prior.py` | 171 | `LearnerDomain` → vendor `ObservationM`, the reference-model channel |
+| `milp_version/config.py` | *extended* | the loop-only YAML keys (`sampler`, `subset_size`, `learner_input`, `pool_policy`, `co_sample_conflicts`, `w_prior`, `seed`, `stop:`, `eval:`) |
+| `milp_version/encoder.py` | *edited* | Q6d — `random_seed` + `num_workers` pinned |
+| `milp_version/test_loop.py` | 610 | **61 tests** across 10 classes (hash, samplers, dedup, stop rules, budget, learner input, subset GT, reporting, subset size, prior) |
+
+**73 tests green** in `milp_version/` (61 loop + 12 P2).
+
+### 4ter.2 Five design decisions taken inside `loop.py`
+
+1. **Structural model identity.** The dedup key needs a stable hash of
+   `M_best`, and `to_pddl()` is **not** stable — it rebuilds the
+   `:requirements` line from a **set** on every call, so the same model hashes
+   differently across calls. The hash is therefore computed from the model's
+   *structure* (sorted action → sorted pre/add/del literal names), not its text.
+   Without this, dedup silently never fires and the fixpoint rule never trips.
+2. **`_TraceCache` — convert once per fold.** pddl_plus → vendor
+   `planning_structs` conversion is not free and the pool is frozen by default,
+   so each trace is converted once and reused across rounds.
+3. **V is evaluated against ALL original observations, never the round's
+   subset.** Scoring a candidate on the data it was fitted to would reward
+   overfitting the sample and make rounds incomparable — the whole point of
+   V is that it is one fixed yardstick.
+4. **Contradictory observations are dropped, not fatal.** A trace the converter
+   rejects is skipped with a log line and counted; one bad trace must not kill
+   a fold that has nine good ones.
+5. **Exact fixpoint via `math.comb`.** With a frozen pool, the number of
+   admissible `(subset, M_best)` pairs for a fixed incumbent is exactly
+   `C(len(pool), subset_size)`; once all are solved, no further round can do
+   anything, so the loop stops with `stop_reason = "fixpoint"`.
+
+### 4ter.3 P4b — benchmark integration
+
+- **Algorithm key beats the YAML `variant:` key.** `milp_config_for(key, cfg)`
+  pins `MilpVariant` from the *selected algorithm key* via
+  `dataclasses.replace`. This is what lets **one** `cdps_milp:` block serve
+  **both** arms in a single run — a single `variant:` field cannot express
+  "run both". The YAML `variant:` is consequently ignored for these two keys.
+- **`cdps_budget_seconds` was one parameter doing two jobs.** The fold's
+  denoiser budget is the fallback for two *independent* caps: `stop.budget_seconds`
+  (the whole loop) and `time_limit_seconds` (one solve). Split into
+  `loop_budget` / `solve_limit`; previously a 600 s fold budget was handed to a
+  single solve.
+- **`cdps_family_names()`** (`benchmark/algorithms.py`) — the run banner and
+  `run_params["algorithms"]` previously built the same label list two different
+  ways (one off a hardcoded constant, one off `cdps_milp_algorithm_name`). With
+  a second MILP arm they would have drifted; both now derive from this one
+  helper. Baselines stay the caller's business (the two callers read different
+  attributes: `.name` vs `.display_name`).
+- **`resolve_algorithms` is now a 5-tuple**
+  `(cdps, cdps_anchored, milp_single_round, milp_loop, baselines)`; all three
+  call sites updated.
+- **Per-arm artefact dirs** — `<fold>/cdps_milp_single_round/` and
+  `<fold>/cdps_milp_loop/`, so both arms run in the same fold without
+  overwriting each other. The dispatch is a data-driven loop over
+  `[(key, subdir, selected)]`, not two copies of the same 15-line call.
+- **`run_config.yaml`** — the `cdps_milp:` block documents every loop key inline.
+
+### 4ter.4 Verification
+
+Smoke: blocksworld, `mask=0.01 noise=0.2`, 1 fold, 3 trajectories, both arms,
+60 s budget, `max_rounds: 5` → **both arms completed in one fold in 60.2 s**,
+2 result rows, report written. `fold_result.json`:
+
+| | `CDPS_MILP_SR` | `CDPS_MILP_LOOP` |
+|---|---|---|
+| learning time | 0.315 s | 0.679 s |
+| `precision_overall` / `recall_overall` | 0.94 / 1.00 | 0.92 / 0.96 |
+| `milp_repair_cost` (fold-wide) | 91 | `None` — by design, see §4ter.5 |
+| `milp_loop_best_round_repair_cost` / `..._subset_size` | `None` | 83 over **2** of 3 traces |
+| loop keys | all `None` | rounds 5, solved 5, improved 2, tied 1, best_v 91.0, best_round 2, stop `max_rounds` |
+
+Both arms share one result vocabulary; the 8 loop-only keys are populated for
+the loop and `None` for the single round, so one table holds both.
+
+### 4ter.5 `milp_repair_cost`'s two scopes — FIXED
+
+**The problem as found.** `milp_repair_cost` meant two different things in one
+column. For `single_round` it was the cost over **all** observations (91 above);
+for the loop, the winning round's cost over its **subset** (83 over 2 of 3
+traces). `83 < 91` reads as "the loop repaired more cheaply" when it only
+repaired *less*. Under `pool_policy: replace` there was a third meaning: a round
+extracts against the already-repaired pool, so its cost is an *increment*.
+
+**Decision (user, 2026-08-12): option B — the fold-wide column stays
+single-round-only.** The field's only job is the design §7.1 check
+`cost(MILP) <= cost(best CDPS CFM)`, which requires one solve that certified
+every trace jointly. The loop structurally never performs one, so it reports
+`None` rather than a number that looks like it can carry the check.
+
+The alternative considered and rejected was to recompute the loop's cost over
+the full pool (original → `state.repaired`). That is dishonest the other way:
+traces no round ever touched would contribute 0, and the union of per-round
+repairs was never jointly certified by any single solve.
+
+**What changed.**
+
+| | |
+|---|---|
+| `LoopResult.repair_cost` | renamed → `best_round_repair_cost`; `best_round_subset_size` added next to it, so the scope is never implicit |
+| `LoopResult.as_report` | emits `repair_cost: None`, `best_cost: None` |
+| `run_fold._milp_specific` | new `milp_loop_best_round_repair_cost` / `..._subset_size`; `milp_repair_cost` unchanged for the single round |
+| `RoundLog.repair_cost` | unchanged (per-round, in `milp_loop_rounds.json`) — now carries a comment stating its scope |
+
+Nothing is lost: `milp_loop_rounds.json` already stored per-round `repair_cost`
+and `subset`. Covered by `test_the_fold_wide_cost_keys_stay_empty`.
+
+### 4ter.5bis One known issue, deliberately not fixed
+
+1. **`--resume` regression.** Adding `run_cdps_milp_loop` to `run_params` makes
+   resuming a *pre-existing* experiment dir report a spurious conflict on that
+   key (absent vs `False`), because `RESUME_IGNORED_PARAMS` is only
+   `{timestamp, num_trajectories_list, gt_rate_percentages, folds}`. Left
+   consistent with the precedent set when `run_cdps_milp` and
+   `run_cdps_anchored` were added, rather than special-cased.
+
+### 4ter.6 Two upstream findings surfaced during P4
+
+- **Depot is broken for every algorithm**, not just the MILP arms — the
+  documented, unfixed both-polarity corruption in
+  `ground_all_predicates_in_state` (`src/utils/pddl_state.py:307`, write-up in
+  `src/depot-polarity-test/README.md`). Root cause: `GroundedPredicate` violates
+  the `__eq__`/`__hash__` contract.
+- **`model_prior._binding`'s distinctness guard is unreachable.**
+  `Predicate.signature` is a **dict**, so `(on ?x ?x)` collapses to arity 1
+  upstream and the guard can never see repeated parameters. Harmless, but it
+  should not be read as protection that exists.
+
+---
+
 ## 5. Repo state (branch `cdps-with-milp-implmenetation`)
 
 - **Committed — `4600b5b76`** (P1 + P2, 32 files, +2441/−252): the
   `milp_version/` move, the CDPS dialect, `cdps_milp_single_round`,
   and the `docs/` + `CLAUDE.md` updates.
-- **New, uncommitted (P3):** `src/pi_sam/plan_denoising/evaluator.py`,
-  `src/pi_sam/plan_denoising/test_evaluator.py`.
-- **Untracked throwaway:** `benchmark/finished_run_configs/milp-dispatch-smoke/`
-  and `benchmark/running_results/blocksworld/milp-dispatch-smoke__mask=0.01__noise=0.2/`
-  — smoke-test output, **pending a decision: delete or keep as reference.**
+- **Committed — `b19fb8d69`** (P3): `evaluator.py` +
+  `test_evaluator.py` — `observations_reconstruction_score`, 17 tests.
+- **Uncommitted (P4a), new files:** `milp_version/loop.py`,
+  `milp_version/model_prior.py`, `milp_version/test_loop.py`.
+- **Uncommitted (P4a/P4b), modified:** `milp_version/{config,converter,encoder,single_round}.py`,
+  `benchmark/{algorithms,benchmark_runner,experiment_runner,run_config.yaml}`,
+  `benchmark/experiment_running_helpers/{learning_helpers,run_fold}.py`.
+- **Unrelated, also uncommitted:** `benchmark/evaluation/cfm/build_dashboard.py`
+  (legend hover-highlight, predates this work) — keep it out of the P4 commit.
+- **Smoke artefacts — deleted** (decision, 2026-08-12): the `milp-dispatch-smoke`
+  and `milp-loop-smoke` manifests and their `running_results/` cells. They were
+  1-fold / 3-trajectory / 60 s throwaways whose only informative numbers are
+  already in §4ter.4, and `finished_run_configs/` should hold real runs only.
 - **Name collision — resolved.** The new GT-free entry point is
   `observations_reconstruction_score`; `evaluate_model` stays the name of the
   **GT-based** reporting function in
@@ -356,15 +544,22 @@ metric**, not defects:
 ~~2. **P3 exit A** — V(GT model) == injected-noise count.~~ **done**, 150/150
 ~~3. **P3 exit B** — V↔GT-metrics correlation. **Gates P4.**~~ **PASSED**,
 mean rho −0.862
+~~4. Answer **Q6–Q9**.~~ **done** (§4)
+~~5. **P4a** — loop driver + 61 unit tests.~~ **done** (§4ter.1)
+~~6. **P4b** — benchmark integration + smoke run.~~ **done** (§4ter.3–4)
+~~7. **Fix `milp_repair_cost`'s two scopes.**~~ **done** (§4ter.5, option B)
+~~8. **Decide the smoke artefacts.**~~ **deleted** (§5), P4 committed.
 
 Remaining, in order:
 
-1. Answer **Q6–Q9** (§4), with Q8 revised in light of §4bis.5(1): the exit
-   criterion should demand a V improvement **larger than the resolution
-   band**, not merely a strict one.
-2. **P4** — loop driver. Must carry a V tolerance band + deterministic
-   tie-break (§4bis.5).
-3. In parallel/background — the **eq16 on/off comparison** on
+1. **P5** — anytime performance profile. Two constraints inherited from above:
+   aggregate on `v_per_transition`, never `v_raw` (§4bis.5(3)); and run the loop
+   at **~10–20 trajectories**, since at n=3 it degenerates into a jittery
+   `single_round` (§4).
+2. In parallel/background — the **eq16 on/off comparison** on
    `single_round` (already authorized under P2; cheap; it is the
    "does PI-SAM cover for Eq. 16" experiment, a claim in its own right).
-4. **P5** (aggregating on `v_per_transition`, never `v_raw`), then **P6**.
+3. **Image-mode s₀ fix** (§3.8) — scheduled before P5's benchmark; it changes
+   s₀ for *all* algorithms and invalidates existing image-mode results.
+4. **P6** — the `src/` structural review (§3.9), one mechanical import-only
+   commit after P5.
