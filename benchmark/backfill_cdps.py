@@ -62,6 +62,7 @@ from benchmark.algorithms import (
     CDPS_MILP_SINGLE_ROUND,
     cdps_milp_algorithm_name,
     milp_config_for,
+    milp_work_subdir,
 )
 from benchmark.backfill_common import (
     NULL_METRIC_KEYS,
@@ -156,8 +157,14 @@ def resolve_algorithm_spec(key: str, milp_config_path: Optional[Path]) -> Algori
     # The selected key pins the variant, so one shared cdps_milp block can back
     # both MILP arms — the same rule the live runner follows.
     config = milp_config_for(key, _read_milp_config(milp_config_path))
+    # Take the directory from the same place a live run does, rather than from
+    # _WORK_SUBDIRS. Those are keyed on the algorithm *key*, so backfilling an
+    # ablation (eq16 on/off, say) twice into one cell would put both arms in one
+    # directory and let the second overwrite the first's models and extraction
+    # artifacts — silently, since the rows stay distinct. milp_work_subdir keys
+    # on the row label instead, so directory and row cannot drift apart.
     return AlgorithmSpec(
-        key, cdps_milp_algorithm_name(config), _WORK_SUBDIRS[key], config
+        key, cdps_milp_algorithm_name(config), milp_work_subdir(key, config), config
     )
 
 

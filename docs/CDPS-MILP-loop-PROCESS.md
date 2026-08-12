@@ -966,11 +966,24 @@ with no second list to keep in sync.
 **Directories follow labels.** `milp_work_subdir` reuses the label's suffix, so
 `cdps_milp_loop__pool=replace/` is readable from its results row and vice versa,
 and two arms in one fold cannot overwrite each other's artifacts. An arm with no
-suffix keeps the bare `cdps_milp_loop/` it always had, which is what lets
-`backfill_cdps._WORK_SUBDIRS` and `anytime.checkpoints.ARM_SUBDIRS` stay
-untouched. (Teaching those two to discover suffixed dirs is only needed once a
-run actually ablates; it is not needed for P5.7's eq16 ride-along, which can be
-two separate cells.)
+suffix keeps the bare `cdps_milp_loop/` it always had, so existing folds stay
+where every reader already looks.
+
+`backfill_cdps` now takes its directory from `milp_work_subdir` too. Its own
+`_WORK_SUBDIRS` is keyed on the algorithm *key*, so backfilling eq16 on and off
+into one cell put both arms in `cdps_milp_single_round/` and let the second pass
+overwrite the first's model and extraction artifacts — silently, because the
+*rows* stayed distinct and the fold looked complete. This document previously
+said the ride-along "can be two separate cells", which would have dodged the
+collision at the cost of the thing the ride-along is for: an eq16 A/B on
+byte-identical frozen observations, in the same `fold_result.json` as the `CDPS`
+row. Verified on a throwaway blocksworld fold — `cdps_milp_single_round/` and
+`cdps_milp_single_round__eq16=0.4/` sit side by side, the off-arm's files keep
+their original mtimes, and both rows are present.
+
+`anytime.checkpoints.ARM_SUBDIRS` stays untouched, and not merely by omission:
+the anytime harness reads the **loop's** per-round models, and eq16 ablates
+**single_round**. It needs the same treatment on the day a run ablates the loop.
 
 Expansion happens in `benchmark_runner._build_main_kwargs`, early, because the
 run banner and `run_params["algorithms"]` have to name every arm *before*
