@@ -227,6 +227,12 @@ still stands as an *experiment-design* note, not a code question: at n=3,
 behaviour to be distinguishable at all. The smoke runs deliberately use n=3
 because they test wiring, not behaviour.
 
+*(§7.4 withdraws the bolded sentence. n=3 is genuinely cramped — 4 rounds
+against `C(3,2)=3`, then fixpoint — but "cramped" is not "indistinguishable":
+a later round still beat round 1 in 3 of 5 real blocksworld folds at n=3.
+Meanwhile npuzzle is indistinguishable at **every** n tested. The requirement
+was on the wrong axis.)*
+
 ---
 
 ## 4bis. P3 — DONE (evaluator + both exit gates passed)
@@ -604,6 +610,11 @@ checked.
   **finding to report**, not a precondition to satisfy. At n=8 it is `C(8,4) =
   70`, which is ample. The loop is correct at both; only its room to explore
   differs, and saying so is more useful than hiding the small-n case.
+  *(Superseded by §7.4, which measured this: the `C(3,2)=3` fixpoint is real —
+  n=3 reaches it in 4 rounds — but n is not what decides whether the loop beats
+  its first round. The domain is. Blocksworld's gains **peak at n=8**, the
+  largest real n available, so the 10–20 advice pointed away from where they
+  are.)*
 - **"Aggregate on `v_per_transition`, never `v_raw`."** Stated
   unconditionally, it was too broad. The anytime plot's y-axis is
   `success_rate`, which is `1.0 - mismatched/num_transitions`
@@ -624,7 +635,7 @@ run *emits* lands before the run itself.
 |---|---|---|
 | 1 | **D4** — `round_{i}/model.pddl` per round | Must precede any run, or those runs cannot be re-scored. **Done, §7.2.** |
 | 2 | **D1** — `--algorithm` selector in `backfill_cdps.py` | Unlocks the existing 3–8-trajectory cells without regenerating data. `run_cdps_phase` already takes `milp_config`, so this is CLI wiring, not new machinery. **Done, §7.3.** |
-| 3 | **D1** — verify the loop at small and large n | Confirms no special-casing is needed; produces the small-n finding of §7.1bis as data. |
+| 3 | **D1** — verify the loop at small and large n | Confirms no special-casing is needed; produces the small-n finding of §7.1bis as data. **Done, §7.4** — and it corrected the framing: the deciding variable is the domain, not n. |
 | 4 | **D3** — per-epoch snapshot callback in the ROSAME adapter | Makes the plot 3-way. Changes what a run emits, so it precedes the run. |
 | 5 | **D5/D7** — the anytime harness: snapshot reader + offline scorer + curves | Consumes 1 and 4. Offline, so it can be iterated on after the run. |
 | 6 | **D6** — config-driven ablation selection | Determines *which* cells the run covers. |
@@ -710,3 +721,76 @@ One pre-existing wart left alone: `--dry-run` on `cdps_anchored` still writes
 its anchored trajectories into the cell before reporting that it would do
 nothing. It is unchanged from before this step, and the MILP arms' prep is
 read-only, so their dry runs are genuinely dry.
+
+### 7.4 D1 — the loop at small and large n (done)
+
+The question was whether the loop needs special-casing at either end of D1's
+range ("3–8 now, many more later"). **It does not** — but measuring it replaced
+two of my own claims with better ones, including one from §7.1bis.
+
+**Scaling.** Blocksworld, one loop run per size, default stop rules, 600 s
+budget. Sizes above 8 are pooled: every distinct trajectory across the cell's
+folds, deduped by content hash — folds share problems, and counting those copies
+would fake a large pool out of a small one.
+
+| n | m | C(n,m) | rounds | best round | seconds | stopped by |
+|---|---|---|---|---|---|---|
+| 3 | 2 | 3 | 4 | 1 | 0.5 | **fixpoint** |
+| 4 | 2 | 6 | 6 | 1 | 0.6 | no_improvement |
+| 5 | 3 | 10 | 8 | 3 | 1.2 | no_improvement |
+| 8 | 4 | 70 | 11 | 6 | 3.0 | no_improvement |
+| 12 | 6 | 924 | 6 | 1 | 1.9 | no_improvement |
+| 20 | 10 | 184 756 | 6 | 1 | 3.4 | no_improvement |
+| 40 | 20 | 1.4·10¹¹ | 6 | 1 | 8.4 | no_improvement |
+| 80 | 40 | 1.1·10²³ | 6 | 1 | 18.0 | no_improvement |
+
+Every size produced a model; time grows roughly linearly in n for a fixed round
+count; `math.comb` returning a 24-digit integer at n=80 is harmless because
+Python integers are unbounded, so the fixpoint rule needs no guard. n=3 is the
+only size that reaches its fixpoint, and it does so in 4 rounds against
+`C(3,2)=3` — §7.1bis's inference, now measured.
+
+**At large n the loop is patience-bound, never budget-bound**: 18 s of a 600 s
+budget at n=80. That looks like under-exploration, so it was tested rather than
+assumed — n=20 re-run with `no_improvement_rounds: null, max_rounds: 40`. Round
+1 scored V=480 and **no round in the next 39 beat it** (V was 480 in 25 of 40
+rounds, worse in the rest). The default patience of 5 is not costing quality
+here; the V landscape is flat.
+
+**What actually decides whether the loop beats its own first round is the
+domain, not n.** Running every real fold of a cell (5 folds per n, n=3…8):
+
+| cell | n=3 | n=4 | n=5 | n=6 | n=7 | n=8 | total |
+|---|---|---|---|---|---|---|---|
+| blocksworld `sim_run__mask=0.1__noise=0.2` | 3/5 | 3/5 | 3/5 | 1/5 | 1/5 | **5/5** | **16/30** |
+| npuzzle `simulation-cluster-run-cpu256-10min__mask=0.1__noise=0.2` | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | **0/30** |
+
+(cells are "folds where some later round improved on round 1".) Blocksworld's
+mean V gain over round 1 peaks at n=8 — 6.6 % mean, 20.8 % best fold — which is
+the *largest* real n available, not the smallest. npuzzle never improves at any
+n: its traces exercise the same four move actions in the same shape, so every
+subset yields the same model and V is constant across rounds.
+
+Three corrections to earlier claims in this document, all mine:
+
+1. **§7.1bis said the small-n case was the one worth reporting.** The sharper
+   statement is that n is not the deciding variable at all. The advice "run at
+   ~10–20 trajectories" was not merely narrow — it pointed away from where the
+   measured gains are. The existing 3–8-trajectory cells are a *good* operating
+   point for blocksworld, and 10–20 would not have rescued npuzzle.
+2. **A single fold at each size suggested headroom shrinks as n grows**
+   (best_round 3 at n=5, 6 at n=8, then 1 at every n≥12). Across 5 folds per
+   size that reading does not hold: n=8 is the best case, not the worst. The
+   n≥12 rows are also pooled across problems, so they are weaker evidence than
+   the real folds and should not carry a conclusion on their own.
+3. The loop being "correct at both ends" is now measured rather than argued, so
+   **no special-casing is added**.
+
+**Depot is excluded, by a pre-existing data bug rather than by the loop.** Every
+depot trace is rejected with `State 1 maps multiple grounded predicates to the
+same proposition(s) ['clear_p1', 'clear_p3'] — the observation is contradictory`
+(the both-polarity corruption of `src/utils/pddl_state.py:307`, documented in
+`src/depot-polarity-test/README.md`). With no encodable trace the loop raises
+`No usable traces for the MILP loop`, which is the correct behaviour — it cannot
+repair what it cannot encode. This affects the whole MILP family, single round
+included, and must be settled before P5.7 covers depot.
