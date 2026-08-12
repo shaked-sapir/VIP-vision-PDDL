@@ -212,10 +212,11 @@ Run: `python -m benchmark.algorithm_adapters.rosame_milp.test_rosame_milp`
   construction and the blocksworld 4+5-block grid ran clean, but a dedicated
   micro-test (two traces, different object counts, shared lifted recovery) is
   still to be added.
-- **Depot polarity corruption** — upstream of this adapter
-  (`ground_observation_completely`); see `src/depot-polarity-test/`. The
-  adapter's duplicate-hint crash is the symptom; a defensive
-  duplicate-proposition assert in `observation_to_trace` is planned.
+- ~~**Depot polarity corruption**~~ — fixed upstream of this adapter by
+  `normalize_predicate_types_in_state` (`src/utils/pddl_state.py`), which puts
+  parsed predicates and CWA-completion groundings on one type-tag spelling.
+  Regression test: `src/utils/test_pddl_state.py`. The defensive
+  duplicate-proposition check in `observation_to_trace` is in place and stays.
 - **Repaired traces** — `encoder.repaired_states()` exists but repaired
   trajectories are not persisted anywhere.
 - **V2 `retrain_on_repaired`** — deferred design option (retrain ROSAME on the

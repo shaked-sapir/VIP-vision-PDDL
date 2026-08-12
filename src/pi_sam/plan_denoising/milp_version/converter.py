@@ -235,7 +235,8 @@ def observation_to_trace(
                 f"State {t} maps multiple grounded predicates to the same "
                 f"proposition(s) {duplicated} — the observation is "
                 f"contradictory (e.g. both polarities of one fluent). "
-                f"See src/depot-polarity-test/README.md."
+                f"This is a defect in the observation, not in the encoding: "
+                f"the caller has handed us a state asserting p and not-p."
             )
         obs_p[t] = entries
 

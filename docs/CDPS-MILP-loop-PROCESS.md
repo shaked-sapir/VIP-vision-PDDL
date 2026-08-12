@@ -507,11 +507,18 @@ and `subset`. Covered by `test_the_fold_wide_cost_keys_stay_empty`.
 
 ### 4ter.6 Two upstream findings surfaced during P4
 
-- **Depot is broken for every algorithm**, not just the MILP arms — the
-  documented, unfixed both-polarity corruption in
-  `ground_all_predicates_in_state` (`src/utils/pddl_state.py:307`, write-up in
-  `src/depot-polarity-test/README.md`). Root cause: `GroundedPredicate` violates
-  the `__eq__`/`__hash__` contract.
+- **Depot is broken for every algorithm that loads observations without a
+  problem file**, which includes CDPS and both MILP arms. Root cause:
+  `GroundedPredicate` violates the `__eq__`/`__hash__` contract — `__eq__` walks
+  the type hierarchy, `__hash__` is over `str` — so two spellings of one fluent
+  compare equal but hash apart, the membership test in
+  `ground_all_predicates_in_state` probes the wrong bucket, and CWA-completion
+  appends a contradictory negative beside the present positive. `96353c4ff` did
+  **not** fix this; it moved which call site suffers. §7.8 has the measurement
+  and the correction to what this section previously claimed. **Fixed since**, by
+  `normalize_predicate_types_in_state` — §7.8's Resolution. The
+  `__eq__`/`__hash__` violation itself is still there; it lives in
+  `pddl_plus_parser` and is now merely unreachable from this repository's states.
 - **`model_prior._binding`'s distinctness guard is unreachable.**
   `Predicate.signature` is a **dict**, so `(on ?x ?x)` collapses to arity 1
   upstream and the guard can never see repeated parameters. Harmless, but it
@@ -765,7 +772,8 @@ domain, not n.** Running every real fold of a cell (5 folds per n, n=3…8):
 | blocksworld `sim_run__mask=0.1__noise=0.2` | 3/5 | 3/5 | 3/5 | 1/5 | 1/5 | **5/5** | **16/30** |
 | npuzzle `simulation-cluster-run-cpu256-10min__mask=0.1__noise=0.2` | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | 0/5 | **0/30** |
 
-(cells are "folds where some later round improved on round 1".) Blocksworld's
+(cells are "folds where some later round improved on round 1". Neither row comes
+from `simulation-final-run__*`, the authoritative set — §7.8.) Blocksworld's
 mean V gain over round 1 peaks at n=8 — 6.6 % mean, 20.8 % best fold — which is
 the *largest* real n available, not the smallest. npuzzle never improves at any
 n: its traces exercise the same four move actions in the same shape, so every
@@ -786,14 +794,22 @@ Three corrections to earlier claims in this document, all mine:
 3. The loop being "correct at both ends" is now measured rather than argued, so
    **no special-casing is added**.
 
-**Depot is excluded, by a pre-existing data bug rather than by the loop.** Every
-depot trace is rejected with `State 1 maps multiple grounded predicates to the
-same proposition(s) ['clear_p1', 'clear_p3'] — the observation is contradictory`
-(the both-polarity corruption of `src/utils/pddl_state.py:307`, documented in
-`src/depot-polarity-test/README.md`). With no encodable trace the loop raises
-`No usable traces for the MILP loop`, which is the correct behaviour — it cannot
-repair what it cannot encode. This affects the whole MILP family, single round
-included, and must be settled before P5.7 covers depot.
+**Depot is excluded, by a live code defect rather than by the loop.** Every depot
+trace is rejected with `State 1 maps multiple grounded predicates to the same
+proposition(s) ['clear_p1', 'clear_p3'] — the observation is contradictory`. With
+no encodable trace the loop raises `No usable traces for the MILP loop`, which is
+the correct behaviour — it cannot repair what it cannot encode. This affects the
+whole MILP family, single round included, and CDPS as well.
+
+The sentence that stood here originally called this "a pre-existing data bug"
+already fixed in `96353c4ff`. Both halves were wrong; §7.8 measures it. It is not
+a property of the cell this sweep happened to read, so re-running the sweep
+against `simulation-final-run__mask=0.1__noise=0.2` would reproduce it exactly.
+
+**The exclusion is now lifted** — §7.8's `normalize_predicate_types_in_state`
+landed and depot encodes. The headroom table above is therefore missing a depot
+row that is measurable rather than impossible; P5.7 supplies it. Nothing else in
+§7.4 changes, since depot never contributed a number to it.
 
 ### 7.5 D3 — ROSAME per-epoch snapshots (done)
 
@@ -830,7 +846,7 @@ scorer), `curves.py` (profiles + figure), `run_anytime.py` (CLI),
 `test_anytime.py` (9 tests). Run it at a cell or a single fold:
 
     python -m benchmark.evaluation.anytime.run_anytime \
-        benchmark/running_results/blocksworld/sim_run__mask=0.1__noise=0.2
+        benchmark/running_results/blocksworld/simulation-final-run__mask=0.1__noise=0.2
 
 Each fold gets `anytime_scores.json` and `anytime_curve.png`. Nothing re-runs a
 learner, so it is safe to point at a finished run and safe to re-run after
@@ -893,7 +909,11 @@ Verified on all 30 folds of blocksworld `sim_run__mask=0.1__noise=0.2`: every
 fold read, scored and plotted; one fold hand-checked at 3 observations / 15
 transitions, scored in 0.1 s. That cell predates §7.5 and the MILP arms, so only
 `cdps` and `cdps_anchored` appear in it — the other two shapes are covered by the
-tests until P5.7 produces runs that hold them.
+tests until P5.7 produces runs that hold them. `simulation-final-run__*` would
+have been the cell to read (§7.8), but it predates the MILP arms equally, so it
+would have exercised the same two shapes; this check is about the reader parsing
+artifacts, and blocksworld carries no ancestor-typed predicate, so nothing here
+turns on which of the two cells it ran against.
 
 ### 7.7 D6 — config-driven ablation selection (done)
 
@@ -963,3 +983,224 @@ so nothing about existing runs changes. 10 new tests in
 `benchmark/test_milp_ablations.py` (on the benchmark side because the feature
 spans both layers and `src` must not import `benchmark`), plus the pre-existing
 12 + 65 MILP tests still passing.
+
+### 7.8 Provenance audit — which cell each P5 claim rests on, and the depot defect
+
+Raised as: *"the relevant data files (of already-run experiments) for all domains
+are in `simulation-final-run__*` data! the sim_run of the depot is indeed broken.
+did those data affect any other problem along the way which made you make
+assumptions/decisions because of that? if so - list all of them"*, then *"correct
+the process.md and tell on what data it should have been tested against. are
+those re-runs necessary?"*
+
+Two separate questions turned out to be tangled here: **which cell a measurement
+read** (provenance) and **whether depot is broken** (a defect). They are not the
+same question and the answers point opposite ways.
+
+#### What exists on disk
+
+| cell family | domains covered | folds/cell |
+|---|---|---|
+| `simulation-final-run__*` | blocksworld, depot, gripper, hanoi, npuzzle — **all five**, 9 mask/noise combos | 30 |
+| `sim_run__*` | blocksworld, depot, gripper only | 30 |
+| `simulation-cluster-run-cpu256-10min__*` | npuzzle (among others) | 30 |
+
+`simulation-final-run__*` is the authoritative set because it is the only one
+that covers every domain at every grid point. `sim_run__*` is a partial earlier
+set; npuzzle and hanoi have no `sim_run` cell at all.
+
+#### The depot defect is live code, not stale data
+
+The working hypothesis in the previous revision of §4ter.6 and §7.4 was that
+depot's `sim_run` cell was a stale snapshot written before `96353c4ff`, and that
+reading `simulation-final-run__*` instead would make depot encode. That was
+wrong, and measuring it took one probe:
+
+| depot cell | fluent in both polarities in the **file text** | ...in the **loaded observation** |
+|---|---|---|
+| `sim_run__mask=0.1__noise=0.2` | 0/3 traces | 3/3 traces |
+| `simulation-final-run__mask=0.1__noise=0.2` | 0/3 | 3/3 |
+| `simulation-cluster-run-cpu256-10min__mask=0.1__noise=0.2` | 0/3 | 3/3 |
+| `simulation-after-pred-fix__mask=0.1__noise=0.2` | 0/3 | 3/3 |
+| `simulation-cluster-run__mask=0.1__noise=0.2` | 0/3 | 3/3 |
+
+Every frozen trajectory is clean. Every load of it, by today's tree, is not. The
+contradiction is **manufactured in memory on each run**, so no choice of cell
+avoids it.
+
+Walking `load_masked_observation`'s three stages on depot's `s0`: 0 clashes after
+`parse_trajectory`, **2 after `ground_observation_completely`**, and masking adds
+none. The colliding pair:
+
+    str='(clear p1 - object)'         pos=True   sig={'?x': object}
+    str='(not (clear p1 - package))'  pos=False  sig={'?x': package descendant of object}
+    a == b ? False    (ignoring polarity: True)
+
+`GroundedPredicate.__eq__` walks the type hierarchy while `__hash__` is
+`hash(str(self))`, which embeds the type tag — so the two spellings hash apart
+while comparing equal, violating the `__eq__`/`__hash__` contract. The
+set-membership probe in `ground_all_predicates_in_state` lands in the wrong
+bucket, never consults `__eq__`, and CWA-completion appends the negative beside
+the present positive.
+
+The violation is **asymmetric**, which is why it survived this long unnoticed.
+`__eq__` compares types with `is_sub_type`, which is one-directional, so with
+`a` the `object`-tagged predicate and `b` the `package`-tagged one:
+
+    a == b : False        b == a : True        hash(a) == hash(b) : False
+
+Equality is not symmetric, so `a == b` and `b == a` disagree and the contract is
+violated only in one direction. Any probe that happens to put the concrete-typed
+operand on the left sees consistent behaviour; the reversed probe does not. This
+is also why the "just key the membership test on `(name, args)`" fix was
+rejected: it stops the contradiction but leaves both spellings circulating in one
+state, and `mask_state`'s linear `==` scan (`src/utils/masking.py:120-124`) would
+then silently depend on set iteration order deciding which operand lands left.
+
+#### `96353c4ff` moved the bug, it did not fix it
+
+There are two grounding conventions and two parser call styles, and they pair up
+as a clean anti-diagonal. Measured by monkeypatching `get_all_possible_groundings`
+between the pre-fix implementation (keep the lifted declared signature) and the
+current one (refine to the object's concrete type), crossed with both call styles,
+counting both-polarity fluents in depot's `s0`:
+
+| parser call style | lifted (pre-`96353c4ff`) | concrete (current) |
+|---|---|---|
+| `TrajectoryParser(domain)` | **0** | 2 |
+| `TrajectoryParser(domain, problem)` | 2 | **0** |
+
+Without a problem file the parser cannot resolve an object's type and falls back
+to the lifted signature, yielding `(clear p1 - object)`; with one it refines to
+`(clear p1 - package)`. Grounding must match whichever the parser produced.
+`96353c4ff` made grounding always concrete, which fixed the with-problem style and
+broke the without-problem style. The two call sites split by algorithm family:
+
+| passes a problem? | call sites | consequence for depot |
+|---|---|---|
+| **no** | `src/utils/masking.py:219` (`load_masked_observation`), `pddl_trajectory.py:241`, `run_fold.py:71`, `simulated_data_utils.py:45`, `run_simulated_experiment.py:68`, `post_process_gt_metrics.py:28,49` | contradictory — **CDPS and both MILP arms** |
+| **yes** | `baselines/rosame_runner.py:122`, `baselines/rosame_i_runner.py:281`, `src/depot-polarity-test/repro.py:70`, `src/domains/hanoi/algorithm.py:79` | consistent — the ROSAME family |
+
+Two consequences worth stating plainly. First, `src/depot-polarity-test/repro.py`
+is **not a valid regression test**: it passes a problem, so it exercises the one
+call style production code does not use, and it passes while production fails.
+The comment block in `get_all_possible_groundings` that cites it as the check is
+wrong on both counts and needs correcting with the fix. Second, on depot the
+ROSAME baselines and the CDPS/MILP family are currently learning from
+**observations that differ**, which makes any depot head-to-head unsound
+independently of whether the MILP converter rejects the trace.
+
+#### Blast radius: depot only
+
+Only an *ancestor-typed* predicate — declared over a type that has subtypes —
+can exhibit the mismatch, since otherwise both conventions name the same type.
+Scanning all seven domain files:
+
+    depot   ancestor-typed predicates: [('clear', {'?x': 'object'})]
+    blocks, gripper, hanoi, hiking, maze, n_puzzle: none
+
+So `clear(?x - object)` is the only instance in the repository. Every
+blocksworld, npuzzle, gripper and hanoi number in this document is untouched by
+this defect; it can only ever have been a provenance question for them.
+
+#### Per-claim: what each P5 result read, and what it should have read
+
+| § | claim | read | should have read | affected by the defect? |
+|---|---|---|---|---|
+| 7.1 | loop picks a repair by a GT-free score; CP-SAT pinned | blocksworld `sim_run` folds | either — code-path check | no |
+| 7.2 | per-round `model.pddl`; identity from `model_hash` not text | blocksworld `sim_run` fold | either — code-path check | no |
+| 7.3 | backfill dispatch, two repair-cost scopes, arm-specific input | throwaway copy of a blocksworld cell | either — code-path check | no |
+| 7.4 | loop-vs-round-1 headroom table (16/30 blocksworld, 0/30 npuzzle) | blocksworld `sim_run`, npuzzle `simulation-cluster-run-cpu256-10min` | `simulation-final-run__mask=0.1__noise=0.2` per domain | no — **empirical, provenance-affected** |
+| 7.4 | depot excluded, every trace unencodable | depot `sim_run` | any depot cell — all identical | **yes, and it is the defect itself** |
+| 7.5 | ROSAME per-epoch snapshots | synthetic + unit tests | n/a | no |
+| 7.6 | anytime reader/scorer over 30 folds | blocksworld `sim_run` | `simulation-final-run__*` | no |
+| 7.7 | ablation expansion, arm identity, label distinctness | config expansion + unit tests | n/a | no |
+
+#### Are the re-runs necessary?
+
+Three groups, three answers.
+
+**The mechanical checks (§7.1, §7.2, §7.3, §7.5, §7.7) — no.** These verify that
+a code path does what it says: that a round writes its model, that an arm reads
+its own input, that a config expands to the arms it names. A different cell
+exercises the same branches with different bytes. Re-running them would consume
+time and change no conclusion.
+
+**The blocksworld/npuzzle empirical results (§7.4, §7.6) — no separate re-run.**
+These *are* provenance-affected: the headroom table is a claim about data, and it
+was taken on cells that are not the authoritative set, so the specific fractions
+16/30 and 0/30 are properties of those cells and should not be quoted as
+properties of the benchmark. But neither domain carries an ancestor-typed
+predicate, so nothing about them is *wrong* — only narrower than it reads. P5.7
+runs the whole grid over `simulation-final-run__*` regardless, which
+re-establishes both on the authoritative set as a by-product. Commissioning a
+separate re-run now would duplicate work P5.7 does anyway.
+
+**Depot — no re-run helps, and one is actively misleading.** The failure is in
+the loader, not in the data: re-running the P5.3 sweep against
+`simulation-final-run__mask=0.1__noise=0.2` would reproduce the same rejection on
+the same three traces and would look like independent confirmation of a data
+problem that does not exist. Depot needs the grounding defect fixed first; only
+then is a measurement of it worth taking. Until that lands, depot's absence from
+every MILP result in this document is a statement about the loader and must not
+be read as a statement about the domain's difficulty.
+
+That has now landed (see Resolution below), so the ordering constraint is
+discharged and depot becomes a re-run like any other — with the *scope* answer
+unchanged: it falls out of P5.7 rather than needing a sweep of its own.
+
+#### Resolution
+
+Fixed by normalising, not by picking a convention. `get_all_possible_groundings`
+keeps emitting concrete tags; `normalize_predicate_types_in_state`
+(`src/utils/pddl_state.py`) re-tags the *parsed* predicates to match, and
+`ground_all_states_in_observation` calls it on every state immediately before
+CWA-completion. Both call styles therefore converge on one spelling before
+anything hashes, which zeroes **both** rows of the anti-diagonal instead of
+swapping which one is broken.
+
+Three alternatives were rejected. Making the without-problem sites pass a problem
+touches ten call sites including offline tooling, adds a `KeyError` path, and
+leaves `masking._parse_masked_predicate_string` still emitting lifted tags.
+Keying the membership probe on `(name, args)` stops the contradiction but leaves
+two spellings circulating in one state, which makes `mask_state`'s linear scan
+order-dependent given that `Predicate.__eq__` is asymmetric. Repairing
+`__eq__`/`__hash__` is the only fix that ends the *class* of bug, but it lives in
+`pddl_plus_parser`, outside this repository.
+
+`src/utils/test_pddl_state.py` is the regression check the anti-diagonal asked
+for: no contradictory fluent under either call style, plus the stronger claim
+that both styles ground to byte-identical typed states. Confirmed to fail on
+three of its cases with the normaliser stubbed out. `src/depot-polarity-test/` is
+deleted — it only ever exercised the row that already passed.
+
+Verified in four passes, each on a different kind of evidence:
+
+| check | before | after |
+|---|---|---|
+| unit tests (`test_pddl_state.py` + `test_evaluator.py`) | n/a | 25 passed |
+| both-polarity fluents, depot `s0`, both call styles | 2 / 2 | **0 / 0** |
+| distinct fluents / literals in depot `s0` | 52 / 54 | **52 / 52** |
+| `observation_to_trace` on depot's 3 traces | `REJECTED` ×3 | **`OK` steps 9, 8, 9** |
+
+The 54→52 literal count is the fix seen directly: exactly the two spurious
+negatives disappear and no real fluent goes with them.
+
+**Depot reaches the learner for the first time.** Every measurement above stops
+at the converter, which was the question that had been open — but it had never
+been established that anything *downstream* would accept depot either, since no
+depot trace had ever got that far. One fold end-to-end
+(`simulation-final-run__mask=0.1__noise=0.2`, `fold0_numtrajs3_gtrate0`, 60 s
+budget) settles it: `cdps` returns a model at precision 0.790 / recall 0.750
+after exploring 6 conflict-free models, and `cdps_milp_single_round` returns one
+at 0.750 / 0.660. Neither number means anything on one fold at n=3 — the claim is
+only that the search runs and terminates with a model, not that the model is
+good.
+
+Re-run scope, measured rather than assumed: contradictions number 146 across
+depot's three traces and **0** on blocksworld, gripper, hanoi and npuzzle, and
+the ROSAME family already parsed with a problem. So only depot's `CDPS` and
+`CDPS_ANCHORED` rows are affected — 270 folds each. The frozen
+`original_observations/` on disk are not corrupt (the corruption was at load
+time), so `backfill_cdps.py --force` regenerates exactly those rows without
+touching data, other domains, or other algorithms.

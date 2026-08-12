@@ -245,30 +245,11 @@ def get_all_possible_groundings(
     grounded_predicates = set()
     for values in itertools.product(*object_domains):
         mapping = dict(zip(param_names, values))
-        # --- PREVIOUS implementation (kept for reference) ------------------
-        # Used the LIFTED declared signature. Broken for predicates whose
-        # parameter is declared with a non-leaf type (e.g. depot's untyped
-        # "(clear ?x)" -> "?x - object"): GroundedPredicate hashes on
-        # str(self), which embeds the signature types, while
-        # TrajectoryParser.parse_grounded_predicate stores fluents with each
-        # object's CONCRETE type — so the generated fluent hashed differently
-        # from the parsed one, set membership in
-        # ground_all_predicates_in_state silently failed, and CWA-completion
-        # added a contradictory negative next to a present positive.
-        # See src/depot-polarity-test/README.md.
-        #
-        # grounded_predicates.add(GroundedPredicate(
-        #     name=predicate.name,
-        #     signature=predicate.signature,
-        #     object_mapping=mapping,
-        #     is_positive=predicate.is_positive,
-        # ))
-        # -------------------------------------------------------------------
-        # CURRENT implementation: refine parameter types to each object's
-        # concrete type, exactly like TrajectoryParser.parse_grounded_predicate
-        # does, so generated and parsed fluents are byte-identical (same str,
-        # same hash). For leaf-typed parameters (declared == concrete type)
-        # the output is unchanged.
+        # Refine each parameter to its object's CONCRETE type. This is the
+        # canonical spelling; ``normalize_predicate_types_in_state`` rewrites
+        # parsed predicates to match it before the membership test in
+        # ``ground_all_predicates_in_state`` runs. Do not change one without
+        # the other — see that function's docstring for why.
         refined_signature = {
             name: grounded_objects[obj_name].type
             for name, obj_name in mapping.items()
@@ -294,10 +275,56 @@ def get_all_possible_groundings_for_domain(
     return all_grounded_predicates
 
 
+def normalize_predicate_types_in_state(
+    state: State, grounded_objects: Dict[str, PDDLObject],
+) -> State:
+    """Re-tag every grounded predicate's signature with its object's concrete type.
+
+    ``GroundedPredicate`` hashes on ``str(self)``, which embeds the type tag, so
+    ``(clear p2 - object)`` and ``(clear p2 - package)`` are different keys. This
+    puts every predicate on the one spelling :func:`get_all_possible_groundings`
+    emits, so the hash lookup in :func:`ground_all_predicates_in_state` can't miss
+    and CWA-complete a negative next to a present positive.
+
+    A no-op unless a predicate parameter is declared with a non-leaf type — in
+    ``src/domains/`` only depot's ``(clear ?x)``.
+
+    Args:
+        state: The state whose predicates to re-tag.
+        grounded_objects: The observation's object table (name -> PDDLObject).
+
+    Returns:
+        A new ``State``. Predicates are rebuilt, not mutated: changing
+        ``signature`` in place would change the hash of an object already in a set.
+    """
+    normalized = {
+        key: {
+            GroundedPredicate(
+                name=predicate.name,
+                signature={
+                    param_name: grounded_objects[object_name].type
+                    for param_name, object_name in predicate.object_mapping.items()
+                },
+                object_mapping=predicate.object_mapping,
+                is_positive=predicate.is_positive,
+                is_masked=predicate.is_masked,
+            )
+            for predicate in predicates
+        }
+        for key, predicates in state.state_predicates.items()
+    }
+    return State(normalized, state.state_fluents, is_init=state.is_init)
+
+
 def ground_all_predicates_in_state(
     state: State, all_domain_grounded_predicates: Dict[str, Set[GroundedPredicate]],
 ) -> State:
-    """Add missing predicate groundings to the state as negative literals."""
+    """Add missing predicate groundings to the state as negative literals.
+
+    Assumes the state has been through :func:`normalize_predicate_types_in_state`;
+    the membership test below is a hash lookup and silently under-reports if the
+    state and ``all_domain_grounded_predicates`` spell type tags differently.
+    """
     new_state = state.copy()
     for predicate_name, grounded_predicates in state.state_predicates.items():
         new_state.state_predicates[predicate_name] = set(grounded_predicates)
@@ -315,11 +342,14 @@ def ground_all_states_in_observation(
 ) -> Observation:
     """Ground all predicates in each state of the observation."""
     new_observation = copy_observation(observation)
+    grounded_objects = new_observation.grounded_objects
     for component in new_observation.components:
         component.previous_state = ground_all_predicates_in_state(
-            component.previous_state, all_domain_grounded_predicates)
+            normalize_predicate_types_in_state(component.previous_state, grounded_objects),
+            all_domain_grounded_predicates)
         component.next_state = ground_all_predicates_in_state(
-            component.next_state, all_domain_grounded_predicates)
+            normalize_predicate_types_in_state(component.next_state, grounded_objects),
+            all_domain_grounded_predicates)
     return new_observation
 
 
