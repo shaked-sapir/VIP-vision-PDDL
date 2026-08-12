@@ -1,0 +1,14 @@
+# Eq. 16 ablation arm for the CDPS+MILP single-round variant.
+#
+# Adds the precondition bias +lambda_pre * pre[alpha, l] to the MILP objective.
+# It is off in run_config.yaml, so this file is the "on" side of the A/B and is
+# passed to backfill_cdps via --milp-config. Rows land as CDPS_MILP_SR__eq16=0.4
+# in cdps_milp_single_round__eq16=0.4/, beside the eq16=off arm rather than on
+# top of it.
+#
+# NOTE: eq16 changes the objective, so T' itself differs. The
+# cost(MILP) <= cost(best CDPS CFM) lower-bound check is only meaningful on
+# eq16=off rows -- do not read it off this arm.
+cdps_milp:
+  eq16: on
+  lambda_pre: 0.4
