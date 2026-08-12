@@ -37,15 +37,18 @@ bool for report continuity).
 ## File map & data flow
 
 ```
-benchmark/algorithm_adapters/rosame_milp/
+src/pi_sam/plan_denoising/milp_version/     [SHARED with the cdps_milp_* learners]
 ├── __init__.py        sys.path bootstrap for vendor/ (upstream absolute imports)
 ├── vendor/            upstream code, verbatim (planning_structs/, constraint_opt/)
 ├── converter.py       our pddl_plus world  ->  vendored planning_structs inputs
 ├── encoding_config.py MilpEncodingConfig — toggle-able MILP rule-set (presets)
-├── encoder.py         CPSATObservedActions — the MILP itself ("cp-sat-observed")
+└── encoder.py         CPSATObservedActions — the MILP itself ("cp-sat-observed")
+
+benchmark/algorithm_adapters/rosame_milp/    [ROSAME-specific glue only]
+├── __init__.py        re-exports the vendor bootstrap from milp_version
 ├── model_bridge.py    trained ROSAME <-> MILP (obs_m, pseudo-labels, PDDL decode)
 ├── milp_loop.py       MilpPORosame — V2's training loop with model-CE channel
-└── test_rosame_milp.py  5 torch-free unit tests
+└── test_rosame_milp.py  torch-free unit tests
 
 flow (V2): backfill/experiment_runner
   -> RosameMilpRunner.learn (rosame_milp_runner.py:243)

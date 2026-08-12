@@ -5,7 +5,7 @@ Branch: `ROSAME+MILP`
 Commit: `95c733f1fecd9ddbe9634c8c54ebc85b27ebc076` (2026-06-20)
 
 Vendored packages (top-level names preserved; loaded via a sys.path insertion
-in `benchmark/algorithm_adapters/rosame_milp/__init__.py` so upstream's
+in `src/pi_sam/plan_denoising/milp_version/__init__.py` so upstream's
 absolute imports keep working):
 
 - `planning_structs/` — `domain.py`, `instance.py`, `traces.py` (verbatim)
@@ -14,8 +14,9 @@ absolute imports keep working):
   path needs no Gurobi license)
 
 Our observed-actions encoder variant lives OUTSIDE the vendor tree
-(`benchmark/algorithm_adapters/rosame_milp/encoder.py`) and is registered in
-the same factory under `"cp-sat-observed"`.
+(`src/pi_sam/plan_denoising/milp_version/encoder.py`) and is registered in
+the same factory under `"cp-sat-observed"`. It is shared by the
+`rosame_milp*` baselines and by our own `cdps_milp_*` learners.
 
 ## Reference hyperparameters (paper Sec. 7 "Training", confirmed in code)
 
@@ -62,3 +63,25 @@ From `train_common.py` on the vendored commit:
    fresh, undecayed model-CE per round.
 3. **λ mismatch** — paper Sec. 7 states λ=0.4; the code default is 0.2 (their
    ICAPS-24 README uses 0.2 for most domains, 0.4 for 8-puzzle).
+4. **Grounding excludes repeated-object tuples.** `Instance._build_actions` and
+   `Instance._build_propositions` (`instance.py:96,104`) ground with
+   `itertools.permutations`, so there is no `(on a a)` proposition and no
+   `stack(a,a)` action. Consistent for ROSAME — its network shares that
+   vocabulary — but wrong for `cdps_milp_*`, where (a) our observations are
+   CWA-completed with `itertools.product` and therefore *do* contain `(on a a)`,
+   which would then reach PI-SAM with no MILP variable behind it (a hole in
+   design §4.1), and (b) a step whose action repeats an object has no grounded
+   Action, so `observation_to_trace` drops the entire trace.
+   **The vendor file is left verbatim.** `converter.RepeatedArgsInstance`
+   subclasses it with `product`-based grounding and is selected by
+   `build_ps_instance*(..., include_repeated_args=True)` — on for `cdps_milp_*`,
+   off (upstream) for `rosame_milp*`. Cost: n!/(n−k)! → n^k tuples (~8% more on
+   a 10-block instance).
+
+   The *lifted* binding enumeration (`domain.py:164`, also `permutations`) needs
+   no change: PI-SAM's `PredicatesMatcher` likewise enumerates distinct action
+   *parameter slots*, so both vocabularies contain `(on ?x ?y)`/`(on ?y ?x)` but
+   never `(on ?x ?x)`. Verified equivalence — for `stack(a,a)`, PI-SAM matches
+   `(on a a)` to both `(on ?x ?y)` and `(on ?y ?x)`, and our encoder returns
+   bindings `[(1,2), (2,1)]`, which it ORs together (`encoder._bindings` +
+   `cp.any`).

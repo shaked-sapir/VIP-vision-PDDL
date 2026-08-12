@@ -347,7 +347,42 @@ encoder aggregating bindings instead of skipping.
 3. **P3 — Evaluate module.** §2.1 contract + unit tests (hand models with
    known mismatch counts; conservative model → inapplicability counted,
    not cascaded). Exit: V(GT model) reproduces injected-noise count on a
-   sim fold.
+   sim fold (valid because `noise_injection.py` leaves t=0 untouched, so
+   under the GT model the rollout reproduces the GT state sequence and every
+   injected flip on an observed fluent surfaces as exactly one effect
+   mismatch, with zero inapplicability events).
+   Decided 2026-08-11:
+   - **Location deviates from §4**: `src/pi_sam/plan_denoising/evaluator.py`,
+     NOT under `milp_version/` — P5 uses the same Evaluate to score `cdps`
+     and `rosame_milp` snapshots, so it must not drag in the CP-SAT package.
+   - **Execution vs grading are separate concerns.** Grading: unmasked
+     fluents only (settled). Execution: a masked slot has no truth value, so
+     `pre ⊆ s` and `s \ del` are undefined on it. The rollout never hits this
+     (s₀ is complete, all later states are model-computed); the *one-step*
+     secondary metric does, and resolves it by **skipping transitions whose
+     base state has a masked slot occurring in that action's `pre`/`del`**,
+     logging `skipped_transitions`. V itself is unaffected.
+   - **The V↔GT-metrics correlation check moves here from P5** as a second
+     exit criterion. `argmin V` is only sound if lower V ⇒ better model in
+     the GT sense; if the proxy is uncorrelated the loop optimises noise and
+     P5 draws a rising curve on a meaningless axis. The check is free: CDPS
+     already emits many `conflict_free_model_{idx}/model.pddl` per fold from
+     identical data with differing quality — exactly the population needed —
+     across every finished run. Offline script, no re-runs. Pass criterion:
+     within-fold Spearman ρ ≥ +0.4 between `success_rate` and
+     `precision_overall`/`recall_overall`, sign-consistent across domains.
+     On failure, fix V (w₁:w₂ off 1:1, select on `success_rate`, add the
+     one-step term) BEFORE building P4.
+   - **Open item raised here, executed before P5**: in image mode s₀ is NOT
+     currently GT+unmasked — `image_trajectory_handler.create_masking_info`
+     turns the VLM's frame-0 `unknown` set into masked slots in s₀. CDPS then
+     treats a partially-masked state as "GT" (= unpatchable, so those slots
+     are never resolved) and the MILP admits it as a **hard** state. Fix =
+     take s₀ from the problem file's `(:init ...)` (real GT, invents nothing)
+     rather than forcing UNCERTAIN→false (which invents values and pins them
+     unrepairably). Deferred out of P3 because it changes s₀ for *all*
+     algorithms and invalidates every existing image-mode result. P3 only
+     asserts-and-logs.
 4. **P4 — Loop driver.** Sampler flavors, learner-input flavors +
    conflict fallback + co-sampling, stop rules, round log. Exit: loop runs
    to budget on one npuzzle fold; log complete; M_best ≥ first-round model
@@ -355,4 +390,54 @@ encoder aggregating bindings instead of skipping.
 5. **P5 — Plots + benchmark.** §3 protocol; npuzzle (starving domain) +
    blocksworld (control); 3-way comparison vs `cdps` and `rosame_milp`;
    ablations: eq16 (on single_round), w_prior 3-arm, sampler, learner_input,
-   m; V↔GT-metrics correlation check.
+   m. (The V↔GT-metrics correlation check moved to P3.)
+   Note: most of the anytime snapshot stream already exists on disk —
+   `conflict_search.py` writes `conflict_free_model_{idx}/model.pddl`,
+   `patch_details.json` (`wall_time_seconds`) and
+   `conflict_free_solutions_log.json` (`wall_time_so_far`), and
+   `single_round.save_artifacts` mirrors that shape. So P5's harness is
+   mostly a reader. The one real gap is `rosame_milp`, which emits no
+   per-epoch snapshots today: it needs a callback that thresholds its
+   probabilities at 0.5 and writes `(timestamp, model.pddl)` per epoch.
+
+6. **P6 — Structural review of `src/` (post-P5, opinion recorded
+   2026-08-11; NOTHING to be changed before P5 is done).**
+
+   Raised by the observation that `src/pi_sam/plan_denoising/` sitting
+   *inside* `src/pi_sam/` is odd. I agree, for four reasons:
+
+   - **Inverted dependency.** `plan_denoising` *consumes* the learner: CDPS
+     and `milp_version` both call PI-SAM as a black-box subroutine. A
+     consumer nested inside its dependency's package is backwards; it reads
+     as "denoising is a feature of PI-SAM" when the real relation is
+     "PI-SAM is a plugin of the denoiser".
+   - **The learner is swappable, the containment says otherwise.** The
+     architecture is deliberately learner-agnostic at the seams (the MILP
+     produces T′; *some* learner turns T′ into a model). Nesting hard-codes
+     one learner into the namespace.
+   - **Foreign code is now nested two levels deep in a learner package.**
+     `pi_sam/plan_denoising/milp_version/vendor/` holds ROSAME-derived
+     upstream code. Vendored ROSAME under `pi_sam/` is a smell.
+   - **The evaluator forces the issue.** `evaluator.py` scores models from
+     CDPS, the MILP arms and ROSAME alike. It is learner-agnostic by
+     construction, so `src/pi_sam/…/evaluator.py` is simply the wrong
+     address — P3 already puts it one level up as a stopgap.
+
+   Counter-argument, recorded honestly: CDPS is *not* learner-agnostic
+   today. Its conflict detection is `NoisyLearnerMixin.handle_effects`, and
+   the §4.1 safety proposition is a statement about PI-SAM specifically. So
+   the current nesting reflects a real coupling, not only an accident.
+
+   Proposed target (to be decided at P6, not now) — three siblings under
+   `src/` with a one-way dependency rule:
+
+   | package | contents | may import |
+   |---|---|---|
+   | `src/learning/` | PI-SAM, noisy variant, `masking/`, `noising/` | — |
+   | `src/denoising/` | `conflict_search.py`, `frontier.py`, `milp_version/` | `learning` |
+   | `src/model_evaluation/` | `evaluator.py` (+ future model-level metrics) | neither |
+
+   Sequencing: do it as **one mechanical, import-only commit on a clean
+   branch after P5**, with no behavioural change in the same commit.
+   Doing it during P4 would collide with every file under active
+   development and would make the diff unreviewable.

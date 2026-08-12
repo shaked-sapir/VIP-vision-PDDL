@@ -10,22 +10,22 @@ Two baselines are built on this package (registered in ``benchmark.baselines``):
                            solve one MILP, decode.
 
 Layout:
-  vendor/            — code vendored from the ROSAME repo (see vendor/UPSTREAM.md)
-  encoder.py         — our CP-SAT encoder variant with observed (fixed) actions
-  converter.py       — our observations/problems -> planning_structs inputs
   model_bridge.py    — trained ROSAME <-> ObservationM / labels / PDDL decode
   milp_loop.py       — the V2 training loop (pooled schedule + model-CE rounds)
 
-The vendored packages keep their upstream top-level names (``planning_structs``,
-``constraint_opt``), loaded via the sys.path insertion below so upstream's
-absolute imports work unchanged.
+The encoder, the converter, the encoding rule-sets and the vendored
+``planning_structs``/``constraint_opt`` packages moved to
+``src/pi_sam/plan_denoising/milp_version/`` — they are shared with the
+``cdps_milp_*`` learners, which use the same encoder under a different rule-set
+preset. Only the genuinely ROSAME-specific pieces (anything that reads the
+network's ``forward()`` rows or drives torch training) stayed here.
+
+Importing this package also performs the vendor sys.path insertion, so
+``from planning_structs...`` keeps working for our modules and for upstream's
+own absolute imports.
 """
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-_VENDOR_DIR = str(Path(__file__).resolve().parent / "vendor")
-if _VENDOR_DIR not in sys.path:
-    sys.path.insert(0, _VENDOR_DIR)
+# Side effect: inserts the vendored packages' directory into sys.path.
+from src.pi_sam.plan_denoising import milp_version as _milp_version  # noqa: F401

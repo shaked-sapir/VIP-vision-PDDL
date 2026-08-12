@@ -18,8 +18,8 @@ import itertools
 from collections import OrderedDict, defaultdict
 
 import benchmark.algorithm_adapters.rosame_milp  # noqa: F401  (vendor sys.path)
-from benchmark.algorithm_adapters.rosame_milp.encoder import CPSATObservedActions
-from benchmark.algorithm_adapters.rosame_milp.encoding_config import MilpEncodingConfig
+from src.pi_sam.plan_denoising.milp_version.encoder import CPSATObservedActions
+from src.pi_sam.plan_denoising.milp_version.encoding_config import MilpEncodingConfig
 from benchmark.algorithm_adapters.rosame_milp.model_bridge import binding_table
 
 from planning_structs.domain import Domain as PSDomain

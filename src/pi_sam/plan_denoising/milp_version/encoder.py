@@ -1,8 +1,13 @@
-"""CP-SAT encoder variant of the ROSAME+MILP "solution fixer" with observed actions.
+"""CP-SAT encoding of the MILP "solution fixer" with observed actions.
+
+Shared by both MILP callers — the ``cdps_milp_*`` learners (MILP as denoiser)
+and the ``rosame_milp*`` baselines (MILP as regularizer of a neural learner).
+They differ only in the rule set (:class:`encoding_config.MilpEncodingConfig`
+preset) and in what they do with the solution, never in the machinery here.
 
 Adapted from the vendored ``constraint_opt/cp_sat.py`` (see vendor/UPSTREAM.md).
 Differences from upstream, all motivated by our setting (ground actions observed,
-trajectories from different problems, s0 + optionally GT-final anchoring):
+trajectories from different problems, hard-fixed ground-truth states):
 
 1. **Observed actions** — no ``act`` variables at all. Each trace supplies its
    executed action per step; the step-level indicators are tied directly to the
@@ -14,21 +19,33 @@ trajectories from different problems, s0 + optionally GT-final anchoring):
    solve. (Upstream assumes one shared ``traces.instance``.)
 3. **Per-trace lengths** — upstream applies trace 0's length to all traces
    (``max_t = obs_t[0].step + 1``); here every trace uses its own ``step``.
-4. **Optional goal anchoring** — a trace with ``goal is None`` gets no hard
-   final-state constraints (its final state participates via the soft ``obs_p``
-   objective instead). Traces with a goal keep upstream's hard fixing
-   (paper eqs. 21–22).
-5. **Config-driven undocumented constraints** — the per-schema non-empty rule
-   and the redundant-add ban reproduce two constraint families present in the
-   released code but absent from the paper. They are bundled in a
-   :class:`encoding_config.MilpEncodingConfig` (preset ``upstream()`` = released
-   behavior, ``tag()`` = the ``rosame_milp_tag`` variant); see vendor/UPSTREAM.md.
+4. **Configurable state anchoring** — upstream hard-fixes exactly the initial
+   and goal states. Here the set of hard-fixed states is per trace: a trace with
+   ``goal is None`` gets no hard final state (it participates via the soft
+   ``obs_p`` objective instead), and a trace may pin arbitrary known-GT
+   intermediate states through its ``hard_states`` attribute. See
+   :meth:`CPSATObservedActions.hard_states`; paper eqs. 19–22 are the two
+   special cases.
+5. **Config-driven rule set** — every constraint family that can exclude a legal
+   ground-truth model (the per-schema non-empty rule, the redundant-add ban, and
+   paper eq. 18 ``del => pre``) plus the optional objective terms (eq. 16
+   precondition bias, reference-model channel weighting) are bundled in a
+   :class:`encoding_config.MilpEncodingConfig`. Presets: ``upstream()`` =
+   released behavior, ``tag()`` = the ``rosame_milp_tag`` variant,
+   ``cdps_dialect()`` = all GT-excluding families dropped (used by
+   ``cdps_milp_*``); see vendor/UPSTREAM.md.
 
-Expected trace objects: vendored ``ObservationT`` instances with two extra
+Expected trace objects: vendored ``ObservationT`` instances with extra
 attributes attached by our converter:
-  - ``instance`` — the trace's own planning_structs ``Instance``;
-  - ``actions``  — dict ``t -> Action`` (the observed grounded action at step t,
-    1-based, t in 1..step).
+  - ``instance``    — the trace's own planning_structs ``Instance`` (required);
+  - ``actions``     — dict ``t -> Action`` (the observed grounded action at step
+    t, 1-based, t in 1..step) (required);
+  - ``hard_states`` — optional dict ``t -> set of true Propositions`` naming
+    extra states to hard-fix (see difference 4).
+
+``traces.obs_m`` (the reference model) is optional: when absent, or when
+``prior_weighting`` is ``NONE``, the model objective channel and the model-side
+solution hints are simply omitted.
 """
 
 from __future__ import annotations
@@ -46,8 +63,9 @@ from planning_structs.domain import ActionSchema, Predicate
 from planning_structs.instance import Action, Proposition
 from planning_structs.traces import ObservationM
 
-from benchmark.algorithm_adapters.rosame_milp.encoding_config import (
+from src.pi_sam.plan_denoising.milp_version.encoding_config import (
     MilpEncodingConfig,
+    PriorWeightMode,
     SchemaNonemptyRule,
 )
 
@@ -174,8 +192,11 @@ class CPSATObservedActions:
             eadd_terms = []
             for p in self.domain.predicates:
                 for x in self.domain.predicate_arguments[(a, p)]:
-                    # paper eq. 18: only preconditions may be deleted
-                    cons.append(self.dele[(a, p, x)].implies(self.pre[(a, p, x)]))
+                    # paper eq. 18: only preconditions may be deleted. Legal PDDL
+                    # allows deleting a non-precondition, so the CDPS dialect
+                    # switches this off (see encoding_config).
+                    if self.config.delete_implies_precondition:
+                        cons.append(self.dele[(a, p, x)].implies(self.pre[(a, p, x)]))
                     # paper eq. 17: preconditions and add effects don't intersect
                     cons.append(~(self.pre[(a, p, x)] & self.add[(a, p, x)]))
                     epre_terms.append(self.pre[(a, p, x)])
@@ -201,30 +222,42 @@ class CPSATObservedActions:
             if unifies(x, p.args, action.args)
         ]
 
+    def hard_states(self, i: int) -> Dict[int, set]:
+        """Time index (1-based, in ``1..steps+1``) -> set of true propositions to
+        hard-fix for trace ``i``. Everything else at that index is forced false
+        (closed-world), so a hard state is a fully known, unrepairable state.
+
+        Always includes the initial state (GT by assumption; paper eqs. 19-20)
+        and, when the trace supplies a goal, the final state (eqs. 21-22). A
+        trace may additionally carry a ``hard_states`` dict — that is how our
+        ``gt_anchoring: all_gt_states`` mode pins the intermediate GT states —
+        which is merged on top.
+        """
+        obs = self._trace(i)
+        steps = self._steps(i)
+        fixed: Dict[int, set] = {1: set(obs.init)}
+        if obs.goal is not None:
+            fixed[steps + 1] = set(obs.goal)
+        fixed.update(getattr(obs, "hard_states", None) or {})
+
+        for t in fixed:
+            if not 1 <= t <= steps + 1:
+                raise ValueError(
+                    f"hard state index {t} out of range for trace {i} "
+                    f"(expected 1..{steps + 1})"
+                )
+        return fixed
+
     def build_trace_constraints(self) -> None:
         cons = []
 
-        self.lodge_time("Building Initial/Goal State Constraints")
+        self.lodge_time("Building Hard-State Constraints")
         for i in range(1, self.n_traces + 1):
-            obs = self._trace(i)
             inst = self._instance(i)
-            steps = self._steps(i)
-            # initial state at t=1 — hard (paper eqs. 19–20; s0 is GT by assumption)
-            init_set = set(obs.init)
-            for p in inst.propositions:
-                if p in init_set:
-                    cons.append(self.hol[(i, 1, p)])
-                else:
-                    cons.append(~self.hol[(i, 1, p)])
-            # final state at t=steps+1 — hard only when a (GT) goal is supplied
-            # (paper eqs. 21–22; ``goal is None`` leaves it to the soft objective)
-            if obs.goal is not None:
-                goal_set = set(obs.goal)
+            for t, true_props in self.hard_states(i).items():
                 for p in inst.propositions:
-                    if p in goal_set:
-                        cons.append(self.hol[(i, steps + 1, p)])
-                    else:
-                        cons.append(~self.hol[(i, steps + 1, p)])
+                    cons.append(self.hol[(i, t, p)] if p in true_props
+                                else ~self.hol[(i, t, p)])
         self.report_time()
 
         # Step indicators tied directly to the observed action's bindings
@@ -274,12 +307,50 @@ class CPSATObservedActions:
 
     # ---------- objective ----------
 
+    def _w(self, prob: float, scale: float) -> int:
+        """``prob`` in [0,1] -> integer weight; ``prob == 0.5`` (masked/unknown)
+        weighs exactly 0, so uncertain slots are free."""
+        return int(round((2.0 * float(prob) - 1.0) * scale))
+
+    def _prior_bit_scale(self) -> float:
+        """Per-model-bit scale of the reference-model objective channel.
+
+        ``ROSAME``: one observed-fluent unit per bit (upstream behavior).
+        ``TIEBREAK``: the whole channel is capped at ``tiebreak_mass``
+        observed-fluent units, so its total swing (``2 * mass < 2``) stays below
+        one fluent flip's swing (``2``) — the prior can only break ties.
+        """
+        if self.config.prior_weighting is PriorWeightMode.ROSAME:
+            return float(self.obj_scale)
+        n_bits = 3 * len(self.pre)
+        if n_bits == 0:
+            return 0.0
+        return self.config.tiebreak_mass * self.obj_scale / n_bits
+
+    def _model_prior_terms(self) -> list:
+        """Objective terms pricing agreement with ``traces.obs_m`` (may be absent)."""
+        obs_m = getattr(self.traces, "obs_m", None)
+        if obs_m is None or self.config.prior_weighting is PriorWeightMode.NONE:
+            return []
+
+        scale = self._prior_bit_scale()
+        self.solve_stats["prior_bit_scale"] = scale
+        terms = []
+        for a in self.domain.action_schemas:
+            for p in self.domain.predicates:
+                for x in self.domain.predicate_arguments[(a, p)]:
+                    for probs, variables in (
+                        (obs_m.pre, self.pre),
+                        (obs_m.add, self.add),
+                        (obs_m.dele, self.dele),
+                    ):
+                        coef = self._w(probs[a, p, x], scale)
+                        if coef:
+                            terms.append(coef * variables[(a, p, x)])
+        return terms
+
     def build_objectives(self) -> None:
         self.lodge_time("Building Objectives")
-
-        def w(prob: float) -> int:
-            # prob in [0,1] -> integer weight; prob==0.5 (masked) weighs exactly 0
-            return int(round((2.0 * float(prob) - 1.0) * self.obj_scale))
 
         terms = []
 
@@ -288,24 +359,19 @@ class CPSATObservedActions:
                 obs = self._trace(i)
                 for t in range(1, self._steps(i) + 2):
                     for op in obs.obs_p.get(t, []):
-                        coef = w(op.prob)
+                        coef = self._w(op.prob, self.obj_scale)
                         if coef:
                             terms.append(coef * self.hol[(i, t, op.proposition)])
 
         if "model" in self.objectives:
-            obs_m = self.traces.obs_m
-            for a in self.domain.action_schemas:
-                for p in self.domain.predicates:
-                    for x in self.domain.predicate_arguments[(a, p)]:
-                        c_pre = w(obs_m.pre[a, p, x])
-                        if c_pre:
-                            terms.append(c_pre * self.pre[(a, p, x)])
-                        c_add = w(obs_m.add[a, p, x])
-                        if c_add:
-                            terms.append(c_add * self.add[(a, p, x)])
-                        c_del = w(obs_m.dele[a, p, x])
-                        if c_del:
-                            terms.append(c_del * self.dele[(a, p, x)])
+            terms.extend(self._model_prior_terms())
+
+        if self.config.eq16:
+            # ICAPS-26 eq. 16: unconditional bonus for declaring a precondition,
+            # defeating the "steppre = 0" escape. Changes T' as well as the witness.
+            coef = int(round(self.config.lambda_pre * self.obj_scale))
+            if coef:
+                terms.extend(coef * var for var in self.pre.values())
 
         if terms:
             self.model.maximize(cp.sum(terms))
@@ -323,7 +389,11 @@ class CPSATObservedActions:
                     hint_vars.append(self.hol[(i, t, op.proposition)])
                     hint_vals.append(1 if op.prob > threshold else 0)
 
-        obs_m = self.traces.obs_m
+        # No reference model (e.g. cdps_milp single round) => hint the states only.
+        obs_m = getattr(self.traces, "obs_m", None)
+        if obs_m is None:
+            return hint_vars, hint_vals
+
         for a in self.domain.action_schemas:
             for p in self.domain.predicates:
                 for x in self.domain.predicate_arguments[(a, p)]:
@@ -344,7 +414,8 @@ class CPSATObservedActions:
         solver.solve(time_limit=time_limit, log_search_progress=log_search_progress)
 
         st = solver.status()
-        self.solve_stats = {
+        # update(), not reassign: build-time facts (e.g. prior_bit_scale) live here too
+        self.solve_stats.update({
             "exit_status": str(st.exitstatus),
             "solve_time_seconds": round(time.time() - start, 3),
             "objective_value": solver.objective_value(),
@@ -352,7 +423,7 @@ class CPSATObservedActions:
             "n_trace_vars": len(self.hol) + 3 * len(self.stepadd),
             "n_traces": self.n_traces,
             **self.config.as_stats(),
-        }
+        })
 
         if st.exitstatus == ExitStatus.UNKNOWN:
             print("  [MILP] No feasible solution found within time limit.")

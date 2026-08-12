@@ -25,7 +25,12 @@ from typing import List, Optional
 
 from amlgym.metrics import print_metrics
 
-from benchmark.algorithms import available_algorithms, resolve_algorithms
+from benchmark.algorithms import (
+    CDPS_MILP_SINGLE_ROUND_ALGORITHM_NAME,
+    available_algorithms,
+    cdps_milp_algorithm_name,
+    resolve_algorithms,
+)
 from benchmark.evaluation.correlation_analysis import aggregate_correlation_tables
 from benchmark.experiment_running_helpers.data_source import DataSource, ImageDataSource, SimulatedDataSource
 from benchmark.experiment_running_helpers.normalize import normalize_experiment_data
@@ -37,6 +42,7 @@ from benchmark.experiment_running_helpers.resume import (
 )
 from src.pi_sam.masking import MaskingType
 from src.pi_sam.noising import NoisingType
+from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
 from src.utils.config import load_config
 
 
@@ -134,6 +140,8 @@ def main(
     baselines: list = None,
     run_cdps: bool = True,
     run_cdps_anchored: bool = False,
+    run_cdps_milp: bool = False,
+    cdps_milp_config: Optional[CdpsMilpConfig] = None,
     events_tracing: bool = False,
     resume: bool = False,
 ):
@@ -250,8 +258,11 @@ def main(
         "fluent_branch_mode": fluent_branch_mode,
         "run_cdps": run_cdps,
         "run_cdps_anchored": run_cdps_anchored,
+        "run_cdps_milp": run_cdps_milp,
         "algorithms": (["CDPS"] if run_cdps else [])
         + (["CDPS_ANCHORED"] if run_cdps_anchored else [])
+        + ([cdps_milp_algorithm_name(cdps_milp_config or CdpsMilpConfig())]
+           if run_cdps_milp else [])
         + [r.name for r in (baselines or [])],
         "normalized": norm_trajs_dir is not None,
         "data_source_type": type(data_source).__name__,
@@ -383,6 +394,8 @@ def main(
                         baselines=baselines,
                         run_cdps=run_cdps,
                         run_cdps_anchored=run_cdps_anchored,
+                        run_cdps_milp=run_cdps_milp,
+                        cdps_milp_config=cdps_milp_config,
                         events_tracing=events_tracing,
                     )
                     future = executor.submit(run_single_fold, **fold_kwargs)
@@ -621,12 +634,13 @@ if __name__ == "__main__":
     if not args.algorithms:
         parser.error(f"--algorithms requires a value (available: {', '.join(available_algorithms())})")
     try:
-        run_cdps, run_cdps_anchored, baseline_runners = resolve_algorithms(
+        run_cdps, run_cdps_anchored, run_cdps_milp, baseline_runners = resolve_algorithms(
             args.algorithms, train_per_trajectory=args.train_per_trajectory)
     except ValueError as err:
         parser.error(str(err))
     selected = (['CDPS'] if run_cdps else []) \
         + (['CDPS_ANCHORED'] if run_cdps_anchored else []) \
+        + ([CDPS_MILP_SINGLE_ROUND_ALGORITHM_NAME] if run_cdps_milp else []) \
         + [r.display_name for r in baseline_runners]
     print(f"Algorithms: {', '.join(selected)}")
 
@@ -683,6 +697,7 @@ if __name__ == "__main__":
         baselines=baseline_runners,
         run_cdps=run_cdps,
         run_cdps_anchored=run_cdps_anchored,
+        run_cdps_milp=run_cdps_milp,
         events_tracing=args.events_tracing,
         resume=args.resume,
     )

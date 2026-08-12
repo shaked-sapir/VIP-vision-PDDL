@@ -1,9 +1,19 @@
 """
 Learning wrapper functions for AMLGym experiments.
 
-Only one learning path exists: PISAM (partial observability) + the
-Conflict-Directed Patch Search (CDPS) denoiser, on masked observations. The old
-fully-observable (SAM) and plain (non-denoising) paths have been removed.
+Two denoisers share one learner. Both run PI-SAM (partial observability) on
+masked observations; they differ only in how they decide which observations to
+distrust:
+
+- ``learn_cdps``                     — Conflict-Directed Patch Search (search).
+- ``learn_cdps_milp_single_round``   — one CP-SAT solve (see
+  ``src/pi_sam/plan_denoising/milp_version/``).
+
+Both return the same ``(model_pddl, report, patched_observations)`` triple and
+write the same ``conflict_free_models/`` artifact layout, so ``run_fold`` and
+the dashboard stack treat them interchangeably.
+
+The old fully-observable (SAM) and plain (non-denoising) paths were removed.
 """
 
 from copy import deepcopy
@@ -18,7 +28,64 @@ from benchmark.experiment_running_helpers.cleaned_trajectories import (
 )
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
 from src.pi_sam.plan_denoising.conflict_search_config import CDPSConfig
+from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
+from src.pi_sam.plan_denoising.milp_version.single_round import run_single_round
 from src.utils.masking import load_masked_observation
+
+
+def _load_masked_observations(partial_domain, traj_paths, pre_built_observations):
+    """The fold's masked observations, from memory or from disk.
+
+    ``pre_built_observations`` (simulated runs) is authoritative when given;
+    otherwise each trajectory is paired with its sibling ``.masking_info`` and
+    loaded (image pipeline). Trajectories with no masking info are skipped.
+    """
+    if pre_built_observations is not None:
+        return pre_built_observations
+
+    observations = []
+    for traj_path_str in traj_paths:
+        traj_path = Path(traj_path_str)
+        masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
+        if not masking_info_path.exists():
+            continue
+        observations.append(
+            load_masked_observation(traj_path, masking_info_path, partial_domain)
+        )
+    return observations
+
+
+def _save_original_observations(
+    observations, fold_work_dir, prepared_trajectories, pre_built_observations, tag,
+):
+    """Freeze the pre-denoising observations for backfills and comparisons.
+
+    Only the image pipeline persists here; for simulated runs the
+    ``SimulatedDataSource`` already wrote ``original_observations/``
+    (``pre_built_observations`` is not None), so re-saving would double-write
+    identical files.
+    """
+    if pre_built_observations is not None or fold_work_dir is None:
+        return
+    if not prepared_trajectories or not observations:
+        return
+
+    original_obs_dir = fold_work_dir / "original_observations"
+    save_fold_observations(
+        observations,
+        prepared_trajectories,
+        original_obs_dir,
+        observation_prefix="original_observation",
+    )
+    print(f"  [{tag}] Saved {len(observations)} original observations "
+          f"to {original_obs_dir.name}/")
+
+
+def _make_save_observations_fn(prepared_trajectories):
+    """Callback writing a repaired observation list into a directory, or None."""
+    if not prepared_trajectories:
+        return None
+    return lambda obs, out_dir: save_observations_to_dir(obs, prepared_trajectories, out_dir)
 
 
 def _learn_cdps_core(
@@ -38,37 +105,18 @@ def _learn_cdps_core(
     """
     partial_domain = DomainParser(Path(str(domain_ref_path)), partial_parsing=True).parse_domain()
 
-    if pre_built_observations is not None:
-        masked_observations = pre_built_observations
-    else:
-        masked_observations = []
-        for traj_path_str in traj_paths:
-            traj_path = Path(traj_path_str)
-            masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
-
-            if not masking_info_path.exists():
-                continue
-
-            masked_obs = load_masked_observation(traj_path, masking_info_path, partial_domain)
-            masked_observations.append(masked_obs)
-
-    # Only the image pipeline persists here; for simulated runs the
-    # SimulatedDataSource already wrote original_observations/ (pre_built_observations
-    # is not None), so re-saving would double-write identical files.
-    if pre_built_observations is None and fold_work_dir is not None and prepared_trajectories and masked_observations:
-        original_obs_dir = fold_work_dir / "original_observations"
-        save_fold_observations(
-            masked_observations,
-            prepared_trajectories,
-            original_obs_dir,
-            observation_prefix="original_observation",
-        )
-        print(f"  [CDPS] Saved {len(masked_observations)} original observations to {original_obs_dir.name}/")
+    masked_observations = _load_masked_observations(
+        partial_domain, traj_paths, pre_built_observations
+    )
+    _save_original_observations(
+        masked_observations, fold_work_dir, prepared_trajectories,
+        pre_built_observations, tag="CDPS",
+    )
 
     conflict_free_models_dir = (fold_work_dir / "conflict_free_models") if fold_work_dir else None
     save_t_prime_fn = None
-    if conflict_free_models_dir is not None and prepared_trajectories:
-        save_t_prime_fn = lambda obs, out_dir: save_observations_to_dir(obs, prepared_trajectories, out_dir)
+    if conflict_free_models_dir is not None:
+        save_t_prime_fn = _make_save_observations_fn(prepared_trajectories)
     conflict_search = ConflictDrivenPatchSearch(
         partial_domain_template=deepcopy(partial_domain),
         negative_preconditions_policy=config.negative_precondition_policy,
@@ -169,13 +217,9 @@ def learn_cdps(
     Returns:
         Tuple of (model, learning_report, patched_observations).
     """
-    # Single GT map: obs_idx -> GT state indices. Explicit override wins.
-    if gt_source_indices_override is not None:
-        gt_states_by_obs = gt_source_indices_override
-    else:
-        gt_states_by_obs: Optional[Dict[int, Set[int]]] = {
-            obs_idx: set(t[3]) for obs_idx, t in enumerate(prepared_trajectories) if len(t) > 3
-        } or None
+    gt_states_by_obs = _resolve_gt_states_by_obs(
+        prepared_trajectories, gt_source_indices_override
+    )
 
     traj_paths = [str(t[0]) for t in prepared_trajectories]
     config = CDPSConfig(
@@ -216,3 +260,85 @@ def learn_cdps(
         report['fluent_branch_mode'] = config.fluent_branch_mode.value
 
     return model, report, patched_observations
+
+
+def _resolve_gt_states_by_obs(
+    prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
+    gt_source_indices_override: Optional[Dict[int, Set[int]]],
+) -> Optional[Dict[int, Set[int]]]:
+    """The single GT map ``obs_idx -> GT state indices``; explicit override wins."""
+    if gt_source_indices_override is not None:
+        return gt_source_indices_override
+    return {
+        obs_idx: set(t[3])
+        for obs_idx, t in enumerate(prepared_trajectories)
+        if len(t) > 3
+    } or None
+
+
+def learn_cdps_milp_single_round(
+    domain_ref_path: Path,
+    prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
+    testing_dir: Path,
+    conflict_search_timeout: int = None,
+    fold_work_dir: Path = None,
+    milp_config: Optional[CdpsMilpConfig] = None,
+    pre_built_observations: Optional[list] = None,
+    gt_source_indices_override: Optional[Dict[int, Set[int]]] = None,
+) -> Tuple[Optional[str], dict, list]:
+    """Learn a PI-SAM model, denoising with one MILP solve instead of CDPS search.
+
+    Drop-in sibling of :func:`learn_cdps`: same inputs, same
+    ``(model, report, patched_observations)`` triple, same ``fold_work_dir``
+    artifact layout. What changes is the denoiser — a single CP-SAT solve picks
+    the globally cheapest repair, rather than a search that pays one PI-SAM run
+    per node. See ``src/pi_sam/plan_denoising/milp_version/single_round.py``.
+
+    Args:
+        prepared_trajectories: (trajectory, masking_info, problem_pddl,
+            gt_state_indices) per training problem, exactly as for CDPS.
+        conflict_search_timeout: The fold's denoiser budget. Handed to the solver
+            unless ``milp_config.time_limit_seconds`` overrides it — sharing the
+            budget is what makes the head-to-head against CDPS fair.
+        milp_config: Validated ``cdps_milp`` block; ``None`` = defaults.
+        gt_source_indices_override: Explicit GT map, overriding the per-tuple
+            indices (same semantics as in :func:`learn_cdps`).
+
+    Returns:
+        ``(model_pddl_or_None, report, patched_observations)``. The model is
+        ``None`` only when the solver returned nothing usable, in which case
+        nothing downstream should be evaluated.
+    """
+    config = milp_config if milp_config is not None else CdpsMilpConfig()
+    cdps_defaults = CDPSConfig()
+
+    partial_domain = DomainParser(
+        Path(str(domain_ref_path)), partial_parsing=True
+    ).parse_domain()
+
+    observations = _load_masked_observations(
+        partial_domain, [str(t[0]) for t in prepared_trajectories], pre_built_observations
+    )
+    _save_original_observations(
+        observations, fold_work_dir, prepared_trajectories,
+        pre_built_observations, tag="MILP",
+    )
+
+    result = run_single_round(
+        partial_domain=partial_domain,
+        observations=observations,
+        config=config,
+        time_limit_seconds=config.resolve_time_limit(conflict_search_timeout),
+        gt_states_by_obs=_resolve_gt_states_by_obs(
+            prepared_trajectories, gt_source_indices_override
+        ),
+        negative_preconditions_policy=cdps_defaults.negative_precondition_policy,
+        seed=cdps_defaults.seed,
+        fold_work_dir=fold_work_dir,
+        save_observations_fn=_make_save_observations_fn(prepared_trajectories),
+    )
+
+    report = result.as_report()
+    report["actual_timeout_seconds"] = conflict_search_timeout
+    model = result.learned_domain.to_pddl() if result.learned_domain is not None else None
+    return model, report, result.observations

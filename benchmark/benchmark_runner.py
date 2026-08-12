@@ -70,6 +70,7 @@ from benchmark.evaluation.experiment_report import generate_experiment_report
 from benchmark.experiment_running_helpers.data_source import ImageDataSource, SimulatedDataSource
 from src.pi_sam.masking import MaskingType
 from src.pi_sam.noising import NoisingType
+from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
 from src.utils.time import create_experiment_timestamp
 
 # Default editable config; override with --config.
@@ -279,7 +280,9 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     a stale key (e.g. the removed ``mode``) fails loudly instead of being
     silently dropped.
     """
-    known_keys = _PASSTHROUGH_KEYS | {"num_trajectories", "gt_rates", "algorithms", "baselines"}
+    known_keys = _PASSTHROUGH_KEYS | {
+        "num_trajectories", "gt_rates", "algorithms", "baselines", "cdps_milp",
+    }
     unknown = set(shared) - known_keys
     if unknown:
         raise ValueError(
@@ -307,8 +310,13 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
         algorithm_names = ["cdps"] + [b for b in shared["baselines"] if b != "none"]
     else:
         algorithm_names = ["cdps", "rosame"]
-    kwargs["run_cdps"], kwargs["run_cdps_anchored"], kwargs["baselines"] = \
-        resolve_algorithms(algorithm_names)
+    (kwargs["run_cdps"], kwargs["run_cdps_anchored"], kwargs["run_cdps_milp"],
+     kwargs["baselines"]) = resolve_algorithms(algorithm_names)
+
+    # The MILP arm's own block. Validated (and rejected on a typo) even when the
+    # arm is off, so a bad `cdps_milp:` never sits unnoticed in a config that
+    # will later enable it.
+    kwargs["cdps_milp_config"] = CdpsMilpConfig.from_dict(shared.get("cdps_milp"))
 
     return kwargs
 

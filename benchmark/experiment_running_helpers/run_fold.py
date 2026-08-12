@@ -14,11 +14,18 @@ from typing import Dict, List, Optional, Tuple
 
 from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 
-from benchmark.algorithms import CDPS_ALGORITHM_NAME, CDPS_ANCHORED_ALGORITHM_NAME
+from benchmark.algorithms import (
+    CDPS_ALGORITHM_NAME,
+    CDPS_ANCHORED_ALGORITHM_NAME,
+    cdps_milp_algorithm_name,
+)
 from benchmark.experiment_running_helpers.cleaned_trajectories import save_patched_observations
 from benchmark.experiment_running_helpers.data_source import DataSource
 from benchmark.experiment_running_helpers.post_process_gt_metrics import run_post_process_gt_metrics
-from benchmark.experiment_running_helpers.learning_helpers import learn_cdps
+from benchmark.experiment_running_helpers.learning_helpers import (
+    learn_cdps,
+    learn_cdps_milp_single_round,
+)
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import fold_instance_dir, save_fold_result
 from benchmark.experiment_running_helpers.evaluation import evaluate_model, save_learning_metrics
@@ -31,6 +38,7 @@ from benchmark.experiment_running_helpers.trajectory_utils import (
 from benchmark.evaluation.test_states_generator import generate_predictive_power_test_states
 from benchmark.evaluation.multi_solution_evaluator import evaluate_all_solutions
 from benchmark.evaluation.correlation_analysis import build_correlation_table
+from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
 from src.utils.pddl import ground_observation_completely, observations_equal
 
 
@@ -125,6 +133,27 @@ def _run_baselines(
     return results
 
 
+def _milp_specific(report: dict) -> dict:
+    """The MILP arm's own diagnostics, flattened for ``algorithm_specific``.
+
+    ``save_learning_metrics`` only knows the search's vocabulary, so the two
+    numbers that decide whether a MILP row is trustworthy — did the solver
+    prove optimality, and did PI-SAM really see no conflict on T′ (design
+    §4.1) — would otherwise be buried in ``learning_metrics.json``.
+    """
+    milp = report.get("milp") or {}
+    extraction = report.get("extraction") or {}
+    return {
+        "milp_solved": report.get("milp_solved"),
+        "milp_exit_status": milp.get("exit_status"),
+        "milp_solve_time_seconds": milp.get("solve_time_seconds"),
+        "milp_repair_cost": report.get("repair_cost"),
+        "pisam_conflicts_on_feasible": report.get("pisam_conflicts_on_feasible"),
+        "n_traces_dropped": report.get("n_traces_dropped"),
+        "n_unmapped_fluents": extraction.get("n_unmapped_fluents"),
+    }
+
+
 def run_cdps_phase(
     *,
     anchor_endpoints: bool,
@@ -156,44 +185,65 @@ def run_cdps_phase(
     fluent_branch_mode: str,
     events_tracing: bool,
     test_states_path,
+    milp_config: Optional[CdpsMilpConfig] = None,
 ) -> Optional[dict]:
-    """Run one CDPS variant (plain or anchored) → its result row.
+    """Run one CDPS-family denoiser → its result row.
 
     All heavy per-run artifacts (original/final observations, conflict-free
     models, search trace, multi-eval, correlation) are written under
-    ``cdps_work_dir``; the anchored variant passes a nested subdir so it never
-    collides with the plain-CDPS artifacts. ``anchor_endpoints`` only labels
+    ``cdps_work_dir``; the non-plain variants pass a nested subdir so they never
+    collide with the plain-CDPS artifacts. ``anchor_endpoints`` only labels
     the variant: GT protection is always on in the search, and the anchored
     variant differs upstream (its trajectories embed the final state as GT).
+
+    ``milp_config`` swaps the *denoiser only*: the repairs come from one CP-SAT
+    solve instead of the conflict search, but the learner (PI-SAM) and every
+    downstream step are the same. Keeping the two in one function is the point
+    — a row from either denoiser is directly comparable, and neither can drift
+    into a different evaluation path.
     """
     cdps_work_dir.mkdir(parents=True, exist_ok=True)
     test_states_path_str = str(test_states_path)
+    use_milp = milp_config is not None
     try:
-        print(f"  [{algo_name}] Starting conflict-directed patch search...")
+        denoiser = "single-round MILP solve" if use_milp else "conflict-directed patch search"
+        print(f"  [{algo_name}] Starting {denoiser}...")
         if conflict_search_timeout is not None:
-            print(f"  [{algo_name}] Using conflict search timeout: {conflict_search_timeout}s")
-        cleaned_model, denoising_report, patched_observations = learn_cdps(
-            domain_ref_path, trajectories, testing_dir,
-            conflict_search_timeout=conflict_search_timeout,
-            fold_work_dir=cdps_work_dir,
-            fluent_patch_cost=fluent_patch_cost,
-            fluent_patch_weight=fluent_patch_weight,
-            model_patch_cost=model_patch_cost,
-            model_constraint_weight=model_constraint_weight,
-            max_search_nodes=max_search_nodes,
-            search_mode=search_mode,
-            node_choosing_strategy=node_choosing_strategy,
-            conflict_group_strategy=conflict_group_strategy,
-            fluent_branch_mode=fluent_branch_mode,
-            pre_built_observations=pre_built_observations,
-            gt_source_indices_override=gt_source_indices,
-            anchor_endpoints=anchor_endpoints,
-            events_tracing=events_tracing,
-        )
-        print(f"  [{algo_name}] Search complete, saving metrics...")
+            print(f"  [{algo_name}] Using denoising timeout: {conflict_search_timeout}s")
+        if use_milp:
+            cleaned_model, denoising_report, patched_observations = learn_cdps_milp_single_round(
+                domain_ref_path, trajectories, testing_dir,
+                conflict_search_timeout=conflict_search_timeout,
+                fold_work_dir=cdps_work_dir,
+                milp_config=milp_config,
+                pre_built_observations=pre_built_observations,
+                gt_source_indices_override=gt_source_indices,
+            )
+        else:
+            cleaned_model, denoising_report, patched_observations = learn_cdps(
+                domain_ref_path, trajectories, testing_dir,
+                conflict_search_timeout=conflict_search_timeout,
+                fold_work_dir=cdps_work_dir,
+                fluent_patch_cost=fluent_patch_cost,
+                fluent_patch_weight=fluent_patch_weight,
+                model_patch_cost=model_patch_cost,
+                model_constraint_weight=model_constraint_weight,
+                max_search_nodes=max_search_nodes,
+                search_mode=search_mode,
+                node_choosing_strategy=node_choosing_strategy,
+                conflict_group_strategy=conflict_group_strategy,
+                fluent_branch_mode=fluent_branch_mode,
+                pre_built_observations=pre_built_observations,
+                gt_source_indices_override=gt_source_indices,
+                anchor_endpoints=anchor_endpoints,
+                events_tracing=events_tracing,
+            )
+        print(f"  [{algo_name}] Denoising complete, saving metrics...")
         lm = save_learning_metrics(cdps_work_dir, denoising_report) or {}
 
-        # CDPS-owned extras (nested under algorithm_specific).
+        # CDPS-family extras (nested under algorithm_specific). The search-only
+        # keys stay present-but-None for the MILP arm so every row shares one
+        # schema; the MILP's own diagnostics are appended below.
         cdps_specific = {
             "nodes_in_cleaning_tree": lm.get("nodes_expanded"),
             "conflict_free_model_count": lm.get("conflict_free_model_count"),
@@ -205,6 +255,8 @@ def run_cdps_phase(
             ),
             "timeout_during_cleaning": (lm.get("terminated_by") == "timeout_exceeded") if lm.get("terminated_by") else None,
         }
+        if use_milp:
+            cdps_specific.update(_milp_specific(denoising_report))
 
         print(f"  [{algo_name}] Evaluating learned model...")
         cdps_result = evaluate_and_build_result(
@@ -299,6 +351,8 @@ def run_single_fold(
     baselines: Optional[list] = None,
     run_cdps: bool = True,
     run_cdps_anchored: bool = False,
+    run_cdps_milp: bool = False,
+    cdps_milp_config: Optional[CdpsMilpConfig] = None,
     frame_axiom_mode: str = "after_gt_only",
     events_tracing: bool = False,
 ) -> List[dict]:
@@ -335,6 +389,12 @@ def run_single_fold(
             variant. Its artifacts live under ``<fold>/cdps_anchored`` and its
             result row is labelled ``CDPS_ANCHORED``. Not supported for the
             simulated data source (raises NotImplementedError).
+        run_cdps_milp: Whether to also run the single-round MILP denoiser on
+            the *same* trajectories as plain CDPS. Artifacts live under
+            ``<fold>/cdps_milp_single_round``; the row label is arm-suffixed
+            by ``cdps_milp_algorithm_name``.
+        cdps_milp_config: Config for that arm; defaults to ``CdpsMilpConfig()``
+            (eq16 off, init-only GT anchoring) when the arm is on.
         frame_axiom_mode: Frame-axiom propagation mode used when preparing the
             anchored variant's trajectories (default "after_gt_only").
 
@@ -561,6 +621,25 @@ def run_single_fold(
             )
             if anchored is not None:
                 cdps_results.append(anchored)
+
+        # Single-round MILP denoiser: same trajectories and same GT map as plain
+        # CDPS (that is what makes cost(MILP) <= cost(CDPS) checkable), isolated
+        # under cdps_milp_single_round/.
+        if run_cdps_milp:
+            milp_config = cdps_milp_config or CdpsMilpConfig()
+            milp = run_cdps_phase(
+                anchor_endpoints=False,
+                algo_name=cdps_milp_algorithm_name(milp_config),
+                cdps_work_dir=fold_work_dir / "cdps_milp_single_round",
+                trajectories=prepared_trajectories,
+                gt_source_indices=gt_source_indices,
+                total_transitions=total_transitions,
+                total_gt_transitions=total_gt_transitions,
+                milp_config=milp_config,
+                **cdps_common,
+            )
+            if milp is not None:
+                cdps_results.append(milp)
 
         # Build results: baselines + our CDPS row(s) (when run)
         fold_results = baseline_results + cdps_results
