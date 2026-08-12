@@ -647,6 +647,11 @@ _HTML = r"""<!DOCTYPE html>
   #ctrlbar select{background:#1f232b;color:#cfd3da;border:1px solid #333842;border-radius:6px;padding:4px 6px;font-size:12px;}
   .algchk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:#c3c8d0;}
   .algchk input{accent-color:#3b6fe0;}
+  g.trend{transition:opacity .12s ease;}
+  g.trend.hl path.ln{stroke-width:3.2px;}
+  g.trend.hl circle{r:3px;}
+  .legkey .lg{cursor:default;border-radius:5px;padding:2px 6px;margin:-2px -6px;}
+  .legkey .lg:hover{background:#243049;color:#dce6ff;}
   .gflex{flex:1 1 460px;min-width:0;}
   .lcgrid{max-width:1000px;}
   table.lctbl{font-size:14px;height:100%;}
@@ -732,22 +737,46 @@ function curveSVG(cv){
  for(const g of [0,ymax/2,ymax]){s+=`<line x1="${L}" y1="${Y(g)}" x2="${W-R}" y2="${Y(g)}" stroke="#2b303a"/>`
   +`<text x="${L-3}" y="${Y(g)+3}" font-size="8.5" text-anchor="end" fill="#9aa0a8">${meta(mk).bounded?g.toFixed(1):Math.round(g)}</text>`;}
  for(const t of NT)s+=`<text x="${X(t)}" y="${H-4}" font-size="8.5" text-anchor="middle" fill="#9aa0a8">${t}</text>`;
- for(const a of algs){const st=algStyle(a);
+ algs.forEach((a,ai)=>{const st=algStyle(a);
   const pts=NT.map((t,i)=>per[a][i]?{t:t,q:per[a][i]}:null).filter(p=>p);
-  if(!pts.length)continue;
+  if(!pts.length)return;
+  s+=`<g class="trend" data-alg="${a}" data-di="${ai}">`;
   if(pts.length>1){
    let band="M"+pts.map(p=>`${X(p.t)} ${Y(p.q[2])}`).join(" L");
    band+=" L"+pts.slice().reverse().map(p=>`${X(p.t)} ${Y(p.q[1])}`).join(" L")+" Z";
    s+=`<path d="${band}" fill="${st.c}" opacity="0.14"/>`;
-   s+=`<path d="M${pts.map(p=>`${X(p.t)} ${Y(p.q[0])}`).join(" L")}" fill="none" stroke="${st.c}" stroke-width="1.8"${st.dash?` stroke-dasharray="${st.dash}"`:""}/>`;
+   s+=`<path class="ln" d="M${pts.map(p=>`${X(p.t)} ${Y(p.q[0])}`).join(" L")}" fill="none" stroke="${st.c}" stroke-width="1.8"${st.dash?` stroke-dasharray="${st.dash}"`:""}/>`;
   }
   for(const p of pts)s+=`<circle cx="${X(p.t)}" cy="${Y(p.q[0])}" r="2.2" fill="${st.c}"/>`;
- }
+  s+=`</g>`;
+ });
  return s+"</svg>";}
+
+function hlAlg(a,on){
+ document.querySelectorAll("svg g.trend").forEach(g=>{
+  if(on){
+   const hit=g.getAttribute("data-alg")===a;
+   g.style.opacity=hit?"1":"0.15";
+   g.classList.toggle("hl",hit);
+   if(hit)g.parentNode.appendChild(g);   // bring to front (SVG paints in DOM order)
+  }else{
+   g.style.opacity="";
+   g.classList.remove("hl");
+  }
+ });
+ if(!on){ // restore original paint order
+  document.querySelectorAll("svg").forEach(svg=>{
+   const gs=[...svg.querySelectorAll("g.trend")];
+   if(gs.length<2)return;
+   gs.sort((x,y)=>(+x.getAttribute("data-di"))-(+y.getAttribute("data-di"))).forEach(g=>svg.appendChild(g));
+  });
+ }
+}
 
 function bandLabel(){return S.band==="ci95"?"95% CI":(S.band==="minmax"?"min–max":"±1 std");}
 function lcLegend(){return `<span class="legkey">`+enabledAlgs().map(a=>{const st=algStyle(a);
- return `<span><i style="width:20px;height:0;border-top:3px ${st.dash?"dashed":"solid"} ${st.c};"></i> ${algLabel(a)}</span>`;}).join("")
+ const esc=a.replace(/'/g,"\\'");
+ return `<span class="lg" onmouseenter="hlAlg('${esc}',true)" onmouseleave="hlAlg('${esc}',false)"><i style="width:20px;height:0;border-top:3px ${st.dash?"dashed":"solid"} ${st.c};"></i> ${algLabel(a)}</span>`;}).join("")
  +`<span><i style="width:20px;height:12px;background:rgba(75,143,226,0.25);border-radius:2px;"></i> ${bandLabel()}</span></span>`;}
 
 function curveTable(entries){
@@ -991,8 +1020,8 @@ function imgView(){
 function ctrlBar(){
   const modes=`<span style="display:flex;gap:6px;"><button class="seg ${!S.cmp?'on':''}" onclick="setCmp(false)">CDPS only</button><button class="seg ${S.cmp?'on':''}" onclick="setCmp(true)">vs baselines</button></span>`;
   const band=`<label>band <select onchange="setBand(this.value)">${["std","ci95","minmax"].map(b=>`<option ${b===S.band?"selected":""}>${b}</option>`).join("")}</select></label>`;
-  const chk=a=>{const st=algStyle(a);
-    return `<label class="algchk"><input type="checkbox" ${S.off[a]?"":"checked"} ${a===CDPS?"disabled":""} onchange="toggleAlg('${a.replace(/'/g,"\\'")}')"><i style="width:12px;height:0;border-top:2px ${st.dash?"dashed":"solid"} ${st.c};display:inline-block;"></i>${algLabel(a)}</label>`;};
+  const chk=a=>{const st=algStyle(a);const esc=a.replace(/'/g,"\\'");
+    return `<label class="algchk" onmouseenter="hlAlg('${esc}',true)" onmouseleave="hlAlg('${esc}',false)"><input type="checkbox" ${S.off[a]?"":"checked"} ${a===CDPS?"disabled":""} onchange="toggleAlg('${esc}')"><i style="width:12px;height:0;border-top:2px ${st.dash?"dashed":"solid"} ${st.c};display:inline-block;"></i>${algLabel(a)}</label>`;};
   const boxes=[CDPS,ORACLE,...(S.cmp?BASES:[])].map(chk).join("");
   const baseSel=(S.cmp&&BASES.length>1)?`<label>Δ vs <select onchange="setBase(this.value)">${BASES.map(b=>`<option ${b===S.base?"selected":""}>${b}</option>`).join("")}</select></label>`:"";
   const note=(S.cmp&&!BASES.length)?`<span style="color:#7d828b;">no baseline rows found (run the backfill)</span>`:"";
