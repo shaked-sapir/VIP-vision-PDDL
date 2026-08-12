@@ -623,7 +623,7 @@ run *emits* lands before the run itself.
 | # | step | why here |
 |---|---|---|
 | 1 | **D4** — `round_{i}/model.pddl` per round | Must precede any run, or those runs cannot be re-scored. **Done, §7.2.** |
-| 2 | **D1** — `--algorithm` selector in `backfill_cdps.py` | Unlocks the existing 3–8-trajectory cells without regenerating data. `run_cdps_phase` already takes `milp_config`, so this is CLI wiring, not new machinery. |
+| 2 | **D1** — `--algorithm` selector in `backfill_cdps.py` | Unlocks the existing 3–8-trajectory cells without regenerating data. `run_cdps_phase` already takes `milp_config`, so this is CLI wiring, not new machinery. **Done, §7.3.** |
 | 3 | **D1** — verify the loop at small and large n | Confirms no special-casing is needed; produces the small-n finding of §7.1bis as data. |
 | 4 | **D3** — per-epoch snapshot callback in the ROSAME adapter | Makes the plot 3-way. Changes what a run emits, so it precedes the run. |
 | 5 | **D5/D7** — the anytime harness: snapshot reader + offline scorer + curves | Consumes 1 and 4. Offline, so it can be iterated on after the run. |
@@ -658,3 +658,55 @@ stable function of the model — now demonstrated on real data rather than
 asserted. Two consequences for the P5.5 scorer: the artifact is faithful (it
 re-parses to the model that was scored), and **model identity must be read from
 the log's `model_hash`, never from the file text**.
+
+### 7.3 D1 — backfilling the MILP arms (done)
+
+`backfill_cdps.py --algorithm {cdps_anchored,cdps_milp_single_round,cdps_milp_loop}`,
+with `--milp-config` pointing at a run_config (`shared.cdps_milp`), a file
+holding just that block, or the bare block. `cdps_anchored` stays the default,
+so every existing invocation is unchanged.
+
+**The arm decides where its input comes from.** That is the substance of the
+change, not the flag:
+
+- `cdps_anchored` rebuilds init+final-anchored trajectories from the cell's
+  frozen degraded files plus the data dir's GT trajectories.
+- the MILP arms consume the frozen degraded files **unchanged**. That is what
+  makes their rows comparable to the CDPS row sitting beside them in the same
+  `fold_result.json`: same observations, same GT map, only the denoiser differs.
+  Reusing the anchored staging path would have produced rows *labelled*
+  `CDPS_MILP_*` that were actually anchored — a different algorithm, silently
+  non-comparable, and it would have broken design §7.1's
+  `cost(MILP) <= cost(best CDPS CFM)` check.
+
+`anchor_endpoints` is therefore set from the arm, not hardcoded: anchoring is a
+property of the trajectories, not of the denoiser.
+
+**`gt_rate != 0` is refused, not guessed.** A cell records problem names,
+masking files and test problems — but *not* which state indices had GT
+injected. Choosing a different set than the original run would protect
+different states while claiming to be the same experiment. All 6405 existing
+cells are `gtrate0`, and `SimulatedDataSource.prepare` raises for `gt_rate > 0`,
+so the refused branch is unreachable today; it exists so that it stays
+unreachable when that changes.
+
+Verified on a throwaway copy of a real blocksworld cell (`mask=0.1 noise=0.2`,
+n=3), running both MILP arms into a cell that already held four rows:
+
+- six distinct rows coexist — `ROSAME`, `ROSAME_MILP`, `ROSAME_MILP_TAG`,
+  `CDPS_ANCHORED`, `CDPS_MILP_LOOP`, `CDPS_MILP_SR` — confirming the row-name
+  check uses the *computed* arm-suffixed name, not a constant;
+- the re-serialised inputs are set-identical to the cell's frozen originals for
+  all three problems (the byte difference is predicate ordering only);
+- P5.1's `milp_loop_round_models/round_{1..4}/model.pddl` landed in the
+  backfilled cell, so a backfilled loop row is re-scorable exactly like a live
+  one;
+- the two scopes of §4ter.5 held: `CDPS_MILP_SR` reported
+  `milp_repair_cost=75` (fold-wide, 3 traces) with every loop key `None`;
+  `CDPS_MILP_LOOP` reported `milp_repair_cost=None` and
+  `milp_loop_best_round_repair_cost=69` beside `..._subset_size=2`.
+
+One pre-existing wart left alone: `--dry-run` on `cdps_anchored` still writes
+its anchored trajectories into the cell before reporting that it would do
+nothing. It is unchanged from before this step, and the MILP arms' prep is
+read-only, so their dry runs are genuinely dry.
