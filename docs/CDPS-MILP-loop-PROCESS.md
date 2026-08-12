@@ -363,8 +363,15 @@ metric**, not defects:
    under zero noise — acceptable, but it must be stated, not discovered later.
 3. **V is not comparable across folds.** Within-fold rho −0.862 vs pooled
    rho −0.454; normalising recovers much of it
-   (`rho(v_per_transition, f1) = −0.660`). D2 was the right call, and cross-fold
-   aggregation in P5 must use `v_per_transition`, never `v_raw`.
+   (`rho(v_per_transition, f1) = −0.660`) — note *much*, not all.
+
+   *(Scope corrected, §7.1bis. This point previously ended "cross-fold
+   aggregation in P5 must use `v_per_transition`, never `v_raw`", which
+   over-reached: P5's headline y-axis is `success_rate`, already a bounded
+   ratio, so it never touches `v_raw`. The accurate statement is that **V is a
+   within-fold ranking signal** — it is what the loop selects with, not
+   something to pool. The same non-comparability also holds **across
+   trajectory counts**, since `v_raw` sums over transitions.)*
 
 ---
 
@@ -376,11 +383,11 @@ Split into **P4a** (the driver, in `src/`) and **P4b** (wiring, in `benchmark/`)
 
 | file | lines | role |
 |---|---|---|
-| `milp_version/loop.py` | 845 | `run_loop` — the round loop, samplers, dedup, stop rules, per-round log |
+| `milp_version/loop.py` | 902 | `run_loop` — the round loop, samplers, dedup, stop rules, per-round log + per-round model (§7.2) |
 | `milp_version/model_prior.py` | 171 | `LearnerDomain` → vendor `ObservationM`, the reference-model channel |
 | `milp_version/config.py` | *extended* | the loop-only YAML keys (`sampler`, `subset_size`, `learner_input`, `pool_policy`, `co_sample_conflicts`, `w_prior`, `seed`, `stop:`, `eval:`) |
 | `milp_version/encoder.py` | *edited* | Q6d — `random_seed` + `num_workers` pinned |
-| `milp_version/test_loop.py` | 610 | **61 tests** across 10 classes (hash, samplers, dedup, stop rules, budget, learner input, subset GT, reporting, subset size, prior) |
+| `milp_version/test_loop.py` | 672 | **65 tests** across 11 classes (hash, samplers, dedup, stop rules, budget, learner input, subset GT, reporting, round models, subset size, prior) |
 
 **73 tests green** in `milp_version/` (61 loop + 12 P2).
 
@@ -513,13 +520,13 @@ and `subset`. Covered by `test_the_fold_wide_cost_keys_stay_empty`.
   and the `docs/` + `CLAUDE.md` updates.
 - **Committed — `b19fb8d69`** (P3): `evaluator.py` +
   `test_evaluator.py` — `observations_reconstruction_score`, 17 tests.
-- **Uncommitted (P4a), new files:** `milp_version/loop.py`,
-  `milp_version/model_prior.py`, `milp_version/test_loop.py`.
-- **Uncommitted (P4a/P4b), modified:** `milp_version/{config,converter,encoder,single_round}.py`,
-  `benchmark/{algorithms,benchmark_runner,experiment_runner,run_config.yaml}`,
-  `benchmark/experiment_running_helpers/{learning_helpers,run_fold}.py`.
-- **Unrelated, also uncommitted:** `benchmark/evaluation/cfm/build_dashboard.py`
-  (legend hover-highlight, predates this work) — keep it out of the P4 commit.
+- **Committed — `fa4c0fc1c`** (P4, 15 files): `milp_version/loop.py`,
+  `milp_version/model_prior.py`, `milp_version/test_loop.py`, the pinned CP-SAT
+  seed/workers, and the benchmark integration for both MILP arms.
+- **Committed — `641cb97a3`** (unrelated, kept separate): the dashboard legend
+  hover-highlight. It predates this work but earns its place beside it — every
+  non-CDPS series shares one dash pattern, so colour is the only discriminator,
+  and the two MILP arms take the baseline count past what is readable by eye.
 - **Smoke artefacts — deleted** (decision, 2026-08-12): the `milp-dispatch-smoke`
   and `milp-loop-smoke` manifests and their `running_results/` cells. They were
   1-fold / 3-trajectory / 60 s throwaways whose only informative numbers are
@@ -552,14 +559,102 @@ mean rho −0.862
 
 Remaining, in order:
 
-1. **P5** — anytime performance profile. Two constraints inherited from above:
-   aggregate on `v_per_transition`, never `v_raw` (§4bis.5(3)); and run the loop
-   at **~10–20 trajectories**, since at n=3 it degenerates into a jittery
-   `single_round` (§4).
+1. **P5** — anytime performance profile. Decisions in §7.1, steps in §7.1ter.
 2. In parallel/background — the **eq16 on/off comparison** on
    `single_round` (already authorized under P2; cheap; it is the
    "does PI-SAM cover for Eq. 16" experiment, a claim in its own right).
-3. **Image-mode s₀ fix** (§3.8) — scheduled before P5's benchmark; it changes
-   s₀ for *all* algorithms and invalidates existing image-mode results.
-4. **P6** — the `src/` structural review (§3.9), one mechanical import-only
+3. **P6** — the `src/` structural review (§3.9), one mechanical import-only
    commit after P5.
+
+**Deferred, decoupled from P5** (decision D2, 2026-08-12):
+
+- **Image-mode s₀ fix** (§3.8). Previously listed as gating P5's benchmark. It
+  is not: P5 runs on simulated data, where s₀ is already GT+unmasked, so the
+  bug cannot touch the anytime result. It does change s₀ for *all* algorithms
+  and invalidates existing **image-mode** results, so it needs its own run —
+  which is a reason to schedule it separately, not a reason to block on it.
+
+---
+
+## 7. P5 — anytime performance profile (in progress)
+
+### 7.1 Seven decisions taken before implementation (2026-08-12)
+
+Each was checked against the tree before being put to a decision, which is how
+D1's blocker and D2's non-blocker were told apart.
+
+| | question | decision |
+|---|---|---|
+| **D1** | The loop was to be run at ~10–20 trajectories; both P5 domains ship exactly **10** training problems, so `num_trajectories` caps at 8. | The 10–20 note was an inference of mine, not a requirement — see §7.1bis. The loop must work at 3–8 (backfilled onto existing cells) **and** at much larger n later, with no special-casing. Two work items fall out: an `--algorithm` selector for `backfill_cdps.py`, and verification across n. |
+| **D2** | Does the image-mode s₀ fix gate P5? | No. Decoupled; recorded in §6. |
+| **D3** | `rosame_milp` emits no per-epoch snapshots, so it cannot sit on an anytime axis. | Build the per-epoch snapshot callback — the plot is 3-way (CDPS / loop / ROSAME), not 2-way. |
+| **D4** | Round models are not persisted, so no round can be re-scored offline. | Write `round_{i}/model.pddl`. **Done — §7.2.** |
+| **D5** | Is the harness a reader, or a reader plus a scorer? | Both. CDPS emits `model.pddl` but no `success_rate`, so the harness must score what it reads. |
+| **D6** | Which ablation values run? | Explicit config values, chosen per run, exactly like the benchmark runner. Never a default full sweep. |
+| **D7** | Harness location. | Accepted as planned; the name may change later. |
+
+### 7.1bis Correcting two of my own constraints
+
+Both had been written into this document as rules. Neither survived being
+checked.
+
+- **"Run at ~10–20 trajectories."** The basis was real but narrow: at n=3 the
+  subset is `max(2, ceil(3/2)) = 2`, so there are only `C(3,2) = 3` distinct
+  subsets and the loop hits its fixpoint after ~3 rounds. That describes a
+  **finding to report**, not a precondition to satisfy. At n=8 it is `C(8,4) =
+  70`, which is ample. The loop is correct at both; only its room to explore
+  differs, and saying so is more useful than hiding the small-n case.
+- **"Aggregate on `v_per_transition`, never `v_raw`."** Stated
+  unconditionally, it was too broad. The anytime plot's y-axis is
+  `success_rate`, which is `1.0 - mismatched/num_transitions`
+  (`evaluator.py:114`) — already a bounded ratio, so the `v_raw`
+  non-comparability never reaches it. The sharper rule: **V is a within-fold
+  ranking signal.** It is what the loop selects with, not something to pool.
+  This has a consequence that matters directly for D1: `v_raw` sums over
+  transitions, so V at n=3, n=8 and n=50 are **different quantities**, and
+  `v_per_transition` only partly repairs that (ρ recovers −0.454 → −0.660, not
+  to the within-fold −0.862 of §4bis.4).
+
+### 7.1ter The seven steps
+
+Ordered so that nothing has to be re-run later: everything that changes what a
+run *emits* lands before the run itself.
+
+| # | step | why here |
+|---|---|---|
+| 1 | **D4** — `round_{i}/model.pddl` per round | Must precede any run, or those runs cannot be re-scored. **Done, §7.2.** |
+| 2 | **D1** — `--algorithm` selector in `backfill_cdps.py` | Unlocks the existing 3–8-trajectory cells without regenerating data. `run_cdps_phase` already takes `milp_config`, so this is CLI wiring, not new machinery. |
+| 3 | **D1** — verify the loop at small and large n | Confirms no special-casing is needed; produces the small-n finding of §7.1bis as data. |
+| 4 | **D3** — per-epoch snapshot callback in the ROSAME adapter | Makes the plot 3-way. Changes what a run emits, so it precedes the run. |
+| 5 | **D5/D7** — the anytime harness: snapshot reader + offline scorer + curves | Consumes 1 and 4. Offline, so it can be iterated on after the run. |
+| 6 | **D6** — config-driven ablation selection | Determines *which* cells the run covers. |
+| 7 | the benchmark run, with the eq16 on/off comparison riding along | Everything above is a precondition. |
+
+### 7.2 D4 — per-round models (done)
+
+`run_loop(fold_work_dir=...)` now also writes
+`milp_loop_round_models/round_{i}/model.pddl`, a sibling of
+`milp_loop_rounds.json`: the log says what each round scored, the directory
+holds the model it scored.
+
+Every round that produced a model gets a file, **including rounds that lost to
+the incumbent**. The loop keeps only the winner, so without this the losers are
+gone — and an anytime curve is a statement about what was on the table at each
+point in time, not only about what survived.
+
+Verified end-to-end on a real fold (blocksworld, `mask=0.1 noise=0.2`, n=8, 5
+rounds), because the unit tests cover `save_round_model` in isolation and
+cannot cover the wiring `fold_work_dir` → `_LoopState.round_models_dir` → the
+write site in `_learn_and_score`:
+
+- all 5 rounds had a model, all 5 files present, no gaps and no extras;
+- rounds 4 and 5 shared round 2's `model_hash` and wrote byte-identical text;
+- **the winner's file was not byte-identical to the returned model** — the diff
+  is `:requirements` ordering only, and re-parsing the file yields identical
+  preconditions and effects for all four actions.
+
+That last point is the `model_hash` docstring's claim — `to_pddl` is not a
+stable function of the model — now demonstrated on real data rather than
+asserted. Two consequences for the P5.5 scorer: the artifact is faithful (it
+re-parses to the model that was scored), and **model identity must be read from
+the log's `model_hash`, never from the file text**.

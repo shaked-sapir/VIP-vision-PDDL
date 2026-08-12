@@ -91,6 +91,12 @@ _MAX_RESAMPLE_ATTEMPTS = 50
 
 NO_MODEL_HASH = "none"
 
+# Where the per-round candidate models land, one ``round_{i}/model.pddl`` each.
+# A sibling of ``milp_loop_rounds.json``: the log says what each round scored,
+# this directory holds the model it scored, so a round can be re-evaluated
+# offline against metrics the loop itself never computed.
+ROUND_MODELS_DIR = "milp_loop_round_models"
+
 
 # ---------------------------------------------------------------- round record
 
@@ -511,6 +517,8 @@ def run_loop(
         gt_states_by_obs: obs index -> known-GT state indices.
         seed: Overrides ``config.seed`` for the sampler (the benchmark passes the
             fold's seed). The solver's seed is pinned separately.
+        fold_work_dir: Where to write the round history and the per-round
+            candidate models. ``None`` runs the loop with no disk output at all.
 
     Returns:
         A :class:`LoopResult`. ``solved=False`` means no round ever produced a
@@ -549,6 +557,10 @@ def run_loop(
         pool_observations={i: observations[i] for i in pool},
         repaired={},
         rng=rng,
+        round_models_dir=(
+            None if fold_work_dir is None
+            else Path(fold_work_dir) / ROUND_MODELS_DIR
+        ),
     )
     result = LoopResult(learned_domain=None, stats={
         "config": config.as_stats(),
@@ -610,6 +622,9 @@ class _LoopState:
     pool_observations: Dict[int, Observation]
     repaired: Dict[int, Observation]
     rng: random.Random
+    # Where per-round models go, or ``None`` to keep the loop purely in-memory
+    # (the default for unit tests and for callers that pass no work dir).
+    round_models_dir: Optional[Path] = None
     solved_pairs: Set[Tuple[Tuple[int, ...], str]] = field(default_factory=set)
     per_trace_v: Dict[int, float] = field(default_factory=dict)
     cooldown: Set[int] = field(default_factory=set)
@@ -812,6 +827,8 @@ def _learn_and_score(
     log.pisam_conflicts = len(conflicts)
     log.learner_input_size = len(learner_observations)
     log.model_hash = model_hash(domain)
+    if state.round_models_dir is not None:
+        save_round_model(domain, state.round_models_dir, log.round_index)
 
     evaluation = _evaluate(domain, observations, weights)
     if evaluation is None:
@@ -847,6 +864,30 @@ def _learn_and_score(
 
 
 # ---------------------------------------------------------------- artifacts
+
+
+def save_round_model(
+    domain: Optional[LearnerDomain], round_models_dir: Path, round_index: int
+) -> Optional[Path]:
+    """Write one round's candidate model; return its path, or ``None`` if unwritten.
+
+    Every round that produced a model gets a file, including rounds that lost to
+    the incumbent. The loop only ever keeps the winner, so without this the
+    losers are unrecoverable — and an anytime curve is exactly a statement about
+    what was on the table at each point in time, not only about what survived.
+
+    Callers must not infer model identity from this text. ``to_pddl`` rebuilds
+    its ``:requirements`` set per call, so two rounds sharing a ``model_hash``
+    can render differently (see :func:`model_hash`). The hash in the round log
+    is the identity; this file is the artifact.
+    """
+    if domain is None:
+        return None
+    target = Path(round_models_dir) / f"round_{round_index}"
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / "model.pddl"
+    path.write_text(domain.to_pddl())
+    return path
 
 
 def save_round_log(result: LoopResult, fold_work_dir: Path) -> None:

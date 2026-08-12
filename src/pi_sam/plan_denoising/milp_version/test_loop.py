@@ -45,6 +45,7 @@ from src.pi_sam.plan_denoising.milp_version.config import (
 )
 from src.pi_sam.plan_denoising.milp_version.loop import (
     NO_MODEL_HASH,
+    ROUND_MODELS_DIR,
     LoopResult,
     RoundLog,
     _LoopState,
@@ -57,6 +58,7 @@ from src.pi_sam.plan_denoising.milp_version.loop import (
     _subset_gt,
     model_hash,
     save_round_log,
+    save_round_model,
 )
 from src.pi_sam.plan_denoising.milp_version.model_prior import (
     NEUTRAL_PROBABILITY,
@@ -108,6 +110,22 @@ def _move_model(*, extra_effect: bool = False) -> _FakeLearnedDomain:
     return _FakeLearnedDomain([
         _FakeAction("move", {"?f": "room", "?t": "room"}, [_predicate("at", "?f")], effects)
     ])
+
+
+class _RenderableDomain:
+    """A model whose ``to_pddl`` works — for the one consumer allowed to call it.
+
+    Separate from :class:`_FakeLearnedDomain` on purpose. That fixture's
+    ``to_pddl`` raises to protect model *identity* from the unstable text;
+    writing the artifact is the opposite case, and needs its own fixture so the
+    protection cannot be relaxed by accident.
+    """
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def to_pddl(self) -> str:
+        return self._text
 
 
 def _micro_ps_domain() -> PSDomain:
@@ -493,6 +511,36 @@ class TestReporting(unittest.TestCase):
         self.assertEqual(payload["best_v"], 7.0)
         self.assertEqual(payload["stop_reason"], "fixpoint")
         self.assertEqual([r["round"] for r in payload["rounds"]], [1, 2, 3, 4])
+
+
+# ---------------------------------------------------------------- round models
+
+
+class TestSaveRoundModel(unittest.TestCase):
+    """Per-round models on disk — what makes a round re-scorable offline (D4)."""
+
+    def test_a_round_model_lands_under_its_own_round_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / ROUND_MODELS_DIR
+            path = save_round_model(_RenderableDomain("(define (domain m))"), root, 3)
+            self.assertEqual(path, root / "round_3" / "model.pddl")
+            self.assertEqual(path.read_text(), "(define (domain m))")
+
+    def test_rounds_do_not_overwrite_each_other(self) -> None:
+        """The loop keeps one winner; the curve needs every candidate kept apart."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / ROUND_MODELS_DIR
+            save_round_model(_RenderableDomain("first"), root, 1)
+            save_round_model(_RenderableDomain("second"), root, 2)
+            written = sorted(p.parent.name for p in root.glob("round_*/model.pddl"))
+        self.assertEqual(written, ["round_1", "round_2"])
+
+    def test_a_round_without_a_model_writes_nothing(self) -> None:
+        """An infeasible round leaves a gap, which the log explains via its hash."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / ROUND_MODELS_DIR
+            self.assertIsNone(save_round_model(None, root, 1))
+            self.assertFalse(root.exists())
 
 
 # ---------------------------------------------------------------- subset size
