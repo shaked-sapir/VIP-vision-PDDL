@@ -70,7 +70,7 @@ from benchmark.evaluation.experiment_report import generate_experiment_report
 from benchmark.experiment_running_helpers.data_source import ImageDataSource, SimulatedDataSource
 from src.pi_sam.masking import MaskingType
 from src.pi_sam.noising import NoisingType
-from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
+from src.pi_sam.plan_denoising.milp_version.config import expand_cdps_milp_ablations
 from src.utils.time import create_experiment_timestamp
 
 # Default editable config; override with --config.
@@ -316,10 +316,11 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     )
 
     # The block both MILP arms share; each arm pins its own variant from the
-    # selected key. Validated (and rejected on a typo) even when both arms are
-    # off, so a bad `cdps_milp:` never sits unnoticed in a config that will
-    # later enable one.
-    kwargs["cdps_milp_config"] = CdpsMilpConfig.from_dict(shared.get("cdps_milp"))
+    # selected key. Expanded here because an `ablations:` sub-block turns it into
+    # several arms, and the run banner has to name them before anything runs.
+    # Validated (and rejected on a typo) even when both arms are off, so a bad
+    # `cdps_milp:` never sits unnoticed in a config that will later enable one.
+    kwargs["cdps_milp_configs"] = expand_cdps_milp_ablations(shared.get("cdps_milp"))
 
     return kwargs
 

@@ -58,6 +58,25 @@ shared:
       effect_mismatch_weight: 1.0       # any float >= 0 — V's w1
       inapplicability_weight: 1.0       # any float >= 0 — V's w2
 
+    # ---- ablations (optional) -------------------------------------------
+    # Run several MILP arms off one block. Each key listed here OVERRIDES the
+    # value set above and is crossed with the others, so the example below is
+    # 4 loop arms, not 5 — the `eq16: off` above contributes nothing once
+    # `eq16` is listed. Everything NOT listed keeps its value from above.
+    #
+    # A knob that is loop-only collapses under cdps_milp_single_round (one SR
+    # arm, not four), so listing both algorithm keys does not multiply the SR
+    # cost. Arms land in `cdps_milp_loop__<suffix>/` inside the fold; a run
+    # with no `ablations:` keeps the bare `cdps_milp_loop/` it always had.
+    #
+    # Only knobs the results label carries are ablatable: `seed`, `stop.*` and
+    # `eval.*` are rejected, because two arms differing only there would be
+    # averaged into one row that names neither of them.
+    #
+    # ablations:
+    #   eq16: [on, off]
+    #   pool_policy: [frozen, replace]
+
 # Mode-specific block (only read when source: simulated).
 simulation:
   masking_strategy: percentage          # percentage | random

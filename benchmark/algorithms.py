@@ -136,24 +136,92 @@ def milp_config_for(key: str, config: CdpsMilpConfig) -> CdpsMilpConfig:
     return replace(config, variant=_MILP_VARIANT_BY_KEY[key])
 
 
+def milp_configs_for(key: str, configs: List[CdpsMilpConfig]) -> List[CdpsMilpConfig]:
+    """The distinct configs arm ``key`` should actually run, in order.
+
+    An ablation block is written once and applies to whichever MILP arms the run
+    selects, so the two arms do not get the same list: the loop-only knobs are
+    inert under ``single_round``, and crossing them there would run the identical
+    solve several times and file the results under one label. Dropping those
+    duplicates is what lets ``ablations: {pool_policy: [...]}`` coexist with
+    ``algorithms: [cdps_milp_single_round, cdps_milp_loop]``.
+
+    What survives dedup must still be pairwise distinguishable *in the results*,
+    which is a stricter demand than being distinct configs: two arms that differ
+    only in a knob outside :func:`cdps_milp_algorithm_name`'s suffix would be
+    averaged into one row, and the row would name neither of them. That is
+    caught here rather than discovered in a report.
+
+    Args:
+        key: A ``cdps_milp_*`` algorithm key.
+        configs: The expansion of the ``cdps_milp:`` block.
+
+    Returns:
+        Variant-pinned configs, duplicates removed, first occurrence kept.
+
+    Raises:
+        ValueError: If two surviving configs share a results label.
+    """
+    pinned: List[CdpsMilpConfig] = []
+    seen = set()
+    for config in configs:
+        candidate = milp_config_for(key, config)
+        identity = candidate.arm_identity()
+        if identity in seen:
+            continue
+        seen.add(identity)
+        pinned.append(candidate)
+
+    by_label: dict = {}
+    for config in pinned:
+        by_label.setdefault(cdps_milp_algorithm_name(config), []).append(config)
+    collisions = {label: arms for label, arms in by_label.items() if len(arms) > 1}
+    if collisions:
+        label = next(iter(collisions))
+        raise ValueError(
+            f"cdps_milp.ablations produced {len(collisions[label])} distinct "
+            f"{key} arms that all report as {label!r}. They differ only in knobs "
+            f"that do not enter the results label (e.g. `seed`), so their rows "
+            f"would be merged. Ablate a knob the label carries, or run them as "
+            f"separate experiments."
+        )
+    return pinned
+
+
+def milp_work_subdir(key: str, config: CdpsMilpConfig) -> str:
+    """Fold subdirectory for one MILP arm's artifacts.
+
+    Ablated arms of the same variant run in one fold, so the variant's name
+    alone no longer identifies a directory. The label's suffix is what
+    distinguishes them, and reusing it keeps the directory readable from the
+    results row and vice versa. A non-ablated arm keeps the bare name it has
+    always had, so existing folds stay where every reader already looks.
+    """
+    label = cdps_milp_algorithm_name(milp_config_for(key, config))
+    _, _, suffix = label.partition("__")
+    return f"{key}__{suffix}" if suffix else key
+
+
 def cdps_family_names(
     run_cdps: bool,
     run_cdps_anchored: bool,
     run_cdps_milp: bool,
     run_cdps_milp_loop: bool,
-    milp_config: Optional[CdpsMilpConfig] = None,
+    milp_configs: Optional[List[CdpsMilpConfig]] = None,
 ) -> List[str]:
     """Result labels for the selected CDPS-family arms, in execution order.
 
     Both the run banner and ``run_params["algorithms"]`` must name the arms the
     way the result rows do, or a sweep's manifest disagrees with its own data.
     Deriving both from here is what keeps them in step — in particular the MILP
-    labels, which are arm-suffixed and so cannot be written as constants.
+    labels, which are arm-suffixed and so cannot be written as constants, and
+    which an ablation multiplies: one selected MILP key can contribute several
+    rows, and the manifest has to say so before the run rather than after.
 
     Baselines are the caller's business: the two callers read different
     attributes off their runner objects.
     """
-    config = milp_config if milp_config is not None else CdpsMilpConfig()
+    configs = milp_configs if milp_configs else [CdpsMilpConfig()]
     names = []
     if run_cdps:
         names.append(CDPS_ALGORITHM_NAME)
@@ -164,7 +232,9 @@ def cdps_family_names(
         (CDPS_MILP_LOOP, run_cdps_milp_loop),
     ):
         if selected:
-            names.append(cdps_milp_algorithm_name(milp_config_for(key, config)))
+            names.extend(
+                cdps_milp_algorithm_name(c) for c in milp_configs_for(key, configs)
+            )
     return names
 
 

@@ -638,7 +638,7 @@ run *emits* lands before the run itself.
 | 3 | **D1** — verify the loop at small and large n | Confirms no special-casing is needed; produces the small-n finding of §7.1bis as data. **Done, §7.4** — and it corrected the framing: the deciding variable is the domain, not n. |
 | 4 | **D3** — per-epoch snapshot callback in the ROSAME adapter | Makes the plot 3-way. Changes what a run emits, so it precedes the run. **Done, §7.5.** |
 | 5 | **D5/D7** — the anytime harness: snapshot reader + offline scorer + curves | Consumes 1 and 4. Offline, so it can be iterated on after the run. **Done, §7.6.** |
-| 6 | **D6** — config-driven ablation selection | Determines *which* cells the run covers. |
+| 6 | **D6** — config-driven ablation selection | Determines *which* cells the run covers. **Done, §7.7.** |
 | 7 | the benchmark run, with the eq16 on/off comparison riding along | Everything above is a precondition. |
 
 ### 7.2 D4 — per-round models (done)
@@ -894,3 +894,72 @@ fold read, scored and plotted; one fold hand-checked at 3 observations / 15
 transitions, scored in 0.1 s. That cell predates §7.5 and the MILP arms, so only
 `cdps` and `cdps_anchored` appear in it — the other two shapes are covered by the
 tests until P5.7 produces runs that hold them.
+
+### 7.7 D6 — config-driven ablation selection (done)
+
+D6 verbatim: *"i dont want to run ALL configurations by default: i would want to
+choose what value(s) i am going to use for those runs, just like we have in the
+benchmark runner"*. The shape chosen was **per-knob value lists**, i.e. the same
+cross-product `simulation.grid` already uses:
+
+```yaml
+  cdps_milp:
+    eq16: off
+    pool_policy: frozen
+    ablations:
+      eq16: [on, off]
+      pool_policy: [frozen, replace]
+```
+
+**Override, not additive.** A knob listed under `ablations:` *replaces* its value
+in the surrounding block; the list is the complete set of values. The example is
+4 loop arms, not 5. The alternative reading — the list adds to the block's own
+value — would silently run a configuration nobody named, which is D6's complaint
+in miniature. `simulation.grid` has no scalar sibling next to `masking_ps: [...]`
+for the same reason. The surrounding block keeps its job: supplying every knob
+the ablation block does *not* mention.
+
+**Two checks, because there are two ways to lose a result.** They look like one
+question and are not:
+
+| check | question | what it prevents |
+|---|---|---|
+| `CdpsMilpConfig.arm_identity()` | would these produce the same model? | running one solve twice under two names |
+| label distinctness in `milp_configs_for` | would these land in the same row? | two algorithms averaged into a row naming neither |
+
+The first is why `ablations: {pool_policy: [frozen, replace]}` can coexist with
+`algorithms: [cdps_milp_single_round, cdps_milp_loop]`: `pool_policy` is inert
+under single-round, so SR collapses to one arm while the loop gets two. Plain
+dataclass equality is too strict for that question, so `arm_identity` drops the
+loop-only fields under `single_round` and normalises `lambda_pre` to 0.0 when
+`eq16` is off — the same rule `as_stats` already applies.
+
+The second is the one that would have cost a run. `cdps_milp_algorithm_name`'s
+suffix does not carry `seed`, `stop.*`, `eval.*`, `solver`, `obs_weights` or
+`time_limit_seconds`; ablating `seed` would produce two genuinely different
+models both reporting as `CDPS_MILP_LOOP`. That now raises before the run rather
+than being discovered in a report. `stop`, `eval` and `variant` are rejected up
+front as unablatable; the rest are caught by the label check, which is
+**self-maintaining** — add a knob to the label function and it becomes ablatable
+with no second list to keep in sync.
+
+**Directories follow labels.** `milp_work_subdir` reuses the label's suffix, so
+`cdps_milp_loop__pool=replace/` is readable from its results row and vice versa,
+and two arms in one fold cannot overwrite each other's artifacts. An arm with no
+suffix keeps the bare `cdps_milp_loop/` it always had, which is what lets
+`backfill_cdps._WORK_SUBDIRS` and `anytime.checkpoints.ARM_SUBDIRS` stay
+untouched. (Teaching those two to discover suffixed dirs is only needed once a
+run actually ablates; it is not needed for P5.7's eq16 ride-along, which can be
+two separate cells.)
+
+Expansion happens in `benchmark_runner._build_main_kwargs`, early, because the
+run banner and `run_params["algorithms"]` have to name every arm *before*
+anything runs — a manifest that disagrees with its own data is worse than no
+manifest. It is validated even when both MILP arms are off, so a typo cannot sit
+unnoticed in a config that later enables one.
+
+Verified: the shipped `run_config.yaml` still expands to exactly **one** config,
+so nothing about existing runs changes. 10 new tests in
+`benchmark/test_milp_ablations.py` (on the benchmark side because the feature
+spans both layers and `src` must not import `benchmark`), plus the pre-existing
+12 + 65 MILP tests still passing.

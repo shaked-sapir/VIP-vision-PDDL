@@ -20,7 +20,8 @@ from benchmark.algorithms import (
     CDPS_MILP_LOOP,
     CDPS_MILP_SINGLE_ROUND,
     cdps_milp_algorithm_name,
-    milp_config_for,
+    milp_configs_for,
+    milp_work_subdir,
 )
 from benchmark.experiment_running_helpers.cleaned_trajectories import save_patched_observations
 from benchmark.experiment_running_helpers.data_source import DataSource
@@ -384,7 +385,7 @@ def run_single_fold(
     run_cdps_anchored: bool = False,
     run_cdps_milp: bool = False,
     run_cdps_milp_loop: bool = False,
-    cdps_milp_config: Optional[CdpsMilpConfig] = None,
+    cdps_milp_configs: Optional[List[CdpsMilpConfig]] = None,
     frame_axiom_mode: str = "after_gt_only",
     events_tracing: bool = False,
 ) -> List[dict]:
@@ -429,11 +430,13 @@ def run_single_fold(
             on the *same* trajectories. Artifacts live under
             ``<fold>/cdps_milp_loop``, so the two MILP arms can run side by side
             in one fold without overwriting each other.
-        cdps_milp_config: Config shared by both MILP arms; defaults to
-            ``CdpsMilpConfig()`` (eq16 off, init-only GT anchoring) when either
-            arm is on. Its ``variant`` field is ignored — each arm pins its own
-            via ``milp_config_for``, which is what lets one config block serve
-            both arms in a single run.
+        cdps_milp_configs: The ``cdps_milp:`` block's expansion — one config
+            without an ``ablations:`` sub-block, several with one. Defaults to a
+            single ``CdpsMilpConfig()`` (eq16 off, init-only GT anchoring) when
+            either arm is on. The ``variant`` field is ignored — each arm pins
+            its own via ``milp_configs_for``, which is what lets one config block
+            serve both arms in a single run, and which drops the combinations an
+            arm cannot tell apart.
         frame_axiom_mode: Frame-axiom propagation mode used when preparing the
             anchored variant's trajectories (default "after_gt_only").
 
@@ -665,31 +668,34 @@ def run_single_fold(
         # is what makes cost(MILP) <= cost(CDPS) checkable). Each arm writes to
         # its own subdir, so both can run in the same fold without one
         # overwriting the other's artifacts.
-        milp_arms = [
-            (key, subdir)
-            for key, subdir, selected in (
-                (CDPS_MILP_SINGLE_ROUND, "cdps_milp_single_round", run_cdps_milp),
-                (CDPS_MILP_LOOP, "cdps_milp_loop", run_cdps_milp_loop),
+        selected_milp_keys = [
+            key
+            for key, selected in (
+                (CDPS_MILP_SINGLE_ROUND, run_cdps_milp),
+                (CDPS_MILP_LOOP, run_cdps_milp_loop),
             )
             if selected
         ]
-        for milp_key, milp_subdir in milp_arms:
+        # An ablation turns one selected key into several arms; without one the
+        # expansion is the single config it always was.
+        expansion = cdps_milp_configs or [CdpsMilpConfig()]
+        for milp_key in selected_milp_keys:
             # The selected key — not the config's own ``variant`` — decides which
             # driver runs, so one ``cdps_milp`` config block serves both arms.
-            milp_config = milp_config_for(milp_key, cdps_milp_config or CdpsMilpConfig())
-            milp = run_cdps_phase(
-                anchor_endpoints=False,
-                algo_name=cdps_milp_algorithm_name(milp_config),
-                cdps_work_dir=fold_work_dir / milp_subdir,
-                trajectories=prepared_trajectories,
-                gt_source_indices=gt_source_indices,
-                total_transitions=total_transitions,
-                total_gt_transitions=total_gt_transitions,
-                milp_config=milp_config,
-                **cdps_common,
-            )
-            if milp is not None:
-                cdps_results.append(milp)
+            for milp_config in milp_configs_for(milp_key, expansion):
+                milp = run_cdps_phase(
+                    anchor_endpoints=False,
+                    algo_name=cdps_milp_algorithm_name(milp_config),
+                    cdps_work_dir=fold_work_dir / milp_work_subdir(milp_key, milp_config),
+                    trajectories=prepared_trajectories,
+                    gt_source_indices=gt_source_indices,
+                    total_transitions=total_transitions,
+                    total_gt_transitions=total_gt_transitions,
+                    milp_config=milp_config,
+                    **cdps_common,
+                )
+                if milp is not None:
+                    cdps_results.append(milp)
 
         # Build results: baselines + our CDPS row(s) (when run)
         fold_results = baseline_results + cdps_results

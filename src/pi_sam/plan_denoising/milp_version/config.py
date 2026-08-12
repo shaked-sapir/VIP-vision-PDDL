@@ -16,7 +16,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Any, Mapping, Optional, Type, TypeVar
+from itertools import product
+from typing import Any, List, Mapping, Optional, Type, TypeVar
 
 from src.pi_sam.plan_denoising.milp_version.converter import GtAnchoring
 from src.pi_sam.plan_denoising.milp_version.encoding_config import (
@@ -487,3 +488,122 @@ class CdpsMilpConfig:
             **self.effective_stop_rules().as_stats(),
             **self.eval.as_stats(),
         }
+
+    def arm_identity(self) -> tuple:
+        """Hashable identity over the settings that change *this* variant's output.
+
+        Two configs with equal identities produce the same model from the same
+        input, so running both is pure duplicated compute. Equality of the
+        dataclass itself is too strict for that question in two places:
+
+        - the loop-only keys are inert under ``single_round``, so ablating (say)
+          ``pool_policy`` in a run that also selects ``single_round`` must not
+          make that arm solve the same problem twice;
+        - ``lambda_pre`` is read only when ``eq16`` is on, so it is normalised to
+          0.0 when off — the same rule ``as_stats`` already applies.
+        """
+        shared = (
+            self.variant, self.eq16, self.lambda_pre if self.eq16 else 0.0,
+            self.solver, self.obs_weights, self.gt_anchoring,
+            self.time_limit_seconds,
+        )
+        if self.variant is not MilpVariant.LOOP:
+            return shared
+        return shared + (
+            self.w_prior, self.sampler, self.subset_size, self.learner_input,
+            self.pool_policy, self.co_sample_conflicts, self.stop, self.eval,
+            self.seed,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Ablations
+# ---------------------------------------------------------------------------
+
+# Nested blocks are not ablatable: neither enters the results label (see
+# benchmark.algorithms.cdps_milp_algorithm_name), so listing values here would
+# produce several arms that all land in one results row.
+_UNABLATABLE_KEYS = frozenset({"stop", "eval", "variant"})
+
+
+def expand_cdps_milp_ablations(
+    raw: Optional[Mapping[str, Any]]
+) -> List[CdpsMilpConfig]:
+    """The configs a ``cdps_milp:`` block asks for — one per ablation combination.
+
+    Without an ``ablations:`` sub-block this returns exactly one config, which is
+    the block parsed as it always was. With one, every listed knob is crossed
+    with every other, in the manner of ``simulation.grid``::
+
+        cdps_milp:
+          eq16: off
+          pool_policy: frozen
+          ablations:
+            eq16: [off, on]
+            pool_policy: [frozen, replace]   # -> 4 configs
+
+    A knob named under ``ablations:`` **overrides** its value in the surrounding
+    block: the list is the complete set of values for that knob, so the ``eq16:
+    off`` above contributes nothing once ``eq16`` is listed. The alternative —
+    treating the list as an addition to the block's own value — would silently
+    run a configuration nobody named. The surrounding block keeps its job of
+    supplying every knob the ablation block does *not* mention.
+
+    Each combination goes through :meth:`CdpsMilpConfig.from_dict` unchanged, so
+    an invalid ablation value fails exactly as an invalid plain value does, and
+    before any solving starts.
+
+    Args:
+        raw: The ``cdps_milp:`` mapping, ``ablations:`` included. ``None`` or
+            empty gives a single all-defaults config.
+
+    Returns:
+        One config per combination, in cross-product order with the first listed
+        knob varying slowest. Never empty.
+
+    Raises:
+        ValueError: If an ablation names an unknown or unablatable key, or gives
+            it something other than a non-empty list.
+    """
+    if not raw:
+        return [CdpsMilpConfig()]
+
+    base = {k: v for k, v in raw.items() if k != "ablations"}
+    ablations = raw.get("ablations")
+    if not ablations:
+        return [CdpsMilpConfig.from_dict(base)]
+
+    _validate_ablations(ablations)
+    keys = list(ablations)
+    return [
+        CdpsMilpConfig.from_dict({**base, **dict(zip(keys, combination))})
+        for combination in product(*(ablations[k] for k in keys))
+    ]
+
+
+def _validate_ablations(ablations: Any) -> None:
+    """Reject an ``ablations:`` block that cannot mean what it appears to."""
+    if not isinstance(ablations, Mapping):
+        raise ValueError(
+            f"cdps_milp.ablations: expected a mapping of knob -> list of values, "
+            f"got {type(ablations).__name__}"
+        )
+    unknown = sorted(set(ablations) - CdpsMilpConfig._KEYS)
+    if unknown:
+        raise ValueError(
+            f"cdps_milp.ablations: unknown key(s) {unknown}. Allowed: "
+            f"{', '.join(sorted(CdpsMilpConfig._KEYS - _UNABLATABLE_KEYS))}"
+        )
+    blocked = sorted(set(ablations) & _UNABLATABLE_KEYS)
+    if blocked:
+        raise ValueError(
+            f"cdps_milp.ablations: {blocked} cannot be ablated. `variant` is "
+            f"chosen by the selected algorithm key, and `stop`/`eval` do not "
+            f"enter the results label, so their arms would share one row."
+        )
+    for key, values in ablations.items():
+        if not isinstance(values, (list, tuple)) or not values:
+            raise ValueError(
+                f"cdps_milp.ablations.{key}: expected a non-empty list of values, "
+                f"got {values!r}"
+            )

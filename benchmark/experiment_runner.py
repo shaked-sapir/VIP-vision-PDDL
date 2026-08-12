@@ -141,7 +141,7 @@ def main(
     run_cdps_anchored: bool = False,
     run_cdps_milp: bool = False,
     run_cdps_milp_loop: bool = False,
-    cdps_milp_config: Optional[CdpsMilpConfig] = None,
+    cdps_milp_configs: Optional[List[CdpsMilpConfig]] = None,
     events_tracing: bool = False,
     resume: bool = False,
 ):
@@ -262,7 +262,7 @@ def main(
         "run_cdps_milp_loop": run_cdps_milp_loop,
         "algorithms": cdps_family_names(
             run_cdps, run_cdps_anchored, run_cdps_milp, run_cdps_milp_loop,
-            cdps_milp_config,
+            cdps_milp_configs,
         ) + [r.name for r in (baselines or [])],
         "normalized": norm_trajs_dir is not None,
         "data_source_type": type(data_source).__name__,
@@ -396,7 +396,7 @@ def main(
                         run_cdps_anchored=run_cdps_anchored,
                         run_cdps_milp=run_cdps_milp,
                         run_cdps_milp_loop=run_cdps_milp_loop,
-                        cdps_milp_config=cdps_milp_config,
+                        cdps_milp_configs=cdps_milp_configs,
                         events_tracing=events_tracing,
                     )
                     future = executor.submit(run_single_fold, **fold_kwargs)
