@@ -223,37 +223,148 @@ with a one-way import rule, as **one mechanical import-only commit after P5**.
 
 ---
 
-## 5. Repo state (uncommitted, branch `cdps-with-milp-implmenetation`)
+## 4bis. P3 — DONE (evaluator + both exit gates passed)
 
-- **Modified (12):** `CLAUDE.md`, `docs/cdps-milp-loop-plan.md`,
-  `benchmark/algorithms.py`, `benchmark_runner.py`, `experiment_runner.py`,
-  `experiment_running_helpers/{learning_helpers,run_fold}.py`,
-  `run_config.yaml`, `baselines/rosame_milp_runner.py`,
-  `algorithm_adapters/rosame_milp/{IMPLEMENTATION.md,__init__.py,test_rosame_milp.py}`
-- **Renamed (13):** the encoder + vendor move into `milp_version/`
-- **New (5):** `milp_version/{__init__,config,single_round,trajectory_extraction,test_cdps_milp}.py`
+Authorised by **D1 = (a)**, **D2 = recommendation**, **D3 = commit first**.
+
+### 4bis.1 What was built
+
+`src/pi_sam/plan_denoising/evaluator.py` (~470 lines) + `test_evaluator.py`
+(**17 tests, all green**).
+
+```python
+observations_reconstruction_score(domain: Domain,
+                                  observations: Sequence[Observation],
+                                  weights: Optional[EvaluationWeights] = None) -> EvaluationResult
+```
+
+- **D1 (a):** the input is a parsed `Domain`, so the *written* `model.pddl`
+  artefact is what gets scored — one code path for CDPS CFMs, PI-SAM output
+  and every ROSAME baseline alike.
+- **D2:** every `TraceEvaluation` carries both `v_raw` and
+  `v_per_transition`; `EvaluationResult` aggregates both.
+- `V = w₁·effect_mismatches + w₂·inapplicability_events`, w₁ = w₂ = 1.
+- The reference is the frozen **original (noisy) observations**, unmasked
+  slots only. No GT domain, no planner, no simulator.
+
+### 4bis.2 Three upstream facts that shaped the implementation
+
+Verified by reading `pddl_plus_parser`, not assumed:
+
+1. **`grounded_effect._apply_discrete_effects`** — delete effects `discard()`
+   the predicate. States are **positive-only / CWA**.
+2. **`grounded_precondition._validate_predicates_hold`** — applicability is a
+   *substring* test, `condition.untyped_representation in state.serialize()`.
+   Since `(on a b)` is a substring of `(not (on a b))`, CWA-completing the
+   rollout state with explicit negative literals would have silently satisfied
+   positive preconditions. **This reversed the planned design** — the rollout
+   state is now built by `_project_to_positive_state`, and there is a NOTE in
+   the file so nobody "fixes" it back.
+3. **`Operator.apply(prev, allow_inapplicable_actions=True)`** already *is*
+   apply-anyway, with the library's own precondition semantics.
+   → **Q1's recommendation is superseded**: the ~40 hand-rolled lines of
+   effect application I proposed earlier were not written; we call upstream.
+
+Also guarded: `mask_state` leaves `is_masked=True` predicates holding their
+**true** polarity, and `GroundedPredicate.copy()` silently **drops
+`is_masked`**. The evaluator never reads a masked slot's polarity and never
+grades a masked slot; both are pinned by tests.
+
+### 4bis.3 Exit A — V(GT model) == injected-noise count
+
+**150 / 150 folds exact**, blocksworld, over five cells:
+
+| cell | folds matching | V on fold 0 |
+|---|---|---|
+| `mask=0.0 noise=0.0` | 30/30 | 0 |
+| `mask=0.0 noise=0.1` | 30/30 | 46 |
+| `mask=0.0 noise=0.2` | 30/30 | 90 |
+| `mask=0.01 noise=0.2` | 30/30 | 91 |
+| `mask=0.1 noise=0.2` | 30/30 | 76 |
+
+`inapplicability_events = 0` and `init_masked_slots = 0` everywhere,
+confirming the simulated path leaves t=0 GT and unmasked as documented.
+
+### 4bis.4 Exit B — V ↔ GT-metrics correlation (**gates P4 — PASSED**)
+
+Every candidate model on disk per fold (`conflict_free_models/*/model.pddl`,
+`learned_domain_PISAM_*`, `baseline_models/*`, `cdps_anchored/*`) scored twice:
+V on the frozen originals, and syntactic precision/recall vs
+`domain_reference.pddl` (f1 = harmonic mean of the two `mean` fields).
+
+```
+folds scored              : 120        (2519 (fold, model) pairs)
+mean   Spearman rho       : -0.862
+median Spearman rho       : -0.883
+rho < 0                   : 120/120 folds
+rho <= -0.5               : 119/120 folds
+argmin-V picks the GT-best: 109/120 folds
+mean f1 regret of argmin-V: 0.0024      max: 0.1084
+```
+
+### 4bis.5 Three limits of V that P4/P5 must respect
+
+All three fall out of the exit-B data and are **inherent to a GT-free
+metric**, not defects:
+
+1. **V has a resolution floor of a few points.** All 11 argmin-V misses are
+   near-ties — the V-winner leads the GT-best by 1–7 points while losing
+   0.009–0.108 f1. Worst case: `mask=0.0 noise=0.2 fold2_numtrajs5`,
+   V=209 (f1 0.892) beat V=210 (f1 1.000). → the loop must **not** treat a
+   1-point V gain as progress. It needs a tolerance band plus a deterministic
+   tie-break, and Q8's exit criterion should demand an improvement larger
+   than the band.
+2. **V cannot rank at all when the data is clean.** In the
+   `noise=0.0` cell *every* candidate scores V=0 while f1 spreads 0.969–1.000.
+   That residual is generalisation beyond the observed data, which nothing
+   computed *on* that data can see. The loop degenerates to its tie-break
+   under zero noise — acceptable, but it must be stated, not discovered later.
+3. **V is not comparable across folds.** Within-fold rho −0.862 vs pooled
+   rho −0.454; normalising recovers much of it
+   (`rho(v_per_transition, f1) = −0.660`). D2 was the right call, and cross-fold
+   aggregation in P5 must use `v_per_transition`, never `v_raw`.
+
+---
+
+## 5. Repo state (branch `cdps-with-milp-implmenetation`)
+
+- **Committed — `4600b5b76`** (P1 + P2, 32 files, +2441/−252): the
+  `milp_version/` move, the CDPS dialect, `cdps_milp_single_round`,
+  and the `docs/` + `CLAUDE.md` updates.
+- **New, uncommitted (P3):** `src/pi_sam/plan_denoising/evaluator.py`,
+  `src/pi_sam/plan_denoising/test_evaluator.py`.
 - **Untracked throwaway:** `benchmark/finished_run_configs/milp-dispatch-smoke/`
   and `benchmark/running_results/blocksworld/milp-dispatch-smoke__mask=0.01__noise=0.2/`
   — smoke-test output, **pending a decision: delete or keep as reference.**
+- **Name collision — resolved.** The new GT-free entry point is
+  `observations_reconstruction_score`; `evaluate_model` stays the name of the
+  **GT-based** reporting function in
+  `benchmark/experiment_running_helpers/evaluation.py:62` (syntactic
+  precision/recall + `problem_solving` + predictive power, one call site at
+  `result_builders.py:61`). The two answer opposite questions and importing the
+  wrong one in the loop would select on ground truth and **silently** invalidate
+  the run, so the distinction is spelled out in the new function's docstring.
+  The dead `evaluate_model` import at `run_fold.py:31` was dropped.
 
-Nothing is committed yet. `source venv11/bin/activate` to run the tests.
+`source venv11/bin/activate` to run the tests.
 
 ---
 
 ## 6. Next actions, in order
 
-1. Answer Q6–Q9 (§4).
-2. **P3** — write `src/pi_sam/plan_denoising/evaluator.py` + unit tests
-   (hand-built models with known mismatch counts; conservative model →
-   inapplicability counted, not cascaded).
-3. **P3 exit A** — V(GT model) == injected-noise count on a sim fold.
-   (Valid precisely because `noise_injection.py` leaves t=0 untouched: under
-   the GT model the rollout reproduces the GT state sequence, so every
-   injected flip on an observed fluent surfaces as exactly one effect
-   mismatch, with zero inapplicability events.)
-4. **P3 exit B** — the V↔GT-metrics correlation check over existing folds.
-   **Gates P4.**
-5. In parallel/background — the **eq16 on/off comparison** on
+~~1. **P3** — evaluator + unit tests.~~ **done** (§4bis.1, 17 tests green)
+~~2. **P3 exit A** — V(GT model) == injected-noise count.~~ **done**, 150/150
+~~3. **P3 exit B** — V↔GT-metrics correlation. **Gates P4.**~~ **PASSED**,
+mean rho −0.862
+
+Remaining, in order:
+
+1. Answer **Q6–Q9** (§4), with Q8 revised in light of §4bis.5(1): the exit
+   criterion should demand a V improvement **larger than the resolution
+   band**, not merely a strict one.
+2. **P4** — loop driver. Must carry a V tolerance band + deterministic
+   tie-break (§4bis.5).
+3. In parallel/background — the **eq16 on/off comparison** on
    `single_round` (already authorized under P2; cheap; it is the
    "does PI-SAM cover for Eq. 16" experiment, a claim in its own right).
-6. **P4**, then **P5**, then **P6**.
+4. **P5** (aggregating on `v_per_transition`, never `v_raw`), then **P6**.

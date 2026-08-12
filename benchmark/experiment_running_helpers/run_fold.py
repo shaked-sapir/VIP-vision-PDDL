@@ -28,7 +28,7 @@ from benchmark.experiment_running_helpers.learning_helpers import (
 )
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import fold_instance_dir, save_fold_result
-from benchmark.experiment_running_helpers.evaluation import evaluate_model, save_learning_metrics
+from benchmark.experiment_running_helpers.evaluation import save_learning_metrics
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt
 from benchmark.experiment_running_helpers.trajectory_utils import (
     prepare_anchored_fold_trajectories,
