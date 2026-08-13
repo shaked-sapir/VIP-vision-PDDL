@@ -45,6 +45,7 @@ from planning_structs.traces import Traces
 from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
 from src.pi_sam.plan_denoising.milp_version import encoder as _encoder_module  # noqa: F401  (factory registration)
 from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
+from src.pi_sam.plan_denoising.patch_accounting import net_patch_count_from_records
 from src.pi_sam.plan_denoising.milp_version.converter import (
     build_ps_domain,
     build_ps_instance_from_objects,
@@ -220,27 +221,37 @@ def save_artifacts(
         save_observations_fn(result.observations, target / "final_observations")
 
     solve_seconds = result.stats.get("total_time_seconds")
+    flip_records = [flip.as_patch_dict() for flip in extraction.flips]
+    # The solver assigns each (state, fluent) once, so it cannot emit the
+    # self-cancelling pair that inflates CDPS's count. Computed rather than
+    # assumed, so that the two arms' `net_*` columns are produced by one rule
+    # and the design 7.1 comparison is like-for-like. See patch_accounting.
+    net_flips = net_patch_count_from_records(flip_records)
     patch_details = {
         "model_constraint_count": 0,  # the MILP never constrains the model
         "fluent_patch_count": result.repair_cost,
+        "net_fluent_patch_count": net_flips,
         "cost": result.repair_cost,
+        "net_cost": net_flips,
         "wall_time_seconds": solve_seconds,
         "nodes_expanded": 1,  # one solve = one "node"
         "model_constraints": [],
-        "fluent_patches": [flip.as_patch_dict() for flip in extraction.flips],
+        "fluent_patches": flip_records,
     }
     (target / "patch_details.json").write_text(json.dumps(patch_details, indent=2))
 
     solutions_log = [{
         "index": 0,
         "cost": result.repair_cost,
+        "net_cost": net_flips,
         "depth": 0,
         "nodes_expanded_so_far": 1,
         "wall_time_so_far": solve_seconds,
         "fluent_patch_count": result.repair_cost,
+        "net_fluent_patch_count": net_flips,
         "model_constraint_count": 0,
         "model_constraints": [],
-        "fluent_patches": patch_details["fluent_patches"],
+        "fluent_patches": flip_records,
     }] if conflict_free else []
     (fold_work_dir / "conflict_free_solutions_log.json").write_text(
         json.dumps(solutions_log, indent=2)

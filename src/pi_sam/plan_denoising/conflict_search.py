@@ -41,6 +41,7 @@ from src.pi_sam.plan_denoising.frontier import (
     Frontier,
     make_frontier,
 )
+from src.pi_sam.plan_denoising.patch_accounting import net_patch_count
 
 
 # The model-level operation that would dissolve each (model-patchable)
@@ -227,21 +228,37 @@ class ConflictDrivenPatchSearchBase(ABC):
     # Cost
     # ------------------------------------------------------------------
 
+    def _weighted_cost(self, fluent_patch_count: int, model_constraint_count: int) -> float:
+        """cost = fluent_weight * fluent_cost * n_fluent + model_weight * model_cost * n_model."""
+        return (self.fluent_patch_weight * self.fluent_patch_cost * fluent_patch_count
+                + self.model_constraint_weight * self.model_patch_cost * model_constraint_count)
+
     def _compute_cost(
         self,
         fluent_patches: Set[FluentLevelPatch],
         model_constraints: Dict[Key, PatchOperation],
     ) -> float:
-        """Weighted cost of a search node.
+        """Weighted cost of a search node — the search's ``g``.
 
-        cost = fluent_patch_weight * fluent_patch_cost * |fluent_patches|
-             + model_constraint_weight * model_patch_cost * |model_constraints|
+        Counts raw set members. A (state, fluent) pair carrying both polarities
+        counts 2 even though the two patches cancel on application, so this
+        over-charges; see :mod:`patch_accounting`. It is left that way on
+        purpose: this number orders the frontier, and correcting it here would
+        change which models are found and invalidate every result on disk. The
+        corrected figure is reported alongside as ``net_cost``.
 
         With default weights (fluent_patch_weight=1.0, model_constraint_weight=0.0) this reduces to
         the original cost function: fluent_patch_cost * |fluent_patches|.
         """
-        return (self.fluent_patch_weight * self.fluent_patch_cost * len(fluent_patches)
-                + self.model_constraint_weight * self.model_patch_cost * len(model_constraints))
+        return self._weighted_cost(len(fluent_patches), len(model_constraints))
+
+    def _net_cost(
+        self,
+        fluent_patches: Set[FluentLevelPatch],
+        model_constraints: Dict[Key, PatchOperation],
+    ) -> float:
+        """:meth:`_compute_cost` over edits actually performed, for cross-algorithm comparison."""
+        return self._weighted_cost(net_patch_count(fluent_patches), len(model_constraints))
 
     def _ordered_children_for_frontier(
         self,
@@ -282,7 +299,9 @@ class ConflictDrivenPatchSearchBase(ABC):
         details = {
             "model_constraint_count": len(model_constraints),
             "fluent_patch_count": len(fluent_patches),
+            "net_fluent_patch_count": net_patch_count(fluent_patches),
             "cost": cost,
+            "net_cost": self._net_cost(fluent_patches, model_constraints),
             "wall_time_seconds": wall_time,
             "nodes_expanded": nodes_expanded,
             "model_constraints": self._serialize_model_constraints(model_constraints),
@@ -587,10 +606,12 @@ class ConflictDrivenPatchSearchBase(ABC):
                 conflict_free_solutions_log.append({
                     "index": conflict_free_count - 1,
                     "cost": current_cost,
+                    "net_cost": self._net_cost(node.fluent_patches, node.model_constraints),
                     "depth": node.depth,
                     "nodes_expanded_so_far": nodes_expanded,
                     "wall_time_so_far": round(time.time() - start_time, 2),
                     "fluent_patch_count": len(node.fluent_patches),
+                    "net_fluent_patch_count": net_patch_count(node.fluent_patches),
                     "model_constraint_count": len(node.model_constraints),
                     "model_constraints": self._serialize_model_constraints(node.model_constraints),
                     "fluent_patches": self._serialize_fluent_patches(node.fluent_patches),
