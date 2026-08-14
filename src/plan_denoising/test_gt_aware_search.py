@@ -25,7 +25,7 @@ from typing import Dict, Optional, Set
 from pddl_plus_parser.lisp_parsers import DomainParser
 from utilities import NegativePreconditionPolicy
 
-from src.pi_sam.noisy_pisam.typings import (
+from src.plan_denoising.typings import (
     Conflict,
     ConflictType,
     ModelPart,

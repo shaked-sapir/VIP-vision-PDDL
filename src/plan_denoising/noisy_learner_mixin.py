@@ -17,7 +17,7 @@ from pddl_plus_parser.models import (
 )
 from sam_learning.core import LearnerDomain
 
-from src.pi_sam.noisy_pisam.typings import (
+from src.plan_denoising.typings import (
     ParameterBoundLiteral,
     ModelLevelPatch,
     FluentLevelPatch,

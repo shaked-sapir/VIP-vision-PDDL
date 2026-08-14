@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Iterable, Mapping, Tuple
 
-from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
+from src.plan_denoising.typings import FluentLevelPatch
 
 # (observation_index, component_index, state_type, normalized_fluent).
 # Indices are stringified so that patches and their serialized records — which

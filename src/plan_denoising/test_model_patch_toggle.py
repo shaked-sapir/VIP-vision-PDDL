@@ -1,7 +1,7 @@
 import unittest
 from typing import Dict
 
-from src.pi_sam.noisy_pisam.typings import (
+from src.plan_denoising.typings import (
     Conflict,
     ConflictType,
     ModelPart,

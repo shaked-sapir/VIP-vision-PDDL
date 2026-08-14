@@ -7,7 +7,7 @@ from sam_learning.core.matching_utils import (
 )
 from utilities import NegativePreconditionPolicy
 
-from src.pi_sam.noisy_pisam.noisy_learner_mixin import NoisyLearnerMixin
+from src.plan_denoising.noisy_learner_mixin import NoisyLearnerMixin
 from src.pi_sam.pi_sam_learning import PISAMLearner
 
 

@@ -42,7 +42,7 @@ from utilities import NegativePreconditionPolicy
 from constraint_opt.factory import resolve as resolve_encoder
 from planning_structs.traces import Traces
 
-from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
+from src.plan_denoising.noisy_pisam_learning import NoisyPisamLearner
 from src.milp import encoder as _encoder_module  # noqa: F401  (factory registration)
 from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig
 from src.plan_denoising.patch_accounting import net_patch_count_from_records

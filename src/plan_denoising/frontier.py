@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple
 
-from src.pi_sam.noisy_pisam.typings import (
+from src.plan_denoising.typings import (
     FluentLevelPatch,
     ModelPart,
     ParameterBoundLiteral,

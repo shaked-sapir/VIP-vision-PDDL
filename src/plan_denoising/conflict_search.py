@@ -17,9 +17,9 @@ from sam_learning.core import LearnerDomain
 from utilities import NegativePreconditionPolicy
 
 from src.utils.pddl_state import get_state_grounded_predicates
-from src.pi_sam.noisy_pisam.noisy_learner_mixin import NoisyLearnerMixin
-from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
-from src.pi_sam.noisy_pisam.typings import (
+from src.plan_denoising.noisy_learner_mixin import NoisyLearnerMixin
+from src.plan_denoising.noisy_pisam_learning import NoisyPisamLearner
+from src.plan_denoising.typings import (
     Conflict,
     ConflictType,
     FluentLevelPatch,

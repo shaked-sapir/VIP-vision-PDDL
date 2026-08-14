@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pddl_plus_parser.models import GroundedPredicate, PDDLType, State
 
-from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
+from src.plan_denoising.typings import FluentLevelPatch
 from src.utils.pddl_state import flip_fluent_in_state
 from src.plan_denoising.patch_accounting import (
     net_patch_count,

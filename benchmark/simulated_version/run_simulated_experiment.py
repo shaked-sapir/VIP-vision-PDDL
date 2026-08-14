@@ -29,7 +29,7 @@ from utilities import NegativePreconditionPolicy
 
 from benchmark.simulated_version.noise_evaluation import evaluate_noise_recovery
 from benchmark.simulated_version.noise_injection import create_bounded_noisy_observation
-from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
+from src.plan_denoising.typings import FluentLevelPatch
 from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
 from src.plan_denoising.frontier import (
     ConflictGroupStrategy,

@@ -22,7 +22,7 @@ from typing import List, Set, Tuple
 
 from pddl_plus_parser.models import Observation
 
-from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
+from src.plan_denoising.typings import FluentLevelPatch
 from src.observation_degradation.predicate_masking import PredicateMasker
 from src.observation_degradation.predicate_noising import PredicateNoiser
 from src.utils.pddl_state import copy_observation_linked, flip_fluent_in_state

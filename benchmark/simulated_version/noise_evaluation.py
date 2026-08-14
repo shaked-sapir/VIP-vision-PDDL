@@ -11,7 +11,7 @@ between the injected and proposed representations do not cause false mismatches.
 from dataclasses import dataclass
 from typing import FrozenSet, Set, Tuple
 
-from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
+from src.plan_denoising.typings import FluentLevelPatch
 
 
 # A canonical key that uniquely identifies a fluent flip independent of polarity.

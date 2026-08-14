@@ -142,7 +142,7 @@ def _learn_cdps_core(
     trace_log = None
     on_node_expanded = None
     if events_tracing:
-        from src.plan_denoising.conflict_search import NodeExpansionEvent
+        from src.plan_denoising.typings import NodeExpansionEvent
         trace_log = []
         def on_node_expanded(event: NodeExpansionEvent) -> None:
             trace_log.append(event)

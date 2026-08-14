@@ -97,7 +97,7 @@ def retrace_conflict_search(
     from src.plan_denoising.frontier import (
         SearchMode, NodeChoosingStrategy, ConflictGroupStrategy, FluentBranchMode,
     )
-    from src.pi_sam.noisy_pisam.typings import NodeExpansionEvent
+    from src.plan_denoising.typings import NodeExpansionEvent
 
     # Load original search parameters from saved metrics if available.
     metrics_path = fold_dir / "learning_metrics.json"

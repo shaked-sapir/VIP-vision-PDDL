@@ -315,8 +315,8 @@ def apply_cfm_fluent_patches(
         New ordered (problem, patched_observation) pairs with fluent patches applied.
         The originals are not modified.
     """
-    from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
-    from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
+    from src.plan_denoising.typings import FluentLevelPatch
+    from src.plan_denoising.noisy_pisam_learning import NoisyPisamLearner
     from copy import deepcopy
 
     raw_patches = patch_details.get("fluent_patches", [])
@@ -346,7 +346,7 @@ def apply_cfm_fluent_patches(
         # NoisyPisamLearner requires a Domain — load a fresh one from the caller's domain_path
         # is not available here, so we use a lightweight approach: instantiate the mixin path
         # via the noisy_learner_mixin directly.
-        from src.pi_sam.noisy_pisam.noisy_learner_mixin import NoisyLearnerMixin
+        from src.plan_denoising.noisy_learner_mixin import NoisyLearnerMixin
 
         class _PatchApplier(NoisyLearnerMixin):
             """Minimal stub — only set_patches + apply_fluent_patches are used."""
