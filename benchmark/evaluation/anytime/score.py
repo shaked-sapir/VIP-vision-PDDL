@@ -31,7 +31,7 @@ from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Observation
 
 from benchmark.evaluation.anytime.checkpoints import Checkpoint
-from src.pi_sam.plan_denoising.evaluator import (
+from src.plan_denoising.evaluator import (
     EvaluationWeights,
     observations_reconstruction_score,
 )

@@ -54,13 +54,13 @@ from utilities import NegativePreconditionPolicy
 from constraint_opt.factory import resolve as resolve_encoder
 from planning_structs.traces import Traces
 
-from src.pi_sam.plan_denoising.evaluator import (
+from src.plan_denoising.evaluator import (
     EvaluationResult,
     EvaluationWeights,
     observations_reconstruction_score,
 )
 from src.milp import encoder as _encoder_module  # noqa: F401  (factory registration)
-from src.pi_sam.plan_denoising.milp_denoiser.config import (
+from src.plan_denoising.milp_denoiser.config import (
     CdpsMilpConfig,
     LearnerInput,
     PoolPolicy,
@@ -72,11 +72,11 @@ from src.milp.converter import (
     observation_to_trace,
     try_observation_to_trace,
 )
-from src.pi_sam.plan_denoising.milp_denoiser.model_prior import (
+from src.plan_denoising.milp_denoiser.model_prior import (
     learner_domain_to_observation_m,
 )
-from src.pi_sam.plan_denoising.milp_denoiser.single_round import _learn_with_pisam
-from src.pi_sam.plan_denoising.milp_denoiser.trajectory_extraction import (
+from src.plan_denoising.milp_denoiser.single_round import _learn_with_pisam
+from src.plan_denoising.milp_denoiser.trajectory_extraction import (
     extract_repaired_observations,
 )
 

@@ -1,6 +1,6 @@
 """Unit tests for the ``cdps_milp_loop`` driver and its model-prior projection.
 
-    python -m unittest src.pi_sam.plan_denoising.milp_denoiser.test_loop
+    python -m unittest src.plan_denoising.milp_denoiser.test_loop
 
 Nothing here runs CP-SAT or PI-SAM. Those are covered end-to-end elsewhere; what
 this suite pins down are the loop's *decision* rules, which are cheap to test and
@@ -38,13 +38,13 @@ from typing import Dict, List, Sequence, Tuple
 from pddl_plus_parser.models import Predicate
 from planning_structs.domain import Domain as PSDomain
 
-from src.pi_sam.plan_denoising.milp_denoiser.config import (
+from src.plan_denoising.milp_denoiser.config import (
     CdpsMilpConfig,
     StopRules,
     SubsetSize,
 )
 from src.milp.converter import GtAnchoring
-from src.pi_sam.plan_denoising.milp_denoiser.loop import (
+from src.plan_denoising.milp_denoiser.loop import (
     NO_MODEL_HASH,
     ROUND_MODELS_DIR,
     LoopResult,
@@ -62,7 +62,7 @@ from src.pi_sam.plan_denoising.milp_denoiser.loop import (
     save_round_log,
     save_round_model,
 )
-from src.pi_sam.plan_denoising.milp_denoiser.model_prior import (
+from src.plan_denoising.milp_denoiser.model_prior import (
     NEUTRAL_PROBABILITY,
     PRESENT_PROBABILITY,
     learner_domain_to_observation_m,

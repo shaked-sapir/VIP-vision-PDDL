@@ -15,7 +15,7 @@ from typing import Optional, Union
 
 from utilities import NegativePreconditionPolicy
 
-from src.pi_sam.plan_denoising.frontier import (
+from src.plan_denoising.frontier import (
     ConflictGroupStrategy,
     FluentBranchMode,
     NodeChoosingStrategy,

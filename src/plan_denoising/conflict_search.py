@@ -30,7 +30,7 @@ from src.pi_sam.noisy_pisam.typings import (
     ParameterBoundLiteral,
     ConflictPriority,
 )
-from src.pi_sam.plan_denoising.frontier import (
+from src.plan_denoising.frontier import (
     ConflictGroupStrategy,
     FluentBranchMode,
     Key,
@@ -40,7 +40,7 @@ from src.pi_sam.plan_denoising.frontier import (
     Frontier,
     make_frontier,
 )
-from src.pi_sam.plan_denoising.patch_accounting import net_patch_count
+from src.plan_denoising.patch_accounting import net_patch_count
 
 
 # The model-level operation that would dissolve each (model-patchable)

@@ -81,7 +81,7 @@ from benchmark.experiment_running_helpers.statistics import count_total_transiti
 from benchmark.experiment_running_helpers.trajectory_utils import (
     prepare_anchored_fold_trajectories,
 )
-from src.pi_sam.plan_denoising.milp_denoiser.config import CdpsMilpConfig
+from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig
 
 # CDPS search-shape params persisted in run_params.json (fallbacks mirror
 # CDPSConfig's defaults for the rare cell that predates a given field).

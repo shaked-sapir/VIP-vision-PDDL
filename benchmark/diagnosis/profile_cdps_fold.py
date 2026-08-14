@@ -45,8 +45,8 @@ if str(_PROJECT_ROOT) not in sys.path:
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain, Observation
 
-from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
-from src.pi_sam.plan_denoising.conflict_search_config import CDPSConfig
+from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+from src.plan_denoising.conflict_search_config import CDPSConfig
 from src.utils.masking import load_masked_observation
 
 # Default output collection dir for the npuzzle noise=0.2 study.

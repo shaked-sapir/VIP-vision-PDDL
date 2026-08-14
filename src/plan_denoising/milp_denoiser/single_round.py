@@ -44,14 +44,14 @@ from planning_structs.traces import Traces
 
 from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
 from src.milp import encoder as _encoder_module  # noqa: F401  (factory registration)
-from src.pi_sam.plan_denoising.milp_denoiser.config import CdpsMilpConfig
-from src.pi_sam.plan_denoising.patch_accounting import net_patch_count_from_records
+from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig
+from src.plan_denoising.patch_accounting import net_patch_count_from_records
 from src.milp.converter import (
     build_ps_domain,
     build_ps_instance_from_objects,
     observation_to_trace,
 )
-from src.pi_sam.plan_denoising.milp_denoiser.trajectory_extraction import (
+from src.plan_denoising.milp_denoiser.trajectory_extraction import (
     ExtractionResult,
     extract_repaired_observations,
     save_extraction_artifacts,

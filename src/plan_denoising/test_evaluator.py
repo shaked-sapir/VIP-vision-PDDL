@@ -23,7 +23,7 @@ from typing import List
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain, Observation
 
-from src.pi_sam.plan_denoising.evaluator import EvaluationWeights, observations_reconstruction_score
+from src.plan_denoising.evaluator import EvaluationWeights, observations_reconstruction_score
 from src.utils.masking import load_masked_observation
 from src.utils.pddl_state import flip_fluent_in_state
 

@@ -1,6 +1,6 @@
 """Tests for the ``cdps_milp_*`` MILP denoiser (standalone; no PDDL parsing).
 
-    python -m src.pi_sam.plan_denoising.milp_denoiser.test_cdps_milp
+    python -m src.plan_denoising.milp_denoiser.test_cdps_milp
 
 The suite is organised around the two claims the whole design rests on
 (``docs/cdps-milp-denoiser-design.md`` §3-§4):
@@ -26,7 +26,7 @@ from planning_structs.domain import Domain as PSDomain
 from planning_structs.instance import Instance as PSInstance
 from planning_structs.traces import ObservationP, ObservationT, Traces
 
-from src.pi_sam.plan_denoising.milp_denoiser.config import (
+from src.plan_denoising.milp_denoiser.config import (
     CdpsMilpConfig,
     MilpSolver,
 )
@@ -43,7 +43,7 @@ from src.milp.encoding_config import (
     PriorWeightMode,
     SchemaNonemptyRule,
 )
-from src.pi_sam.plan_denoising.milp_denoiser.trajectory_extraction import (
+from src.plan_denoising.milp_denoiser.trajectory_extraction import (
     ExtractionResult,
     FluentFlip,
 )

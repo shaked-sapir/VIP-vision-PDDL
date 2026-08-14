@@ -26,7 +26,7 @@ from dataclasses import replace
 from typing import List, Optional, Tuple
 
 from benchmark.baselines import BASELINE_REGISTRY, BaselineRunner, resolve_baselines
-from src.pi_sam.plan_denoising.milp_denoiser.config import (
+from src.plan_denoising.milp_denoiser.config import (
     CdpsMilpConfig,
     LearnerInput,
     MilpVariant,

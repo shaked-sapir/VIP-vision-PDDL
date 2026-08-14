@@ -13,7 +13,7 @@ from pddl_plus_parser.models import GroundedPredicate, PDDLType, State
 
 from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
 from src.utils.pddl_state import flip_fluent_in_state
-from src.pi_sam.plan_denoising.patch_accounting import (
+from src.plan_denoising.patch_accounting import (
     net_patch_count,
     net_patch_count_from_records,
     patch_key,

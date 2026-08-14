@@ -50,7 +50,7 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from src.pi_sam.plan_denoising.patch_accounting import net_patch_count_from_records
+from src.plan_denoising.patch_accounting import net_patch_count_from_records
 
 DEFAULT_ROOT = Path("benchmark/running_results")
 DEFAULT_DOMAINS = ("blocksworld", "hanoi", "gripper", "npuzzle")

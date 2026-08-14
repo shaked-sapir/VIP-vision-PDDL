@@ -1,7 +1,7 @@
 import unittest
 
-from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearchBase
-from src.pi_sam.plan_denoising.frontier import (
+from src.plan_denoising.conflict_search import ConflictDrivenPatchSearchBase
+from src.plan_denoising.frontier import (
     HeapFrontier,
     NodeChoosingStrategy,
     SearchNode,

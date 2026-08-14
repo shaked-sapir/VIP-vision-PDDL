@@ -41,7 +41,7 @@ from benchmark.experiment_running_helpers.resume import (
 )
 from src.observation_degradation.masking import MaskingType
 from src.observation_degradation.noising import NoisingType
-from src.pi_sam.plan_denoising.milp_denoiser.config import CdpsMilpConfig
+from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig
 from src.utils.config import load_config
 
 

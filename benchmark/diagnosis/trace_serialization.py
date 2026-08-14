@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 
 from pddl_plus_parser.models import Observation
 
-from src.pi_sam.plan_denoising.conflict_search import NodeExpansionEvent
+from src.plan_denoising.conflict_search import NodeExpansionEvent
 
 
 def _serialize_state(state) -> Dict:

@@ -43,7 +43,7 @@ from benchmark.experiment_running_helpers.trajectory_utils import (
 from benchmark.evaluation.test_states_generator import generate_predictive_power_test_states
 from benchmark.evaluation.multi_solution_evaluator import evaluate_all_solutions
 from benchmark.evaluation.correlation_analysis import build_correlation_table
-from src.pi_sam.plan_denoising.milp_denoiser.config import CdpsMilpConfig, MilpVariant
+from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig, MilpVariant
 from src.utils.pddl import ground_observation_completely, observations_equal
 
 

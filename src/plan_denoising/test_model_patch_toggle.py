@@ -8,7 +8,7 @@ from src.pi_sam.noisy_pisam.typings import (
     ParameterBoundLiteral,
     PatchOperation,
 )
-from src.pi_sam.plan_denoising.conflict_search import (
+from src.plan_denoising.conflict_search import (
     ConflictDrivenPatchSearchBase,
     Key,
 )

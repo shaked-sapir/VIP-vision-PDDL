@@ -93,8 +93,8 @@ def retrace_conflict_search(
     Returns:
         Path to the saved search_trace.json.
     """
-    from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
-    from src.pi_sam.plan_denoising.frontier import (
+    from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+    from src.plan_denoising.frontier import (
         SearchMode, NodeChoosingStrategy, ConflictGroupStrategy, FluentBranchMode,
     )
     from src.pi_sam.noisy_pisam.typings import NodeExpansionEvent

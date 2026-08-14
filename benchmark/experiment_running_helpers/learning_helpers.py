@@ -7,7 +7,7 @@ distrust:
 
 - ``learn_cdps``                     — Conflict-Directed Patch Search (search).
 - ``learn_cdps_milp_single_round``   — one CP-SAT solve (see
-  ``src/pi_sam/plan_denoising/milp_denoiser/``).
+  ``src/plan_denoising/milp_denoiser/``).
 - ``learn_cdps_milp_loop``           — repeated CP-SAT solves over sampled
   subsets, keeping the best-scoring model.
 
@@ -28,12 +28,12 @@ from benchmark.experiment_running_helpers.cleaned_trajectories import (
     save_fold_observations,
     save_observations_to_dir,
 )
-from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
-from src.pi_sam.plan_denoising.conflict_search_config import CDPSConfig
-from src.pi_sam.plan_denoising.milp_denoiser.config import CdpsMilpConfig
+from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+from src.plan_denoising.conflict_search_config import CDPSConfig
+from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig
 from src.milp.converter import problem_object_types
-from src.pi_sam.plan_denoising.milp_denoiser.loop import run_loop
-from src.pi_sam.plan_denoising.milp_denoiser.single_round import run_single_round
+from src.plan_denoising.milp_denoiser.loop import run_loop
+from src.plan_denoising.milp_denoiser.single_round import run_single_round
 from src.utils.masking import load_masked_observation
 
 
@@ -142,7 +142,7 @@ def _learn_cdps_core(
     trace_log = None
     on_node_expanded = None
     if events_tracing:
-        from src.pi_sam.plan_denoising.conflict_search import NodeExpansionEvent
+        from src.plan_denoising.conflict_search import NodeExpansionEvent
         trace_log = []
         def on_node_expanded(event: NodeExpansionEvent) -> None:
             trace_log.append(event)
@@ -400,7 +400,7 @@ def learn_cdps_milp_single_round(
     ``(model, report, patched_observations)`` triple, same ``fold_work_dir``
     artifact layout. What changes is the denoiser — a single CP-SAT solve picks
     the globally cheapest repair, rather than a search that pays one PI-SAM run
-    per node. See ``src/pi_sam/plan_denoising/milp_denoiser/single_round.py``.
+    per node. See ``src/plan_denoising/milp_denoiser/single_round.py``.
 
     Args:
         prepared_trajectories: (trajectory, masking_info, problem_pddl,
