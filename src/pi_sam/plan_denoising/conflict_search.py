@@ -19,7 +19,6 @@ from utilities import NegativePreconditionPolicy
 from src.utils.pddl_state import get_state_grounded_predicates
 from src.pi_sam.noisy_pisam.noisy_learner_mixin import NoisyLearnerMixin
 from src.pi_sam.noisy_pisam.noisy_pisam_learning import NoisyPisamLearner
-from src.pi_sam.noisy_pisam.noisy_sam_learning import NoisySAMLearner
 from src.pi_sam.noisy_pisam.typings import (
     Conflict,
     ConflictType,
@@ -114,7 +113,7 @@ class ConflictDrivenPatchSearchBase(ABC):
       original (pre-GT) search.
 
     Subclasses implement ``_create_learner`` to select the SAM-family
-    learner (NoisyPisamLearner, NoisySAMLearner, etc.).
+    learner (e.g. NoisyPisamLearner).
     """
 
     def __init__(
@@ -1370,16 +1369,6 @@ class ConflictDrivenPatchSearchPISAM(ConflictDrivenPatchSearchBase):
             partial_domain=domain_copy,
             negative_preconditions_policy=self.negative_preconditions_policy,
             seed=self.seed,
-        )
-
-
-class ConflictDrivenPatchSearchSAM(ConflictDrivenPatchSearchBase):
-    """Conflict-driven patch search using SAM (full observability)."""
-
-    def _create_learner(self, domain_copy: Domain) -> NoisySAMLearner:
-        return NoisySAMLearner(
-            partial_domain=domain_copy,
-            negative_preconditions_policy=self.negative_preconditions_policy,
         )
 
 
