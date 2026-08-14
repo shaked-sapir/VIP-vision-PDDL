@@ -3,7 +3,7 @@ from typing import List, Set, Tuple
 
 from pddl_plus_parser.models import GroundedPredicate, Observation, State
 
-from src.pi_sam.masking import MaskingType, PercentageMaskingStrategy, RandomMaskingStrategy
+from src.pi_sam.masking import MaskingType, PercentageMaskingStrategy, RandomMaskingStrategy, UncertainMaskingStrategy
 from src.utils.pddl import get_state_grounded_predicates
 
 
@@ -17,7 +17,8 @@ class PredicateMasker:
 
     masking_strategies = {
         MaskingType.RANDOM: RandomMaskingStrategy(),
-        MaskingType.PERCENTAGE: PercentageMaskingStrategy()
+        MaskingType.PERCENTAGE: PercentageMaskingStrategy(),
+        MaskingType.UNCERTAIN: UncertainMaskingStrategy(),
     }
 
     def __init__(self, seed: int = 42, masking_strategy: MaskingType = MaskingType.RANDOM,

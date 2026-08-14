@@ -1,1 +1,1 @@
-from .masking_strategies import MaskingType, RandomMaskingStrategy, PercentageMaskingStrategy
+from .masking_strategies import MaskingType, RandomMaskingStrategy, PercentageMaskingStrategy, UncertainMaskingStrategy
