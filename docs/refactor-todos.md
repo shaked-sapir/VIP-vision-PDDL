@@ -15,7 +15,8 @@ Status of the review's P1/P2 structural items:
 
 ## Future TODO — 2.7b: break up `conflict_search.py` further
 
-`src/pi_sam/plan_denoising/conflict_search.py` is still a ~1,090-line module. The
+`src/plan_denoising/conflict_search.py` is still a ~1,380-line module (it was
+~1,090 when this was written; it has grown, not shrunk). The
 `SearchResult` dataclass (2.7a) covered the return value, but two more extractions
 were deferred because they are real internal surgery on `self.`-coupled methods:
 

@@ -5,6 +5,13 @@
 > **Authority:** `docs/cdps-milp-loop-plan.md` (execution plan) and
 > `docs/cdps-milp-denoiser-design.md` (encoding details). This file is a
 > *status snapshot*, not a spec — if it disagrees with those, they win.
+>
+> **Paths below predate 2026-08-14.** The `refactor-seprerate-denoising-from-pisam` branch moved
+> `src/pi_sam/plan_denoising/` → `src/plan_denoising/`, lifted the MILP encoder out
+> to `src/milp/`, and renamed `milp_version/` → `milp_denoiser/`.
+> Nothing below is rewritten: this is a log, and updating the paths would leave
+> them newer than the commit hashes and measurements they sit beside. CLAUDE.md's
+> module map has the current layout.
 
 **Branch:** `cdps-with-milp-implmenetation` (see §5)
 **Status:** P1 + P2 **DONE and validated** (`4600b5b76`). P3 **DONE**, both exit

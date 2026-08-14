@@ -10,6 +10,12 @@
 > differently are marked **AMENDED** / **SUPERSEDED** in place rather than
 > rewritten, so the reasoning stays auditable. P1–P4 are done; §7 carries the
 > per-phase status. `docs/CDPS-MILP-loop-PROCESS.md` is the running log.
+>
+> **Paths below predate 2026-08-14.** The `refactor-seprerate-denoising-from-pisam` branch moved
+> `src/pi_sam/plan_denoising/` → `src/plan_denoising/`, lifted the MILP encoder out
+> to `src/milp/`, and renamed `milp_version/` → `milp_denoiser/`.
+> Left in place under the same amend-don't-rewrite rule as everything else here.
+> CLAUDE.md's module map has the current layout.
 
 ---
 

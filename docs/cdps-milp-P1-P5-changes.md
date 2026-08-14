@@ -10,6 +10,13 @@ withdrawn. `docs/cdps-milp-denoiser-design.md` is the spec. This file answers on
 **Base commit:** `f86c60494` — everything below is `f86c60494..HEAD` on branch
 `cdps-with-milp-implmenetation`. Line numbers are as of `1386a1629` (HEAD).
 
+**Paths below predate 2026-08-14.** The `refactor-seprerate-denoising-from-pisam` branch moved
+`src/pi_sam/plan_denoising/` → `src/plan_denoising/`, lifted the MILP encoder out
+to `src/milp/`, and renamed `milp_version/` → `milp_denoiser/`.
+They are left as written because the line numbers are pinned to `1386a1629`:
+current paths beside historical line numbers would be wrong in a way that reads
+as right. CLAUDE.md's module map has the current layout.
+
 ## Phase → commit map
 
 | phase | commit | subject | net |

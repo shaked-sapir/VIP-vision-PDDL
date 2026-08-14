@@ -3,6 +3,12 @@
 **Date:** 2026-07-17
 **Scope:** (1) revision of the "repo consultant — experiment planning" session's work — commit `28b749ecc` ("started refactoring of experiment running towards standalone algorithms") plus the uncommitted working-tree changes on `ablation-study-vs-rosame`; (2) a full audit of the codebase for refactoring opportunities, DRY violations, separation-of-concerns problems, and bad practices. All findings were verified against the actual code (file:line references throughout).
 
+**Paths below predate 2026-08-14.** The `refactor-seprerate-denoising-from-pisam` branch moved
+`src/pi_sam/plan_denoising/` → `src/plan_denoising/`, lifted the MILP encoder out
+to `src/milp/`, and renamed `milp_version/` → `milp_denoiser/`.
+This is a dated review with file:line references into the tree as it stood; the
+paths are left as they were. CLAUDE.md's module map has the current layout.
+
 ---
 
 ## Part 1 — Review of the other session's work

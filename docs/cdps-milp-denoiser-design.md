@@ -225,6 +225,16 @@ dedup by model hash, report both counts.
   T′ extraction) + `benchmark/experiment_running_helpers/learning_helpers.py`
   entry `learn_cdps_milp(...)` mirroring `learn_cdps(...)`'s signature and
   outputs (cleaned_model, report, patched_observations).
+  **AMENDED — as built.** One module became two packages, because the ROSAME
+  MILP baselines need the encoding without needing the denoiser. The encoder,
+  the pddl→`planning_structs` converter, the rule-set presets and the vendored
+  upstream now sit in `src/milp/`; the denoiser that drives them —
+  `single_round.py`, `loop.py`, `trajectory_extraction.py`, `model_prior.py`,
+  `config.py` — sits in `src/plan_denoising/milp_denoiser/`. The
+  `learning_helpers` entry is `learn_cdps_milp_single_round(...)`; the arm names
+  it dispatches are computed, not constant (`cdps_milp_algorithm_name`), since
+  a row label has to carry which arm produced it. See CLAUDE.md's module map
+  for the current layout.
 - **Emit the identical artifact schema**: `conflict_free_models/
   conflict_free_model_k/{model.pddl, final_observations/, patch_details.json}`,
   `conflict_free_solutions_log.json` (cost per pool solution),
@@ -267,7 +277,7 @@ members of a `Set[FluentLevelPatch]`, and that dataclass is frozen on the
 toggles whatever it finds, so both records issue one identical instruction and
 applying both is the identity. The realized edit count is the number of keys
 touched an **odd** number of times — see
-`src/pi_sam/plan_denoising/patch_accounting.py`, which is the rule
+`src/plan_denoising/patch_accounting.py`, which is the rule
 `_dedup_patches` already applies to the `next`/`prev` aliasing of one state,
 extended to the case where two records share a key outright. Self-cancelling
 pairs appear on 63–67% of blocksworld / hanoi / gripper folds, up to 202
