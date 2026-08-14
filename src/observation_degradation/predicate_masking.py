@@ -3,7 +3,12 @@ from typing import List, Set, Tuple
 
 from pddl_plus_parser.models import GroundedPredicate, Observation, State
 
-from src.pi_sam.masking import MaskingType, PercentageMaskingStrategy, RandomMaskingStrategy, UncertainMaskingStrategy
+from src.observation_degradation.masking import (
+    MaskingType,
+    PercentageMaskingStrategy,
+    RandomMaskingStrategy,
+    UncertainMaskingStrategy,
+)
 from src.utils.pddl import get_state_grounded_predicates
 
 

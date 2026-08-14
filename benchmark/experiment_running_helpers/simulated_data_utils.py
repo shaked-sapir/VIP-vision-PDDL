@@ -13,10 +13,10 @@ from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 from pddl_plus_parser.models import Observation
 
 from benchmark.simulated_version.noise_injection import create_bounded_noisy_observation
-from src.pi_sam.masking import MaskingType
-from src.pi_sam.noising import NoisingType
-from src.pi_sam.predicate_masking import PredicateMasker
-from src.pi_sam.predicate_noising import PredicateNoiser
+from src.observation_degradation.masking import MaskingType
+from src.observation_degradation.noising import NoisingType
+from src.observation_degradation.predicate_masking import PredicateMasker
+from src.observation_degradation.predicate_noising import PredicateNoiser
 from src.utils.pddl_state import ground_observation_completely
 
 

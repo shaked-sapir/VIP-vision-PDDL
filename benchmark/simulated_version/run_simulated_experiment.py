@@ -36,10 +36,10 @@ from src.pi_sam.plan_denoising.frontier import (
     NodeChoosingStrategy,
     SearchMode,
 )
-from src.pi_sam.predicate_masking import PredicateMasker
-from src.pi_sam.predicate_noising import PredicateNoiser
-from src.pi_sam.masking import MaskingType
-from src.pi_sam.noising import NoisingType
+from src.observation_degradation.predicate_masking import PredicateMasker
+from src.observation_degradation.predicate_noising import PredicateNoiser
+from src.observation_degradation.masking import MaskingType
+from src.observation_degradation.noising import NoisingType
 from src.utils.pddl_state import ground_observation_completely
 
 

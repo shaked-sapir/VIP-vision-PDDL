@@ -3,8 +3,8 @@ from typing import Set
 
 from pddl_plus_parser.models import GroundedPredicate
 
-from src.pi_sam.noising import NoisingType, RandomNoisingStrategy, PercentageNoisingStrategy
-from src.pi_sam.noising.noising_strategies import NoisingStrategy
+from src.observation_degradation.noising import NoisingType, RandomNoisingStrategy, PercentageNoisingStrategy
+from src.observation_degradation.noising.noising_strategies import NoisingStrategy
 
 
 class PredicateNoiser:

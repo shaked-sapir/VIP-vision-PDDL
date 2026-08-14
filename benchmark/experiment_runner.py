@@ -39,8 +39,8 @@ from benchmark.experiment_running_helpers.resume import (
     run_params_conflicts,
     try_load_fold_result,
 )
-from src.pi_sam.masking import MaskingType
-from src.pi_sam.noising import NoisingType
+from src.observation_degradation.masking import MaskingType
+from src.observation_degradation.noising import NoisingType
 from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
 from src.utils.config import load_config
 

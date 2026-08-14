@@ -23,8 +23,8 @@ from typing import List, Set, Tuple
 from pddl_plus_parser.models import Observation
 
 from src.pi_sam.noisy_pisam.typings import FluentLevelPatch
-from src.pi_sam.predicate_masking import PredicateMasker
-from src.pi_sam.predicate_noising import PredicateNoiser
+from src.observation_degradation.predicate_masking import PredicateMasker
+from src.observation_degradation.predicate_noising import PredicateNoiser
 from src.utils.pddl_state import copy_observation_linked, flip_fluent_in_state
 from src.utils.pddl_trajectory import propagate_frame_axioms_in_memory
 

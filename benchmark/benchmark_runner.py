@@ -68,8 +68,8 @@ from benchmark.evaluation.cfm.cfm_quality_analysis import generate_cfm_quality_a
 from benchmark.evaluation.cfm.cfm_quality_table import generate_cfm_quality_table
 from benchmark.evaluation.experiment_report import generate_experiment_report
 from benchmark.experiment_running_helpers.data_source import ImageDataSource, SimulatedDataSource
-from src.pi_sam.masking import MaskingType
-from src.pi_sam.noising import NoisingType
+from src.observation_degradation.masking import MaskingType
+from src.observation_degradation.noising import NoisingType
 from src.pi_sam.plan_denoising.milp_version.config import expand_cdps_milp_ablations
 from src.utils.time import create_experiment_timestamp
 

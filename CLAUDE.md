@@ -17,9 +17,8 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 | `src/object_detection/` | Detect objects in a single image frame. Input: image. Output: list of `BoundedObject`. |
 | `src/fluent_classification/` | Classify PDDL fluents from a single image frame. Input: image. Output: `Dict[str, PredicateTruthValue]`. LLM path uses `ImageLLMBackend` protocol + `ImageLLMBackendFactory` (OpenAI/Gemini). |
 | `src/trajectory_handlers/` | Image→trajectory pipeline per domain. Split into inference base, PDDLGym source, external source, LLM mixin layers, and `pddlgym_problem_generator.py` (ROSAME-style problem generation). |
-| `src/pi_sam/` | Learning logic: PI-SAM, Noisy-PI-SAM, masking/noising strategies, conflict patching. |
-| `src/pi_sam/masking/` | Masking strategies (random, percentage, uncertain). Isolated from learning logic. |
-| `src/pi_sam/noising/` | Noising strategies (random, percentage) for flipping unmasked predicate polarity. |
+| `src/pi_sam/` | Learning logic: PI-SAM, Noisy-PI-SAM, conflict patching. |
+| `src/observation_degradation/` | Deliberate corruption of otherwise-clean observations, applied *before* any learner sees them. `masking/` — masking strategies (random, percentage, uncertain); `noising/` — noising strategies (random, percentage) for flipping unmasked predicate polarity; `predicate_masking.py` / `predicate_noising.py` — the `PredicateMasker` / `PredicateNoiser` drivers. Nothing here imports a learner, and no learner imports it. |
 | `src/pi_sam/noisy_pisam/` | Noise-aware learning variant via mixin composition. |
 | `src/pi_sam/plan_denoising/` | Conflict-Directed Patch Search (CDPS): `conflict_search.py`, `conflict_search_config.py` (`CDPSConfig`), `frontier.py` (search mode / node / conflict-group / fluent-branch strategies). GT-aware via `gt_states_by_obs` (init state always GT). Also `evaluator.py` — `observations_reconstruction_score`, a **ground-truth-free** model score (effect mismatches + inapplicability events, rollout and one-step, against the frozen original observations). Use it for online selection; **never** `benchmark/experiment_running_helpers/evaluation.py:evaluate_model`, which needs GT and is for offline reporting only. And `patch_accounting.py` — the one rule for counting *realized* fluent edits (odd parity over normalized keys, because patches are toggles); every consumer comparing repair magnitudes must use it. |
 | `src/pi_sam/plan_denoising/milp_version/` | The same repair problem solved as one CP-SAT program instead of by search: `encoder.py`, `encoding_config.py` (`MilpEncodingConfig`, presets `upstream()`/`tag()`/`cdps_dialect()`), `converter.py` (pddl_plus → `planning_structs`, `GtAnchoring`, `RepeatedArgsInstance`, `problem_object_types` — the declared-type overlay that stops trajectory-inferred object types from making an observed action ungroundable; `observation_to_trace` **raises**, `try_observation_to_trace` returns `None` and is only for the loop's optional warm-start hints), `config.py` (`CdpsMilpConfig`), `trajectory_extraction.py` (solved MILP → re-masked T′), `single_round.py` (the `cdps_milp_single_round` driver), `vendor/` (upstream code, see `vendor/UPSTREAM.md`). Shared with the `rosame_milp*` baselines — hence `src/`, not `benchmark/`. |
@@ -121,7 +120,7 @@ class LLMExternalImageTrajectoryHandler(LLMVisualComponentsMixin, ExternalImageT
 
 ### Masking Strategy
 ```python
-# src/pi_sam/masking/masking_strategies.py
+# src/observation_degradation/masking/masking_strategies.py
 class MaskingStrategy(ABC):
     @abstractmethod
     def mask(self, predicates: set[GroundedPredicate], *args, **kwargs)
@@ -131,7 +130,7 @@ class MaskingStrategy(ABC):
 
 ### Noising Strategy
 ```python
-# src/pi_sam/noising/noising_strategies.py
+# src/observation_degradation/noising/noising_strategies.py
 class NoisingStrategy(ABC):
     @abstractmethod
     def noise(self, predicates: Set[GroundedPredicate], *args, **kwargs) -> Set[GroundedPredicate]: ...

@@ -41,8 +41,8 @@ from benchmark.experiment_running_helpers.trajectory_utils import (
     pregenerate_all_gt_frame_axiom_files,
     prepare_fold_trajectories,
 )
-from src.pi_sam.masking import MaskingType
-from src.pi_sam.noising import NoisingType
+from src.observation_degradation.masking import MaskingType
+from src.observation_degradation.noising import NoisingType
 
 # Type alias: (trajectory_path, masking_path, problem_pddl_path, gt_state_indices)
 PreparedTrajectory = Tuple[Path, Path, Path, Set[int]]

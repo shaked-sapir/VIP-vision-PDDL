@@ -12,7 +12,7 @@ Use the Explore agent or file tools to gather up-to-date information on:
    - `src/object_detection/base_object_detector.py`
    - `src/fluent_classification/base_fluent_classifier.py`
    - `src/trajectory_handlers/image_trajectory_handler.py`
-   - `src/pi_sam/masking/masking_strategies.py`
+   - `src/observation_degradation/masking/masking_strategies.py`
    - Any new base classes added since (look for files named `base_*.py`)
 
 3. **Utils inventory**: List all `.py` files in `src/utils/` and their public functions (scan the `def ` lines). Compare with the lookup table in CLAUDE.md.
