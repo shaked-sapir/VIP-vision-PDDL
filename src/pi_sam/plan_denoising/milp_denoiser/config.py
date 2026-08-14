@@ -19,8 +19,8 @@ from enum import Enum
 from itertools import product
 from typing import Any, List, Mapping, Optional, Type, TypeVar
 
-from src.pi_sam.plan_denoising.milp_version.converter import GtAnchoring
-from src.pi_sam.plan_denoising.milp_version.encoding_config import (
+from src.milp.converter import GtAnchoring
+from src.milp.encoding_config import (
     MilpEncodingConfig,
     PriorWeightMode,
 )

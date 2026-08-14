@@ -70,7 +70,7 @@ from benchmark.evaluation.experiment_report import generate_experiment_report
 from benchmark.experiment_running_helpers.data_source import ImageDataSource, SimulatedDataSource
 from src.observation_degradation.masking import MaskingType
 from src.observation_degradation.noising import NoisingType
-from src.pi_sam.plan_denoising.milp_version.config import expand_cdps_milp_ablations
+from src.pi_sam.plan_denoising.milp_denoiser.config import expand_cdps_milp_ablations
 from src.utils.time import create_experiment_timestamp
 
 # Default editable config; override with --config.

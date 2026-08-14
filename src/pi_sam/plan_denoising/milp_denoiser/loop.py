@@ -59,24 +59,24 @@ from src.pi_sam.plan_denoising.evaluator import (
     EvaluationWeights,
     observations_reconstruction_score,
 )
-from src.pi_sam.plan_denoising.milp_version import encoder as _encoder_module  # noqa: F401  (factory registration)
-from src.pi_sam.plan_denoising.milp_version.config import (
+from src.milp import encoder as _encoder_module  # noqa: F401  (factory registration)
+from src.pi_sam.plan_denoising.milp_denoiser.config import (
     CdpsMilpConfig,
     LearnerInput,
     PoolPolicy,
     Sampler,
 )
-from src.pi_sam.plan_denoising.milp_version.converter import (
+from src.milp.converter import (
     build_ps_domain,
     build_ps_instance_from_objects,
     observation_to_trace,
     try_observation_to_trace,
 )
-from src.pi_sam.plan_denoising.milp_version.model_prior import (
+from src.pi_sam.plan_denoising.milp_denoiser.model_prior import (
     learner_domain_to_observation_m,
 )
-from src.pi_sam.plan_denoising.milp_version.single_round import _learn_with_pisam
-from src.pi_sam.plan_denoising.milp_version.trajectory_extraction import (
+from src.pi_sam.plan_denoising.milp_denoiser.single_round import _learn_with_pisam
+from src.pi_sam.plan_denoising.milp_denoiser.trajectory_extraction import (
     extract_repaired_observations,
 )
 

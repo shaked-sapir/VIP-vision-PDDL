@@ -5,8 +5,7 @@ Branch: `ROSAME+MILP`
 Commit: `95c733f1fecd9ddbe9634c8c54ebc85b27ebc076` (2026-06-20)
 
 Vendored packages (top-level names preserved; loaded via a sys.path insertion
-in `src/pi_sam/plan_denoising/milp_version/__init__.py` so upstream's
-absolute imports keep working):
+in `src/milp/__init__.py` so upstream's absolute imports keep working):
 
 - `planning_structs/` — `domain.py`, `instance.py`, `traces.py` (verbatim)
 - `constraint_opt/` — `factory.py`, `util.py`, `cp_sat.py`, `mip_gurobi.py`
@@ -14,7 +13,7 @@ absolute imports keep working):
   path needs no Gurobi license)
 
 Our observed-actions encoder variant lives OUTSIDE the vendor tree
-(`src/pi_sam/plan_denoising/milp_version/encoder.py`) and is registered in
+(`src/milp/encoder.py`) and is registered in
 the same factory under `"cp-sat-observed"`. It is shared by the
 `rosame_milp*` baselines and by our own `cdps_milp_*` learners.
 

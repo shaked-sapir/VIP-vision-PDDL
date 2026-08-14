@@ -26,7 +26,7 @@ from dataclasses import replace
 from typing import List, Optional, Tuple
 
 from benchmark.baselines import BASELINE_REGISTRY, BaselineRunner, resolve_baselines
-from src.pi_sam.plan_denoising.milp_version.config import (
+from src.pi_sam.plan_denoising.milp_denoiser.config import (
     CdpsMilpConfig,
     LearnerInput,
     MilpVariant,
@@ -34,8 +34,8 @@ from src.pi_sam.plan_denoising.milp_version.config import (
     Sampler,
     SubsetSizeKind,
 )
-from src.pi_sam.plan_denoising.milp_version.encoding_config import PriorWeightMode
-from src.pi_sam.plan_denoising.milp_version.converter import GtAnchoring
+from src.milp.encoding_config import PriorWeightMode
+from src.milp.converter import GtAnchoring
 
 # Selector keys (CLI/config) and the display/results labels for our algorithm.
 # ``cdps`` anchors only the init state as GT; ``cdps_anchored`` also anchors the

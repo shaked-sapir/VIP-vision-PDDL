@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Sequence
 
 from pddl_plus_parser.models import Observation, State
 
-from src.pi_sam.plan_denoising.milp_version.converter import proposition_of
+from src.milp.converter import proposition_of
 from src.utils.pddl_state import copy_observation_linked, get_state_grounded_predicates
 
 

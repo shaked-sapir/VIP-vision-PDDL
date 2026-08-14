@@ -63,7 +63,7 @@ from planning_structs.domain import ActionSchema, Predicate
 from planning_structs.instance import Action, Proposition
 from planning_structs.traces import ObservationM
 
-from src.pi_sam.plan_denoising.milp_version.encoding_config import (
+from src.milp.encoding_config import (
     MilpEncodingConfig,
     PriorWeightMode,
     SchemaNonemptyRule,

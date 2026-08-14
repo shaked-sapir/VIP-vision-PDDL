@@ -14,11 +14,10 @@ Layout:
   milp_loop.py       — the V2 training loop (pooled schedule + model-CE rounds)
 
 The encoder, the converter, the encoding rule-sets and the vendored
-``planning_structs``/``constraint_opt`` packages moved to
-``src/pi_sam/plan_denoising/milp_version/`` — they are shared with the
-``cdps_milp_*`` learners, which use the same encoder under a different rule-set
-preset. Only the genuinely ROSAME-specific pieces (anything that reads the
-network's ``forward()`` rows or drives torch training) stayed here.
+``planning_structs``/``constraint_opt`` packages live in ``src/milp/`` — they are
+shared with the ``cdps_milp_*`` learners, which drive the same encoder under a
+different rule-set preset. Only the genuinely ROSAME-specific pieces (anything
+that reads the network's ``forward()`` rows or drives torch training) are here.
 
 Importing this package also performs the vendor sys.path insertion, so
 ``from planning_structs...`` keeps working for our modules and for upstream's
@@ -28,4 +27,4 @@ own absolute imports.
 from __future__ import annotations
 
 # Side effect: inserts the vendored packages' directory into sys.path.
-from src.pi_sam.plan_denoising import milp_version as _milp_version  # noqa: F401
+import src.milp  # noqa: F401

@@ -2,8 +2,7 @@
 
 Two registered variants (ROSAME-side glue in
 ``benchmark/algorithm_adapters/rosame_milp/``; the MILP encoder itself lives in
-``src/pi_sam/plan_denoising/milp_version/``, shared with the ``cdps_milp_*``
-learners):
+``src/milp/``, shared with the ``cdps_milp_*`` learners):
 
 - ``rosame_milp_base`` (:class:`RosameMilpBaseRunner`) — one-shot: train ROSAME
   exactly like the ``rosame`` baseline, then solve a single MILP over the whole
@@ -18,7 +17,7 @@ learners):
   schema (no precondition requirement) and no redundant-add ban.
 
 The MILP constraint rule-set is bundled in
-:class:`~src.pi_sam.plan_denoising.milp_version.encoding_config.MilpEncodingConfig`
+:class:`~src.milp.encoding_config.MilpEncodingConfig`
 and passed to the runners via ``encoding_config`` (default ``upstream()``).
 
 Both fall back to the plain ROSAME model (with ``milp_failed=True`` in the
@@ -35,15 +34,15 @@ from typing import Dict, List, Optional, Tuple
 from pddl_plus_parser.lisp_parsers import DomainParser
 
 import benchmark.algorithm_adapters.rosame_milp  # noqa: F401  (vendor sys.path bootstrap)
-from src.pi_sam.plan_denoising.milp_version import encoder as _encoder_module  # noqa: F401  (factory registration)
-from src.pi_sam.plan_denoising.milp_version.converter import (
+from src.milp import encoder as _encoder_module  # noqa: F401  (factory registration)
+from src.milp.converter import (
     build_ps_domain,
     build_ps_instance,
     find_gt_trajectory,
     gt_final_state_fluents,
     observation_to_trace,
 )
-from src.pi_sam.plan_denoising.milp_version.encoding_config import MilpEncodingConfig
+from src.milp.encoding_config import MilpEncodingConfig
 from benchmark.algorithm_adapters.rosame_milp.milp_loop import MilpPORosame
 from benchmark.algorithm_adapters.rosame_milp.model_bridge import (
     extract_model_labels,

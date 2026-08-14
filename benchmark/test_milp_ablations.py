@@ -35,7 +35,7 @@ from benchmark.algorithms import (
     milp_configs_for,
     milp_work_subdir,
 )
-from src.pi_sam.plan_denoising.milp_version.config import (
+from src.pi_sam.plan_denoising.milp_denoiser.config import (
     CdpsMilpConfig,
     LearnerInput,
     MilpVariant,
