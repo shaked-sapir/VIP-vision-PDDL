@@ -43,12 +43,14 @@ from src.pi_sam.plan_denoising.milp_version.config import (
     StopRules,
     SubsetSize,
 )
+from src.pi_sam.plan_denoising.milp_version.converter import GtAnchoring
 from src.pi_sam.plan_denoising.milp_version.loop import (
     NO_MODEL_HASH,
     ROUND_MODELS_DIR,
     LoopResult,
     RoundLog,
     _LoopState,
+    _TraceCache,
     _learner_input,
     _per_trace_scores,
     _remaining_budget,
@@ -567,6 +569,114 @@ class TestSubsetSize(unittest.TestCase):
         for bad in ("most", 0, -1, True, 3.5):
             with self.subTest(value=bad), self.assertRaises(ValueError):
                 SubsetSize.parse(bad)
+
+
+# ---------------------------------------------------------------- trace cache
+
+
+class _FakeGP:
+    """The duck-typed surface ``converter`` reads off a grounded predicate."""
+
+    def __init__(self, name: str, arg_names: Sequence[str]) -> None:
+        self.name = name
+        self.signature = {f"?x{i}": "room" for i in range(len(arg_names))}
+        self.object_mapping = dict(zip(self.signature, arg_names))
+        self.is_positive = True
+        self.is_masked = False
+
+
+class _FakeState:
+    def __init__(self, gps: Sequence[_FakeGP]) -> None:
+        self.state_predicates = {"at": list(gps)}
+
+
+class _FakeComponent:
+    def __init__(self, previous_state, action_name, parameters, next_state) -> None:
+        self.previous_state = previous_state
+        self.next_state = next_state
+        self.grounded_action_call = type(
+            "Call", (), {"name": action_name, "parameters": list(parameters)}
+        )()
+
+
+class _FakeObservation:
+    def __init__(self, components, grounded_objects) -> None:
+        self.components = components
+        self.grounded_objects = grounded_objects
+
+
+class _FakePDDLObject:
+    def __init__(self, type_name: str) -> None:
+        self.type = type_name
+
+
+class _NoConstants:
+    constants: dict = {}
+
+
+def _move_observation(objects: Dict[str, _FakePDDLObject]) -> _FakeObservation:
+    """``move(r1, r2)`` over whatever object map the caller supplies."""
+    before = _FakeState([_FakeGP("at", ["r1"])])
+    after = _FakeState([_FakeGP("at", ["r2"])])
+    return _FakeObservation(
+        [_FakeComponent(before, "move", ["r1", "r2"], after)], objects
+    )
+
+
+class TestTraceCache(unittest.TestCase):
+    """Which conversion failures the loop tolerates, and which abort it."""
+
+    def setUp(self) -> None:
+        self.ps_domain = _micro_ps_domain()
+        self.well_typed = {n: _FakePDDLObject("room") for n in ("r1", "r2")}
+        # What TrajectoryParser infers when r2's last mention is an untyped slot.
+        self.mistyped = {"r1": _FakePDDLObject("room"), "r2": _FakePDDLObject("object")}
+
+    def _cache(self, object_types=None) -> _TraceCache:
+        return _TraceCache(
+            self.ps_domain, _NoConstants(), GtAnchoring.INIT_ONLY, object_types
+        )
+
+    def test_a_pool_trace_that_cannot_be_encoded_raises(self) -> None:
+        """A frozen input that will not encode is a defect, not a smaller pool.
+
+        Dropping it would change ``subset_size`` and ``n_possible_subsets``, so
+        the loop would silently run a different experiment than the one its
+        stats describe.
+        """
+        cache = self._cache()
+        with self.assertRaises(ValueError) as caught:
+            cache.trace(0, _move_observation(self.mistyped), None)
+        self.assertIn("argument type mismatch", str(caught.exception))
+
+    def test_a_hint_trace_that_cannot_be_encoded_is_none(self) -> None:
+        """A warm start is optional, so its failure must stay tolerated."""
+        cache = self._cache()
+        trace = cache.trace(0, _move_observation(self.mistyped), None, kind="hint")
+        self.assertIsNone(trace)
+
+    def test_declared_object_types_rescue_the_pool_trace(self) -> None:
+        """The overlay is what turns the raising case back into a usable trace."""
+        cache = self._cache(object_types={0: {"r1": "room", "r2": "room"}})
+        trace = cache.trace(0, _move_observation(self.mistyped), None)
+        self.assertIsNotNone(trace)
+        self.assertEqual(trace.step, 1)
+
+    def test_the_overlay_is_per_observation(self) -> None:
+        """Each observation is grounded on its own problem's types — folds mix problems."""
+        cache = self._cache(object_types={1: {"r2": "room"}})
+        with self.assertRaises(ValueError):
+            cache.trace(0, _move_observation(self.mistyped), None)
+        self.assertIsNotNone(cache.trace(1, _move_observation(self.mistyped), None))
+
+    def test_a_well_typed_trace_needs_no_overlay(self) -> None:
+        """The overlay must be inert when the inferred types were already right."""
+        without = self._cache().trace(0, _move_observation(self.well_typed), None)
+        with_overlay = self._cache(
+            object_types={0: {"r1": "room", "r2": "room"}}
+        ).trace(0, _move_observation(self.well_typed), None)
+        self.assertEqual(without.step, with_overlay.step)
+        self.assertEqual(set(without.init), set(with_overlay.init))
 
 
 # ---------------------------------------------------------------- model prior

@@ -22,7 +22,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from pddl_plus_parser.lisp_parsers import DomainParser
+from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser
 
 from benchmark.experiment_running_helpers.cleaned_trajectories import (
     save_fold_observations,
@@ -31,6 +31,7 @@ from benchmark.experiment_running_helpers.cleaned_trajectories import (
 from src.pi_sam.plan_denoising.conflict_search import ConflictDrivenPatchSearch
 from src.pi_sam.plan_denoising.conflict_search_config import CDPSConfig
 from src.pi_sam.plan_denoising.milp_version.config import CdpsMilpConfig
+from src.pi_sam.plan_denoising.milp_version.converter import problem_object_types
 from src.pi_sam.plan_denoising.milp_version.loop import run_loop
 from src.pi_sam.plan_denoising.milp_version.single_round import run_single_round
 from src.utils.masking import load_masked_observation
@@ -279,6 +280,58 @@ def _resolve_gt_states_by_obs(
     } or None
 
 
+def _resolve_object_types_by_obs(
+    partial_domain,
+    prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
+    observations: list,
+) -> Optional[Dict[int, Dict[str, str]]]:
+    """obs_idx -> declared object types, read off each trajectory's problem file.
+
+    The MILP grounds each observation on ``Observation.grounded_objects``, whose
+    types the trajectory parser had to *infer* — ``.trajectory`` files carry no
+    ``(:objects ...)`` block. Inference reads types off predicate slots, so an
+    object appearing in an **untyped** slot comes back as ``object`` and none of
+    its actions ground. The problem file states the types outright, so it wins.
+    See :func:`converter.problem_object_types` for the full failure mode.
+
+    Returns ``None`` when no problem file is reachable, which leaves the drivers
+    on inferred types — the behaviour before this existed.
+
+    Raises:
+        ValueError: if an observation mentions objects its paired problem does
+            not declare. That pairing is positional, and a wrong pairing would
+            silently stamp one problem's types onto another problem's objects;
+            these domains reuse object names across problems, so the corruption
+            would not otherwise show.
+    """
+    constants = set(getattr(partial_domain, "constants", {}) or {})
+    types_by_obs: Dict[int, Dict[str, str]] = {}
+    for obs_idx, observation in enumerate(observations):
+        if obs_idx >= len(prepared_trajectories):
+            break
+        prepared = prepared_trajectories[obs_idx]
+        if len(prepared) < 3 or prepared[2] is None:
+            continue
+        problem_path = Path(prepared[2])
+        if not problem_path.exists():
+            continue
+
+        problem = ProblemParser(problem_path, partial_domain).parse_problem()
+        declared = problem_object_types(problem)
+        undeclared = sorted(
+            set(observation.grounded_objects) - set(declared) - constants
+        )
+        if undeclared:
+            raise ValueError(
+                f"Observation {obs_idx} mentions object(s) {undeclared} that "
+                f"{problem_path} does not declare — the observation and the "
+                f"problem file are not the same problem, so the declared types "
+                f"cannot be trusted for it."
+            )
+        types_by_obs[obs_idx] = declared
+    return types_by_obs or None
+
+
 def _prepare_milp_driver_inputs(
     domain_ref_path: Path,
     prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
@@ -290,8 +343,9 @@ def _prepare_milp_driver_inputs(
     """The keyword arguments both MILP drivers take, built identically for both.
 
     Building them in one place is what makes the two arms comparable: they see
-    the same observations, the same GT map and the same PI-SAM settings, so any
-    difference in their results comes from the denoiser and nothing else.
+    the same observations, the same GT map, the same object types and the same
+    PI-SAM settings, so any difference in their results comes from the denoiser
+    and nothing else.
     """
     cdps_defaults = CDPSConfig()
     partial_domain = DomainParser(
@@ -316,6 +370,9 @@ def _prepare_milp_driver_inputs(
         "seed": cdps_defaults.seed,
         "fold_work_dir": fold_work_dir,
         "save_observations_fn": _make_save_observations_fn(prepared_trajectories),
+        "object_types_by_obs": _resolve_object_types_by_obs(
+            partial_domain, prepared_trajectories, observations
+        ),
     }
 
 

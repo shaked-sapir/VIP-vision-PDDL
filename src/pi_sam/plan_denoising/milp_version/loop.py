@@ -45,7 +45,7 @@ import random
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from pddl_plus_parser.models import Domain, Observation
 from sam_learning.core import LearnerDomain
@@ -69,6 +69,7 @@ from src.pi_sam.plan_denoising.milp_version.config import (
 from src.pi_sam.plan_denoising.milp_version.converter import (
     build_ps_domain,
     build_ps_instance_from_objects,
+    observation_to_trace,
     try_observation_to_trace,
 )
 from src.pi_sam.plan_denoising.milp_version.model_prior import (
@@ -295,10 +296,17 @@ class _TraceCache:
     sampled, which on a long run dominates the solve itself.
     """
 
-    def __init__(self, ps_domain, partial_domain: Domain, gt_anchoring):
+    def __init__(
+        self,
+        ps_domain,
+        partial_domain: Domain,
+        gt_anchoring,
+        object_types_by_obs: Optional[Mapping[int, Mapping[str, str]]] = None,
+    ):
         self._ps_domain = ps_domain
         self._partial_domain = partial_domain
         self._gt_anchoring = gt_anchoring
+        self._object_types_by_obs = object_types_by_obs or {}
         self._instances: Dict[int, Any] = {}
         self._traces: Dict[Tuple[int, str], Any] = {}
 
@@ -310,6 +318,7 @@ class _TraceCache:
                 self._partial_domain,
                 observation.grounded_objects,
                 include_repeated_args=True,
+                object_types=self._object_types_by_obs.get(index),
             )
         return self._instances[index]
 
@@ -320,15 +329,25 @@ class _TraceCache:
         gt_state_indices: Optional[Set[int]],
         kind: str = "pool",
     ):
-        """The trace for an observation; ``None`` when it cannot be encoded.
+        """The trace for an observation.
 
-        Args:
-            kind: Cache namespace. ``pool`` is the encoded (objective-bearing)
-                trace; ``hint`` is a warm-start-only trace built from a repair.
+        ``kind`` names the cache namespace and, with it, the failure policy —
+        the two are the same distinction, so they are not separate arguments:
+
+        - ``pool``: the encoded, objective-bearing trace of a *frozen* input
+          observation. Unencodable means the fold's input is malformed, so it
+          raises; silently shrinking the pool would change ``subset_size``,
+          ``n_possible_subsets`` and the fixpoint rule without saying so.
+        - ``hint``: a warm-start-only trace built from a *repair* the loop
+          produced. ``None`` here costs nothing but a warm start, so it is
+          tolerated and the caller drops the whole hint set.
         """
         key = (index, kind)
         if key not in self._traces:
-            self._traces[key] = try_observation_to_trace(
+            convert = (
+                try_observation_to_trace if kind == "hint" else observation_to_trace
+            )
+            self._traces[key] = convert(
                 self.instance(index, observation),
                 observation,
                 goal_fluents=None,
@@ -394,8 +413,10 @@ def _per_trace_scores(
 
     ``v_per_transition`` rather than ``v_raw``: ranking on the raw score would
     make ``hardest_first`` a proxy for "longest trace", which is not what the
-    sampler is for. Traces outside the pool are dropped -- they are scored (V
-    covers every original) but can never be sampled.
+    sampler is for. The pool filter is now a no-op -- ``run_loop`` requires every
+    observation to be encodable, so the pool is all of them -- but it is kept
+    because ``pool`` is the sampler's domain and this function's contract is to
+    return something the sampler can index.
     """
     if evaluation is None:
         return {}
@@ -501,6 +522,7 @@ def run_loop(
     seed: Optional[int] = None,
     fold_work_dir: Optional[Path] = None,
     save_observations_fn=None,
+    object_types_by_obs: Optional[Mapping[int, Mapping[str, str]]] = None,
 ) -> LoopResult:
     """Run the sample-repair-learn-score loop and return the best model found.
 
@@ -519,10 +541,21 @@ def run_loop(
             fold's seed). The solver's seed is pinned separately.
         fold_work_dir: Where to write the round history and the per-round
             candidate models. ``None`` runs the loop with no disk output at all.
+        object_types_by_obs: obs index -> (object name -> declared type name),
+            from the problems the observations came from. ``.trajectory`` files
+            declare no ``:objects``, so without this the types are *inferred*
+            and objects in untyped predicate slots come back as ``object`` —
+            which makes their actions ungroundable. See
+            :func:`converter.problem_object_types`.
 
     Returns:
         A :class:`LoopResult`. ``solved=False`` means no round ever produced a
         model — every solve was infeasible or ran out of time.
+
+    Raises:
+        ValueError: if any observation cannot be encoded. Dropping it instead
+            would change the pool, and with it the subset size and the
+            fixpoint rule, with nothing in the results saying so.
     """
     start = time.perf_counter()
     stop_rules = config.effective_stop_rules()
@@ -538,15 +571,21 @@ def run_loop(
     rng = random.Random(config.seed if seed is None else seed)
 
     ps_domain = build_ps_domain(partial_domain)
-    cache = _TraceCache(ps_domain, partial_domain, config.gt_anchoring)
+    cache = _TraceCache(
+        ps_domain, partial_domain, config.gt_anchoring, object_types_by_obs
+    )
 
-    # The pool: observations that can actually be encoded. An observation the
-    # converter rejects still counts in V (every model is penalised for it
-    # equally, so it cannot distort selection) but can never be repaired.
-    pool: List[int] = []
+    # The pool is every observation: each must be encodable, and `trace` raises
+    # if one is not (see _TraceCache.trace). Encoding them all up front means
+    # that failure surfaces before any solve time is spent.
+    pool: List[int] = list(range(len(observations)))
     for index, observation in enumerate(observations):
-        if cache.trace(index, observation, (gt_states_by_obs or {}).get(index)) is not None:
-            pool.append(index)
+        try:
+            cache.trace(index, observation, (gt_states_by_obs or {}).get(index))
+        except ValueError as error:
+            raise ValueError(
+                f"Observation {index} cannot be encoded for the MILP loop: {error}"
+            ) from error
     if not pool:
         raise ValueError("No usable traces for the MILP loop")
 
@@ -565,7 +604,9 @@ def run_loop(
     result = LoopResult(learned_domain=None, stats={
         "config": config.as_stats(),
         "n_traces": len(pool),
-        "n_traces_dropped": len(observations) - len(pool),
+        # Kept for schema stability with rows written before the pool became
+        # mandatory. Always 0 now: an unencodable observation aborts the arm.
+        "n_traces_dropped": 0,
         "subset_size": subset_size,
         "n_possible_subsets": total_subsets,
         "loop_budget_seconds": loop_budget,

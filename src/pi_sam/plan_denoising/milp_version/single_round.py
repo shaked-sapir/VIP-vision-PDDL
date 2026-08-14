@@ -33,7 +33,7 @@ import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set
 
 from pddl_plus_parser.models import Domain, Observation
 from sam_learning.core import LearnerDomain
@@ -49,7 +49,7 @@ from src.pi_sam.plan_denoising.patch_accounting import net_patch_count_from_reco
 from src.pi_sam.plan_denoising.milp_version.converter import (
     build_ps_domain,
     build_ps_instance_from_objects,
-    try_observation_to_trace,
+    observation_to_trace,
 )
 from src.pi_sam.plan_denoising.milp_version.trajectory_extraction import (
     ExtractionResult,
@@ -115,18 +115,28 @@ def _build_traces(
     observations: Sequence[Observation],
     config: CdpsMilpConfig,
     gt_states_by_obs: Optional[Dict[int, Set[int]]],
+    object_types_by_obs: Optional[Mapping[int, Mapping[str, str]]] = None,
 ):
-    """``(ps_domain, obs_t, kept_indices)`` for the observations we can encode.
+    """``(ps_domain, obs_t)`` — every observation, encoded, or an exception.
 
     Each observation is grounded on its *own* objects (folds mix problems), read
     off ``Observation.grounded_objects`` so no problem file has to be re-parsed.
-    An observation whose conversion fails (an action the domain does not
-    declare) is dropped, and ``kept_indices`` records the survivors so callers
-    can keep every parallel list in step.
+
+    An observation that cannot be encoded raises rather than being dropped. The
+    arm's headline claim is "same traces as CDPS, different denoiser", and a
+    quiet drop falsifies it: the row still says ``num_trajectories=8`` while the
+    learner saw 7, and 7 traces are *easier*, so the arm's advantage grows for a
+    reason the table cannot show. ``run_fold.run_cdps_phase`` catches this and
+    records an ``error`` on this arm's row alone, so the failure costs one cell
+    instead of silently biasing every comparison drawn from it.
+
+    Args:
+        object_types_by_obs: obs_idx -> (name -> declared type name), overriding
+            the types the trajectory parser *inferred*. See
+            :func:`converter.problem_object_types`.
     """
     ps_domain = build_ps_domain(partial_domain)
     obs_t = []
-    kept_indices: List[int] = []
     for obs_idx, observation in enumerate(observations):
         # include_repeated_args: PI-SAM consumes T', and our observations are
         # completed over *all* object tuples, so every fluent PI-SAM will see
@@ -137,34 +147,24 @@ def _build_traces(
             partial_domain,
             observation.grounded_objects,
             include_repeated_args=True,
+            object_types=(object_types_by_obs or {}).get(obs_idx),
         )
-        trace = try_observation_to_trace(
-            instance,
-            observation,
-            goal_fluents=None,  # the final state is soft unless it is known GT
-            gt_state_indices=(gt_states_by_obs or {}).get(obs_idx),
-            gt_anchoring=config.gt_anchoring,
-        )
+        try:
+            trace = observation_to_trace(
+                instance,
+                observation,
+                goal_fluents=None,  # the final state is soft unless it is known GT
+                gt_state_indices=(gt_states_by_obs or {}).get(obs_idx),
+                gt_anchoring=config.gt_anchoring,
+            )
+        except ValueError as error:
+            raise ValueError(
+                f"Observation {obs_idx} cannot be encoded for the MILP: {error}"
+            ) from error
         if trace is None:
-            print(f"  [MILP] Warning: observation {obs_idx} could not be encoded — dropped")
-            continue
+            raise ValueError(f"Observation {obs_idx} has no components to encode")
         obs_t.append(trace)
-        kept_indices.append(obs_idx)
-    return ps_domain, obs_t, kept_indices
-
-
-def _reindex_gt_states(
-    gt_states_by_obs: Optional[Dict[int, Set[int]]], kept_indices: Sequence[int]
-) -> Optional[Dict[int, Set[int]]]:
-    """Re-key the GT map onto the surviving observations' new positions."""
-    if not gt_states_by_obs:
-        return None
-    remapped = {
-        new_idx: gt_states_by_obs[old_idx]
-        for new_idx, old_idx in enumerate(kept_indices)
-        if old_idx in gt_states_by_obs
-    }
-    return remapped or None
+    return ps_domain, obs_t
 
 
 # ---------------------------------------------------------------- learning
@@ -273,6 +273,7 @@ def run_single_round(
     seed: int = 42,
     fold_work_dir: Optional[Path] = None,
     save_observations_fn: Optional[SaveObservationsFn] = None,
+    object_types_by_obs: Optional[Mapping[int, Mapping[str, str]]] = None,
 ) -> SingleRoundResult:
     """Encode every trace, solve once, extract T', and learn from it.
 
@@ -289,19 +290,31 @@ def run_single_round(
         fold_work_dir: Where to write artifacts; ``None`` skips artifact writing.
         save_observations_fn: Injected serializer for T' (the benchmark's
             ``save_observations_to_dir``); ``None`` skips ``final_observations/``.
+        object_types_by_obs: obs_idx -> (object name -> declared type name),
+            from the problems the observations came from. ``.trajectory`` files
+            declare no ``:objects``, so without this the types are *inferred*
+            and objects in untyped predicate slots come back as ``object`` —
+            which makes their actions ungroundable. See
+            :func:`converter.problem_object_types`.
 
     Returns:
         A :class:`SingleRoundResult`. ``solved=False`` means the solver returned
         nothing usable (infeasible or out of time) and no model was learned.
+
+    Raises:
+        ValueError: if any observation cannot be encoded. Dropping it instead
+            would quietly shrink the trace set this arm is compared on.
     """
     start = time.perf_counter()
     stats: Dict[str, Any] = {"config": config.as_stats()}
 
-    ps_domain, obs_t, kept_indices = _build_traces(
-        partial_domain, observations, config, gt_states_by_obs
+    ps_domain, obs_t = _build_traces(
+        partial_domain, observations, config, gt_states_by_obs, object_types_by_obs
     )
     stats["n_traces"] = len(obs_t)
-    stats["n_traces_dropped"] = len(observations) - len(obs_t)
+    # Kept for schema stability with rows written before _build_traces raised.
+    # It is now always 0: an unencodable observation aborts the arm instead.
+    stats["n_traces_dropped"] = 0
     if not obs_t:
         raise ValueError("No usable traces for the MILP")
 
@@ -315,9 +328,6 @@ def run_single_round(
     stats["milp"] = dict(encoder.solve_stats)
     stats["time_limit_seconds"] = time_limit_seconds
 
-    kept_observations = [observations[i] for i in kept_indices]
-    kept_gt_states = _reindex_gt_states(gt_states_by_obs, kept_indices)
-
     if not solved:
         stats["total_time_seconds"] = round(time.perf_counter() - start, 3)
         return SingleRoundResult(
@@ -325,11 +335,11 @@ def run_single_round(
             solved=False, repair_cost=0, stats=stats,
         )
 
-    extraction = extract_repaired_observations(encoder, kept_observations)
+    extraction = extract_repaired_observations(encoder, list(observations))
     stats["extraction"] = extraction.as_stats()
 
     learned_domain, conflicts, learning_report = _learn_with_pisam(
-        partial_domain, extraction.observations, kept_gt_states,
+        partial_domain, extraction.observations, gt_states_by_obs,
         negative_preconditions_policy, seed,
     )
     stats["learning_report"] = learning_report

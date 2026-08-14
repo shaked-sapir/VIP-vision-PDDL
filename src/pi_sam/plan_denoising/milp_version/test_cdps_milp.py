@@ -33,7 +33,9 @@ from src.pi_sam.plan_denoising.milp_version.config import (
 from src.pi_sam.plan_denoising.milp_version.converter import (
     GtAnchoring,
     RepeatedArgsInstance,
+    build_ps_instance_from_objects,
     observation_to_trace,
+    try_observation_to_trace,
 )
 from src.pi_sam.plan_denoising.milp_version.encoder import CPSATObservedActions
 from src.pi_sam.plan_denoising.milp_version.encoding_config import (
@@ -407,6 +409,158 @@ def test_gt_anchoring_out_of_range_index_ignored():
     print("PASS  out-of-range GT state indices are ignored")
 
 
+# --------------------------------------------------------- object typing
+
+def _depot_lite():
+    """depot's shape in miniature: ``drop(?p - package ?pl - pile)``, ``clear`` untyped.
+
+    ``clear`` must hold of both packages and piles, which share no supertype, so
+    depot leaves its one slot untyped. That is the whole reason the real bug
+    exists — see :func:`converter.problem_object_types`.
+    """
+    return PSDomain(
+        [("pile", None), ("package", None)],
+        [("on-pile", ["package", "pile"]), ("clear", ["object"])],
+        [("drop", ["package", "pile"])],
+        name="depot_lite",
+    )
+
+
+class _FakePDDLObject:
+    """The duck-typed surface the instance builders read: just ``.type``."""
+
+    def __init__(self, type_name: str):
+        self.type = type_name
+
+
+class _NoConstants:
+    constants: dict = {}
+
+
+def _pile2_typed_object():
+    """What ``TrajectoryParser`` infers when ``(clear pile2)`` is the last mention."""
+    return {"p1": _FakePDDLObject("package"), "pile2": _FakePDDLObject("object")}
+
+
+def test_inferred_object_type_makes_an_action_ungroundable():
+    """The bug, reproduced: ``pile2:object`` kills every ``drop`` mentioning it.
+
+    ``.trajectory`` files carry no ``(:objects ...)``, so types are inferred
+    from predicate slots and an untyped slot wins if it comes last. ``object``
+    is not a child of ``pile``, so ``_type_match`` rejects the grounding and
+    ``get_action`` returns ``None``. In production this silently cost 250 of
+    320 depot MILP folds one training trajectory each.
+    """
+    domain = _depot_lite()
+    instance = build_ps_instance_from_objects(
+        domain, _NoConstants(), _pile2_typed_object(), include_repeated_args=True
+    )
+    drop = domain.get_action_schema("drop")
+    args = (instance.get_object("p1"), instance.get_object("pile2"))
+
+    assert instance.get_action(drop, args) is None, "the mistyped grounding must be absent"
+    print("PASS  an inferred 'object' type makes the observed action ungroundable")
+
+
+def test_object_types_overlay_restores_the_grounding():
+    """The fix: declared types from the problem file make ``drop`` groundable.
+
+    The overlay must move types only. The object *set* is what the observation's
+    states are written over, so changing it would leave propositions with no
+    observed entry; the proposition vocabulary, by contrast, is *supposed* to
+    grow — the trace's own ``(on-pile p1 pile2)`` is exactly what the wrong type
+    had excluded.
+    """
+    domain = _depot_lite()
+    objects = _pile2_typed_object()
+    inferred = build_ps_instance_from_objects(
+        domain, _NoConstants(), objects, include_repeated_args=True
+    )
+    declared = build_ps_instance_from_objects(
+        domain, _NoConstants(), objects, include_repeated_args=True,
+        object_types={"pile2": "pile"},
+    )
+
+    drop = domain.get_action_schema("drop")
+    args = (declared.get_object("p1"), declared.get_object("pile2"))
+    assert declared.get_action(drop, args) is not None, "drop(p1, pile2) must ground"
+
+    assert {o.name for o in inferred.objects} == {o.name for o in declared.objects}, \
+        "the overlay must not add or remove objects"
+    assert declared.get_object("pile2").type.name == "pile"
+    on_pile = domain.get_predicate("on-pile")
+    pair = (declared.get_object("p1"), declared.get_object("pile2"))
+    assert inferred.get_proposition(on_pile, (inferred.get_object("p1"),
+                                              inferred.get_object("pile2"))) is None
+    assert declared.get_proposition(on_pile, pair) is not None, \
+        "the corrected type must admit the fluent the trace actually contains"
+    print("PASS  the object_types overlay restores the grounding, objects unchanged")
+
+
+def test_object_types_overlay_ignores_unknown_names():
+    """Names the observation does not have must not become objects.
+
+    The overlay is fed a whole problem's ``:objects``, and a problem may declare
+    objects its trajectory never mentions. Grounding those would add
+    propositions no state of the observation has an entry for — a change to the
+    MILP's shape rather than a fix to its types.
+    """
+    domain = _depot_lite()
+    instance = build_ps_instance_from_objects(
+        domain, _NoConstants(), _pile2_typed_object(), include_repeated_args=True,
+        object_types={"pile2": "pile", "p9": "package", "pile9": "pile"},
+    )
+    assert {o.name for o in instance.objects} == {"p1", "pile2"}, \
+        "an overlay-only name must not be grounded"
+    print("PASS  the overlay never introduces objects")
+
+
+def _drop_observation():
+    """One step: ``drop(p1, pile2)``, over the depot-lite vocabulary."""
+    before = _FakeState([_FakeGP("clear", ["pile2"])])
+    after = _FakeState([_FakeGP("clear", ["pile2"], is_positive=False)])
+    return _FakeObservation([_FakeComponent(before, "drop", ["p1", "pile2"], after)])
+
+
+def test_unmatched_action_raises_with_the_type_diagnosis():
+    """An ungroundable observed action must raise, naming the offending slot.
+
+    It used to ``print`` and ``return None``, which turned a mistyped object
+    into a quietly smaller trace set. Three defects land on the same ``None`` —
+    unknown action, ungrounded object, type mismatch — and only the message can
+    tell them apart.
+    """
+    domain = _depot_lite()
+    instance = build_ps_instance_from_objects(
+        domain, _NoConstants(), _pile2_typed_object(), include_repeated_args=True
+    )
+    _expect_error(
+        lambda: observation_to_trace(instance, _drop_observation()),
+        ValueError,
+        "argument type mismatch",
+    )
+    _expect_error(
+        lambda: observation_to_trace(instance, _drop_observation()),
+        ValueError,
+        "pile2:object (slot 2 wants pile)",
+    )
+    print("PASS  an ungroundable action raises and names the mistyped slot")
+
+
+def test_try_observation_to_trace_still_returns_none():
+    """The tolerant wrapper keeps its contract — the loop's warm starts need it.
+
+    A hint trace is built from a *repair*; failing to re-encode one costs
+    nothing but the warm start, so that caller must not be made to raise.
+    """
+    domain = _depot_lite()
+    instance = build_ps_instance_from_objects(
+        domain, _NoConstants(), _pile2_typed_object(), include_repeated_args=True
+    )
+    assert try_observation_to_trace(instance, _drop_observation()) is None
+    print("PASS  try_observation_to_trace still absorbs the failure")
+
+
 # ------------------------------------------------------------ config surface
 
 def _expect_error(fn, exc_type, needle: str):
@@ -495,6 +649,11 @@ if __name__ == "__main__":
     test_repeated_args_action_unifies_both_bindings()
     test_gt_anchoring_modes()
     test_gt_anchoring_out_of_range_index_ignored()
+    test_inferred_object_type_makes_an_action_ungroundable()
+    test_object_types_overlay_restores_the_grounding()
+    test_object_types_overlay_ignores_unknown_names()
+    test_unmatched_action_raises_with_the_type_diagnosis()
+    test_try_observation_to_trace_still_returns_none()
     test_config_validation()
     test_config_derived_settings()
     test_flip_to_patch_index_mapping()

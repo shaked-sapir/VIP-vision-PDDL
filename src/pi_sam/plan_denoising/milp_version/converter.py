@@ -124,6 +124,7 @@ def build_ps_instance_from_objects(
     pddl_domain,
     pddl_objects: Mapping[str, Any],
     include_repeated_args: bool = False,
+    object_types: Optional[Mapping[str, str]] = None,
 ) -> PSInstance:
     """Vendored Instance grounded on a name -> PDDLObject map (+ domain constants).
 
@@ -137,15 +138,56 @@ def build_ps_instance_from_objects(
             whose output is consumed by PI-SAM (see :class:`RepeatedArgsInstance`);
             ``False`` for the ``rosame_milp*`` baselines, which must keep the
             upstream vocabulary their network shares.
+        object_types: name -> type name, overriding the type carried by
+            ``pddl_objects`` for the names it mentions. Only *types* are
+            overridden; the grounded object set stays exactly ``pddl_objects``.
+            The proposition and action vocabularies do move — that is the whole
+            point, since a corrected type admits the groundings the trace
+            actually uses — but no object appears or disappears, which is what
+            keeps this from being a wholesale object-map swap. See
+            :func:`problem_object_types`.
     """
+    def type_of(name: str, obj) -> str:
+        if object_types is not None and name in object_types:
+            return object_types[name]
+        return str(obj.type)
+
     objects: List[Tuple[str, str]] = [
-        (name, str(obj.type)) for name, obj in pddl_objects.items()
+        (name, type_of(name, obj)) for name, obj in pddl_objects.items()
     ]
     for name, const in getattr(pddl_domain, "constants", {}).items():
         if name not in pddl_objects:
-            objects.append((name, str(const.type)))
+            objects.append((name, type_of(name, const)))
     instance_cls = RepeatedArgsInstance if include_repeated_args else PSInstance
     return instance_cls(ps_domain, objects)
+
+
+def problem_object_types(problem) -> Dict[str, str]:
+    """name -> declared type name, read off a parsed problem's ``:objects``.
+
+    Feed the result to ``build_ps_instance_from_objects(object_types=...)`` when
+    grounding from an ``Observation``.
+
+    Why this is needed: a ``.trajectory`` file carries no ``(:objects ...)``
+    block, so ``TrajectoryParser`` *infers* each object's type from the
+    predicate slots it appears in, last occurrence in the init state winning.
+    Any object that appears in an **untyped** predicate slot therefore comes
+    back typed ``object`` — depot's ``(clear ?x)`` is untyped (it must hold of
+    both packages and piles, which share no supertype), so ``problem9``'s
+    ``pile2`` is typed ``object`` because its init lists ``(clear pile2)``
+    after ``(at-pile pile2 d2)``. ``object`` is not a child of ``pile``, so
+    ``Instance._type_match`` rejects every grounding of ``drop(?c ?p ?pl - pile
+    ?d)`` that mentions it, ``get_action`` returns ``None``, and the whole trace
+    is unencodable. It silently cost 250 of 320 depot MILP folds one training
+    trajectory each.
+
+    The problem file declares the types correctly, so it is the authority. Only
+    the types are lifted from it, never the object *set*: a problem may declare
+    objects the trajectory never mentions, and grounding those would add
+    propositions that no state of the observation has an entry for — a change to
+    the MILP's shape, rather than a fix to its types.
+    """
+    return {name: str(obj.type) for name, obj in problem.objects.items()}
 
 
 def build_ps_instance(
@@ -175,6 +217,41 @@ def _action_of(instance: PSInstance, name: str, arg_names: Sequence[str]):
     if any(a is None for a in args):
         return None
     return instance.get_action(schema, args)
+
+
+def _unmatched_action_reason(
+    instance: PSInstance, name: str, arg_names: Sequence[str]
+) -> str:
+    """Why :func:`_action_of` came back empty, in the caller's terms.
+
+    Three very different defects land on the same ``None`` — an action the
+    domain does not declare, an object the instance was not grounded on, and an
+    argument whose type does not fit the schema slot. The third is the one that
+    is nearly impossible to guess from the outside (see
+    :func:`problem_object_types`), so the message names the offending slots.
+    """
+    schema = instance.domain.get_action_schema(name)
+    if schema is None:
+        declared = sorted(s.name for s in instance.domain.action_schemas)
+        return f"the domain declares no action '{name}' (it declares {declared})"
+
+    missing = [n for n in arg_names if instance.get_object(n) is None]
+    if missing:
+        return f"the instance was not grounded on object(s) {missing}"
+
+    slots = [t.name for t in schema.types]
+    mismatched = [
+        f"{n}:{instance.get_object(n).type.name} (slot {i + 1} wants {slots[i]})"
+        for i, n in enumerate(arg_names)
+        if not instance.get_object(n).type.is_child_of(schema.types[i])
+    ]
+    if mismatched:
+        return (
+            f"argument type mismatch: {'; '.join(mismatched)}. Object types read "
+            f"off a .trajectory are inferred, not declared — pass "
+            f"object_types=problem_object_types(problem) to correct them"
+        )
+    return f"no grounded action for {name}{list(arg_names)} (arity {schema.arity})"
 
 
 def _state_prob(gp) -> float:
@@ -266,9 +343,11 @@ def observation_to_trace(
         call = comp.grounded_action_call
         action = _action_of(instance, call.name, list(call.parameters))
         if action is None:
-            print(f"  [MILP] Warning: unmatched observed action {call.name} "
-                  f"{call.parameters} — trace skipped")
-            return None
+            raise ValueError(
+                f"Step {t}: no grounded action matches the observed call "
+                f"({call.name} {' '.join(call.parameters)}) — "
+                f"{_unmatched_action_reason(instance, call.name, list(call.parameters))}"
+            )
         actions[t] = action
 
     trace = ObservationT(step, init, obs_p, goal, obs_a={})
@@ -281,14 +360,17 @@ def observation_to_trace(
 def try_observation_to_trace(*args, **kwargs) -> Optional[ObservationT]:
     """:func:`observation_to_trace`, reporting *every* failure as ``None``.
 
-    ``observation_to_trace`` has two ways of saying "this cannot be encoded": it
-    returns ``None`` for a structural mismatch, but *raises* for a contradictory
-    observation (both polarities of one fluent in one state). Both mean the same
-    thing to a caller whose policy is to drop what it cannot encode, and a
+    ``observation_to_trace`` raises for anything it cannot encode — a
+    contradictory state, or an observed action with no grounding. Both mean the
+    same thing to a caller whose policy is to drop what it cannot encode, and a
     single bad trace should not take a whole fold down with it.
 
-    The raise is kept — it is the right signal for a caller that wants to know —
-    so this wrapper logs the reason rather than swallowing it silently.
+    The raise is kept — it is the right signal for a caller that wants to know,
+    and it carries the diagnosis (see :func:`_unmatched_action_reason`) that the
+    old silent ``return None`` threw away — so this wrapper logs the reason
+    rather than swallowing it. Prefer the raising form wherever dropping a trace
+    would corrupt a comparison; only the callers that genuinely tolerate a
+    smaller trace set should reach for this.
     """
     try:
         return observation_to_trace(*args, **kwargs)
