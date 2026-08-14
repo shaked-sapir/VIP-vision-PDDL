@@ -1,6 +1,6 @@
 import re
 
-from src.fluent_classification.base_fluent_classifier import PredicateTruthValue
+from src.typings.predicate_truth_value import PredicateTruthValue
 
 NEGATION_PREFIX = "NOT"
 UNKNOWN_PREFIX = "UNK"

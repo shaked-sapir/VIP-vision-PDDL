@@ -1,17 +1,13 @@
 from abc import ABC
-from enum import Enum
 from pathlib import Path
 from typing import List, Dict, Union
 
 from src.object_detection.base_object_detector import ObjectDetector
 from src.object_detection.bounded_object import BoundedObject
+from src.typings.predicate_truth_value import PredicateTruthValue
 from src.utils.containers import group_objects_by_key
 
-
-class PredicateTruthValue(str, Enum):
-    TRUE = "true"
-    FALSE = "false"
-    UNCERTAIN = "uncertain"
+__all__ = ["FluentClassifier", "PredicateTruthValue"]
 
 
 class FluentClassifier(ABC):

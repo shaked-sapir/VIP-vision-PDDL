@@ -6,7 +6,7 @@ from typing import Tuple
 
 from pddl_plus_parser.models import GroundedPredicate
 
-from src.fluent_classification.base_fluent_classifier import PredicateTruthValue
+from src.typings.predicate_truth_value import PredicateTruthValue
 
 
 class MaskingType(str, Enum):
