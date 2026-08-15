@@ -182,6 +182,7 @@ Avoid global variables and module-level mutable state. Pass config/dependencies 
 
 - **Type hints on all function signatures** — including return types.
 - **Docstrings on all public methods** — one-line minimum, use Google style for complex ones.
+- **Docstrings and comments state *what*, never *why we chose it*** — no design rationale, no rejected alternatives, no "this is deliberate because…", no justification narratives. A comment explains non-obvious behaviour in one line, or it does not exist. Rationale belongs in the commit message or `docs/`, not in `.py` files.
 - **No silent `except` blocks** — always log or re-raise. Never `except: pass`.
 - **Prefer `Path` over `str` for file paths** — use `pathlib.Path` throughout; convert at I/O boundaries only.
 - **Enums over magic strings** — `PredicateTruthValue`, `MaskingType`, `NegativePreconditionPolicy` are the pattern. New categorical values → new `Enum`.
