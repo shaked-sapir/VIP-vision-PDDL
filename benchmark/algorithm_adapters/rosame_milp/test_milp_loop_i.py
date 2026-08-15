@@ -17,6 +17,7 @@ Covers:
      rather than scheduling solves too short to be useful.
   9. ``timeout_check`` and an empty trace list end the loop with their reasons.
  10. State labels of the wrong shape raise instead of broadcasting.
+ 11. A single-step trace has no interior frame and so contributes no state term.
 """
 
 from __future__ import annotations
@@ -284,6 +285,23 @@ def test_state_labels_of_the_wrong_shape_raise():
         raise AssertionError("expected ValueError for mis-shaped state labels")
 
 
+def test_a_single_step_trace_contributes_no_state_term():
+    """Two frames leave no interior, and an empty BCE is a hard crash on MPS."""
+    harness = _Harness(["a"], n_frames=2)
+    labels = _labels_for(harness)
+    assert labels["a"].shape == (0, _N_PROPS), labels["a"].shape
+    harness.set_state_labels(labels)
+
+    assert harness._state_ce(harness._params["a"], harness._traces[0]) is None
+
+    milp_round, calls = _round_fn(harness)
+    report = _run(harness, milp_round, epochs=2, pre_mip_epochs=1, mip_interval=1)
+
+    assert len(calls) == 2, calls
+    assert report["stop_reason"] == "epochs_exhausted", report["stop_reason"]
+    print("PASS  a single-step trace contributes no state term")
+
+
 if __name__ == "__main__":
     test_solve_epochs_follow_warmup_and_interval()
     test_state_term_is_summed_over_frames_and_averaged_over_props()
@@ -297,4 +315,5 @@ if __name__ == "__main__":
     test_a_thin_budget_raises_the_interval_instead_of_starving_solves()
     test_timeout_and_empty_traces_report_their_reasons()
     test_state_labels_of_the_wrong_shape_raise()
+    test_a_single_step_trace_contributes_no_state_term()
     print("ALL TESTS PASSED")

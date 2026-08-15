@@ -81,9 +81,11 @@ class MilpRosameI(RosameI_Runner):
         ``T - 1`` interior ones, the endpoints being hard-fixed GT in the MILP.
         Summed over frames and averaged over propositions, which puts the term at
         the same scale as the sum-reduced base loss.
+
+        A single-step trace has no interior frame, so it contributes no term.
         """
         label = self._state_labels.get(trace.name)
-        if label is None:
+        if label is None or label.shape[0] == 0:
             return None
         interior = preds[1:-1]
         if interior.shape != label.shape:
