@@ -1,7 +1,7 @@
 """Ground-truth-free scoring of a learned action model against the observations it came from.
 
-This module implements the ``Evaluate`` contract of the CDPS+MILP loop
-(``docs/cdps-milp-loop-plan.md`` §2.1). It answers a single question:
+This module implements the ``Evaluate`` contract of the PI-SAM+MILP loop
+(``docs/pisam-milp-loop-plan.md`` §2.1). It answers a single question:
 
     *How well does candidate model ``M`` reproduce the trajectories we actually observed?*
 

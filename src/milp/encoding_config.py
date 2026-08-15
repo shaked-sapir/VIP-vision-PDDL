@@ -5,7 +5,7 @@ different callers:
 
 - the ``rosame_milp*`` baselines — MILP as a *regularizer* of a neural learner,
   which want the upstream/paper rule set verbatim;
-- the ``cdps_milp_*`` learners — MILP as a *denoiser* feeding PI-SAM, which need
+- the ``pisam_milp_*`` learners — MILP as a *denoiser* feeding PI-SAM, which need
   the rule set relaxed to whatever cannot exclude the ground-truth model.
 
 Everything that differs between them is a named field here, so the encoder never
@@ -20,10 +20,10 @@ Two families of knobs live here:
    (eq. 18) but is still a modelling assumption that excludes legal PDDL
    action models. Each can make the GT model infeasible, so the CDPS dialect
    drops all three (see ``vendor/UPSTREAM.md`` and
-   ``docs/cdps-milp-denoiser-design.md`` §3).
+   ``docs/pisam-milp-denoiser-design.md`` §3).
 2. **Objective terms** — ``eq16``/``lambda_pre`` (ICAPS-26 precondition bias)
    and ``prior_weighting``/``tiebreak_mass`` (how strongly the reference model
-   channel pulls the solution). See ``docs/cdps-milp-loop-plan.md`` §0.5.
+   channel pulls the solution). See ``docs/pisam-milp-loop-plan.md`` §0.5.
 """
 
 from __future__ import annotations
@@ -52,13 +52,13 @@ class PriorWeightMode(Enum):
 
     The channel prices agreement between the solved lifted ``pre/add/del`` bits
     and a reference model — a *soft* ROSAME prediction for the baselines, a
-    *binary* ``M_best`` for the CDPS-MILP loop.
+    *binary* ``M_best`` for the PI-SAM+MILP loop.
 
     - ``NONE``: no model term at all (rounds fully independent).
     - ``TIEBREAK``: the whole channel is normalized to a total mass of
       ``tiebreak_mass`` observed-fluent units, spread over the model bits, so
       the prior can never buy a single fluent flip — it only selects among
-      repairs of equal cost. **Default for the CDPS-MILP loop.**
+      repairs of equal cost. **Default for the PI-SAM+MILP loop.**
     - ``ROSAME``: upstream-faithful — one observed-fluent unit per model bit,
       scaled by the reference model's confidence (``2p - 1``). Required by the
       ``rosame_milp*`` baselines; an ablation arm for our loop.
@@ -133,7 +133,7 @@ class MilpEncodingConfig:
         lambda_pre: float = 0.4,
         prior_weighting: PriorWeightMode = PriorWeightMode.NONE,
     ) -> "MilpEncodingConfig":
-        """The ``cdps_milp_*`` dialect: every constraint family that can exclude
+        """The ``pisam_milp_*`` dialect: every constraint family that can exclude
         a legal ground-truth model is dropped, so feasibility is guaranteed and
         the ``cost(MILP) <= cost(best CDPS CFM)`` lower bound holds.
 

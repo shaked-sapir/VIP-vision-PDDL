@@ -17,9 +17,9 @@ from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 from benchmark.algorithms import (
     CDPS_ALGORITHM_NAME,
     CDPS_ANCHORED_ALGORITHM_NAME,
-    CDPS_MILP_LOOP,
-    CDPS_MILP_SINGLE_ROUND,
-    cdps_milp_algorithm_name,
+    PISAM_MILP_LOOP,
+    PISAM_MILP_SINGLE_ROUND,
+    pisam_milp_algorithm_name,
     milp_configs_for,
     milp_work_subdir,
 )
@@ -28,8 +28,8 @@ from benchmark.experiment_running_helpers.data_source import DataSource
 from benchmark.experiment_running_helpers.post_process_gt_metrics import run_post_process_gt_metrics
 from benchmark.experiment_running_helpers.learning_helpers import (
     learn_cdps,
-    learn_cdps_milp_loop,
-    learn_cdps_milp_single_round,
+    learn_pisam_milp_loop,
+    learn_pisam_milp_single_round,
 )
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import fold_instance_dir, save_fold_result
@@ -43,7 +43,7 @@ from benchmark.experiment_running_helpers.trajectory_utils import (
 from benchmark.evaluation.test_states_generator import generate_predictive_power_test_states
 from benchmark.evaluation.multi_solution_evaluator import evaluate_all_solutions
 from benchmark.evaluation.correlation_analysis import build_correlation_table
-from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig, MilpVariant
+from src.plan_denoising.milp_denoiser.config import PisamMilpConfig, MilpVariant
 from src.utils.pddl import ground_observation_completely, observations_equal
 
 
@@ -212,7 +212,7 @@ def run_cdps_phase(
     fluent_branch_mode: str,
     events_tracing: bool,
     test_states_path,
-    milp_config: Optional[CdpsMilpConfig] = None,
+    milp_config: Optional[PisamMilpConfig] = None,
 ) -> Optional[dict]:
     """Run one CDPS-family denoiser → its result row.
 
@@ -242,7 +242,7 @@ def run_cdps_phase(
         if conflict_search_timeout is not None:
             print(f"  [{algo_name}] Using denoising timeout: {conflict_search_timeout}s")
         if use_milp:
-            learn_milp = learn_cdps_milp_loop if is_loop else learn_cdps_milp_single_round
+            learn_milp = learn_pisam_milp_loop if is_loop else learn_pisam_milp_single_round
             cleaned_model, denoising_report, patched_observations = learn_milp(
                 domain_ref_path, trajectories, testing_dir,
                 conflict_search_timeout=conflict_search_timeout,
@@ -383,9 +383,9 @@ def run_single_fold(
     baselines: Optional[list] = None,
     run_cdps: bool = True,
     run_cdps_anchored: bool = False,
-    run_cdps_milp: bool = False,
-    run_cdps_milp_loop: bool = False,
-    cdps_milp_configs: Optional[List[CdpsMilpConfig]] = None,
+    run_pisam_milp: bool = False,
+    run_pisam_milp_loop: bool = False,
+    pisam_milp_configs: Optional[List[PisamMilpConfig]] = None,
     frame_axiom_mode: str = "after_gt_only",
     events_tracing: bool = False,
 ) -> List[dict]:
@@ -422,17 +422,17 @@ def run_single_fold(
             variant. Its artifacts live under ``<fold>/cdps_anchored`` and its
             result row is labelled ``CDPS_ANCHORED``. Not supported for the
             simulated data source (raises NotImplementedError).
-        run_cdps_milp: Whether to also run the single-round MILP denoiser on
+        run_pisam_milp: Whether to also run the single-round MILP denoiser on
             the *same* trajectories as plain CDPS. Artifacts live under
-            ``<fold>/cdps_milp_single_round``; the row label is arm-suffixed
-            by ``cdps_milp_algorithm_name``.
-        run_cdps_milp_loop: Whether to also run the multi-round MILP loop, again
+            ``<fold>/pisam_milp_single_round``; the row label is arm-suffixed
+            by ``pisam_milp_algorithm_name``.
+        run_pisam_milp_loop: Whether to also run the multi-round MILP loop, again
             on the *same* trajectories. Artifacts live under
-            ``<fold>/cdps_milp_loop``, so the two MILP arms can run side by side
+            ``<fold>/pisam_milp_loop``, so the two MILP arms can run side by side
             in one fold without overwriting each other.
-        cdps_milp_configs: The ``cdps_milp:`` block's expansion — one config
+        pisam_milp_configs: The ``pisam_milp:`` block's expansion — one config
             without an ``ablations:`` sub-block, several with one. Defaults to a
-            single ``CdpsMilpConfig()`` (eq16 off, init-only GT anchoring) when
+            single ``PisamMilpConfig()`` (eq16 off, init-only GT anchoring) when
             either arm is on. The ``variant`` field is ignored — each arm pins
             its own via ``milp_configs_for``, which is what lets one config block
             serve both arms in a single run, and which drops the combinations an
@@ -671,21 +671,21 @@ def run_single_fold(
         selected_milp_keys = [
             key
             for key, selected in (
-                (CDPS_MILP_SINGLE_ROUND, run_cdps_milp),
-                (CDPS_MILP_LOOP, run_cdps_milp_loop),
+                (PISAM_MILP_SINGLE_ROUND, run_pisam_milp),
+                (PISAM_MILP_LOOP, run_pisam_milp_loop),
             )
             if selected
         ]
         # An ablation turns one selected key into several arms; without one the
         # expansion is the single config it always was.
-        expansion = cdps_milp_configs or [CdpsMilpConfig()]
+        expansion = pisam_milp_configs or [PisamMilpConfig()]
         for milp_key in selected_milp_keys:
             # The selected key — not the config's own ``variant`` — decides which
-            # driver runs, so one ``cdps_milp`` config block serves both arms.
+            # driver runs, so one ``pisam_milp`` config block serves both arms.
             for milp_config in milp_configs_for(milp_key, expansion):
                 milp = run_cdps_phase(
                     anchor_endpoints=False,
-                    algo_name=cdps_milp_algorithm_name(milp_config),
+                    algo_name=pisam_milp_algorithm_name(milp_config),
                     cdps_work_dir=fold_work_dir / milp_work_subdir(milp_key, milp_config),
                     trajectories=prepared_trajectories,
                     gt_source_indices=gt_source_indices,

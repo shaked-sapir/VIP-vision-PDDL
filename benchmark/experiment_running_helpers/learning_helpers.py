@@ -6,9 +6,9 @@ masked observations; they differ only in how they decide which observations to
 distrust:
 
 - ``learn_cdps``                     — Conflict-Directed Patch Search (search).
-- ``learn_cdps_milp_single_round``   — one CP-SAT solve (see
+- ``learn_pisam_milp_single_round``   — one CP-SAT solve (see
   ``src/plan_denoising/milp_denoiser/``).
-- ``learn_cdps_milp_loop``           — repeated CP-SAT solves over sampled
+- ``learn_pisam_milp_loop``           — repeated CP-SAT solves over sampled
   subsets, keeping the best-scoring model.
 
 All three return the same ``(model_pddl, report, patched_observations)`` triple
@@ -30,7 +30,7 @@ from benchmark.experiment_running_helpers.cleaned_trajectories import (
 )
 from src.plan_denoising.conflict_search_pisam import ConflictDrivenPatchSearchPISAM
 from src.plan_denoising.conflict_search_config import CDPSConfig
-from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig
+from src.plan_denoising.milp_denoiser.config import PisamMilpConfig
 from src.milp.converter import problem_object_types
 from src.plan_denoising.milp_denoiser.loop import run_loop
 from src.plan_denoising.milp_denoiser.single_round import run_single_round
@@ -384,13 +384,13 @@ def _milp_outcome(result, conflict_search_timeout: Optional[int]):
     return model, report, result.observations
 
 
-def learn_cdps_milp_single_round(
+def learn_pisam_milp_single_round(
     domain_ref_path: Path,
     prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
     testing_dir: Path,
     conflict_search_timeout: int = None,
     fold_work_dir: Path = None,
-    milp_config: Optional[CdpsMilpConfig] = None,
+    milp_config: Optional[PisamMilpConfig] = None,
     pre_built_observations: Optional[list] = None,
     gt_source_indices_override: Optional[Dict[int, Set[int]]] = None,
 ) -> Tuple[Optional[str], dict, list]:
@@ -408,7 +408,7 @@ def learn_cdps_milp_single_round(
         conflict_search_timeout: The fold's denoiser budget. Handed to the solver
             unless ``milp_config.time_limit_seconds`` overrides it — sharing the
             budget is what makes the head-to-head against CDPS fair.
-        milp_config: Validated ``cdps_milp`` block; ``None`` = defaults.
+        milp_config: Validated ``pisam_milp`` block; ``None`` = defaults.
         gt_source_indices_override: Explicit GT map, overriding the per-tuple
             indices (same semantics as in :func:`learn_cdps`).
 
@@ -417,7 +417,7 @@ def learn_cdps_milp_single_round(
         ``None`` only when the solver returned nothing usable, in which case
         nothing downstream should be evaluated.
     """
-    config = milp_config if milp_config is not None else CdpsMilpConfig()
+    config = milp_config if milp_config is not None else PisamMilpConfig()
     result = run_single_round(
         config=config,
         time_limit_seconds=config.resolve_time_limit(conflict_search_timeout),
@@ -429,21 +429,21 @@ def learn_cdps_milp_single_round(
     return _milp_outcome(result, conflict_search_timeout)
 
 
-def learn_cdps_milp_loop(
+def learn_pisam_milp_loop(
     domain_ref_path: Path,
     prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
     testing_dir: Path,
     conflict_search_timeout: int = None,
     fold_work_dir: Path = None,
-    milp_config: Optional[CdpsMilpConfig] = None,
+    milp_config: Optional[PisamMilpConfig] = None,
     pre_built_observations: Optional[list] = None,
     gt_source_indices_override: Optional[Dict[int, Set[int]]] = None,
 ) -> Tuple[Optional[str], dict, list]:
     """Learn a PI-SAM model by repeating the MILP solve over sampled subsets.
 
-    Same contract as :func:`learn_cdps_milp_single_round`; the denoiser is the
+    Same contract as :func:`learn_pisam_milp_single_round`; the denoiser is the
     multi-round driver, which scores each round's model against the *original*
-    noisy observations and keeps the best (``docs/cdps-milp-loop-plan.md``).
+    noisy observations and keeps the best (``docs/pisam-milp-loop-plan.md``).
 
     Args:
         conflict_search_timeout: The fold's denoiser budget. Unlike the
@@ -456,7 +456,7 @@ def learn_cdps_milp_loop(
         ``(model_pddl_or_None, report, patched_observations)``. ``None`` means
         no round ever produced a model.
     """
-    config = milp_config if milp_config is not None else CdpsMilpConfig()
+    config = milp_config if milp_config is not None else PisamMilpConfig()
     result = run_loop(
         config=config,
         cdps_budget_seconds=conflict_search_timeout,

@@ -28,8 +28,8 @@ from benchmark.evaluation.anytime.score import ScoredCheckpoint
 ARM_STYLES: Dict[str, Dict[str, str]] = {
     "cdps": {"color": "#1a73e8", "label": "CDPS"},
     "cdps_anchored": {"color": "#7b1fa2", "label": "CDPS (anchored)"},
-    "cdps_milp_single_round": {"color": "#188038", "label": "CDPS+MILP (single round)"},
-    "cdps_milp_loop": {"color": "#c5221f", "label": "CDPS+MILP (loop)"},
+    "pisam_milp_single_round": {"color": "#188038", "label": "PI-SAM+MILP (single round)"},
+    "pisam_milp_loop": {"color": "#c5221f", "label": "PI-SAM+MILP (loop)"},
     "ROSAME": {"color": "#e8710a", "label": "ROSAME"},
 }
 
@@ -93,7 +93,7 @@ def plot_fold(
     scored_by_arm: Dict[str, List[ScoredCheckpoint]],
     out_path: Path,
     title: str = "",
-    scatter_arms: Sequence[str] = ("cdps_milp_loop",),
+    scatter_arms: Sequence[str] = ("pisam_milp_loop",),
 ) -> Path:
     """Draw one figure: every arm's profile, plus a scatter for chosen arms.
 

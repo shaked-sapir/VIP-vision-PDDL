@@ -27,20 +27,20 @@ shared:
   fluent_branch_mode: single            # group | single
   events_tracing: false                  # true | false -> make this true only when debugging, this produces an html showing the whole search space and it is HEAVY
   resume: false                         # true | false -> skip fold instances already completed (fold_result.json present); strict-aborts if config differs from the saved run_params.json
-  algorithms: [cdps, rosame, rosame_milp, rosame_milp_tag]          # any subset of: cdps (ours), cdps_anchored, cdps_milp_single_round, cdps_milp_loop, rosame, rosame_i, rosame_milp*. e.g. [cdps] or [rosame] to run one standalone
+  algorithms: [cdps, rosame, rosame_milp, rosame_milp_tag]          # any subset of: cdps (ours), cdps_anchored, pisam_milp_single_round, pisam_milp_loop, rosame, rosame_i, rosame_milp*. e.g. [cdps] or [rosame] to run one standalone
 
   # Shared by both MILP arms; each arm pins its own variant from the selected
   # algorithm key, so listing both runs both off this one block. Only read when
   # a MILP arm is selected, but always validated (a typo here fails the run
   # immediately, not three hours in).
-  cdps_milp:
+  pisam_milp:
     eq16: off                           # on | off — precondition bias (lambda_pre). NOTE: changes T' itself, so it voids the cost(MILP) <= cost(CDPS) sanity check
     lambda_pre: 0.4                     # any float; used only when eq16: on
     gt_anchoring: init_only             # init_only | all_gt_states — which known-GT states are hard-fixed (unrepairable)
     solver: cpsat                       # cpsat (gurobi is declared but unimplemented — needs a license)
     time_limit_seconds:                 # cap for ONE solve. blank = inherit learning_timeout_seconds, which is what makes the head-to-head with CDPS fair
 
-    # ---- loop-only (ignored by cdps_milp_single_round) ------------------
+    # ---- loop-only (ignored by pisam_milp_single_round) ------------------
     sampler: random                     # random | hardest_first — how each round picks its subset
     subset_size: half                   # half (= max(2, ceil(n/2))) | all | <int>
     learner_input: subset_only          # subset_only | accumulated — what PI-SAM sees each round. `accumulated` feeds it every trace repaired so far, which no single solve ever certified jointly, so it can conflict
@@ -64,10 +64,10 @@ shared:
     # 4 loop arms, not 5 — the `eq16: off` above contributes nothing once
     # `eq16` is listed. Everything NOT listed keeps its value from above.
     #
-    # A knob that is loop-only collapses under cdps_milp_single_round (one SR
+    # A knob that is loop-only collapses under pisam_milp_single_round (one SR
     # arm, not four), so listing both algorithm keys does not multiply the SR
-    # cost. Arms land in `cdps_milp_loop__<suffix>/` inside the fold; a run
-    # with no `ablations:` keeps the bare `cdps_milp_loop/` it always had.
+    # cost. Arms land in `pisam_milp_loop__<suffix>/` inside the fold; a run
+    # with no `ablations:` keeps the bare `pisam_milp_loop/` it always had.
     #
     # Only knobs the results label carries are ablatable: `seed`, `stop.*` and
     # `eval.*` are rejected, because two arms differing only there would be

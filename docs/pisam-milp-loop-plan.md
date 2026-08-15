@@ -1,7 +1,7 @@
-# Plan: `cdps_milp_single_round` + `cdps_milp_loop`
+# Plan: `pisam_milp_single_round` + `pisam_milp_loop`
 
 > Status: PLAN v2 — agreed across the 2026-08-10 brainstorm sessions, based on
-> `docs/cdps-milp-denoiser-design.md` and `docs/rosame-milp-vs-cdps-milp.excalidraw`
+> `docs/pisam-milp-denoiser-design.md` and `docs/rosame-milp-vs-pisam-milp.excalidraw`
 > (Evaluate/Learn pseudo-functions + min_V graph), with Eqs. 11–16 verified
 > against the ICAPS-26 paper PDF. This document is the execution plan; the
 > design doc remains the authority on the MILP encoding details.
@@ -9,7 +9,7 @@
 > **Amended 2026-08-12 after P4.** Points that the implementation settled
 > differently are marked **AMENDED** / **SUPERSEDED** in place rather than
 > rewritten, so the reasoning stays auditable. P1–P4 are done; §7 carries the
-> per-phase status. `docs/CDPS-MILP-loop-PROCESS.md` is the running log.
+> per-phase status. `docs/PISAM-MILP-loop-PROCESS.md` is the running log.
 >
 > **Paths below predate 2026-08-14.** The `refactor-seprerate-denoising-from-pisam` branch moved
 > `src/pi_sam/plan_denoising/` → `src/plan_denoising/`, lifted the MILP encoder out
@@ -23,8 +23,8 @@
 
 | key | what | assumption | role |
 |---|---|---|---|
-| `cdps_milp_single_round` | ONE joint MILP over ALL fold trajectories → T′ → PI-SAM. Exactly the settled design doc. | all traces fit one MILP (true at our scale) | Baseline of our method-family; global-optimality story; the `cost(MILP) ≤ cost(best CDPS CFM)` lower-bound check lives HERE and only here. |
-| `cdps_milp_loop` | Homogeneous rounds: EVERY round (including the first) samples a subset, solves, learns, evaluates. Round 1 simply has no prior (M_best empty). | none — subsets keep every solve small | Anytime story; rising success-rate plot; scale path. |
+| `pisam_milp_single_round` | ONE joint MILP over ALL fold trajectories → T′ → PI-SAM. Exactly the settled design doc. | all traces fit one MILP (true at our scale) | Baseline of our method-family; global-optimality story; the `cost(MILP) ≤ cost(best CDPS CFM)` lower-bound check lives HERE and only here. |
+| `pisam_milp_loop` | Homogeneous rounds: EVERY round (including the first) samples a subset, solves, learns, evaluates. Round 1 simply has no prior (M_best empty). | none — subsets keep every solve small | Anytime story; rising success-rate plot; scale path. |
 
 **Explicitly ruled out (2026-08-10):** a hybrid where round 0 solves all
 traces and later rounds solve subsets. Either everything fits → use
@@ -177,8 +177,8 @@ Common protocol so all methods land on one axis system:
   method's current best model against the SAME frozen original noisy
   observations.
 - **Checkpoints** (when a method emits a point):
-  `cdps` → each newly discovered CFM; `cdps_milp_loop` → each round;
-  `cdps_milp_single_round` → its single completion point (a horizontal
+  `cdps` → each newly discovered CFM; `pisam_milp_loop` → each round;
+  `pisam_milp_single_round` → its single completion point (a horizontal
   reference line after);
   `rosame_milp` → each training epoch (or each MILP invocation) — extract a
   model by thresholding ROSAME's probabilities at 0.5 (their rule), applied
@@ -211,7 +211,7 @@ Common protocol so all methods land on one axis system:
 
 ## 4. Integration (repo)
 
-- Algorithm keys: **`cdps_milp_single_round`** and **`cdps_milp_loop`** in
+- Algorithm keys: **`pisam_milp_single_round`** and **`pisam_milp_loop`** in
   `benchmark/algorithms.py` (siblings of `cdps`, full CFM artifact suite,
   NOT BaselineRunner).
 - All MILP-related code under **`src/pi_sam/plan_denoising/milp_version/`**:
@@ -229,8 +229,8 @@ Common protocol so all methods land on one axis system:
     round log.
   - `single_round.py` — thin driver: encode-all → solve → extract → PISAM.
   - `config.py` — the configuration surface (§5).
-- `learning_helpers.py`: `learn_cdps_milp_single_round(...)` /
-  `learn_cdps_milp_loop(...)` mirroring `learn_cdps(...)`.
+- `learning_helpers.py`: `learn_pisam_milp_single_round(...)` /
+  `learn_pisam_milp_loop(...)` mirroring `learn_cdps(...)`.
 - Identical artifact schema (`conflict_free_models/...`,
   `conflict_free_solutions_log.json`, `all_solutions_metrics.json`) so the
   dashboard stack works unchanged; loop additionally emits
@@ -246,7 +246,7 @@ allowed options live in the comments so nothing has to be remembered.
 listing the allowed options.
 
 ```yaml
-cdps_milp:
+pisam_milp:
   # --- which algorithm ---
   variant: loop                  # options: single_round | loop
 
@@ -387,7 +387,7 @@ property of the *prior* channel only; the encoder's own binding aggregation
    cells (eq16-off).
 2. **P2 — PI-SAM handoff + artifacts.** Re-masking, patch extraction,
    artifact emission, masked-completion diagnostic. Exit:
-   `cdps_milp_single_round` end-to-end, dashboard renders next to `cdps`;
+   `pisam_milp_single_round` end-to-end, dashboard renders next to `cdps`;
    run design-doc §7 validation; run the eq16 on/off comparison here
    (incl. witness-vs-PISAM diagnostic within eq16-on).
 3. **P3 — Evaluate module.** §2.1 contract + unit tests (hand models with
@@ -454,12 +454,12 @@ property of the *prior* channel only; the encoder's own binding aggregation
      bit-reproducible.
    - **The algorithm key beats the config's `variant:` field.**
      `milp_config_for(key, cfg)` pins `MilpVariant` from the selected key, so
-     ONE `cdps_milp:` block drives both arms in one run — which a single
+     ONE `pisam_milp:` block drives both arms in one run — which a single
      `variant:` value cannot express.
    - **V is scored on ALL original observations**, never on the round's own
      subset: scoring a candidate on its own training sample would reward
      overfitting and make rounds incomparable.
-   - **`--resume` caveat**: `run_cdps_milp_loop` is a new `run_params` key, so
+   - **`--resume` caveat**: `run_pisam_milp_loop` is a new `run_params` key, so
      resuming a pre-P4 experiment dir reports a spurious conflict on it.
 5. **P5 — Plots + benchmark.** §3 protocol; npuzzle (starving domain) +
    blocksworld (control); 3-way comparison vs `cdps` and `rosame_milp`;

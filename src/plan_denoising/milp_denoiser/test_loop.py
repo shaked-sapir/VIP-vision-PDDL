@@ -1,4 +1,4 @@
-"""Unit tests for the ``cdps_milp_loop`` driver and its model-prior projection.
+"""Unit tests for the ``pisam_milp_loop`` driver and its model-prior projection.
 
     python -m unittest src.plan_denoising.milp_denoiser.test_loop
 
@@ -39,7 +39,7 @@ from pddl_plus_parser.models import Predicate
 from planning_structs.domain import Domain as PSDomain
 
 from src.plan_denoising.milp_denoiser.config import (
-    CdpsMilpConfig,
+    PisamMilpConfig,
     StopRules,
     SubsetSize,
 )
@@ -151,9 +151,9 @@ class _FakeEvaluation:
         self.per_trace = list(per_trace)
 
 
-def _config(**overrides) -> CdpsMilpConfig:
+def _config(**overrides) -> PisamMilpConfig:
     """A loop config built through the real YAML validation path."""
-    return CdpsMilpConfig.from_dict({"variant": "loop", **overrides})
+    return PisamMilpConfig.from_dict({"variant": "loop", **overrides})
 
 
 def _state(**overrides) -> _LoopState:
@@ -486,7 +486,7 @@ class TestReporting(unittest.TestCase):
         for key in ("algorithm", "milp_solved", "repair_cost", "best_cost",
                     "conflict_free_model_count", "pisam_conflicts_on_feasible"):
             self.assertIn(key, report)
-        self.assertEqual(report["algorithm"], "cdps_milp_loop")
+        self.assertEqual(report["algorithm"], "pisam_milp_loop")
 
     def test_the_fold_wide_cost_keys_stay_empty(self) -> None:
         """A subset cost must not sit in the column CDPS is compared against.

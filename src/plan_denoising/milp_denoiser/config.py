@@ -1,7 +1,7 @@
-"""Configuration surface of the ``cdps_milp_*`` algorithms.
+"""Configuration surface of the ``pisam_milp_*`` algorithms.
 
-Mirrors the ``cdps_milp:`` block of ``benchmark/run_config.yaml`` (documented in
-``docs/cdps-milp-loop-plan.md`` §5). Every enum-valued key is validated here and
+Mirrors the ``pisam_milp:`` block of ``benchmark/run_config.yaml`` (documented in
+``docs/pisam-milp-loop-plan.md`` §5). Every enum-valued key is validated here and
 a bad value raises immediately, listing the allowed options — configuration
 mistakes must not surface as a silent behavior change three hours into a run.
 
@@ -29,7 +29,7 @@ _E = TypeVar("_E", bound=Enum)
 
 
 class MilpVariant(Enum):
-    """Which ``cdps_milp_*`` algorithm to run."""
+    """Which ``pisam_milp_*`` algorithm to run."""
 
     SINGLE_ROUND = "single_round"
     LOOP = "loop"
@@ -112,7 +112,7 @@ class SubsetSize:
         if isinstance(raw, SubsetSize):
             return raw
         if isinstance(raw, bool):  # bool is an int subclass; never a size
-            raise ValueError(f"cdps_milp.subset_size: invalid value {raw!r}")
+            raise ValueError(f"pisam_milp.subset_size: invalid value {raw!r}")
         if isinstance(raw, int):
             return cls._fixed(raw)
         text = str(raw).strip().lower()
@@ -124,7 +124,7 @@ class SubsetSize:
             return cls._fixed(int(text))
         except ValueError:
             raise ValueError(
-                f"cdps_milp.subset_size: invalid value {raw!r}. "
+                f"pisam_milp.subset_size: invalid value {raw!r}. "
                 f"Allowed: half, all, or a positive integer"
             ) from None
 
@@ -132,7 +132,7 @@ class SubsetSize:
     def _fixed(cls, number: int) -> "SubsetSize":
         if number < 1:
             raise ValueError(
-                f"cdps_milp.subset_size: {number} is not positive"
+                f"pisam_milp.subset_size: {number} is not positive"
             )
         return cls(SubsetSizeKind.FIXED, number)
 
@@ -175,7 +175,7 @@ class StopRules:
         stop_on_fixpoint: Stop when every admissible ``(subset, M_best)`` pair
             has already been solved, so no further round can produce anything
             new. Only sound with a frozen pool and a deterministic solver, and
-            :meth:`CdpsMilpConfig.effective_stop_rules` switches it off when the
+            :meth:`PisamMilpConfig.effective_stop_rules` switches it off when the
             pool is not frozen.
     """
 
@@ -198,7 +198,7 @@ class StopRules:
         unknown = sorted(set(raw) - cls._KEYS)
         if unknown:
             raise ValueError(
-                f"cdps_milp.stop: unknown key(s) {unknown}. Allowed: "
+                f"pisam_milp.stop: unknown key(s) {unknown}. Allowed: "
                 f"{', '.join(sorted(cls._KEYS))}"
             )
         return cls(
@@ -247,7 +247,7 @@ class EvalWeights:
         unknown = sorted(set(raw) - cls._KEYS)
         if unknown:
             raise ValueError(
-                f"cdps_milp.eval: unknown key(s) {unknown}. Allowed: "
+                f"pisam_milp.eval: unknown key(s) {unknown}. Allowed: "
                 f"{', '.join(sorted(cls._KEYS))}"
             )
         return cls(
@@ -274,10 +274,10 @@ def _parse_optional_int(value: Any, key: str) -> Optional[int]:
         number = int(text)
     except ValueError:
         raise ValueError(
-            f"cdps_milp.{key}: invalid value {value!r}. Allowed: a non-negative integer or null"
+            f"pisam_milp.{key}: invalid value {value!r}. Allowed: a non-negative integer or null"
         ) from None
     if number < 0:
-        raise ValueError(f"cdps_milp.{key}: {number} is negative")
+        raise ValueError(f"pisam_milp.{key}: {number} is negative")
     return number
 
 
@@ -290,7 +290,7 @@ def _parse_enum(enum_cls: Type[_E], value: Any, key: str) -> _E:
     except ValueError:
         allowed = ", ".join(m.value for m in enum_cls)
         raise ValueError(
-            f"cdps_milp.{key}: invalid value {value!r}. Allowed: {allowed}"
+            f"pisam_milp.{key}: invalid value {value!r}. Allowed: {allowed}"
         ) from None
 
 
@@ -303,12 +303,12 @@ def _parse_bool(value: Any, key: str) -> bool:
         return True
     if text in {"off", "false", "no", "0"}:
         return False
-    raise ValueError(f"cdps_milp.{key}: invalid value {value!r}. Allowed: on, off")
+    raise ValueError(f"pisam_milp.{key}: invalid value {value!r}. Allowed: on, off")
 
 
 @dataclass(frozen=True)
-class CdpsMilpConfig:
-    """Validated ``cdps_milp`` block.
+class PisamMilpConfig:
+    """Validated ``pisam_milp`` block.
 
     Attributes:
         variant: Which algorithm to run.
@@ -362,7 +362,7 @@ class CdpsMilpConfig:
     })
 
     @classmethod
-    def from_dict(cls, raw: Optional[Mapping[str, Any]]) -> "CdpsMilpConfig":
+    def from_dict(cls, raw: Optional[Mapping[str, Any]]) -> "PisamMilpConfig":
         """Build (and validate) from the raw YAML mapping; ``None`` = all defaults."""
         if not raw:
             return cls()
@@ -370,7 +370,7 @@ class CdpsMilpConfig:
         unknown = sorted(set(raw) - cls._KEYS)
         if unknown:
             raise ValueError(
-                f"cdps_milp: unknown key(s) {unknown}. Allowed: "
+                f"pisam_milp: unknown key(s) {unknown}. Allowed: "
                 f"{', '.join(sorted(cls._KEYS))}"
             )
 
@@ -459,7 +459,7 @@ class CdpsMilpConfig:
         if self.solver is MilpSolver.CPSAT:
             return "cp-sat-observed"
         raise NotImplementedError(
-            f"cdps_milp.solver={self.solver.value!r} has no backend yet. "
+            f"pisam_milp.solver={self.solver.value!r} has no backend yet. "
             f"Only {MilpSolver.CPSAT.value!r} is implemented."
         )
 
@@ -517,25 +517,58 @@ class CdpsMilpConfig:
 
 
 # ---------------------------------------------------------------------------
+# The YAML key this block lives under
+# ---------------------------------------------------------------------------
+
+CONFIG_KEY = "pisam_milp"
+
+# Pre-rename spelling, still used by configs archived under finished_run_configs/.
+LEGACY_CONFIG_KEY = "cdps_milp"
+
+CONFIG_KEYS = frozenset({CONFIG_KEY, LEGACY_CONFIG_KEY})
+
+
+def select_milp_block(mapping: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
+    """The MILP block out of a ``shared:``-shaped mapping, new key or legacy.
+
+    Args:
+        mapping: A mapping that may carry the block under either key.
+
+    Returns:
+        The block, or ``None`` if neither key is present.
+
+    Raises:
+        ValueError: If both keys are present.
+    """
+    present = [key for key in (CONFIG_KEY, LEGACY_CONFIG_KEY) if key in mapping]
+    if len(present) == 2:
+        raise ValueError(
+            f"Both `{CONFIG_KEY}:` and the legacy `{LEGACY_CONFIG_KEY}:` are "
+            f"present; keep `{CONFIG_KEY}:` and delete `{LEGACY_CONFIG_KEY}:`."
+        )
+    return mapping.get(present[0]) if present else None
+
+
+# ---------------------------------------------------------------------------
 # Ablations
 # ---------------------------------------------------------------------------
 
 # Nested blocks are not ablatable: neither enters the results label (see
-# benchmark.algorithms.cdps_milp_algorithm_name), so listing values here would
+# benchmark.algorithms.pisam_milp_algorithm_name), so listing values here would
 # produce several arms that all land in one results row.
 _UNABLATABLE_KEYS = frozenset({"stop", "eval", "variant"})
 
 
-def expand_cdps_milp_ablations(
+def expand_pisam_milp_ablations(
     raw: Optional[Mapping[str, Any]]
-) -> List[CdpsMilpConfig]:
-    """The configs a ``cdps_milp:`` block asks for — one per ablation combination.
+) -> List[PisamMilpConfig]:
+    """The configs a ``pisam_milp:`` block asks for — one per ablation combination.
 
     Without an ``ablations:`` sub-block this returns exactly one config, which is
     the block parsed as it always was. With one, every listed knob is crossed
     with every other, in the manner of ``simulation.grid``::
 
-        cdps_milp:
+        pisam_milp:
           eq16: off
           pool_policy: frozen
           ablations:
@@ -549,12 +582,12 @@ def expand_cdps_milp_ablations(
     run a configuration nobody named. The surrounding block keeps its job of
     supplying every knob the ablation block does *not* mention.
 
-    Each combination goes through :meth:`CdpsMilpConfig.from_dict` unchanged, so
+    Each combination goes through :meth:`PisamMilpConfig.from_dict` unchanged, so
     an invalid ablation value fails exactly as an invalid plain value does, and
     before any solving starts.
 
     Args:
-        raw: The ``cdps_milp:`` mapping, ``ablations:`` included. ``None`` or
+        raw: The ``pisam_milp:`` mapping, ``ablations:`` included. ``None`` or
             empty gives a single all-defaults config.
 
     Returns:
@@ -566,17 +599,17 @@ def expand_cdps_milp_ablations(
             it something other than a non-empty list.
     """
     if not raw:
-        return [CdpsMilpConfig()]
+        return [PisamMilpConfig()]
 
     base = {k: v for k, v in raw.items() if k != "ablations"}
     ablations = raw.get("ablations")
     if not ablations:
-        return [CdpsMilpConfig.from_dict(base)]
+        return [PisamMilpConfig.from_dict(base)]
 
     _validate_ablations(ablations)
     keys = list(ablations)
     return [
-        CdpsMilpConfig.from_dict({**base, **dict(zip(keys, combination))})
+        PisamMilpConfig.from_dict({**base, **dict(zip(keys, combination))})
         for combination in product(*(ablations[k] for k in keys))
     ]
 
@@ -585,25 +618,25 @@ def _validate_ablations(ablations: Any) -> None:
     """Reject an ``ablations:`` block that cannot mean what it appears to."""
     if not isinstance(ablations, Mapping):
         raise ValueError(
-            f"cdps_milp.ablations: expected a mapping of knob -> list of values, "
+            f"pisam_milp.ablations: expected a mapping of knob -> list of values, "
             f"got {type(ablations).__name__}"
         )
-    unknown = sorted(set(ablations) - CdpsMilpConfig._KEYS)
+    unknown = sorted(set(ablations) - PisamMilpConfig._KEYS)
     if unknown:
         raise ValueError(
-            f"cdps_milp.ablations: unknown key(s) {unknown}. Allowed: "
-            f"{', '.join(sorted(CdpsMilpConfig._KEYS - _UNABLATABLE_KEYS))}"
+            f"pisam_milp.ablations: unknown key(s) {unknown}. Allowed: "
+            f"{', '.join(sorted(PisamMilpConfig._KEYS - _UNABLATABLE_KEYS))}"
         )
     blocked = sorted(set(ablations) & _UNABLATABLE_KEYS)
     if blocked:
         raise ValueError(
-            f"cdps_milp.ablations: {blocked} cannot be ablated. `variant` is "
+            f"pisam_milp.ablations: {blocked} cannot be ablated. `variant` is "
             f"chosen by the selected algorithm key, and `stop`/`eval` do not "
             f"enter the results label, so their arms would share one row."
         )
     for key, values in ablations.items():
         if not isinstance(values, (list, tuple)) or not values:
             raise ValueError(
-                f"cdps_milp.ablations.{key}: expected a non-empty list of values, "
+                f"pisam_milp.ablations.{key}: expected a non-empty list of values, "
                 f"got {values!r}"
             )

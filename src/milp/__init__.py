@@ -3,7 +3,7 @@
 Nothing here knows who is calling. Two unrelated learners share it, and they
 agree on nothing except the constraint machinery:
 
-  - ``cdps_milp_*`` (``src/plan_denoising/milp_denoiser/``) — the solve
+  - ``pisam_milp_*`` (``src/plan_denoising/milp_denoiser/``) — the solve
     *is* the denoiser: it repairs the observed trajectories, and PI-SAM learns
     from the result.
   - ``rosame_milp*`` (``benchmark/baselines/``) — the solve regularizes a neural

@@ -27,6 +27,13 @@ RESUME_IGNORED_PARAMS = frozenset({
     "folds",
 })
 
+# run_params.json keys renamed in place; old cells hold the old spelling, so both
+# sides are compared under the current one.
+_RENAMED_PARAMS = {
+    "run_cdps_milp": "run_pisam_milp",
+    "run_cdps_milp_loop": "run_pisam_milp_loop",
+}
+
 
 def fold_instance_dir(testing_dir: Path, fold: int, num_trajs: int, gt_rate: int) -> Path:
     """Return the canonical directory for one ``(fold, num_trajs, gt_rate)`` instance."""
@@ -48,12 +55,20 @@ def try_load_fold_result(fold_dir: Path) -> Optional[List[dict]]:
         return json.load(f)
 
 
+def _canonical_params(params: dict) -> dict:
+    """A run_params dict with renamed keys mapped to their current spelling."""
+    return {_RENAMED_PARAMS.get(key, key): value for key, value in params.items()}
+
+
 def run_params_conflicts(existing: dict, current: dict) -> List[str]:
     """Return hyperparameter keys whose values differ between two run_params dicts.
 
-    Keys in :data:`RESUME_IGNORED_PARAMS` are excluded. Used to strictly abort a
-    resume when the current config would mix incompatible results into an
-    existing experiment directory.
+    Keys in :data:`RESUME_IGNORED_PARAMS` are excluded, and keys in
+    :data:`_RENAMED_PARAMS` are compared under their current spelling. Used to
+    strictly abort a resume when the current config would mix incompatible
+    results into an existing experiment directory.
     """
+    existing = _canonical_params(existing)
+    current = _canonical_params(current)
     keys = (set(existing) | set(current)) - RESUME_IGNORED_PARAMS
     return sorted(k for k in keys if existing.get(k) != current.get(k))

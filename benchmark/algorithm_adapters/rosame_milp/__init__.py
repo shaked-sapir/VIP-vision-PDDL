@@ -15,7 +15,7 @@ Layout:
 
 The encoder, the converter, the encoding rule-sets and the vendored
 ``planning_structs``/``constraint_opt`` packages live in ``src/milp/`` — they are
-shared with the ``cdps_milp_*`` learners, which drive the same encoder under a
+shared with the ``pisam_milp_*`` learners, which drive the same encoder under a
 different rule-set preset. Only the genuinely ROSAME-specific pieces (anything
 that reads the network's ``forward()`` rows or drives torch training) are here.
 

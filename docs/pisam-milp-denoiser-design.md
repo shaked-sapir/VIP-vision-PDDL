@@ -1,4 +1,4 @@
-# Design Note: MILP as Denoiser, PI-SAM as Learner (`cdps_milp`)
+# Design Note: MILP as Denoiser, PI-SAM as Learner (`pisam_milp`)
 
 > **Status: DRAFT — under iteration.** Brainstorm-level design for replacing
 > CDPS's conflict search with a MILP that solves the same minimal-repair
@@ -207,7 +207,7 @@ runtime. Here, the MILP *is* the complete solver of the repair problem, no
 neural component, deterministic, one shot, and the model comes from PI-SAM
 with its safety lineage intact. In simulation mode ours also skips learning
 what is already observed (actions, most fluents). `rosame_milp` remains the
-external baseline; `cdps_milp` is a variant of *our* method.
+external baseline; `pisam_milp` is a variant of *our* method.
 
 **The CFM-set story survives** via the solution pool (Gurobi
 `PoolSearchMode=2, PoolSolutions=k`; CP-SAT: iterate with a
@@ -218,12 +218,12 @@ dedup by model hash, report both counts.
 
 ## 6. Integration sketch (repo)
 
-- New algorithm key **`cdps_milp`** in `benchmark/algorithms.py` (a sibling
+- New algorithm key **`pisam_milp`** in `benchmark/algorithms.py` (a sibling
   of `cdps`, NOT a `BaselineRunner` — it produces the full CFM artifact
   suite).
 - New module `src/pi_sam/plan_denoising/milp_denoiser.py` (encoder + solve +
   T′ extraction) + `benchmark/experiment_running_helpers/learning_helpers.py`
-  entry `learn_cdps_milp(...)` mirroring `learn_cdps(...)`'s signature and
+  entry `learn_pisam_milp(...)` mirroring `learn_cdps(...)`'s signature and
   outputs (cleaned_model, report, patched_observations).
   **AMENDED — as built.** One module became two packages, because the ROSAME
   MILP baselines need the encoding without needing the denoiser. The encoder,
@@ -231,8 +231,8 @@ dedup by model hash, report both counts.
   upstream now sit in `src/milp/`; the denoiser that drives them —
   `single_round.py`, `loop.py`, `trajectory_extraction.py`, `model_prior.py`,
   `config.py` — sits in `src/plan_denoising/milp_denoiser/`. The
-  `learning_helpers` entry is `learn_cdps_milp_single_round(...)`; the arm names
-  it dispatches are computed, not constant (`cdps_milp_algorithm_name`), since
+  `learning_helpers` entry is `learn_pisam_milp_single_round(...)`; the arm names
+  it dispatches are computed, not constant (`pisam_milp_algorithm_name`), since
   a row label has to carry which arm produced it. See CLAUDE.md's module map
   for the current layout.
 - **Emit the identical artifact schema**: `conflict_free_models/
@@ -240,7 +240,7 @@ dedup by model hash, report both counts.
   `conflict_free_solutions_log.json` (cost per pool solution),
   `all_solutions_metrics.json` via the existing multi-solution evaluator —
   then the entire dashboard/report stack works with zero changes and
-  `cdps` vs `cdps_milp` are directly comparable everywhere.
+  `cdps` vs `pisam_milp` are directly comparable everywhere.
 - Encoder inputs come from the same masked observations `learn_cdps`
   receives (ternary values already available); per-trace grounding via
   existing utils (`ground_observation_completely`).
@@ -355,8 +355,8 @@ stand is the claim that the MILP arm's optimality has been validated.
 All three MILP arms backfilled onto the same 1080 `simulation-final-run` folds
 (4 domains × 9 cells × 30 folds), so every comparison below is **paired** on
 270 folds per domain — same data, same masking, same fold split. `SR` is
-`cdps_milp_single_round`; `eq16` is the same arm with the eq-16 objective term
-on at 0.4; `loop` is `cdps_milp_loop`.
+`pisam_milp_single_round`; `eq16` is the same arm with the eq-16 objective term
+on at 0.4; `loop` is `pisam_milp_loop`.
 
 Δ against `SR`, averaged over each domain's 270 folds:
 
@@ -420,7 +420,7 @@ identical across all three arms. Whatever it is, more MILP is not the lever.
   limit, not a repair-quality one. Test by measuring precision against
   transition count per action: if it rises with coverage, the denoiser was never
   the bottleneck and further MILP variants are wasted effort.
-- Whether to keep `cdps_milp_loop` at all. It costs ~9.4× the single round for
+- Whether to keep `pisam_milp_loop` at all. It costs ~9.4× the single round for
   ≤ +0.0007 precision (§7.1b). Retire it, or find the regime its premise
   describes — the obvious candidate is a domain where one trace is genuinely
   unrepairable, which this grid may simply not contain.

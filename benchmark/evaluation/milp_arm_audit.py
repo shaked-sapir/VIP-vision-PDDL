@@ -1,6 +1,6 @@
 """Audit the MILP arms against each other across a run's cells.
 
-Produces the numbers quoted in docs/cdps-milp-denoiser-design.md 7.1a and 7.1b;
+Produces the numbers quoted in docs/pisam-milp-denoiser-design.md 7.1a and 7.1b;
 re-run it before citing them.
 
     PYTHONPATH=. python benchmark/evaluation/milp_arm_audit.py
@@ -12,7 +12,7 @@ Four things, per domain:
 
 2. The design 7.1 lower bound, cost(MILP) <= cost(best CDPS CFM). Neither cost
    is a top-level column: the MILP side is `algorithm_specific.milp_repair_cost`
-   on the CDPS_MILP_SR row, and the CDPS side is not on the CDPS row at all --
+   on the PISAM_MILP_SR row, and the CDPS side is not on the CDPS row at all --
    it has to come from the fold's conflict_free_solutions_log.json. Only
    eq16=off rows are checked; eq16 changes the objective, so T' differs and the
    bound says nothing there.
@@ -56,9 +56,9 @@ DEFAULT_ROOT = Path("benchmark/running_results")
 DEFAULT_DOMAINS = ("blocksworld", "hanoi", "gripper", "npuzzle")
 DEFAULT_CELLS = "simulation-final-run__*"
 
-SR = "CDPS_MILP_SR"
-SR_EQ16 = "CDPS_MILP_SR__eq16=0.4"
-LOOP = "CDPS_MILP_LOOP"
+SR = "PISAM_MILP_SR"
+SR_EQ16 = "PISAM_MILP_SR__eq16=0.4"
+LOOP = "PISAM_MILP_LOOP"
 METRICS = ("precision_overall", "recall_overall", "solving_ratio", "learning_time_seconds")
 
 

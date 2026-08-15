@@ -1,9 +1,9 @@
-# CDPS-MILP loop — mid-process log
+# PI-SAM+MILP loop — mid-process log
 
 > Written 2026-08-11, mid-session, as a resume point.
 > Updated 2026-08-12 (P4 complete).
-> **Authority:** `docs/cdps-milp-loop-plan.md` (execution plan) and
-> `docs/cdps-milp-denoiser-design.md` (encoding details). This file is a
+> **Authority:** `docs/pisam-milp-loop-plan.md` (execution plan) and
+> `docs/pisam-milp-denoiser-design.md` (encoding details). This file is a
 > *status snapshot*, not a spec — if it disagrees with those, they win.
 >
 > **Paths below predate 2026-08-14.** The `refactor-seprerate-denoising-from-pisam` branch moved
@@ -39,8 +39,8 @@ Two algorithms, no hybrid:
 
 | key | what | status |
 |---|---|---|
-| `cdps_milp_single_round` | ONE joint MILP over ALL fold trajectories | **implemented** (P2) |
-| `cdps_milp_loop` | homogeneous rounds, each samples a subset | **implemented** (P4) |
+| `pisam_milp_single_round` | ONE joint MILP over ALL fold trajectories | **implemented** (P2) |
+| `pisam_milp_loop` | homogeneous rounds, each samples a subset | **implemented** (P4) |
 
 ---
 
@@ -57,10 +57,10 @@ and `src/` must not depend on `benchmark/`.
 | `encoder.py` | CP-SAT encoding (moved) |
 | `encoding_config.py` | `MilpEncodingConfig` + presets `upstream()` / `tag()` / **`cdps_dialect()`** |
 | `converter.py` | pddl_plus → vendor `planning_structs`; `GtAnchoring`; `RepeatedArgsInstance` |
-| `config.py` | **new** — `CdpsMilpConfig`, the `cdps_milp:` YAML surface, validated |
+| `config.py` | **new** — `PisamMilpConfig`, the `pisam_milp:` YAML surface, validated |
 | `trajectory_extraction.py` | **new** — solved MILP → flips → re-masked T′ |
 | `single_round.py` | **new** — the driver |
-| `test_cdps_milp.py` | **new** — 12 unit tests |
+| `test_pisam_milp.py` | **new** — 12 unit tests |
 | `vendor/` | upstream ROSAME code (see `vendor/UPSTREAM.md`) |
 
 ### 2.2 The CDPS dialect (the key technical point)
@@ -80,7 +80,7 @@ failure names one guilty constraint, not three.
   (`gt_states_by_obs`, 0-based state index → 1-based encoder time index).
 - **`RepeatedArgsInstance`** — widens the vendor's `permutations` grounding to
   `product` so reflexive groundings (`stack(a,a)`) exist. ON for
-  `cdps_milp_*`, OFF for `rosame_milp*`. Needed because the vendor *skips*
+  `pisam_milp_*`, OFF for `rosame_milp*`. Needed because the vendor *skips*
   repeated-type schemas, which would emit a T′ never constrained on those
   transitions → PI-SAM could raise conflicts on a "feasible" T′, breaking the
   design doc's §4.1 proposition.
@@ -90,7 +90,7 @@ failure names one guilty constraint, not three.
 - **Gurobi** is a stub raising `NotImplementedError` (no license; CP-SAT only).
 - Registered as an algorithm; dispatched through `run_fold.run_cdps_phase(...,
   milp_config=...)` so both denoisers share one evaluation path. Artifacts land
-  in `<fold>/cdps_milp_single_round/` in CDPS's shape, plus
+  in `<fold>/pisam_milp_single_round/` in CDPS's shape, plus
   `milp_repair_log.json` / `milp_masked_completion.json`.
 
 ### 2.4 Validation results (blocksworld smoke, 2 folds, 30 s CDPS budget)
@@ -106,7 +106,7 @@ Both folds: `pisam_conflicts_on_feasible = 0`, `n_unmapped_fluents = 0`,
 Two orders of magnitude faster, and cheaper repairs.
 
 ### 2.5 Tests
-`src/pi_sam/plan_denoising/milp_version/test_cdps_milp.py` — **12 tests, all
+`src/pi_sam/plan_denoising/milp_version/test_pisam_milp.py` — **12 tests, all
 passing**; `rosame_milp/test_rosame_milp.py` — 5 tests, still passing.
 Coverage: the 3 dropped families, minimal-repair exactness, masked-is-free,
 repeated-args grounding + binding aggregation, both GT-anchoring modes +
@@ -117,7 +117,7 @@ mapping.
 
 ## 3. Decisions taken this session (P3 design)
 
-All recorded into `docs/cdps-milp-loop-plan.md` §7.
+All recorded into `docs/pisam-milp-loop-plan.md` §7.
 
 ### 3.1 The existing evaluation stack measures the wrong thing for the loop
 `evaluate_predictive_power` (`benchmark/evaluation/predictive_metrics.py:31`)
@@ -431,7 +431,7 @@ Split into **P4a** (the driver, in `src/`) and **P4b** (wiring, in `benchmark/`)
 
 - **Algorithm key beats the YAML `variant:` key.** `milp_config_for(key, cfg)`
   pins `MilpVariant` from the *selected algorithm key* via
-  `dataclasses.replace`. This is what lets **one** `cdps_milp:` block serve
+  `dataclasses.replace`. This is what lets **one** `pisam_milp:` block serve
   **both** arms in a single run — a single `variant:` field cannot express
   "run both". The YAML `variant:` is consequently ignored for these two keys.
 - **`cdps_budget_seconds` was one parameter doing two jobs.** The fold's
@@ -441,18 +441,18 @@ Split into **P4a** (the driver, in `src/`) and **P4b** (wiring, in `benchmark/`)
   single solve.
 - **`cdps_family_names()`** (`benchmark/algorithms.py`) — the run banner and
   `run_params["algorithms"]` previously built the same label list two different
-  ways (one off a hardcoded constant, one off `cdps_milp_algorithm_name`). With
+  ways (one off a hardcoded constant, one off `pisam_milp_algorithm_name`). With
   a second MILP arm they would have drifted; both now derive from this one
   helper. Baselines stay the caller's business (the two callers read different
   attributes: `.name` vs `.display_name`).
 - **`resolve_algorithms` is now a 5-tuple**
   `(cdps, cdps_anchored, milp_single_round, milp_loop, baselines)`; all three
   call sites updated.
-- **Per-arm artefact dirs** — `<fold>/cdps_milp_single_round/` and
-  `<fold>/cdps_milp_loop/`, so both arms run in the same fold without
+- **Per-arm artefact dirs** — `<fold>/pisam_milp_single_round/` and
+  `<fold>/pisam_milp_loop/`, so both arms run in the same fold without
   overwriting each other. The dispatch is a data-driven loop over
   `[(key, subdir, selected)]`, not two copies of the same 15-line call.
-- **`run_config.yaml`** — the `cdps_milp:` block documents every loop key inline.
+- **`run_config.yaml`** — the `pisam_milp:` block documents every loop key inline.
 
 ### 4ter.4 Verification
 
@@ -460,7 +460,7 @@ Smoke: blocksworld, `mask=0.01 noise=0.2`, 1 fold, 3 trajectories, both arms,
 60 s budget, `max_rounds: 5` → **both arms completed in one fold in 60.2 s**,
 2 result rows, report written. `fold_result.json`:
 
-| | `CDPS_MILP_SR` | `CDPS_MILP_LOOP` |
+| | `PISAM_MILP_SR` | `PISAM_MILP_LOOP` |
 |---|---|---|
 | learning time | 0.315 s | 0.679 s |
 | `precision_overall` / `recall_overall` | 0.94 / 1.00 | 0.92 / 0.96 |
@@ -505,11 +505,11 @@ and `subset`. Covered by `test_the_fold_wide_cost_keys_stay_empty`.
 
 ### 4ter.5bis One known issue, deliberately not fixed
 
-1. **`--resume` regression.** Adding `run_cdps_milp_loop` to `run_params` makes
+1. **`--resume` regression.** Adding `run_pisam_milp_loop` to `run_params` makes
    resuming a *pre-existing* experiment dir report a spurious conflict on that
    key (absent vs `False`), because `RESUME_IGNORED_PARAMS` is only
    `{timestamp, num_trajectories_list, gt_rate_percentages, folds}`. Left
-   consistent with the precedent set when `run_cdps_milp` and
+   consistent with the precedent set when `run_pisam_milp` and
    `run_cdps_anchored` were added, rather than special-cased.
 
 ### 4ter.6 Two upstream findings surfaced during P4
@@ -536,7 +536,7 @@ and `subset`. Covered by `test_the_fold_wide_cost_keys_stay_empty`.
 ## 5. Repo state (branch `cdps-with-milp-implmenetation`)
 
 - **Committed — `4600b5b76`** (P1 + P2, 32 files, +2441/−252): the
-  `milp_version/` move, the CDPS dialect, `cdps_milp_single_round`,
+  `milp_version/` move, the CDPS dialect, `pisam_milp_single_round`,
   and the `docs/` + `CLAUDE.md` updates.
 - **Committed — `b19fb8d69`** (P3): `evaluator.py` +
   `test_evaluator.py` — `observations_reconstruction_score`, 17 tests.
@@ -686,8 +686,8 @@ the log's `model_hash`, never from the file text**.
 
 ### 7.3 D1 — backfilling the MILP arms (done)
 
-`backfill_cdps.py --algorithm {cdps_anchored,cdps_milp_single_round,cdps_milp_loop}`,
-with `--milp-config` pointing at a run_config (`shared.cdps_milp`), a file
+`backfill_cdps.py --algorithm {cdps_anchored,pisam_milp_single_round,pisam_milp_loop}`,
+with `--milp-config` pointing at a run_config (`shared.pisam_milp`), a file
 holding just that block, or the bare block. `cdps_anchored` stays the default,
 so every existing invocation is unchanged.
 
@@ -700,7 +700,7 @@ change, not the flag:
   makes their rows comparable to the CDPS row sitting beside them in the same
   `fold_result.json`: same observations, same GT map, only the denoiser differs.
   Reusing the anchored staging path would have produced rows *labelled*
-  `CDPS_MILP_*` that were actually anchored — a different algorithm, silently
+  `PISAM_MILP_*` that were actually anchored — a different algorithm, silently
   non-comparable, and it would have broken design §7.1's
   `cost(MILP) <= cost(best CDPS CFM)` check.
 
@@ -719,16 +719,16 @@ Verified on a throwaway copy of a real blocksworld cell (`mask=0.1 noise=0.2`,
 n=3), running both MILP arms into a cell that already held four rows:
 
 - six distinct rows coexist — `ROSAME`, `ROSAME_MILP`, `ROSAME_MILP_TAG`,
-  `CDPS_ANCHORED`, `CDPS_MILP_LOOP`, `CDPS_MILP_SR` — confirming the row-name
+  `CDPS_ANCHORED`, `PISAM_MILP_LOOP`, `PISAM_MILP_SR` — confirming the row-name
   check uses the *computed* arm-suffixed name, not a constant;
 - the re-serialised inputs are set-identical to the cell's frozen originals for
   all three problems (the byte difference is predicate ordering only);
 - P5.1's `milp_loop_round_models/round_{1..4}/model.pddl` landed in the
   backfilled cell, so a backfilled loop row is re-scorable exactly like a live
   one;
-- the two scopes of §4ter.5 held: `CDPS_MILP_SR` reported
+- the two scopes of §4ter.5 held: `PISAM_MILP_SR` reported
   `milp_repair_cost=75` (fold-wide, 3 traces) with every loop key `None`;
-  `CDPS_MILP_LOOP` reported `milp_repair_cost=None` and
+  `PISAM_MILP_LOOP` reported `milp_repair_cost=None` and
   `milp_loop_best_round_repair_cost=69` beside `..._subset_size=2`.
 
 One pre-existing wart left alone: `--dry-run` on `cdps_anchored` still writes
@@ -930,7 +930,7 @@ benchmark runner"*. The shape chosen was **per-knob value lists**, i.e. the same
 cross-product `simulation.grid` already uses:
 
 ```yaml
-  cdps_milp:
+  pisam_milp:
     eq16: off
     pool_policy: frozen
     ablations:
@@ -951,41 +951,41 @@ question and are not:
 
 | check | question | what it prevents |
 |---|---|---|
-| `CdpsMilpConfig.arm_identity()` | would these produce the same model? | running one solve twice under two names |
+| `PisamMilpConfig.arm_identity()` | would these produce the same model? | running one solve twice under two names |
 | label distinctness in `milp_configs_for` | would these land in the same row? | two algorithms averaged into a row naming neither |
 
 The first is why `ablations: {pool_policy: [frozen, replace]}` can coexist with
-`algorithms: [cdps_milp_single_round, cdps_milp_loop]`: `pool_policy` is inert
+`algorithms: [pisam_milp_single_round, pisam_milp_loop]`: `pool_policy` is inert
 under single-round, so SR collapses to one arm while the loop gets two. Plain
 dataclass equality is too strict for that question, so `arm_identity` drops the
 loop-only fields under `single_round` and normalises `lambda_pre` to 0.0 when
 `eq16` is off — the same rule `as_stats` already applies.
 
-The second is the one that would have cost a run. `cdps_milp_algorithm_name`'s
+The second is the one that would have cost a run. `pisam_milp_algorithm_name`'s
 suffix does not carry `seed`, `stop.*`, `eval.*`, `solver`, `obs_weights` or
 `time_limit_seconds`; ablating `seed` would produce two genuinely different
-models both reporting as `CDPS_MILP_LOOP`. That now raises before the run rather
+models both reporting as `PISAM_MILP_LOOP`. That now raises before the run rather
 than being discovered in a report. `stop`, `eval` and `variant` are rejected up
 front as unablatable; the rest are caught by the label check, which is
 **self-maintaining** — add a knob to the label function and it becomes ablatable
 with no second list to keep in sync.
 
 **Directories follow labels.** `milp_work_subdir` reuses the label's suffix, so
-`cdps_milp_loop__pool=replace/` is readable from its results row and vice versa,
+`pisam_milp_loop__pool=replace/` is readable from its results row and vice versa,
 and two arms in one fold cannot overwrite each other's artifacts. An arm with no
-suffix keeps the bare `cdps_milp_loop/` it always had, so existing folds stay
+suffix keeps the bare `pisam_milp_loop/` it always had, so existing folds stay
 where every reader already looks.
 
 `backfill_cdps` now takes its directory from `milp_work_subdir` too. Its own
 `_WORK_SUBDIRS` is keyed on the algorithm *key*, so backfilling eq16 on and off
-into one cell put both arms in `cdps_milp_single_round/` and let the second pass
+into one cell put both arms in `pisam_milp_single_round/` and let the second pass
 overwrite the first's model and extraction artifacts — silently, because the
 *rows* stayed distinct and the fold looked complete. This document previously
 said the ride-along "can be two separate cells", which would have dodged the
 collision at the cost of the thing the ride-along is for: an eq16 A/B on
 byte-identical frozen observations, in the same `fold_result.json` as the `CDPS`
-row. Verified on a throwaway blocksworld fold — `cdps_milp_single_round/` and
-`cdps_milp_single_round__eq16=0.4/` sit side by side, the off-arm's files keep
+row. Verified on a throwaway blocksworld fold — `pisam_milp_single_round/` and
+`pisam_milp_single_round__eq16=0.4/` sit side by side, the off-arm's files keep
 their original mtimes, and both rows are present.
 
 `anytime.checkpoints.ARM_SUBDIRS` stays untouched, and not merely by omission:
@@ -1212,7 +1212,7 @@ been established that anything *downstream* would accept depot either, since no
 depot trace had ever got that far. One fold end-to-end
 (`simulation-final-run__mask=0.1__noise=0.2`, `fold0_numtrajs3_gtrate0`, 60 s
 budget) settles it: `cdps` returns a model at precision 0.790 / recall 0.750
-after exploring 6 conflict-free models, and `cdps_milp_single_round` returns one
+after exploring 6 conflict-free models, and `pisam_milp_single_round` returns one
 at 0.750 / 0.660. Neither number means anything on one fold at n=3 — the claim is
 only that the search runs and terminates with a model, not that the model is
 good.

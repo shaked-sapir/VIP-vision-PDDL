@@ -8,8 +8,8 @@ each arm works:
 arm                           timestamps                                 models
 ============================  =========================================  ==================================================
 ``cdps`` / ``cdps_anchored``  ``conflict_free_solutions_log.json``        ``conflict_free_models/conflict_free_model_{i}/``
-``cdps_milp_single_round``    same, or ``final_model/patch_details``      ``conflict_free_models/{conflict_free_model_0,final_model}/``
-``cdps_milp_loop``            ``milp_loop_rounds.json``                   ``milp_loop_round_models/round_{i}/``
+``pisam_milp_single_round``    same, or ``final_model/patch_details``      ``conflict_free_models/{conflict_free_model_0,final_model}/``
+``pisam_milp_loop``            ``milp_loop_rounds.json``                   ``milp_loop_round_models/round_{i}/``
 ``ROSAME``                    ``anytime_snapshots/ROSAME/snapshots.json`` ``anytime_snapshots/ROSAME/snapshot_{i:04d}.pddl``
 ============================  =========================================  ==================================================
 
@@ -41,8 +41,8 @@ from typing import Callable, Dict, List, Optional
 ARM_SUBDIRS: Dict[str, str] = {
     "cdps": ".",
     "cdps_anchored": "cdps_anchored",
-    "cdps_milp_single_round": "cdps_milp_single_round",
-    "cdps_milp_loop": "cdps_milp_loop",
+    "pisam_milp_single_round": "pisam_milp_single_round",
+    "pisam_milp_loop": "pisam_milp_loop",
     "ROSAME": ".",
 }
 
@@ -184,8 +184,8 @@ def read_snapshot_checkpoints(root: Path, arm: str) -> List[Checkpoint]:
 _READERS: Dict[str, Callable[[Path, str], List[Checkpoint]]] = {
     "cdps": read_cdps_checkpoints,
     "cdps_anchored": read_cdps_checkpoints,
-    "cdps_milp_single_round": read_cdps_checkpoints,
-    "cdps_milp_loop": read_loop_checkpoints,
+    "pisam_milp_single_round": read_cdps_checkpoints,
+    "pisam_milp_loop": read_loop_checkpoints,
     "ROSAME": read_snapshot_checkpoints,
 }
 

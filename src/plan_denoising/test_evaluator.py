@@ -1,6 +1,6 @@
 """Unit tests for the ground-truth-free model evaluator.
 
-The properties under test are the ones the CDPS+MILP loop actually relies on:
+The properties under test are the ones the PI-SAM+MILP loop actually relies on:
 
   1. A perfect model on a clean trace scores V = 0.
   2. V counts injected noise exactly (the miniature form of the P3 exit-A check).

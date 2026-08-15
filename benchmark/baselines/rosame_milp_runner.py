@@ -2,7 +2,7 @@
 
 Two registered variants (ROSAME-side glue in
 ``benchmark/algorithm_adapters/rosame_milp/``; the MILP encoder itself lives in
-``src/milp/``, shared with the ``cdps_milp_*`` learners):
+``src/milp/``, shared with the ``pisam_milp_*`` learners):
 
 - ``rosame_milp_base`` (:class:`RosameMilpBaseRunner`) — one-shot: train ROSAME
   exactly like the ``rosame`` baseline, then solve a single MILP over the whole

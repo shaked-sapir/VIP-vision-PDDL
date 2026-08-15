@@ -134,7 +134,7 @@ def build_ps_instance_from_objects(
 
     Args:
         include_repeated_args: ground repeated-object tuples too. ``True`` for
-            the ``cdps_milp_*`` learners, whose observations contain them and
+            the ``pisam_milp_*`` learners, whose observations contain them and
             whose output is consumed by PI-SAM (see :class:`RepeatedArgsInstance`);
             ``False`` for the ``rosame_milp*`` baselines, which must keep the
             upstream vocabulary their network shares.

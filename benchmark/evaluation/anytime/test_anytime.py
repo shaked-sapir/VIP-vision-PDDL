@@ -102,7 +102,7 @@ def test_reads_every_arm_shape():
             {"index": 1, "wall_time_so_far": 5.1},
         ])
         _write_cdps_arm(fold / "cdps_anchored", [{"index": 0, "wall_time_so_far": 9.0}])
-        _write_loop_arm(fold / "cdps_milp_loop", [
+        _write_loop_arm(fold / "pisam_milp_loop", [
             {"round": 0, "elapsed_seconds": 2.0},
             {"round": 1, "elapsed_seconds": 7.5},
         ])
@@ -115,9 +115,9 @@ def test_reads_every_arm_shape():
         for stream in found.values():
             assert all(c.model_path.exists() for c in stream), stream
 
-    assert set(found) == {"cdps", "cdps_anchored", "cdps_milp_loop", "ROSAME"}, found
+    assert set(found) == {"cdps", "cdps_anchored", "pisam_milp_loop", "ROSAME"}, found
     assert [c.elapsed_seconds for c in found["cdps"]] == [3.4, 5.1]
-    assert [c.elapsed_seconds for c in found["cdps_milp_loop"]] == [2.0, 7.5]
+    assert [c.elapsed_seconds for c in found["pisam_milp_loop"]] == [2.0, 7.5]
     assert len(found["ROSAME"]) == 3
     print("PASS  every arm's artifact shape is read into one checkpoint stream")
 
@@ -131,10 +131,10 @@ def test_final_model_fallback():
     """
     with tempfile.TemporaryDirectory() as tmp:
         fold = Path(tmp)
-        _write_final_model_arm(fold / "cdps_milp_single_round", wall_time=12.5)
-        found = read_fold_checkpoints(fold, ["cdps_milp_single_round"])
+        _write_final_model_arm(fold / "pisam_milp_single_round", wall_time=12.5)
+        found = read_fold_checkpoints(fold, ["pisam_milp_single_round"])
 
-    stream = found["cdps_milp_single_round"]
+    stream = found["pisam_milp_single_round"]
     assert len(stream) == 1, stream
     assert stream[0].elapsed_seconds == 12.5
     assert stream[0].model_path.parent.name == "final_model"
@@ -146,13 +146,13 @@ def test_unsolved_rounds_are_skipped_not_fatal():
     with tempfile.TemporaryDirectory() as tmp:
         fold = Path(tmp)
         _write_loop_arm(
-            fold / "cdps_milp_loop",
+            fold / "pisam_milp_loop",
             [{"round": r, "elapsed_seconds": float(r)} for r in range(4)],
             skip_models=[1, 2],
         )
-        found = read_fold_checkpoints(fold, ["cdps_milp_loop"])
+        found = read_fold_checkpoints(fold, ["pisam_milp_loop"])
 
-    assert [c.index for c in found["cdps_milp_loop"]] == [0, 3]
+    assert [c.index for c in found["pisam_milp_loop"]] == [0, 3]
     print("PASS  unsolved rounds drop out without taking the arm with them")
 
 

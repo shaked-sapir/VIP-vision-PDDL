@@ -70,7 +70,11 @@ from benchmark.evaluation.experiment_report import generate_experiment_report
 from benchmark.experiment_running_helpers.data_source import ImageDataSource, SimulatedDataSource
 from src.observation_degradation.masking import MaskingType
 from src.observation_degradation.noising import NoisingType
-from src.plan_denoising.milp_denoiser.config import expand_cdps_milp_ablations
+from src.plan_denoising.milp_denoiser.config import (
+    CONFIG_KEYS as MILP_CONFIG_KEYS,
+    expand_pisam_milp_ablations,
+    select_milp_block,
+)
 from src.utils.time import create_experiment_timestamp
 
 # Default editable config; override with --config.
@@ -280,8 +284,8 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     a stale key (e.g. the removed ``mode``) fails loudly instead of being
     silently dropped.
     """
-    known_keys = _PASSTHROUGH_KEYS | {
-        "num_trajectories", "gt_rates", "algorithms", "baselines", "cdps_milp",
+    known_keys = _PASSTHROUGH_KEYS | MILP_CONFIG_KEYS | {
+        "num_trajectories", "gt_rates", "algorithms", "baselines",
     }
     unknown = set(shared) - known_keys
     if unknown:
@@ -310,8 +314,8 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
         algorithm_names = ["cdps"] + [b for b in shared["baselines"] if b != "none"]
     else:
         algorithm_names = ["cdps", "rosame"]
-    (kwargs["run_cdps"], kwargs["run_cdps_anchored"], kwargs["run_cdps_milp"],
-     kwargs["run_cdps_milp_loop"], kwargs["baselines"]) = resolve_algorithms(
+    (kwargs["run_cdps"], kwargs["run_cdps_anchored"], kwargs["run_pisam_milp"],
+     kwargs["run_pisam_milp_loop"], kwargs["baselines"]) = resolve_algorithms(
         algorithm_names
     )
 
@@ -319,8 +323,8 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     # selected key. Expanded here because an `ablations:` sub-block turns it into
     # several arms, and the run banner has to name them before anything runs.
     # Validated (and rejected on a typo) even when both arms are off, so a bad
-    # `cdps_milp:` never sits unnoticed in a config that will later enable one.
-    kwargs["cdps_milp_configs"] = expand_cdps_milp_ablations(shared.get("cdps_milp"))
+    # `pisam_milp:` never sits unnoticed in a config that will later enable one.
+    kwargs["pisam_milp_configs"] = expand_pisam_milp_ablations(select_milp_block(shared))
 
     return kwargs
 

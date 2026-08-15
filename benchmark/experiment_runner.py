@@ -41,7 +41,7 @@ from benchmark.experiment_running_helpers.resume import (
 )
 from src.observation_degradation.masking import MaskingType
 from src.observation_degradation.noising import NoisingType
-from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig
+from src.plan_denoising.milp_denoiser.config import PisamMilpConfig
 from src.utils.config import load_config
 
 
@@ -139,9 +139,9 @@ def main(
     baselines: list = None,
     run_cdps: bool = True,
     run_cdps_anchored: bool = False,
-    run_cdps_milp: bool = False,
-    run_cdps_milp_loop: bool = False,
-    cdps_milp_configs: Optional[List[CdpsMilpConfig]] = None,
+    run_pisam_milp: bool = False,
+    run_pisam_milp_loop: bool = False,
+    pisam_milp_configs: Optional[List[PisamMilpConfig]] = None,
     events_tracing: bool = False,
     resume: bool = False,
 ):
@@ -258,11 +258,11 @@ def main(
         "fluent_branch_mode": fluent_branch_mode,
         "run_cdps": run_cdps,
         "run_cdps_anchored": run_cdps_anchored,
-        "run_cdps_milp": run_cdps_milp,
-        "run_cdps_milp_loop": run_cdps_milp_loop,
+        "run_pisam_milp": run_pisam_milp,
+        "run_pisam_milp_loop": run_pisam_milp_loop,
         "algorithms": cdps_family_names(
-            run_cdps, run_cdps_anchored, run_cdps_milp, run_cdps_milp_loop,
-            cdps_milp_configs,
+            run_cdps, run_cdps_anchored, run_pisam_milp, run_pisam_milp_loop,
+            pisam_milp_configs,
         ) + [r.name for r in (baselines or [])],
         "normalized": norm_trajs_dir is not None,
         "data_source_type": type(data_source).__name__,
@@ -394,9 +394,9 @@ def main(
                         baselines=baselines,
                         run_cdps=run_cdps,
                         run_cdps_anchored=run_cdps_anchored,
-                        run_cdps_milp=run_cdps_milp,
-                        run_cdps_milp_loop=run_cdps_milp_loop,
-                        cdps_milp_configs=cdps_milp_configs,
+                        run_pisam_milp=run_pisam_milp,
+                        run_pisam_milp_loop=run_pisam_milp_loop,
+                        pisam_milp_configs=pisam_milp_configs,
                         events_tracing=events_tracing,
                     )
                     future = executor.submit(run_single_fold, **fold_kwargs)
@@ -635,15 +635,15 @@ if __name__ == "__main__":
     if not args.algorithms:
         parser.error(f"--algorithms requires a value (available: {', '.join(available_algorithms())})")
     try:
-        (run_cdps, run_cdps_anchored, run_cdps_milp, run_cdps_milp_loop,
+        (run_cdps, run_cdps_anchored, run_pisam_milp, run_pisam_milp_loop,
          baseline_runners) = resolve_algorithms(
             args.algorithms, train_per_trajectory=args.train_per_trajectory)
     except ValueError as err:
         parser.error(str(err))
-    # The CLI has no `cdps_milp` surface, so the MILP arms run on defaults here;
+    # The CLI has no `pisam_milp` surface, so the MILP arms run on defaults here;
     # `benchmark_runner` is the path that can configure them.
     selected = cdps_family_names(
-        run_cdps, run_cdps_anchored, run_cdps_milp, run_cdps_milp_loop,
+        run_cdps, run_cdps_anchored, run_pisam_milp, run_pisam_milp_loop,
     ) + [r.display_name for r in baseline_runners]
     print(f"Algorithms: {', '.join(selected)}")
 
@@ -700,8 +700,8 @@ if __name__ == "__main__":
         baselines=baseline_runners,
         run_cdps=run_cdps,
         run_cdps_anchored=run_cdps_anchored,
-        run_cdps_milp=run_cdps_milp,
-        run_cdps_milp_loop=run_cdps_milp_loop,
+        run_pisam_milp=run_pisam_milp,
+        run_pisam_milp_loop=run_pisam_milp_loop,
         events_tracing=args.events_tracing,
         resume=args.resume,
     )

@@ -1,6 +1,6 @@
 """CP-SAT encoding of the MILP "solution fixer" with observed actions.
 
-Shared by both MILP callers — the ``cdps_milp_*`` learners (MILP as denoiser)
+Shared by both MILP callers — the ``pisam_milp_*`` learners (MILP as denoiser)
 and the ``rosame_milp*`` baselines (MILP as regularizer of a neural learner).
 They differ only in the rule set (:class:`encoding_config.MilpEncodingConfig`
 preset) and in what they do with the solution, never in the machinery here.
@@ -33,7 +33,7 @@ trajectories from different problems, hard-fixed ground-truth states):
    :class:`encoding_config.MilpEncodingConfig`. Presets: ``upstream()`` =
    released behavior, ``tag()`` = the ``rosame_milp_tag`` variant,
    ``cdps_dialect()`` = all GT-excluding families dropped (used by
-   ``cdps_milp_*``); see vendor/UPSTREAM.md.
+   ``pisam_milp_*``); see vendor/UPSTREAM.md.
 
 Expected trace objects: vendored ``ObservationT`` instances with extra
 attributes attached by our converter:
@@ -411,7 +411,7 @@ class CPSATObservedActions:
                     hint_vars.append(variable)
                     hint_vals.append(1 if op.prob > threshold else 0)
 
-        # No reference model (e.g. cdps_milp single round) => hint the states only.
+        # No reference model (e.g. pisam_milp single round) => hint the states only.
         obs_m = getattr(self.traces, "obs_m", None)
         if obs_m is None:
             return hint_vars, hint_vals

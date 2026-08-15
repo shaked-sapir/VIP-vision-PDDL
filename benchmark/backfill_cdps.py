@@ -16,14 +16,14 @@ cell's ``fold_result.json`` — paired with the existing CDPS/PISAM/baseline row
     ``<data_dir>/gt_trajectories/`` — so we stage them into that layout and the
     prep sees an ordinary file-based fold.
 
-  - ``cdps_milp_single_round`` / ``cdps_milp_loop`` consume the frozen degraded
+  - ``pisam_milp_single_round`` / ``pisam_milp_loop`` consume the frozen degraded
     files unchanged, which is what makes their rows comparable to the CDPS row
     beside them: same observations, same GT map, only the denoiser differs.
 
 All CDPS search hyperparameters, the frame-axiom mode, and the timeouts are read
 from each experiment's ``evaluation_results/run_params.json`` so the backfilled
 run matches the original (timeouts overridable via CLI). The MILP arms take their
-own knobs from ``--milp-config``, which reads the same ``cdps_milp:`` block a
+own knobs from ``--milp-config``, which reads the same ``pisam_milp:`` block a
 live sweep uses — so a backfilled arm can be pinned to an existing sweep's
 settings rather than retyped as flags.
 
@@ -34,7 +34,7 @@ Usage:
 
     python -m benchmark.backfill_cdps \
         --experiment-dir "benchmark/running_results/blocksworld/sim_run__*" \
-        --algorithm cdps_milp_loop --milp-config benchmark/run_config.yaml
+        --algorithm pisam_milp_loop --milp-config benchmark/run_config.yaml
 
 Options mirror backfill_baseline: --data-dir (override), --domain, --cells,
 --force, --dry-run, --workers, plus --learn-timeout / --planning-timeout /
@@ -58,9 +58,9 @@ import yaml
 from benchmark.algorithms import (
     CDPS_ANCHORED,
     CDPS_ANCHORED_ALGORITHM_NAME,
-    CDPS_MILP_LOOP,
-    CDPS_MILP_SINGLE_ROUND,
-    cdps_milp_algorithm_name,
+    PISAM_MILP_LOOP,
+    PISAM_MILP_SINGLE_ROUND,
+    pisam_milp_algorithm_name,
     milp_config_for,
     milp_work_subdir,
 )
@@ -81,7 +81,7 @@ from benchmark.experiment_running_helpers.statistics import count_total_transiti
 from benchmark.experiment_running_helpers.trajectory_utils import (
     prepare_anchored_fold_trajectories,
 )
-from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig
+from src.plan_denoising.milp_denoiser.config import PisamMilpConfig, select_milp_block
 
 # CDPS search-shape params persisted in run_params.json (fallbacks mirror
 # CDPSConfig's defaults for the rare cell that predates a given field).
@@ -103,8 +103,8 @@ _CDPS_SEARCH_DEFAULTS: Dict[str, object] = {
 # the offline scorers already look for them.
 _WORK_SUBDIRS = {
     CDPS_ANCHORED: "cdps_anchored",
-    CDPS_MILP_SINGLE_ROUND: "cdps_milp_single_round",
-    CDPS_MILP_LOOP: "cdps_milp_loop",
+    PISAM_MILP_SINGLE_ROUND: "pisam_milp_single_round",
+    PISAM_MILP_LOOP: "pisam_milp_loop",
 }
 
 
@@ -121,27 +121,30 @@ class AlgorithmSpec:
     key: str
     row_name: str
     work_subdir: str
-    milp_config: Optional[CdpsMilpConfig]
+    milp_config: Optional[PisamMilpConfig]
 
 
-def _read_milp_config(path: Optional[Path]) -> CdpsMilpConfig:
-    """The ``cdps_milp:`` block from a YAML file, or all defaults.
+def _read_milp_config(path: Optional[Path]) -> PisamMilpConfig:
+    """The ``pisam_milp:`` block from a YAML file, or all defaults.
 
-    A run_config.yaml (``shared.cdps_milp``), a file holding just the block under
-    ``cdps_milp:``, and a file that *is* the block are all accepted, because the
+    A run_config.yaml (``shared.pisam_milp``), a file holding just the block under
+    ``pisam_milp:``, and a file that *is* the block are all accepted, because the
     point of the flag is to pin a backfilled arm to the settings some live sweep
     already used — and that sweep's config is the run_config itself.
 
-    Unknown keys are rejected by ``CdpsMilpConfig.from_dict``, so pointing this
+    Unknown keys are rejected by ``PisamMilpConfig.from_dict``, so pointing this
     at the wrong file fails loudly instead of silently backfilling defaults.
     """
     if path is None:
-        return CdpsMilpConfig()
+        return PisamMilpConfig()
     raw = yaml.safe_load(path.read_text()) or {}
     shared = raw.get("shared")
-    if isinstance(shared, dict) and "cdps_milp" in shared:
-        return CdpsMilpConfig.from_dict(shared["cdps_milp"])
-    return CdpsMilpConfig.from_dict(raw.get("cdps_milp", raw))
+    if isinstance(shared, dict):
+        block = select_milp_block(shared)
+        if block is not None:
+            return PisamMilpConfig.from_dict(block)
+    block = select_milp_block(raw)
+    return PisamMilpConfig.from_dict(raw if block is None else block)
 
 
 def resolve_algorithm_spec(key: str, milp_config_path: Optional[Path]) -> AlgorithmSpec:
@@ -149,12 +152,12 @@ def resolve_algorithm_spec(key: str, milp_config_path: Optional[Path]) -> Algori
     if key == CDPS_ANCHORED:
         if milp_config_path is not None:
             raise SystemExit(
-                "--milp-config applies to the cdps_milp_* algorithms only; "
+                "--milp-config applies to the pisam_milp_* algorithms only; "
                 f"--algorithm {key} takes its settings from run_params.json"
             )
         return AlgorithmSpec(key, CDPS_ANCHORED_ALGORITHM_NAME, _WORK_SUBDIRS[key], None)
 
-    # The selected key pins the variant, so one shared cdps_milp block can back
+    # The selected key pins the variant, so one shared pisam_milp block can back
     # both MILP arms — the same rule the live runner follows.
     config = milp_config_for(key, _read_milp_config(milp_config_path))
     # Take the directory from the same place a live run does, rather than from
@@ -164,7 +167,7 @@ def resolve_algorithm_spec(key: str, milp_config_path: Optional[Path]) -> Algori
     # artifacts — silently, since the rows stay distinct. milp_work_subdir keys
     # on the row label instead, so directory and row cannot drift apart.
     return AlgorithmSpec(
-        key, cdps_milp_algorithm_name(config), milp_work_subdir(key, config), config
+        key, pisam_milp_algorithm_name(config), milp_work_subdir(key, config), config
     )
 
 
@@ -544,14 +547,14 @@ def main() -> None:
     ap.add_argument("--algorithm", default=CDPS_ANCHORED,
                     choices=sorted(_WORK_SUBDIRS),
                     help="Which CDPS-family arm to backfill. Default cdps_anchored "
-                         "(this script's original behaviour). The cdps_milp_* arms "
+                         "(this script's original behaviour). The pisam_milp_* arms "
                          "consume the cell's frozen observations unchanged, so their "
                          "rows are directly comparable to the CDPS row beside them.")
     ap.add_argument("--milp-config", type=Path, default=None,
-                    help="YAML holding the cdps_milp settings for the cdps_milp_* "
-                         "arms — a run_config.yaml (shared.cdps_milp), a file with a "
-                         "top-level cdps_milp: block, or the bare block. Default: "
-                         "CdpsMilpConfig defaults. The --algorithm choice pins the "
+                    help="YAML holding the pisam_milp settings for the pisam_milp_* "
+                         "arms — a run_config.yaml (shared.pisam_milp), a file with a "
+                         "top-level pisam_milp: block, or the bare block. Default: "
+                         "PisamMilpConfig defaults. The --algorithm choice pins the "
                          "variant, so any 'variant:' key here is overridden.")
     ap.add_argument("--experiment-dir", type=Path, nargs="+", required=True,
                     help="Experiment director(y/ies) containing testing/ "

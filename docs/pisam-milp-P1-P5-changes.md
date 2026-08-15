@@ -1,10 +1,10 @@
-# CDPS-MILP P1–P5 — code change index
+# PI-SAM+MILP P1–P5 — code change index
 
-A per-file, per-line index of everything the CDPS-MILP work changed, for review.
+A per-file, per-line index of everything the PI-SAM+MILP work changed, for review.
 
-This is deliberately **not** a narrative. `docs/CDPS-MILP-loop-PROCESS.md` (1219 lines)
+This is deliberately **not** a narrative. `docs/PISAM-MILP-loop-PROCESS.md` (1219 lines)
 is the reasoning log — why each decision was taken, what was measured, what was
-withdrawn. `docs/cdps-milp-denoiser-design.md` is the spec. This file answers only
+withdrawn. `docs/pisam-milp-denoiser-design.md` is the spec. This file answers only
 "what code moved, where, and what does it now do".
 
 **Base commit:** `f86c60494` — everything below is `f86c60494..HEAD` on branch
@@ -21,16 +21,16 @@ as right. CLAUDE.md's module map has the current layout.
 
 | phase | commit | subject | net |
 |---|---|---|---|
-| P1+P2 | `4600b5b76` | Add `cdps_milp_single_round`: solve the CDPS repair problem as one CP-SAT program | +2441 / −252 |
+| P1+P2 | `4600b5b76` | Add `pisam_milp_single_round`: solve the CDPS repair problem as one CP-SAT program | +2441 / −252 |
 | P3 | `b19fb8d69` | Add a ground-truth-free model score so the loop can select without cheating | +993 / −26 |
-| P4 | `fa4c0fc1c` | Add `cdps_milp_loop`: pick a repair by a GT-free score across rounds | +2715 / −159 |
+| P4 | `fa4c0fc1c` | Add `pisam_milp_loop`: pick a repair by a GT-free score across rounds | +2715 / −159 |
 | — | `641cb97a3` | Dashboard: highlight one algorithm's trend on legend hover | +36 / −7 |
 | P5.1 (D4) | `cdfa451bc` | Keep every loop round's model, not just the winner | +202 / −18 |
 | P5.2 (D1) | `f2e609e42` | Backfill the MILP arms into existing cells, on their own input | +339 / −107 |
 | P5.3 (D1) | `c0a8e95cc` | Measure the loop across n, withdraw the "run at 10–20 trajectories" advice | +85 / −1 (docs only) |
 | P5.4 (D3) | `41c90aae8` | Give ROSAME per-epoch snapshots so it can appear on an anytime curve | +507 / −19 |
 | P5.5 (D5/D7) | `2c0422252` | Add an offline anytime harness so the arms can be read against each other | +1024 / −3 |
-| P5.6 (D6) | `84276d984` | Let one `cdps_milp` block name several MILP arms via per-knob ablations | +552 / −41 |
+| P5.6 (D6) | `84276d984` | Let one `pisam_milp` block name several MILP arms via per-knob ablations | +552 / −41 |
 | P5.6a | `e53ac523e` | Normalise predicate type tags before CWA-completion, unblocking depot | +519 / −428 |
 | P5.6b | `1060cd0f9` | Backfill: take the MILP work dir from the row label, not the algorithm key | +26 / −6 |
 | P5.6c | `c1f164811` | Add the eq16=on config as a tracked file, not a `/tmp` throwaway | +14 |
@@ -65,10 +65,10 @@ baselines working off the relocated encoder.
 | file | lines | what it is |
 |---|---|---|
 | `src/pi_sam/plan_denoising/milp_version/single_round.py` | 355 | the driver |
-| `src/pi_sam/plan_denoising/milp_version/config.py` | 609 | `CdpsMilpConfig` + enums |
+| `src/pi_sam/plan_denoising/milp_version/config.py` | 609 | `PisamMilpConfig` + enums |
 | `src/pi_sam/plan_denoising/milp_version/trajectory_extraction.py` | 192 | solved MILP → re-masked T′ |
 | `src/pi_sam/plan_denoising/milp_version/encoding_config.py` | 173 | `MilpEncodingConfig` + presets |
-| `src/pi_sam/plan_denoising/milp_version/test_cdps_milp.py` | 501 | 12 tests |
+| `src/pi_sam/plan_denoising/milp_version/test_pisam_milp.py` | 501 | 12 tests |
 
 ### `single_round.py` — the driver
 
@@ -110,7 +110,7 @@ soft and pays to flip them, which is what makes the two comparable at all.
 | 164–177 | `_solved_value` | one variable's solved value |
 | 178–192 | `save_extraction_artifacts` | |
 
-### `config.py` (P1 portion) — `CdpsMilpConfig`
+### `config.py` (P1 portion) — `PisamMilpConfig`
 
 Validated on every run even when the arm is off, so a typo fails immediately
 rather than three hours in. Enums at 31–97; the dataclass at 310.
@@ -119,12 +119,12 @@ rather than three hours in. Enums at 31–97; the dataclass at 310.
 
 | file | Δ | change |
 |---|---|---|
-| `benchmark/algorithms.py` | +50 | `CDPS_MILP_SINGLE_ROUND` key (50) + name (51); `resolve_algorithms` (248) returns a 4-tuple |
-| `benchmark/experiment_running_helpers/learning_helpers.py` | +202 | `_learn_cdps_core` (94) extracted so CDPS and MILP share one path; `learn_cdps_milp_single_round` (330) |
+| `benchmark/algorithms.py` | +50 | `PISAM_MILP_SINGLE_ROUND` key (50) + name (51); `resolve_algorithms` (248) returns a 4-tuple |
+| `benchmark/experiment_running_helpers/learning_helpers.py` | +202 | `_learn_cdps_core` (94) extracted so CDPS and MILP share one path; `learn_pisam_milp_single_round` (330) |
 | `benchmark/experiment_running_helpers/run_fold.py` | +133 | `run_cdps_phase` (184) gains `milp_config` (215): **one evaluation path, denoiser swapped** |
-| `benchmark/benchmark_runner.py` | +14 | plumbs the `cdps_milp:` block |
+| `benchmark/benchmark_runner.py` | +14 | plumbs the `pisam_milp:` block |
 | `benchmark/experiment_runner.py` | +19 | ditto |
-| `benchmark/run_config.yaml` | +11 | the `cdps_milp:` block (36) |
+| `benchmark/run_config.yaml` | +11 | the `pisam_milp:` block (36) |
 | `benchmark/baselines/rosame_milp_runner.py` | +13 | import path after the move |
 
 ---
@@ -220,8 +220,8 @@ biased toward the incumbent.
 |---|---|---|
 | `config.py` | +321 | `SubsetSize` (99) incl. `half`; `StopRules` (164) 5 rules; `EvalWeights` (234); `PoolPolicy` (66), `Sampler` (52), `LearnerInput` (59); `pool_is_frozen` (408), `dedup_rounds` (417), `effective_stop_rules` (427) |
 | `encoder.py` | +60 | `_model_prior_terms` (340), `_prior_bit_scale` (325), `make_solution_hints` (392); **`solve` (431) pins `random_seed` and `num_workers=1`** — without it CP-SAT races between equally-optimal solutions and round-to-round comparison is noise. This also made `rosame_milp` reproducible for the first time |
-| `algorithms.py` | +147 | `CDPS_MILP_LOOP` (52); `cdps_milp_algorithm_name` (108) computes arm-suffixed row labels |
-| `learning_helpers.py` | +127 | `learn_cdps_milp_loop` (375); `_prepare_milp_driver_inputs` (282), `_milp_outcome` (322) shared |
+| `algorithms.py` | +147 | `PISAM_MILP_LOOP` (52); `pisam_milp_algorithm_name` (108) computes arm-suffixed row labels |
+| `learning_helpers.py` | +127 | `learn_pisam_milp_loop` (375); `_prepare_milp_driver_inputs` (282), `_milp_outcome` (322) shared |
 | `run_fold.py` | +84 | `_milp_specific` (141) flattens the report into result columns |
 | `run_config.yaml` | +28 | loop-only knobs |
 | `converter.py` | +22 | |
@@ -271,8 +271,8 @@ Readers must key on the hash.
 |---|---|---|
 | 104–111 | `_WORK_SUBDIRS` | |
 | 112–126 | `AlgorithmSpec` | |
-| 127–146 | `_read_milp_config` | accepts a `run_config.yaml`, a file with a top-level `cdps_milp:`, or the bare block |
-| 147–171 | `resolve_algorithm_spec` | `--algorithm` ∈ {`cdps_anchored`, `cdps_milp_single_round`, `cdps_milp_loop`} |
+| 127–146 | `_read_milp_config` | accepts a `run_config.yaml`, a file with a top-level `pisam_milp:`, or the bare block |
+| 147–171 | `resolve_algorithm_spec` | `--algorithm` ∈ {`cdps_anchored`, `pisam_milp_single_round`, `pisam_milp_loop`} |
 | 188–246 | `_degraded_files`, `_frozen_fold_trajectories` | the MILP arms read the cell's **frozen degraded files unchanged** |
 | 247–297 | `_stage_anchored_inputs` | the anchored path only |
 | 332–341 | `_fold_inputs` | dispatch |
@@ -280,7 +280,7 @@ Readers must key on the hash.
 | 432–539 | `_backfill_cell_worker`, `resolve_experiment`, `_gather_tasks`, `_run_parallel` | `--workers` over cells |
 
 **The flag is not the substance.** Reusing the anchored staging path would have
-produced rows labelled `CDPS_MILP_*` that were actually init+final-anchored — a
+produced rows labelled `PISAM_MILP_*` that were actually init+final-anchored — a
 different algorithm, silently non-comparable, voiding design §7.1. So
 `anchor_endpoints` follows the arm (`backfill_cdps.py:396`): anchoring is a
 property of the trajectories, not of the denoiser.
@@ -330,22 +330,22 @@ be re-run against existing artifacts without re-running any experiment.
 
 ## P5.6 / D6 — config-driven ablations (`84276d984`)
 
-One `cdps_milp:` block can name several arms.
+One `pisam_milp:` block can name several arms.
 
 | file | lines | change |
 |---|---|---|
-| `config.py` | 529–583 | `expand_cdps_milp_ablations` — crosses the listed knobs |
+| `config.py` | 529–583 | `expand_pisam_milp_ablations` — crosses the listed knobs |
 | `config.py` | 584–609 | `_validate_ablations` — **rejects `seed`, `stop.*`, `eval.*`**, because two arms differing only there would be averaged into one row naming neither |
 | `config.py` | 492–528 | `arm_identity` |
 | `algorithms.py` | 66–107 | `_shared_milp_suffix_parts`, `_loop_suffix_parts` |
-| `algorithms.py` | 108–129 | `cdps_milp_algorithm_name` |
+| `algorithms.py` | 108–129 | `pisam_milp_algorithm_name` |
 | `algorithms.py` | 139–204 | `milp_configs_for`, `milp_work_subdir` |
 | `algorithms.py` | 205–240 | `cdps_family_names` |
 | `run_fold.py` | (−41/+60) | loops over `milp_configs_for` |
-| `run_config.yaml` | +19 | the `ablations:` template, lines 60–76 — shipped commented out, so a default run keeps the bare `cdps_milp_loop/` it always had |
+| `run_config.yaml` | +19 | the `ablations:` template, lines 60–76 — shipped commented out, so a default run keeps the bare `pisam_milp_loop/` it always had |
 | `test_milp_ablations.py` | 226 | 10 tests |
 
-A loop-only knob collapses under `cdps_milp_single_round` (one SR arm, not four),
+A loop-only knob collapses under `pisam_milp_single_round` (one SR arm, not four),
 so listing both algorithm keys does not multiply the SR cost.
 
 ## P5.6a — the depot defect (`e53ac523e`)
@@ -425,7 +425,7 @@ Restricting to the comparable Φ = {} subset leaves 360 folds — and **all 360 
 | `conflict_search.py` | 245–261 | `_weighted_cost` now takes `net_patch_count(...)`; the docstring records that the **search** cost stays over-charging on purpose — changing it would change search behaviour, which is a separate experiment |
 | `conflict_search.py` | 302, 614 | logs `net_fluent_patch_count` beside `cost`, so the corpus becomes self-describing |
 | `single_round.py` | +15 | same accounting on the MILP side |
-| `docs/cdps-milp-denoiser-design.md` | +171 | §4.1 corrected; §7.1a "Check 1 is vacuous as specified"; §7.1b arm comparison; §8 two open questions |
+| `docs/pisam-milp-denoiser-design.md` | +171 | §4.1 corrected; §7.1a "Check 1 is vacuous as specified"; §7.1b arm comparison; §8 two open questions |
 | `CLAUDE.md` | 2 lines | `patch_accounting.py` on the module map (`1386a1629`) |
 
 ### New — `benchmark/evaluation/milp_arm_audit.py` (245 lines)
@@ -463,7 +463,7 @@ The reproducible source for the §7.1a/§7.1b numbers — re-run it before citin
 | file | lines | tests |
 |---|---|---|
 | `src/pi_sam/plan_denoising/milp_version/test_loop.py` | 672 | 65 |
-| `src/pi_sam/plan_denoising/milp_version/test_cdps_milp.py` | 501 | 12 |
+| `src/pi_sam/plan_denoising/milp_version/test_pisam_milp.py` | 501 | 12 |
 | `src/pi_sam/plan_denoising/test_evaluator.py` | 315 | 17 |
 | `benchmark/evaluation/anytime/test_anytime.py` | 254 | 9 |
 | `benchmark/algorithm_adapters/test_po_rosame_runner.py` | 226 | 4 |

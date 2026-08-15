@@ -6,7 +6,7 @@ Stacks every algorithm row from each experiment listed in
     benchmark/evaluation/raw_data/all_domains_shared_metrics.xlsx
 
 Only schema base fields are kept (``BASE_FIELDS`` + run context), so CDPS,
-ROSAME, and every ``CDPS_MILP_*`` variant sit side by side. Per-domain
+ROSAME, and every ``PISAM_MILP_*`` variant sit side by side. Per-domain
 ``<domain>_shared_metrics.xlsx`` workbooks are written too.
 
 Usage:

@@ -1,9 +1,9 @@
-"""Tests for the ``cdps_milp_*`` MILP denoiser (standalone; no PDDL parsing).
+"""Tests for the ``pisam_milp_*`` MILP denoiser (standalone; no PDDL parsing).
 
-    python -m src.plan_denoising.milp_denoiser.test_cdps_milp
+    python -m src.plan_denoising.milp_denoiser.test_pisam_milp
 
 The suite is organised around the two claims the whole design rests on
-(``docs/cdps-milp-denoiser-design.md`` §3-§4):
+(``docs/pisam-milp-denoiser-design.md`` §3-§4):
 
 1. **The CDPS dialect cannot exclude a legal ground-truth model.** Three
    constraint families were dropped for that reason; each test below exhibits a
@@ -27,7 +27,7 @@ from planning_structs.instance import Instance as PSInstance
 from planning_structs.traces import ObservationP, ObservationT, Traces
 
 from src.plan_denoising.milp_denoiser.config import (
-    CdpsMilpConfig,
+    PisamMilpConfig,
     MilpSolver,
 )
 from src.milp.converter import (
@@ -573,24 +573,24 @@ def _expect_error(fn, exc_type, needle: str):
 
 
 def test_config_validation():
-    """A bad ``cdps_milp:`` block must fail at parse time, not three hours in."""
-    _expect_error(lambda: CdpsMilpConfig.from_dict({"eq_16": True}), ValueError, "eq_16")
+    """A bad ``pisam_milp:`` block must fail at parse time, not three hours in."""
+    _expect_error(lambda: PisamMilpConfig.from_dict({"eq_16": True}), ValueError, "eq_16")
     _expect_error(
-        lambda: CdpsMilpConfig.from_dict({"gt_anchoring": "all"}), ValueError, "all_gt_states"
+        lambda: PisamMilpConfig.from_dict({"gt_anchoring": "all"}), ValueError, "all_gt_states"
     )
     _expect_error(
-        lambda: CdpsMilpConfig.from_dict({"eq16": "maybe"}), ValueError, "on, off"
+        lambda: PisamMilpConfig.from_dict({"eq16": "maybe"}), ValueError, "on, off"
     )
 
-    assert CdpsMilpConfig.from_dict(None) == CdpsMilpConfig(), "empty block = defaults"
-    assert CdpsMilpConfig.from_dict({"eq16": "on"}).eq16 is True, "YAML 'on' must parse"
-    assert CdpsMilpConfig.from_dict({"eq16": "off"}).eq16 is False, "YAML 'off' must parse"
+    assert PisamMilpConfig.from_dict(None) == PisamMilpConfig(), "empty block = defaults"
+    assert PisamMilpConfig.from_dict({"eq16": "on"}).eq16 is True, "YAML 'on' must parse"
+    assert PisamMilpConfig.from_dict({"eq16": "off"}).eq16 is False, "YAML 'off' must parse"
     print("PASS  config rejects bad keys/values and accepts YAML booleans")
 
 
 def test_config_derived_settings():
     """The three things the config decides for the run."""
-    config = CdpsMilpConfig()
+    config = PisamMilpConfig()
 
     encoding = config.encoding_config(has_prior=False)
     assert encoding.schema_nonempty is SchemaNonemptyRule.NONE
@@ -601,11 +601,11 @@ def test_config_derived_settings():
     # An unset budget inherits the fold's CDPS budget — that is what makes the
     # head-to-head lower-bound comparison fair.
     assert config.resolve_time_limit(600) == 600
-    assert CdpsMilpConfig(time_limit_seconds=30).resolve_time_limit(600) == 30
+    assert PisamMilpConfig(time_limit_seconds=30).resolve_time_limit(600) == 30
 
     assert config.solver_encoder_key() == "cp-sat-observed"
     _expect_error(
-        lambda: CdpsMilpConfig(solver=MilpSolver.GUROBI).solver_encoder_key(),
+        lambda: PisamMilpConfig(solver=MilpSolver.GUROBI).solver_encoder_key(),
         NotImplementedError,
         "no backend yet",
     )

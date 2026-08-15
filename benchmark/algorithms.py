@@ -7,12 +7,11 @@ data via ``--algorithms``.
 - ``cdps`` — our Conflict-Directed Patch Search (the conflict-search denoiser).
   It is not a ``BaselineRunner``; it has its own execution path in
   ``run_single_fold`` (multi-CFM output + rich per-cell artifacts).
-- ``cdps_milp_single_round`` — same learner (PI-SAM), same artifacts, but the
-  denoiser is one CP-SAT solve instead of a search. Shares CDPS's execution
-  path, so it is a "CDPS-family" key too, not a baseline.
-- ``cdps_milp_loop`` — the same MILP denoiser run repeatedly over sampled
+- ``pisam_milp_single_round`` — same learner (PI-SAM), same artifacts, but the
+  denoiser is one CP-SAT solve instead of a conflict search.
+- ``pisam_milp_loop`` — the same MILP denoiser run repeatedly over sampled
   subsets, keeping the model that best reconstructs the original observations
-  (``docs/cdps-milp-loop-plan.md``). Also CDPS-family.
+  (``docs/pisam-milp-loop-plan.md``).
 - everything else — competitor baselines from ``benchmark.baselines`` (e.g.
   ``rosame``), each a ``BaselineRunner``.
 
@@ -27,7 +26,7 @@ from typing import List, Optional, Tuple
 
 from benchmark.baselines import BASELINE_REGISTRY, BaselineRunner, resolve_baselines
 from src.plan_denoising.milp_denoiser.config import (
-    CdpsMilpConfig,
+    PisamMilpConfig,
     LearnerInput,
     MilpVariant,
     PoolPolicy,
@@ -45,25 +44,27 @@ CDPS_ALGORITHM_NAME = "CDPS"
 CDPS_ANCHORED = "cdps_anchored"
 CDPS_ANCHORED_ALGORITHM_NAME = "CDPS_ANCHORED"
 
-# The MILP denoiser (docs/cdps-milp-denoiser-design.md, docs/cdps-milp-loop-plan.md).
-# Both labels are arm-suffixed — see cdps_milp_algorithm_name.
-CDPS_MILP_SINGLE_ROUND = "cdps_milp_single_round"
-CDPS_MILP_SINGLE_ROUND_ALGORITHM_NAME = "CDPS_MILP_SR"
-CDPS_MILP_LOOP = "cdps_milp_loop"
-CDPS_MILP_LOOP_ALGORITHM_NAME = "CDPS_MILP_LOOP"
+# The MILP denoiser (docs/pisam-milp-denoiser-design.md, docs/pisam-milp-loop-plan.md).
+# Both labels are arm-suffixed — see pisam_milp_algorithm_name.
+PISAM_MILP_SINGLE_ROUND = "pisam_milp_single_round"
+PISAM_MILP_SINGLE_ROUND_ALGORITHM_NAME = "PISAM_MILP_SR"
+PISAM_MILP_LOOP = "pisam_milp_loop"
+PISAM_MILP_LOOP_ALGORITHM_NAME = "PISAM_MILP_LOOP"
 
 # Which ``MilpVariant`` each key selects. The key wins over the ``variant:`` YAML
-# key, so one ``cdps_milp`` block can serve both arms in a single run.
+# key, so one ``pisam_milp`` block can serve both arms in a single run.
 _MILP_VARIANT_BY_KEY = {
-    CDPS_MILP_SINGLE_ROUND: MilpVariant.SINGLE_ROUND,
-    CDPS_MILP_LOOP: MilpVariant.LOOP,
+    PISAM_MILP_SINGLE_ROUND: MilpVariant.SINGLE_ROUND,
+    PISAM_MILP_LOOP: MilpVariant.LOOP,
 }
 
-# CDPS-family keys (our learner), distinct from BaselineRunner competitors.
-_CDPS_KEYS = {CDPS, CDPS_ANCHORED, CDPS_MILP_SINGLE_ROUND, CDPS_MILP_LOOP}
+# Keys handled by our own learner's execution path (``run_cdps_phase``) rather
+# than by a ``BaselineRunner``. Used negatively: anything not here falls through
+# to ``resolve_baselines``, which raises on an unregistered name.
+_OUR_LEARNER_KEYS = {CDPS, CDPS_ANCHORED, PISAM_MILP_SINGLE_ROUND, PISAM_MILP_LOOP}
 
 
-def _shared_milp_suffix_parts(config: CdpsMilpConfig) -> List[str]:
+def _shared_milp_suffix_parts(config: PisamMilpConfig) -> List[str]:
     """Label parts for the knobs both MILP variants share.
 
     - ``eq16`` — the precondition bias changes T' itself, not only the witness
@@ -81,7 +82,7 @@ def _shared_milp_suffix_parts(config: CdpsMilpConfig) -> List[str]:
     return parts
 
 
-def _loop_suffix_parts(config: CdpsMilpConfig) -> List[str]:
+def _loop_suffix_parts(config: PisamMilpConfig) -> List[str]:
     """Label parts for the loop-only knobs that change which model comes out.
 
     Every one of these changes the *sequence of candidates* the loop scores, so
@@ -105,8 +106,8 @@ def _loop_suffix_parts(config: CdpsMilpConfig) -> List[str]:
     return parts
 
 
-def cdps_milp_algorithm_name(config: CdpsMilpConfig) -> str:
-    """Results label for one ``cdps_milp`` arm, keyed on ``config.variant``.
+def pisam_milp_algorithm_name(config: PisamMilpConfig) -> str:
+    """Results label for one ``pisam_milp`` arm, keyed on ``config.variant``.
 
     Arms that produce different models must not share a label, or a sweep
     silently averages two algorithms into one row. Only knobs that change the
@@ -117,8 +118,8 @@ def cdps_milp_algorithm_name(config: CdpsMilpConfig) -> str:
     """
     is_loop = config.variant is MilpVariant.LOOP
     base = (
-        CDPS_MILP_LOOP_ALGORITHM_NAME if is_loop
-        else CDPS_MILP_SINGLE_ROUND_ALGORITHM_NAME
+        PISAM_MILP_LOOP_ALGORITHM_NAME if is_loop
+        else PISAM_MILP_SINGLE_ROUND_ALGORITHM_NAME
     )
     parts = _shared_milp_suffix_parts(config)
     if is_loop:
@@ -127,7 +128,7 @@ def cdps_milp_algorithm_name(config: CdpsMilpConfig) -> str:
     return f"{base}{suffix}"
 
 
-def milp_config_for(key: str, config: CdpsMilpConfig) -> CdpsMilpConfig:
+def milp_config_for(key: str, config: PisamMilpConfig) -> PisamMilpConfig:
     """``config`` with ``variant`` pinned to the one ``key`` names.
 
     The selected algorithm — not the YAML ``variant:`` key — decides which
@@ -136,7 +137,7 @@ def milp_config_for(key: str, config: CdpsMilpConfig) -> CdpsMilpConfig:
     return replace(config, variant=_MILP_VARIANT_BY_KEY[key])
 
 
-def milp_configs_for(key: str, configs: List[CdpsMilpConfig]) -> List[CdpsMilpConfig]:
+def milp_configs_for(key: str, configs: List[PisamMilpConfig]) -> List[PisamMilpConfig]:
     """The distinct configs arm ``key`` should actually run, in order.
 
     An ablation block is written once and applies to whichever MILP arms the run
@@ -144,17 +145,17 @@ def milp_configs_for(key: str, configs: List[CdpsMilpConfig]) -> List[CdpsMilpCo
     inert under ``single_round``, and crossing them there would run the identical
     solve several times and file the results under one label. Dropping those
     duplicates is what lets ``ablations: {pool_policy: [...]}`` coexist with
-    ``algorithms: [cdps_milp_single_round, cdps_milp_loop]``.
+    ``algorithms: [pisam_milp_single_round, pisam_milp_loop]``.
 
     What survives dedup must still be pairwise distinguishable *in the results*,
     which is a stricter demand than being distinct configs: two arms that differ
-    only in a knob outside :func:`cdps_milp_algorithm_name`'s suffix would be
+    only in a knob outside :func:`pisam_milp_algorithm_name`'s suffix would be
     averaged into one row, and the row would name neither of them. That is
     caught here rather than discovered in a report.
 
     Args:
-        key: A ``cdps_milp_*`` algorithm key.
-        configs: The expansion of the ``cdps_milp:`` block.
+        key: A ``pisam_milp_*`` algorithm key.
+        configs: The expansion of the ``pisam_milp:`` block.
 
     Returns:
         Variant-pinned configs, duplicates removed, first occurrence kept.
@@ -162,7 +163,7 @@ def milp_configs_for(key: str, configs: List[CdpsMilpConfig]) -> List[CdpsMilpCo
     Raises:
         ValueError: If two surviving configs share a results label.
     """
-    pinned: List[CdpsMilpConfig] = []
+    pinned: List[PisamMilpConfig] = []
     seen = set()
     for config in configs:
         candidate = milp_config_for(key, config)
@@ -174,12 +175,12 @@ def milp_configs_for(key: str, configs: List[CdpsMilpConfig]) -> List[CdpsMilpCo
 
     by_label: dict = {}
     for config in pinned:
-        by_label.setdefault(cdps_milp_algorithm_name(config), []).append(config)
+        by_label.setdefault(pisam_milp_algorithm_name(config), []).append(config)
     collisions = {label: arms for label, arms in by_label.items() if len(arms) > 1}
     if collisions:
         label = next(iter(collisions))
         raise ValueError(
-            f"cdps_milp.ablations produced {len(collisions[label])} distinct "
+            f"pisam_milp.ablations produced {len(collisions[label])} distinct "
             f"{key} arms that all report as {label!r}. They differ only in knobs "
             f"that do not enter the results label (e.g. `seed`), so their rows "
             f"would be merged. Ablate a knob the label carries, or run them as "
@@ -188,7 +189,7 @@ def milp_configs_for(key: str, configs: List[CdpsMilpConfig]) -> List[CdpsMilpCo
     return pinned
 
 
-def milp_work_subdir(key: str, config: CdpsMilpConfig) -> str:
+def milp_work_subdir(key: str, config: PisamMilpConfig) -> str:
     """Fold subdirectory for one MILP arm's artifacts.
 
     Ablated arms of the same variant run in one fold, so the variant's name
@@ -197,7 +198,7 @@ def milp_work_subdir(key: str, config: CdpsMilpConfig) -> str:
     results row and vice versa. A non-ablated arm keeps the bare name it has
     always had, so existing folds stay where every reader already looks.
     """
-    label = cdps_milp_algorithm_name(milp_config_for(key, config))
+    label = pisam_milp_algorithm_name(milp_config_for(key, config))
     _, _, suffix = label.partition("__")
     return f"{key}__{suffix}" if suffix else key
 
@@ -205,9 +206,9 @@ def milp_work_subdir(key: str, config: CdpsMilpConfig) -> str:
 def cdps_family_names(
     run_cdps: bool,
     run_cdps_anchored: bool,
-    run_cdps_milp: bool,
-    run_cdps_milp_loop: bool,
-    milp_configs: Optional[List[CdpsMilpConfig]] = None,
+    run_pisam_milp: bool,
+    run_pisam_milp_loop: bool,
+    milp_configs: Optional[List[PisamMilpConfig]] = None,
 ) -> List[str]:
     """Result labels for the selected CDPS-family arms, in execution order.
 
@@ -221,19 +222,19 @@ def cdps_family_names(
     Baselines are the caller's business: the two callers read different
     attributes off their runner objects.
     """
-    configs = milp_configs if milp_configs else [CdpsMilpConfig()]
+    configs = milp_configs if milp_configs else [PisamMilpConfig()]
     names = []
     if run_cdps:
         names.append(CDPS_ALGORITHM_NAME)
     if run_cdps_anchored:
         names.append(CDPS_ANCHORED_ALGORITHM_NAME)
     for key, selected in (
-        (CDPS_MILP_SINGLE_ROUND, run_cdps_milp),
-        (CDPS_MILP_LOOP, run_cdps_milp_loop),
+        (PISAM_MILP_SINGLE_ROUND, run_pisam_milp),
+        (PISAM_MILP_LOOP, run_pisam_milp_loop),
     ):
         if selected:
             names.extend(
-                cdps_milp_algorithm_name(c) for c in milp_configs_for(key, configs)
+                pisam_milp_algorithm_name(c) for c in milp_configs_for(key, configs)
             )
     return names
 
@@ -241,7 +242,7 @@ def cdps_family_names(
 def available_algorithms() -> List[str]:
     """All valid ``--algorithms`` names: our learner variants plus baseline keys."""
     return [
-        CDPS, CDPS_ANCHORED, CDPS_MILP_SINGLE_ROUND, CDPS_MILP_LOOP
+        CDPS, CDPS_ANCHORED, PISAM_MILP_SINGLE_ROUND, PISAM_MILP_LOOP
     ] + sorted(BASELINE_REGISTRY)
 
 
@@ -259,8 +260,8 @@ def resolve_algorithms(
     Returns:
         run_cdps: Whether to run our (init-anchored) conflict-search learner.
         run_cdps_anchored: Whether to run the init+final-anchored variant.
-        run_cdps_milp: Whether to run the single-round MILP denoiser.
-        run_cdps_milp_loop: Whether to run the multi-round MILP loop.
+        run_pisam_milp: Whether to run the single-round MILP denoiser.
+        run_pisam_milp_loop: Whether to run the multi-round MILP loop.
         baseline_runners: Instantiated ``BaselineRunner`` objects for the rest.
 
     Raises:
@@ -274,14 +275,14 @@ def resolve_algorithms(
 
     run_cdps = CDPS in lowered
     run_cdps_anchored = CDPS_ANCHORED in lowered
-    run_cdps_milp = CDPS_MILP_SINGLE_ROUND in lowered
-    run_cdps_milp_loop = CDPS_MILP_LOOP in lowered
-    baseline_names = [n for n in lowered if n not in _CDPS_KEYS]
+    run_pisam_milp = PISAM_MILP_SINGLE_ROUND in lowered
+    run_pisam_milp_loop = PISAM_MILP_LOOP in lowered
+    baseline_names = [n for n in lowered if n not in _OUR_LEARNER_KEYS]
     baseline_runners = (
         resolve_baselines(baseline_names, **runner_kwargs) if baseline_names else []
     )
 
-    cdps_family = (run_cdps, run_cdps_anchored, run_cdps_milp, run_cdps_milp_loop)
+    cdps_family = (run_cdps, run_cdps_anchored, run_pisam_milp, run_pisam_milp_loop)
     if not any(cdps_family) and not baseline_runners:
         raise ValueError(
             f"No algorithms selected. Available: {', '.join(available_algorithms())}"

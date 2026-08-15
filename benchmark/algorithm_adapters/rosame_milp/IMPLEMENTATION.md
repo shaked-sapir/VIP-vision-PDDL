@@ -37,7 +37,7 @@ bool for report continuity).
 ## File map & data flow
 
 ```
-src/milp/                                   [SHARED with the cdps_milp_* learners]
+src/milp/                                   [SHARED with the pisam_milp_* learners]
 ├── __init__.py        sys.path bootstrap for vendor/ (upstream absolute imports)
 ├── vendor/            upstream code, verbatim (planning_structs/, constraint_opt/)
 ├── converter.py       our pddl_plus world  ->  vendored planning_structs inputs

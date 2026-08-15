@@ -1,6 +1,6 @@
 """Turn a learned action model into the MILP's reference-model channel.
 
-The loop (``docs/cdps-milp-loop-plan.md`` line 100) solves round *r* as
+The loop (``docs/pisam-milp-loop-plan.md`` line 100) solves round *r* as
 ``MILP(S_r, prior=M_best, ...)``: the incumbent model biases the repair so that
 consecutive rounds do not wander between equally-cheap explanations. The encoder
 reads that prior from ``traces.obs_m`` — an :class:`ObservationM` of three dicts

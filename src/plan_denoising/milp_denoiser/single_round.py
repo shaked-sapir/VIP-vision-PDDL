@@ -1,6 +1,6 @@
-"""``cdps_milp_single_round``: one MILP solve replaces the whole CDPS search.
+"""``pisam_milp_single_round``: one MILP solve replaces the whole CDPS search.
 
-The pipeline (``docs/cdps-milp-denoiser-design.md`` §1) is four steps:
+The pipeline (``docs/pisam-milp-denoiser-design.md`` §1) is four steps:
 
     encode all traces  ->  solve once  ->  extract T'  ->  PI-SAM on T'
 
@@ -44,7 +44,7 @@ from planning_structs.traces import Traces
 
 from src.plan_denoising.noisy_pisam_learning import NoisyPisamLearner
 from src.milp import encoder as _encoder_module  # noqa: F401  (factory registration)
-from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig
+from src.plan_denoising.milp_denoiser.config import PisamMilpConfig
 from src.plan_denoising.patch_accounting import net_patch_count_from_records
 from src.milp.converter import (
     build_ps_domain,
@@ -58,7 +58,7 @@ from src.plan_denoising.milp_denoiser.trajectory_extraction import (
 )
 
 # The reference-model channel needs a reference model; a single round has none,
-# so only the state channel is active (see CdpsMilpConfig.encoding_config).
+# so only the state channel is active (see PisamMilpConfig.encoding_config).
 _OBJECTIVES = {"state"}
 
 SaveObservationsFn = Callable[[List[Observation], Path], None]
@@ -66,7 +66,7 @@ SaveObservationsFn = Callable[[List[Observation], Path], None]
 
 @dataclass
 class SingleRoundResult:
-    """Outcome of one ``cdps_milp_single_round`` run.
+    """Outcome of one ``pisam_milp_single_round`` run.
 
     Attributes:
         learned_domain: PI-SAM's model, or ``None`` when the MILP found no
@@ -77,7 +77,7 @@ class SingleRoundResult:
         solved: Whether the solver returned a usable solution.
         repair_cost: Number of observed fluents the MILP flipped, across *all*
             observations in the fold — the scope the design §7.1 lower-bound
-            check needs. (``cdps_milp_loop`` cannot report this, because no
+            check needs. (``pisam_milp_loop`` cannot report this, because no
             single solve there covers the whole fold; see ``loop.as_report``.)
         stats: Everything the report needs (solver status, timings, config).
     """
@@ -97,7 +97,7 @@ class SingleRoundResult:
         """Flat report dict, in the spirit of CDPS's ``SearchResult.report``."""
         report = dict(self.stats)
         report.update({
-            "algorithm": "cdps_milp_single_round",
+            "algorithm": "pisam_milp_single_round",
             "milp_solved": self.solved,
             "repair_cost": self.repair_cost,
             "best_cost": self.repair_cost if self.is_conflict_free else None,
@@ -113,7 +113,7 @@ class SingleRoundResult:
 def _build_traces(
     partial_domain: Domain,
     observations: Sequence[Observation],
-    config: CdpsMilpConfig,
+    config: PisamMilpConfig,
     gt_states_by_obs: Optional[Dict[int, Set[int]]],
     object_types_by_obs: Optional[Mapping[int, Mapping[str, str]]] = None,
 ):
@@ -266,7 +266,7 @@ def save_artifacts(
 def run_single_round(
     partial_domain: Domain,
     observations: Sequence[Observation],
-    config: CdpsMilpConfig,
+    config: PisamMilpConfig,
     time_limit_seconds: Optional[int] = None,
     gt_states_by_obs: Optional[Dict[int, Set[int]]] = None,
     negative_preconditions_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard,
@@ -281,7 +281,7 @@ def run_single_round(
         partial_domain: The domain template (predicates + action signatures).
         observations: Masked (and possibly noisy) observations — the same input
             ``learn_cdps`` receives.
-        config: The validated ``cdps_milp`` block.
+        config: The validated ``pisam_milp`` block.
         time_limit_seconds: Solver budget; pass the fold's CDPS budget to make
             the head-to-head comparison fair.
         gt_states_by_obs: CDPS's GT map (obs_idx -> 0-based state indices).

@@ -2,16 +2,16 @@
 
 The same repair problem ``conflict_search.py`` attacks by search, handed to
 CP-SAT instead. A solve produces repaired trajectories T', and PI-SAM learns the
-returned model from them. See ``docs/cdps-milp-denoiser-design.md``.
+returned model from them. See ``docs/pisam-milp-denoiser-design.md``.
 
 The encoder itself is not here — it lives in ``src/milp/``, because the
 ``rosame_milp*`` baselines drive the identical encoding toward a different end.
 What is here is everything that only means something once the caller is CDPS:
 
-  config.py                — the validated ``cdps_milp`` config block
+  config.py                — the validated ``pisam_milp`` config block
   trajectory_extraction.py — solved MILP -> repaired (re-masked) observations T'
-  single_round.py          — the ``cdps_milp_single_round`` driver
-  loop.py                  — the ``cdps_milp_loop`` driver (rounds + selection)
+  single_round.py          — the ``pisam_milp_single_round`` driver
+  loop.py                  — the ``pisam_milp_loop`` driver (rounds + selection)
   model_prior.py           — a learned model -> the encoder's reference channel
 """
 

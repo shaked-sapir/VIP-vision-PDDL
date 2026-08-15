@@ -1,4 +1,4 @@
-"""The ``cdps_milp_loop`` driver: many small solves instead of one big one.
+"""The ``pisam_milp_loop`` driver: many small solves instead of one big one.
 
 ``single_round`` hands every trace to one solve. That is the strongest possible
 joint repair, but it is also a single point of failure: on a big fold the solve
@@ -61,7 +61,7 @@ from src.plan_denoising.evaluator import (
 )
 from src.milp import encoder as _encoder_module  # noqa: F401  (factory registration)
 from src.plan_denoising.milp_denoiser.config import (
-    CdpsMilpConfig,
+    PisamMilpConfig,
     LearnerInput,
     PoolPolicy,
     Sampler,
@@ -199,7 +199,7 @@ class LoopResult:
         """
         report = dict(self.stats)
         report.update({
-            "algorithm": "cdps_milp_loop",
+            "algorithm": "pisam_milp_loop",
             "milp_solved": self.solved,
             "repair_cost": None,
             "best_cost": None,
@@ -475,7 +475,7 @@ def _solve_subset(
     traces_for_subset: List[Any],
     hint_traces: Optional[List[Any]],
     prior_observation_m,
-    config: CdpsMilpConfig,
+    config: PisamMilpConfig,
     time_limit: Optional[int],
 ):
     """Encode and solve one subset. Returns ``(encoder, solved)``."""
@@ -491,7 +491,7 @@ def _solve_subset(
 
 
 def _learner_input(
-    config: CdpsMilpConfig,
+    config: PisamMilpConfig,
     subset: Sequence[int],
     subset_repairs: Sequence[Observation],
     repaired: Dict[int, Observation],
@@ -515,7 +515,7 @@ def _learner_input(
 def run_loop(
     partial_domain: Domain,
     observations: Sequence[Observation],
-    config: CdpsMilpConfig,
+    config: PisamMilpConfig,
     cdps_budget_seconds: Optional[int] = None,
     gt_states_by_obs: Optional[Dict[int, Set[int]]] = None,
     negative_preconditions_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard,
@@ -530,7 +530,7 @@ def run_loop(
         partial_domain: Domain template (predicates + action signatures).
         observations: The masked, noisy observations. Treated as immutable: they
             are the frozen reference V is measured against.
-        config: A validated ``cdps_milp`` block with ``variant: loop``.
+        config: A validated ``pisam_milp`` block with ``variant: loop``.
         cdps_budget_seconds: The fold's denoiser budget — what CDPS would have
             been given (Q7a). It is the *fallback* for two independent caps:
             ``config.stop.budget_seconds`` for the whole loop, and
@@ -678,7 +678,7 @@ class _LoopState:
 
     def draw(
         self,
-        config: CdpsMilpConfig,
+        config: PisamMilpConfig,
         pool: Sequence[int],
         size: int,
         prior_hash: str,
@@ -711,7 +711,7 @@ class _LoopState:
         return None
 
     def _draw_once(
-        self, config: CdpsMilpConfig, pool: Sequence[int], size: int
+        self, config: PisamMilpConfig, pool: Sequence[int], size: int
     ) -> List[int]:
         blocked = set(self.cooldown)
         if config.sampler is Sampler.HARDEST_FIRST and self.per_trace_v:
@@ -727,7 +727,7 @@ def _run_round(
     subset: List[int],
     state: _LoopState,
     result: LoopResult,
-    config: CdpsMilpConfig,
+    config: PisamMilpConfig,
     cache: _TraceCache,
     ps_domain,
     partial_domain: Domain,
@@ -798,7 +798,7 @@ def _run_round(
 
 
 def _hint_traces(
-    config: CdpsMilpConfig,
+    config: PisamMilpConfig,
     cache: _TraceCache,
     state: _LoopState,
     subset: Sequence[int],
@@ -831,7 +831,7 @@ def _learn_and_score(
     log: RoundLog,
     state: _LoopState,
     result: LoopResult,
-    config: CdpsMilpConfig,
+    config: PisamMilpConfig,
     subset: Sequence[int],
     subset_repairs: Sequence[Observation],
     partial_domain: Domain,

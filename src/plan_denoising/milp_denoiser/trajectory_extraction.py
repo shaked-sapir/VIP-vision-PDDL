@@ -2,7 +2,7 @@
 
 The MILP assigns a truth value to *every* fluent of *every* state (variable
 ``hol[i, t, p]``). We deliberately do NOT hand all of that to PI-SAM. Per
-``docs/cdps-milp-denoiser-design.md`` §4.2:
+``docs/pisam-milp-denoiser-design.md`` §4.2:
 
 - **Observed (unmasked) fluents** take the MILP's value. Where that differs from
   the original observation, the difference is a *repair* — exactly the quantity
