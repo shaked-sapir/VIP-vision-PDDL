@@ -54,6 +54,9 @@ _DOMAIN_ALIASES: Dict[str, str] = {
 # Domains whose renderings are horizontal-flip invariant (paper augments these).
 _AUGMENT_DOMAINS = {"blocksworld"}
 
+# Staging directory names that sit one level above a problem's trajectory dir.
+_TRAJECTORY_DIR_NAMES = {"trajectories", "trajectories_normalized"}
+
 
 class RosameIBaselineRunner(BaselineRunner):
     """ROSAME-I (imaged-mode CV + ROSAME) baseline."""
@@ -96,7 +99,9 @@ class RosameIBaselineRunner(BaselineRunner):
         hp = _HYPERPARAMS.get(bench, _DEFAULT_HYPERPARAMS)
         augment = bench in _AUGMENT_DOMAINS
 
-        prepared_problems = self._resolve_inputs(partial_domain, prepared_trajectories, bench)
+        prepared_problems, _gt_paths = self._resolve_inputs(
+            partial_domain, prepared_trajectories, bench
+        )
         if not prepared_problems:
             print("  [ROSAME-I] skipping: no images (simulation-mode cell?)")
             return None, {}
@@ -168,13 +173,21 @@ class RosameIBaselineRunner(BaselineRunner):
         partial_domain: Domain,
         prepared_trajectories: List[Tuple[Path, Path, Path]],
         bench: str,
-    ) -> List[Tuple[object, List[Path], List[str], List[str]]]:
+    ) -> Tuple[List[Tuple[object, List[Path], List[str], List[str]]], List[Optional[Path]]]:
         """Per trajectory, resolve (problem, image paths, action strings, GT final).
 
         Trajectories with no images on disk are dropped; an empty result means a
         simulation-mode cell (handled by the caller).
+
+        Returns:
+            ``(prepared_problems, gt_trajectory_paths)``, the latter positionally
+            aligned with the former and holding the trajectory each final-state
+            anchor was read from (``None`` where none was found). It is a list,
+            not a dict: image-mode problem PDDLs are not uniquely named (every
+            blocksworld problem declares ``(problem blocks)``).
         """
         prepared_problems: List[Tuple[object, List[Path], List[str], List[str]]] = []
+        gt_trajectory_paths: List[Optional[Path]] = []
 
         for traj_path, _masking_path, problem_pddl_path, *_ in prepared_trajectories:
             problem_dir = problem_pddl_path.parent
@@ -193,12 +206,14 @@ class RosameIBaselineRunner(BaselineRunner):
                 for component in observation.components
             ]
 
+            gt_path = self.resolve_final_state_path(problem_dir, problem_name)
             final_preds = self._resolve_final_state(
-                partial_domain, problem, problem_dir, problem_name
+                partial_domain, problem, gt_path, problem_name
             )
             prepared_problems.append((problem, image_paths, action_strings, final_preds))
+            gt_trajectory_paths.append(gt_path)
 
-        return prepared_problems
+        return prepared_problems, gt_trajectory_paths
 
     @staticmethod
     def _resolve_images(problem_dir: Path, bench: str, problem_name: str) -> List[Path]:
@@ -220,17 +235,16 @@ class RosameIBaselineRunner(BaselineRunner):
                 return sorted(images, key=lambda p: int(re.search(r"\d+", p.stem).group()))
         return []
 
-    def _resolve_final_state(
-        self,
-        partial_domain: Domain,
-        problem,
-        problem_dir: Path,
-        problem_name: str,
-    ) -> List[str]:
-        """GT final-state positive predicate strings (prefer gt_trajectories/)."""
+    @staticmethod
+    def resolve_final_state_path(problem_dir: Path, problem_name: str) -> Optional[Path]:
+        """Path of the trajectory the final-state anchor is read from, if any.
+
+        Prefers ``<data_dir>/gt_trajectories/<problem>/<problem>.trajectory`` over
+        the (degraded) trajectory sitting next to the problem PDDL.
+        """
         candidates: List[Path] = []
-        # Standard layout: <data_dir>/training/trajectories/<problem>/ → data_dir.
-        if problem_dir.parent.name == "trajectories":
+        # Standard layout: <data_dir>/training/<staging_dir>/<problem>/ → data_dir.
+        if problem_dir.parent.name in _TRAJECTORY_DIR_NAMES:
             data_dir = problem_dir.parents[2]
             candidates.append(
                 data_dir / "gt_trajectories" / problem_name / f"{problem_name}.trajectory"
@@ -238,9 +252,22 @@ class RosameIBaselineRunner(BaselineRunner):
         candidates.append(problem_dir / f"{problem_name}.trajectory")
 
         for cand in candidates:
-            if not cand.exists():
-                continue
-            observation = self._parse_trajectory_normalized(partial_domain, problem, cand)
+            if cand.exists():
+                return cand
+        return None
+
+    def _resolve_final_state(
+        self,
+        partial_domain: Domain,
+        problem,
+        final_state_path: Optional[Path],
+        problem_name: str,
+    ) -> List[str]:
+        """GT final-state positive predicate strings from an already-resolved path."""
+        if final_state_path is not None:
+            observation = self._parse_trajectory_normalized(
+                partial_domain, problem, final_state_path
+            )
             if observation.components:
                 return self._state_positive_predicates(observation.components[-1].next_state)
 
