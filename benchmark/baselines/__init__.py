@@ -16,6 +16,7 @@ from typing import Dict, List, Type
 from benchmark.baselines.base_runner import BaselineRunner
 from benchmark.baselines.rosame_runner import RosameBaselineRunner
 from benchmark.baselines.rosame_i_runner import RosameIBaselineRunner
+from benchmark.baselines.rosame_i_milp_runner import RosameIMilpRunner
 from benchmark.baselines.rosame_milp_runner import (
     RosameMilpBaseRunner,
     RosameMilpRunner,
@@ -26,6 +27,7 @@ from benchmark.baselines.rosame_milp_runner import (
 BASELINE_REGISTRY: Dict[str, List[Type[BaselineRunner]]] = {
     "rosame": [RosameBaselineRunner],
     "rosame_i": [RosameIBaselineRunner],
+    "rosame_i_milp": [RosameIMilpRunner],
     "rosame_milp": [RosameMilpRunner],
     "rosame_milp_tag": [RosameMilpTagRunner],
     "rosame_milp_base": [RosameMilpBaseRunner],

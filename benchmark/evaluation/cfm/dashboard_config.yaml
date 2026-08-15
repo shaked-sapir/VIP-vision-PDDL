@@ -58,6 +58,8 @@ results_dashboard:
       modes: [simulation]
     - key: ROSAME-I     # image baseline (learned straight from visual traces)
       modes: [image]
+    - key: ROSAME-I_MILP  # image baseline, ROSAME-I with MILP pseudo-labels
+      modes: [image]
 
   # Baselines present in fold_result.json but omitted from learning-curve plots,
   # legend, and Δ tables. Keys must match the "algorithm" field exactly.
