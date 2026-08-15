@@ -39,7 +39,7 @@ from src.milp.converter import GtAnchoring
 
 # Selector keys (CLI/config) and the display/results labels for our algorithm.
 # ``cdps`` anchors only the init state as GT; ``cdps_anchored`` also anchors the
-# final state (init + final GT) — see ConflictDrivenPatchSearch.anchor_endpoints.
+# final state (init + final GT) — see learning_helpers.learn_cdps(anchor_endpoints=...).
 CDPS = "cdps"
 CDPS_ALGORITHM_NAME = "CDPS"
 CDPS_ANCHORED = "cdps_anchored"

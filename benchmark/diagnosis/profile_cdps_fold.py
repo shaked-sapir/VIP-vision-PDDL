@@ -4,7 +4,7 @@ This replays the Conflict-Directed Patch Search (CDPS) for a single, already-run
 fold *without writing anything back into the fold*. It reads the frozen
 ``original_observations/`` and ``domain_reference.pddl`` from the cell, rebuilds
 the exact ``CDPSConfig`` from the experiment's ``run_params.json``, and runs
-``ConflictDrivenPatchSearch.run(...)`` inside ``cProfile``.
+``ConflictDrivenPatchSearchPISAM.run(...)`` inside ``cProfile``.
 
 Read-only guarantee: the search is constructed with ``conflict_free_models_dir=None``
 and ``save_t_prime_fn=None`` and no ``on_node_expanded`` callback, so every disk
@@ -45,7 +45,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain, Observation
 
-from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+from src.plan_denoising.conflict_search_pisam import ConflictDrivenPatchSearchPISAM
 from src.plan_denoising.conflict_search_config import CDPSConfig
 from src.utils.masking import load_masked_observation
 
@@ -139,7 +139,7 @@ def profile_cell(
     observations = load_fold_observations(cell_dir, domain)
 
     # Read-only search: no conflict_free_models_dir, no save_t_prime_fn -> zero disk writes.
-    search = ConflictDrivenPatchSearch(
+    search = ConflictDrivenPatchSearchPISAM(
         partial_domain_template=deepcopy(domain),
         negative_preconditions_policy=config.negative_precondition_policy,
         seed=config.seed,

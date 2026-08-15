@@ -304,7 +304,7 @@ def apply_cfm_fluent_patches(
     reproducing the exact observation set that PI-SAM received when that CFM was produced.
 
     Each fluent patch flips a single grounded predicate in a specific (obs, comp, state) location.
-    This mirrors what ConflictDrivenPatchSearch._apply_patches_to_observations() does internally
+    This mirrors what ConflictDrivenPatchSearchBase._apply_patches_to_observations() does internally
     during the search, using the same flip_fluent_in_state utility.
 
     Args:

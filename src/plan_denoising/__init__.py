@@ -29,7 +29,8 @@ Shared by both:
 A learner only participates by answering two questions — which conflicts do you
 see, and will you accept these patches. ``noisy_learner_mixin.py`` is that
 answering half, written against the SAM family rather than any one member;
-``noisy_pisam_learning.py`` binds it to PI-SAM. Both live here because the
-protocol is denoising's, not the learner's: ``src/pi_sam/`` knows nothing about
-conflicts, and the dependency runs one way.
+``noisy_pisam_learning.py`` binds it to PI-SAM, and ``conflict_search_pisam.py``
+binds the search to that learner. All three live here because the protocol is
+denoising's, not the learner's: ``src/pi_sam/`` knows nothing about conflicts,
+and the dependency runs one way.
 """

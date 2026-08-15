@@ -85,7 +85,7 @@ def retrace_conflict_search(
     fold_dir: Path,
     domain: Domain,
 ) -> Path:
-    """Re-run ConflictDrivenPatchSearch with per-node tracing and save the trace JSON.
+    """Re-run ConflictDrivenPatchSearchPISAM with per-node tracing and save the trace JSON.
 
     Reads search parameters from learning_metrics.json to reproduce the original run.
     Falls back to defaults if the metrics file is absent.
@@ -93,7 +93,7 @@ def retrace_conflict_search(
     Returns:
         Path to the saved search_trace.json.
     """
-    from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+    from src.plan_denoising.conflict_search_pisam import ConflictDrivenPatchSearchPISAM
     from src.plan_denoising.frontier import (
         SearchMode, NodeChoosingStrategy, ConflictGroupStrategy, FluentBranchMode,
     )
@@ -162,7 +162,7 @@ def retrace_conflict_search(
     def _on_node(event: NodeExpansionEvent) -> None:
         trace_log.append(event)
 
-    searcher = ConflictDrivenPatchSearch(
+    searcher = ConflictDrivenPatchSearchPISAM(
         partial_domain_template=domain,
         search_mode=search_mode,
         fluent_patch_cost=fluent_patch_cost,

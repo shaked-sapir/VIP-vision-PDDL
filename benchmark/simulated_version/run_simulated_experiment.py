@@ -30,7 +30,7 @@ from utilities import NegativePreconditionPolicy
 from benchmark.simulated_version.noise_evaluation import evaluate_noise_recovery
 from benchmark.simulated_version.noise_injection import create_bounded_noisy_observation
 from src.plan_denoising.typings import FluentLevelPatch
-from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+from src.plan_denoising.conflict_search_pisam import ConflictDrivenPatchSearchPISAM
 from src.plan_denoising.frontier import (
     ConflictGroupStrategy,
     NodeChoosingStrategy,
@@ -134,7 +134,7 @@ def run_simulated_experiment(
     }
 
     print("\n=== Running conflict-driven patch search ===")
-    conflict_search = ConflictDrivenPatchSearch(
+    conflict_search = ConflictDrivenPatchSearchPISAM(
         partial_domain_template=deepcopy(domain),
         negative_preconditions_policy=NegativePreconditionPolicy.hard,
         seed=seed,

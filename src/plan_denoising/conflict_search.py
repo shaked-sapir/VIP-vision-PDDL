@@ -18,7 +18,6 @@ from utilities import NegativePreconditionPolicy
 
 from src.utils.pddl_state import get_state_grounded_predicates
 from src.plan_denoising.noisy_learner_mixin import NoisyLearnerMixin
-from src.plan_denoising.noisy_pisam_learning import NoisyPisamLearner
 from src.plan_denoising.typings import (
     Conflict,
     ConflictType,
@@ -54,7 +53,7 @@ _DESIRED_MODEL_OP: Dict[ConflictType, PatchOperation] = {
 
 @dataclass
 class SearchResult:
-    """Result of ConflictDrivenPatchSearch.run()."""
+    """Result of ConflictDrivenPatchSearchBase.run()."""
 
     learned_domain: LearnerDomain
     conflicts: List[Conflict]
@@ -112,8 +111,8 @@ class ConflictDrivenPatchSearchBase(ABC):
       Branching structure and child ordering are otherwise identical to the
       original (pre-GT) search.
 
-    Subclasses implement ``_create_learner`` to select the SAM-family
-    learner (e.g. NoisyPisamLearner).
+    Subclasses implement ``_create_learner`` to select the SAM-family learner
+    (see ``conflict_search_pisam.py``).
     """
 
     def __init__(
@@ -164,7 +163,7 @@ class ConflictDrivenPatchSearchBase(ABC):
         self._model_constraints_refused_by_gt: int = 0
 
         if logger is None:
-            logger = DefaultSearchLogger(f"{__name__}.ConflictDrivenPatchSearch")
+            logger = DefaultSearchLogger(f"{__name__}.{type(self).__name__}")
             if not logger.handlers:
                 handler = logging.StreamHandler()
                 formatter = logging.Formatter("[%(asctime)s] %(levelname)s - %(message)s")
@@ -1355,22 +1354,3 @@ class ConflictDrivenPatchSearchBase(ABC):
             "fluent_patches_added": final_fluent_patches - initial_fluent_patches,
             "fluent_patches_removed": initial_fluent_patches - final_fluent_patches,
         }
-
-
-# ======================================================================
-# Concrete subclasses
-# ======================================================================
-
-class ConflictDrivenPatchSearchPISAM(ConflictDrivenPatchSearchBase):
-    """Conflict-driven patch search using PI-SAM (partial observability)."""
-
-    def _create_learner(self, domain_copy: Domain) -> NoisyPisamLearner:
-        return NoisyPisamLearner(
-            partial_domain=domain_copy,
-            negative_preconditions_policy=self.negative_preconditions_policy,
-            seed=self.seed,
-        )
-
-
-# Backward-compatible alias — callers that imported the old name get the PI-SAM variant
-ConflictDrivenPatchSearch = ConflictDrivenPatchSearchPISAM

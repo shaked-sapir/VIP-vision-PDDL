@@ -28,7 +28,7 @@ from benchmark.experiment_running_helpers.cleaned_trajectories import (
     save_fold_observations,
     save_observations_to_dir,
 )
-from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+from src.plan_denoising.conflict_search_pisam import ConflictDrivenPatchSearchPISAM
 from src.plan_denoising.conflict_search_config import CDPSConfig
 from src.plan_denoising.milp_denoiser.config import CdpsMilpConfig
 from src.milp.converter import problem_object_types
@@ -121,7 +121,7 @@ def _learn_cdps_core(
     save_t_prime_fn = None
     if conflict_free_models_dir is not None:
         save_t_prime_fn = _make_save_observations_fn(prepared_trajectories)
-    conflict_search = ConflictDrivenPatchSearch(
+    conflict_search = ConflictDrivenPatchSearchPISAM(
         partial_domain_template=deepcopy(partial_domain),
         negative_preconditions_policy=config.negative_precondition_policy,
         seed=config.seed,

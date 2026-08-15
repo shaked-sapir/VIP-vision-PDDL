@@ -1,6 +1,6 @@
 """GT-aware conflict search tests.
 
-Covers the ground-truth handling of ConflictDrivenPatchSearch on small
+Covers the ground-truth handling of ConflictDrivenPatchSearchPISAM on small
 synthetic blocks trajectories (no external data files needed):
 
   1. GT states are never fluent-patched (init is always GT; further GT states
@@ -32,7 +32,7 @@ from src.plan_denoising.typings import (
     ParameterBoundLiteral,
     PatchOperation,
 )
-from src.plan_denoising.conflict_search import ConflictDrivenPatchSearch
+from src.plan_denoising.conflict_search_pisam import ConflictDrivenPatchSearchPISAM
 from src.plan_denoising.frontier import SearchNode
 from src.utils.masking import load_masked_observation
 
@@ -112,8 +112,8 @@ class _GtSearchTestBase(unittest.TestCase):
             traj, traj.with_suffix(".masking_info"), self.domain
         )
 
-    def _make_search(self, **kwargs) -> ConflictDrivenPatchSearch:
-        return ConflictDrivenPatchSearch(
+    def _make_search(self, **kwargs) -> ConflictDrivenPatchSearchPISAM:
+        return ConflictDrivenPatchSearchPISAM(
             partial_domain_template=deepcopy(self.domain),
             negative_preconditions_policy=NegativePreconditionPolicy.hard,
             seed=42,

@@ -91,7 +91,7 @@ class CDPSConfig:
     """Immutable set of conflict-search shape parameters for CDPS.
 
     Note: this holds only the search *shape*. The runtime budget
-    (``timeout_seconds``) is passed separately to ``ConflictDrivenPatchSearch.run``.
+    (``timeout_seconds``) is passed separately to ``ConflictDrivenPatchSearchBase.run``.
     """
 
     fluent_patch_cost: float = 1.0
@@ -106,7 +106,7 @@ class CDPSConfig:
     negative_precondition_policy: NegativePreconditionPolicy = NegativePreconditionPolicy.hard
     seed: int = 42
     # NOTE: GT awareness is no longer a config switch. The search always
-    # respects the GT states passed to ConflictDrivenPatchSearch.run() via
+    # respects the GT states passed to ConflictDrivenPatchSearchBase.run() via
     # gt_states_by_obs (init state is always GT). The anchored variant differs
     # only in its DATA PREP: it injects the final state as GT before learning.
 
