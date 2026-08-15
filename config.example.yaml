@@ -14,17 +14,52 @@ paths:
   
 # Domain-specific configurations
 domains:
-  blocks:
-    gym_domain_name: "PDDLEnvBlocks-v0"
-    domain_file: "src/domains/blocksworld/blocksworld.pddl"
-    problems_dir: "src/domains/blocksworld/problems"
+  blocksworld:
+    gym_domain_name: "PDDLEnvBlocks_operator_actionsTest-v0"
+    domain_file: "src/domains/blocks/blocks.pddl"
+    problems_dir: "src/domains/blocks/problems"
     problem_prefix: "problem"
-  
+    # Read by benchmark/data_generator.py. Every key here is also a CLI flag;
+    # the flag wins, and a key with no flag and no default is an error.
+    generation:
+      # Shared by every generation mode: how the trace is cut into problems.
+      num_problems: 10
+      length_min: 9
+      length_max: 20
+      skip: 1
+      cut_mode: "uniform"          # none | uniform | buckets
+      # buckets: [5, 10, 15]       # read only when cut_mode is "buckets"
+      # The symbolic trace source (--gen-mode trace).
+      source_kind: "problem"       # problem | trajectory
+      problem_file: "src/domains/blocks/problems/problem1/problem1.pddl"
+      # trajectory_file: ...       # required when source_kind is "trajectory"
+      backend: "native"            # native | pddlgym
+      p_rnd: 1.0
+      max_steps: 1000
+      render: false
+      # The PDDLGym problem generator (--gen-mode generate).
+      from_pddlgym:
+        default_problem_index: 0
+
   hanoi:
-    gym_domain_name: "PDDLEnvHanoi-v0"
+    gym_domain_name: "PDDLEnvHanoi_operator_actions-v0"
     domain_file: "src/domains/hanoi/hanoi.pddl"
     problems_dir: "src/domains/hanoi/problems"
     problem_prefix: "problem"
+    generation:
+      num_problems: 10
+      length_min: 9
+      length_max: 20
+      skip: 1
+      cut_mode: "uniform"
+      source_kind: "problem"
+      problem_file: "src/domains/hanoi/problems/problem1/problem1.pddl"
+      backend: "native"
+      p_rnd: 1.0
+      max_steps: 1000
+      render: false
+      from_pddlgym:
+        default_problem_index: 0
 
 # Masking Strategy Defaults
 masking:
