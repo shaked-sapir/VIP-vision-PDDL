@@ -299,10 +299,41 @@ channels touch, **upstream wins**. Concretely, this settles:
 | Model-channel loss fn | Unweighted CE, `/= len_model`. Already in `milp_loop.py::_model_ce`. |
 | ψ bookkeeping | Decayed **per use per epoch** inside `loss()`, reset to `1` on relabel (`convertor/pseudo_label.py`). Not per round. |
 | State-label frame coverage | Interior frames only, `t ∈ [2, max_t)` (`extract_sol_label`). Endpoints are hard GT. |
-| Base-loss normalization | Upstream normalizes by `B·(T+1)`; our `_trajectory_loss` is sum-reduced. **Do not restate the base loss** — §7.6 requires it byte-identical so `rosame_i` does not move. Instead scale the *pseudo* terms by `1 / (n_frames * n_props)` so they enter at the base loss's per-element scale, and record the factor in `extra_info`. |
+| Base-loss normalization | Upstream normalizes by `B·(T+1)`; our `_trajectory_loss` is sum-reduced. **Do not restate the base loss** — §7.6 requires it byte-identical so `rosame_i` does not move. Scale the *pseudo* terms instead, by the factor that preserves upstream's pseudo/base ratio — see §5b. |
 
 The one place we knowingly diverge is that last row, and it is forced: making the
 base loss upstream-scaled would silently change the existing `rosame_i` baseline.
+
+### 5b. The state-channel scale factor (correction to §5a as first written)
+
+§5a originally specified `1 / (n_frames * n_props)`. That factor is wrong by
+`n_frames`, and this section records the arithmetic so the number is auditable
+without the upstream clone to hand.
+
+Write `u` for the typical per-element BCE magnitude. Upstream:
+
+- base term: sum over propositions, mean over frames → `n_props · u`
+- pseudo term: `F.binary_cross_entropy(pred, label)` at its default `reduction="mean"`,
+  i.e. mean over frames *and* propositions → `u`
+- **upstream ratio pseudo/base = `1 / n_props`**
+
+Ours, with the base loss frozen as sum-reduced over both axes → `n_frames · n_props · u`.
+Holding the ratio at `1 / n_props` therefore requires the pseudo term to be
+`n_frames · u`: **sum over frames, mean over propositions**, i.e.
+
+```python
+F.binary_cross_entropy(interior.clamp(eps, 1 - eps), label, reduction="sum") / n_props
+```
+
+The originally-specified `1 / (n_frames * n_props)` applied to a sum-reduced BCE
+yields `u`, a ratio of `1 / (n_frames · n_props)` — the state channel would be
+`n_frames` times weaker than upstream's, and weaker still on long traces, which
+is the failure mode that quietly turns ROSAME-I+MILP back into ROSAME-I.
+
+Implemented in `milp_loop_i.py::_state_ce`. **Unverified against upstream
+`dl/model.py:274–306`**: no ROSAME clone is present on the machine this was
+written on. The derivation above rests on §5a's own description of upstream, so
+if that description is inaccurate this factor inherits the error.
 
 ---
 
