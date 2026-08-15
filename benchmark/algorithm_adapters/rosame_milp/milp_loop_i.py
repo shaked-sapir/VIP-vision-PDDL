@@ -120,6 +120,24 @@ class MilpRosameI(RosameI_Runner):
         self.optimizer.step()
         return float(loss.item())
 
+    # ------------------------------------------------------- MILP input
+
+    def predict_frames(self, trace: _PreparedTrace) -> List[List[float]]:
+        """``(T + 1, n_props)`` raw CV logits for one trace, unaugmented, no grad."""
+        was_training = self.cv_model.training
+        self.cv_model.eval()
+        try:
+            with torch.no_grad():
+                preds = self._forward_predictions(trace, augment=False)
+        finally:
+            self.cv_model.train(was_training)
+        return preds.detach().cpu().tolist()
+
+    @property
+    def proposition_names(self) -> List[str]:
+        """The CV head's column order — ROSAME's grounded proposition keys."""
+        return list(self.rosame.propositions.keys())
+
     # --------------------------------------------------------- the budget
 
     def _solve_time_limit(

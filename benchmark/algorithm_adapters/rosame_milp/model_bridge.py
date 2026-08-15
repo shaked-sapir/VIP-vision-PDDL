@@ -4,8 +4,9 @@ Three responsibilities:
   1. ROSAME -> ObservationM: read each schema's 4-way distribution
      (``forward()`` rows) into pre/add/del probabilities for the MILP objective.
   2. MILP solution -> pseudo-labels: 4-way one-hot targets per ``forward()``
-     row (the model-CE supervision channel of the training loop), plus an
-     agreement metric.
+     row (the model-CE supervision channel of the training loop) plus an
+     agreement metric, and — for the imaged loop — binary interior-frame state
+     targets aligned with the CV head's proposition columns.
   3. MILP solution -> PDDL: decode the binary pre/add/del variables into a PDDL
      domain string, formatted with the runner's own helpers so ROSAME and
      ROSAME+MILP models are byte-comparable.
@@ -28,7 +29,7 @@ add > del > pre > irrelevant.
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 from planning_structs.domain import Domain as PSDomain
 from planning_structs.traces import ObservationM
@@ -140,6 +141,36 @@ def extract_model_labels(runner, ps_domain: PSDomain, sol: ObservationM) -> Dict
                 label[i, 0] = 1
         labels[schema.name] = label
     return labels
+
+
+def extract_state_labels(
+    instance, repaired_states: List[set], proposition_names: Sequence[str]
+) -> "object":
+    """Binary interior-frame state labels aligned with a CV head's columns.
+
+    ``repaired_states`` holds one set of true Propositions per frame (``T + 1``
+    of them, as :meth:`CPSATObservedActions.repaired_states` returns). The result
+    is a ``(T - 1, len(proposition_names))`` FloatTensor covering the interior
+    frames only; the endpoints are hard-fixed in the MILP. A column with no
+    counterpart in ``instance`` is 0.0, under the encoder's closed-world reading.
+    """
+    import torch
+
+    from src.milp.converter import proposition_of
+
+    props = []
+    for key in proposition_names:
+        parts = key.split()
+        props.append(proposition_of(instance, parts[0], parts[1:]) if parts else None)
+
+    interior = repaired_states[1:-1]
+    rows = [
+        [1.0 if prop is not None and prop in frame else 0.0 for prop in props]
+        for frame in interior
+    ]
+    return torch.tensor(rows, dtype=torch.float32).reshape(
+        len(interior), len(proposition_names)
+    )
 
 
 def model_cross_entropy(action_schemas, labels: Dict[str, "object"]):
