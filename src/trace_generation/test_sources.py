@@ -16,7 +16,8 @@ import pytest
 
 from src.trace_generation import sources
 from src.trace_generation.cutter import CutMode, cut
-from src.trace_generation.sources import DEFAULT_MAX_STEPS, ProblemWalkSource
+from src.trace_generation.emitter import emit_window
+from src.trace_generation.sources import ProblemWalkSource, TrajectorySource
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BLOCKS_DOMAIN = PROJECT_ROOT / "src" / "domains" / "blocks" / "blocks.pddl"
@@ -29,6 +30,11 @@ PROBLEM10 = PROBLEMS / "problem10" / "problem10.pddl"
 
 PROBLEM10_GOAL = {"on(a:block,c:block)", "on(c:block,b:block)",
                   "on(d:block,e:block)", "clear(d:block)", "clear(a:block)"}
+
+# gripper problem0 ships a 17-step trajectory beside its 18 state_*.png frames.
+GRIPPER_DOMAIN = PROJECT_ROOT / "src" / "domains" / "gripper" / "gripper.pddl"
+GRIPPER_DIR = (PROJECT_ROOT / "src" / "domains" / "gripper" / "problems"
+               / "problem0")
 
 
 def _walk(problem=PROBLEM1, **kwargs) -> ProblemWalkSource:
@@ -153,8 +159,6 @@ def test_a_walked_trace_survives_the_cutter_and_the_real_trajectory_parser(tmp_p
     """The end the pipeline cares about: a walk must round-trip as a corpus."""
     from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 
-    from src.trace_generation.emitter import emit_window
-
     source = _walk(max_steps=6)
     window = cut(source.steps(), mode=CutMode.NONE)[0]
     emitted = emit_window(window, problem_name="problem0", index=0,
@@ -189,3 +193,84 @@ def test_randomness_diverges_from_the_plan_and_still_reaches_the_goal():
     assert len(mixed) > len(planned), "a detour should cost extra steps"
     assert PROBLEM10_GOAL <= set(mixed[-1].next_state.literals), \
         "replanning after a substitution should still land on the goal"
+
+
+# ── TrajectorySource ─────────────────────────────────────────────────────
+
+def _gripper(**kwargs) -> TrajectorySource:
+    """A source over gripper problem0's shipped trajectory."""
+    return TrajectorySource(GRIPPER_DIR / "problem0.trajectory",
+                            GRIPPER_DIR / "problem0.pddl",
+                            GRIPPER_DOMAIN, **kwargs)
+
+
+def test_a_trajectory_source_parses_nothing_until_it_is_asked():
+    source = _gripper()
+    assert source._problem is None
+    source.objects
+    assert source._problem is not None
+
+
+def test_domain_name_and_objects_come_from_the_parsed_files():
+    source = _gripper()
+    assert source.domain_name == "gripper"
+    assert source.objects == (
+        "ball1:ball", "ball2:ball", "ball3:ball", "ball4:ball", "ball5:ball",
+        "ball6:ball", "left:gripper", "right:gripper", "rooma:room", "roomb:room")
+
+
+def test_describe_records_the_source_files():
+    described = _gripper().describe()
+    assert described["source_kind"] == "trajectory"
+    assert Path(described["source_file"]).name == "problem0.trajectory"
+    assert Path(described["problem_file"]).name == "problem0.pddl"
+    assert described["attach_frames"] is False
+
+
+def test_replayed_steps_are_in_the_eval_schema():
+    step = next(iter(_gripper().steps()))
+    assert step.action == "pick(ball1:ball, roomb:room, left:gripper)"
+    assert "at(ball1:ball,roomb:room)" in step.prev_state.literals
+
+
+def test_replayed_steps_chain_end_to_end():
+    steps = list(_gripper().steps())
+    assert len(steps) == 17
+    for earlier, later in zip(steps, steps[1:]):
+        assert earlier.next_state == later.prev_state
+
+
+def test_a_replay_has_no_frames_unless_asked():
+    assert all(not step.has_frames for step in _gripper().steps())
+
+
+def test_attaching_frames_pairs_each_step_with_its_two_images():
+    steps = list(_gripper(attach_frames=True).steps())
+    assert all(step.has_frames for step in steps)
+    assert steps[0].frame_before.name == "state_00.png"
+    assert steps[0].frame_after.name == "state_01.png"
+    assert steps[-1].frame_after.name == "state_17.png"
+    for earlier, later in zip(steps, steps[1:]):
+        assert earlier.frame_after == later.frame_before
+
+
+def test_a_frame_count_that_does_not_match_the_steps_is_refused(tmp_path):
+    source = _gripper(attach_frames=True, frames_dir=tmp_path)
+    (tmp_path / "state_00.png").touch()
+    with pytest.raises(ValueError, match="holds 1 .* 17 steps, which needs 18"):
+        list(source.steps())
+
+
+def test_a_walk_survives_being_emitted_and_read_back_as_a_trajectory(tmp_path):
+    """The two sources must agree: replaying a walk reproduces it exactly."""
+    walk = _walk(max_steps=6)
+    walked = list(walk.steps())
+    emitted = emit_window(cut(iter(walked), mode=CutMode.NONE)[0],
+                          problem_name="problem0", index=0,
+                          domain_name=walk.domain_name, corpus_root=tmp_path)
+
+    replayed = list(TrajectorySource(emitted.gt_dir / "problem0.trajectory",
+                                     emitted.problem_dir / "problem0.pddl",
+                                     BLOCKS_DOMAIN).steps())
+
+    assert replayed == walked

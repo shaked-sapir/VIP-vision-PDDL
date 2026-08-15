@@ -1,11 +1,7 @@
 """Translate ``unified_planning`` states and actions into the eval schema.
 
-The eval schema is what ``_trajectory.json`` stores and what every downstream
-consumer reads:
-
-    literal  ``"on(a:block,b:block)"``      nullary: ``"handempty()"``
-    object   ``"a:block"``
-    action   ``"stack(a:block, b:block)"``  note the separator differs
+The schema's spelling lives in :mod:`src.trace_generation.eval_schema`; this
+module only decides which ``unified_planning`` object supplies each part of it.
 
 State conversion drops fluents that evaluate to false, per the closed-world
 assumption the ``.trajectory`` format is built on.
@@ -18,14 +14,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Dict, Sequence, Tuple
 
+from src.trace_generation.eval_schema import (
+    render_action,
+    render_literal,
+    typed_universe,
+)
 from src.trace_generation.trace_step import TraceState
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from unified_planning.model import FNode, Problem, UPState
     from unified_planning.plans import ActionInstance
-
-LITERAL_ARG_SEPARATOR = ","
-ACTION_ARG_SEPARATOR = ", "
 
 
 def object_types(problem: "Problem") -> Dict[str, str]:
@@ -35,8 +33,7 @@ def object_types(problem: "Problem") -> Dict[str, str]:
 
 def typed_objects(problem: "Problem") -> Tuple[str, ...]:
     """The problem's object universe as sorted eval-schema ``name:type`` strings."""
-    return tuple(sorted(f"{name}:{type_name}"
-                        for name, type_name in object_types(problem).items()))
+    return typed_universe(object_types(problem))
 
 
 def ground_fluents(problem: "Problem") -> Tuple["FNode", ...]:
@@ -51,12 +48,8 @@ def ground_fluents(problem: "Problem") -> Tuple["FNode", ...]:
 
 def fluent_to_literal(fluent: "FNode", types: Dict[str, str]) -> str:
     """Render one ground fluent expression as an eval-schema literal."""
-    name = fluent.fluent().name
-    args = [str(arg) for arg in fluent.args]
-    if not args:
-        return f"{name}()"
-    typed = LITERAL_ARG_SEPARATOR.join(_typed(arg, types) for arg in args)
-    return f"{name}({typed})"
+    return render_literal(fluent.fluent().name,
+                          [str(arg) for arg in fluent.args], types)
 
 
 def state_to_trace_state(
@@ -87,19 +80,6 @@ def state_to_trace_state(
 
 def action_to_eval_string(instance: "ActionInstance", types: Dict[str, str]) -> str:
     """Render an ``ActionInstance`` as an eval-schema ground action string."""
-    name = instance.action.name
-    args = [str(param) for param in instance.actual_parameters]
-    if not args:
-        return f"{name}()"
-    typed = ACTION_ARG_SEPARATOR.join(_typed(arg, types) for arg in args)
-    return f"{name}({typed})"
-
-
-def _typed(object_name: str, types: Dict[str, str]) -> str:
-    """Attach an object's declared type, failing loudly on an unknown object."""
-    if object_name not in types:
-        raise KeyError(
-            f"Object {object_name!r} is not declared in the problem's :objects; "
-            "its type cannot be written into the eval schema."
-        )
-    return f"{object_name}:{types[object_name]}"
+    return render_action(instance.action.name,
+                         [str(param) for param in instance.actual_parameters],
+                         types)

@@ -12,6 +12,9 @@ as the single dial:
     ``p_rnd = 1``    pure random walk; the planner is never invoked and the
                      source problem's goal is irrelevant
 
+``TrajectorySource`` replays a ``.trajectory`` file that already exists. It takes
+the file at face value: whatever states it holds become the trace's states.
+
 ``unified_planning`` and ``tarski`` are imported inside the walk, not at module
 scope, so importing this package stays cheap for the trajectory source.
 """
@@ -27,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
+from src.trace_generation import pddl_bridge
 from src.trace_generation.trace_step import TraceStep
 from src.trace_generation.up_bridge import (
     action_to_eval_string,
@@ -515,3 +519,114 @@ class ProblemWalkSource(TraceSource):
         self._problem = parse_problem(self.domain_file, self.problem_file)
         self._types = object_types(self._problem)
         self._objects = typed_objects(self._problem)
+
+
+FRAME_GLOB = "state_*.png"
+
+
+class TrajectorySource(TraceSource):
+    """A trace read back from an existing ``.trajectory`` file."""
+
+    def __init__(
+        self,
+        trajectory_file: Path,
+        problem_file: Path,
+        domain_file: Path,
+        *,
+        attach_frames: bool = False,
+        frames_dir: Optional[Path] = None,
+    ) -> None:
+        """Point the source at a trajectory and the files that type it.
+
+        Args:
+            trajectory_file: The ``.trajectory`` to replay.
+            problem_file: The problem whose ``:objects`` type its literals.
+            domain_file: The domain both were written against.
+            attach_frames: Attach ``state_*.png`` to each step, so the emitter
+                can re-render them. Off by default: a symbolic corpus has none.
+            frames_dir: Where those frames live. Defaults to the trajectory's
+                own directory.
+        """
+        self.trajectory_file = Path(trajectory_file)
+        self.problem_file = Path(problem_file)
+        self.domain_file = Path(domain_file)
+        self.attach_frames = attach_frames
+        self.frames_dir = Path(frames_dir) if frames_dir is not None \
+            else self.trajectory_file.parent
+
+        self._domain: Optional[Any] = None
+        self._problem: Optional[Any] = None
+        self._types: Optional[Dict[str, str]] = None
+        self._objects: Optional[Tuple[str, ...]] = None
+
+    @property
+    def domain_name(self) -> str:
+        """The domain name declared in the domain file."""
+        self._load()
+        return self._domain.name
+
+    @property
+    def objects(self) -> Tuple[str, ...]:
+        """The problem's object universe, including the domain's constants."""
+        self._load()
+        return self._objects  # type: ignore[return-value]
+
+    def steps(self) -> Iterator[TraceStep]:
+        """Replay the trajectory, converting each component into the eval schema."""
+        from pddl_plus_parser.lisp_parsers import TrajectoryParser
+
+        self._load()
+        types, objects = self._types, self._objects
+
+        observation = TrajectoryParser(self._domain, self._problem).parse_trajectory(
+            self.trajectory_file)
+        frames = self._frames(len(observation.components))
+
+        for index, component in enumerate(observation.components):
+            before, after = frames[index], frames[index + 1]
+            yield TraceStep(
+                prev_state=pddl_bridge.state_to_trace_state(
+                    component.previous_state, types, objects),
+                action=pddl_bridge.action_call_to_eval_string(
+                    component.grounded_action_call, types),
+                next_state=pddl_bridge.state_to_trace_state(
+                    component.next_state, types, objects),
+                frame_before=before,
+                frame_after=after,
+            )
+
+    def describe(self) -> Dict[str, Any]:
+        """The source's inputs, for ``generation_info.json``."""
+        return {
+            "source_kind": "trajectory",
+            "source_file": str(self.trajectory_file),
+            "problem_file": str(self.problem_file),
+            "domain_file": str(self.domain_file),
+            "attach_frames": self.attach_frames,
+        }
+
+    def _frames(self, num_steps: int) -> List[Optional[Path]]:
+        """The ``state_*.png`` for each of the trace's ``num_steps + 1`` states."""
+        if not self.attach_frames:
+            return [None] * (num_steps + 1)
+
+        found = sorted(self.frames_dir.glob(FRAME_GLOB))
+        if len(found) != num_steps + 1:
+            raise ValueError(
+                f"{self.frames_dir} holds {len(found)} {FRAME_GLOB} frames but "
+                f"{self.trajectory_file.name} has {num_steps} steps, which needs "
+                f"{num_steps + 1}."
+            )
+        return list(found)
+
+    def _load(self) -> None:
+        """Parse the domain and problem once, caching types and objects."""
+        if self._problem is not None:
+            return
+        from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser
+
+        self._domain = DomainParser(self.domain_file,
+                                    partial_parsing=False).parse_domain()
+        self._problem = ProblemParser(self.problem_file, self._domain).parse_problem()
+        self._types = pddl_bridge.object_types(self._problem, self._domain)
+        self._objects = pddl_bridge.typed_objects(self._problem, self._domain)
