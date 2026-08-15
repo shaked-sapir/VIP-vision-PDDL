@@ -40,6 +40,35 @@ def build_trajectory_file(trajectory_data: List[dict], problem_name: str, output
     print(f"Trajectory saved to {dest}")
 
 
+def export_gt_trajectory(
+    gt_trajectory_json: List[dict],
+    problem_name: str,
+    gt_out_dir: Path,
+) -> Path:
+    """Write eval-schema GT ``.trajectory`` + ``_trajectory.json`` for one problem.
+
+    Args:
+        gt_trajectory_json: GT trajectory as a list of step dicts already in the
+            eval schema (each step has ``current_state.literals``,
+            ``ground_action``, ``next_state.literals``).
+        problem_name: e.g. ``"problem3"``.
+        gt_out_dir: Destination dir (``gt_trajectories/{problem}/``); created if
+            missing.
+
+    Returns:
+        Path to the written ``gt_trajectories/{problem}/`` directory.
+    """
+    gt_out_dir = Path(gt_out_dir)
+    gt_out_dir.mkdir(parents=True, exist_ok=True)
+
+    json_path = gt_out_dir / f"{problem_name}_trajectory.json"
+    with open(json_path, "w") as f:
+        json.dump(gt_trajectory_json, f, indent=4)
+
+    build_trajectory_file(gt_trajectory_json, problem_name, gt_out_dir)
+    return gt_out_dir
+
+
 def observation_to_trajectory_file(observation: Observation, output_path: Path) -> Path:
     """Build a .trajectory file from a single-agent Observation object."""
     def serialize_state_positive_only(state: State, state_type: str) -> str:

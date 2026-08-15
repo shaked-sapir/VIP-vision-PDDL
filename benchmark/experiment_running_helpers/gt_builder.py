@@ -13,7 +13,8 @@ Two responsibilities:
    write the eval-schema GT ``{problem}.trajectory`` + ``{problem}_trajectory.json``
    into ``gt_trajectories/{problem}/``. For generate-mode datasets the GT JSON
    arrives in raw PDDLGym schema, so a domain handler's ``_manipulate_trajectory_json``
-   hook is applied first to translate it to the eval schema.
+   hook is applied first to translate it to the eval schema. The writer itself
+   lives in ``src.utils.pddl_trajectory`` and is re-exported here.
 
 2. **Validate** — model-free consistency checks on the exported GT (fully
    specified states, a ground action per step, constant object set) plus optional
@@ -26,41 +27,20 @@ import re
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
+from src.utils.pddl_trajectory import export_gt_trajectory
+
+__all__ = [
+    "export_gt_trajectory",
+    "load_gt_json",
+    "export_gt_from_problem_dir",
+    "validate_gt_trajectory_file",
+    "validate_gt_dir",
+]
+
 
 # ===========================================================================
 # Export
 # ===========================================================================
-
-def export_gt_trajectory(
-    gt_trajectory_json: List[dict],
-    problem_name: str,
-    gt_out_dir: Path,
-) -> Path:
-    """Write eval-schema GT ``.trajectory`` + ``_trajectory.json`` for one problem.
-
-    Args:
-        gt_trajectory_json: GT trajectory as a list of step dicts already in the
-            eval schema (each step has ``current_state.literals``,
-            ``ground_action``, ``next_state.literals``).
-        problem_name: e.g. ``"problem3"``.
-        gt_out_dir: Destination dir (``gt_trajectories/{problem}/``); created if
-            missing.
-
-    Returns:
-        Path to the written ``gt_trajectories/{problem}/`` directory.
-    """
-    from src.utils.pddl_trajectory import build_trajectory_file
-
-    gt_out_dir = Path(gt_out_dir)
-    gt_out_dir.mkdir(parents=True, exist_ok=True)
-
-    json_path = gt_out_dir / f"{problem_name}_trajectory.json"
-    with open(json_path, "w") as f:
-        json.dump(gt_trajectory_json, f, indent=4)
-
-    build_trajectory_file(gt_trajectory_json, problem_name, gt_out_dir)
-    return gt_out_dir
-
 
 def load_gt_json(problem_dir: Path, problem_name: Optional[str] = None) -> List[dict]:
     """Load the ``*_trajectory.json`` GT states from a problem dir."""
