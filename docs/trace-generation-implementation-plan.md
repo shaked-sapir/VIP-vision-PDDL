@@ -9,6 +9,17 @@
 > existing trajectory file — for **any** PDDL domain, not only the ones PDDLGym
 > ships. Symbolic output only; images remain the existing pipeline's job.
 
+> **Status (2026-08-15, branch `trace-generation-implementation`)**: §8 steps 1–4
+> are built and the step-4 acceptance gate passed (§8.1). Steps 5–6 and
+> multi-input corpora are not built. This document has been edited in place to
+> match what exists; where a statement was superseded it is struck through and
+> the replacement given, rather than deleted, so the reasoning stays auditable.
+>
+> ```
+> python benchmark/data_generator.py --domain blocksworld --gen-mode trace \
+>     --num-problems 10 --seed 17 --cut-seed 5
+> ```
+
 ---
 
 ## 0. Settled design decisions (do not revisit)
@@ -27,8 +38,9 @@
    in metadata — *not* one directory per length.
 5. **Input trajectories are ground truth.** Windows land in `gt_trajectories/`;
    degradation stays the experiment's job (`SimulatedDataSource` injects masking
-   and noise per fold). A noisy input trajectory must be rejected or loudly
-   flagged, never silently treated as GT.
+   and noise per fold). `TrajectorySource` **trusts its caller** on this: it does
+   not attempt to detect or reject a noisy input. A `.trajectory` carries no
+   marker distinguishing GT from degraded, so any such check would be a guess.
 6. **A trajectory input requires its problem `.pddl`.** Two independent reasons:
    a `.trajectory` carries object *names* but not their *types*, so a valid
    `:objects` block cannot be written from it alone; and
@@ -74,20 +86,25 @@ plan left open. Where these conflict with the sections below, these win.
 12. **Planner use follows `p_rnd`.** `p_rnd=1` never invokes the planner, so a
     pure random walk needs no planner engine installed. `solvability_preserving`
     (the AMLGym replan-after-random-action step, §10.2) defaults **off**.
-13. **`benchmark/evaluation/test_states_generator.py` is not touched.** §3.1 and
-    §9 say its walk loop moves into the shared source; §11 says leave it. §11
-    wins. It seeds a module-global `random`, calls `simulator._is_applicable`,
-    and serves S_test, not corpora. The native source is written fresh with
-    per-instance `random.Random`, and the duplication is accepted.
-14. **Many inputs, one corpus.** `problem_files` / `trajectory_files` both accept
-    a list. Each input is walked/read and cut independently — **no window
-    straddles two inputs** — and the resulting windows are numbered
-    `problem0..problemN-1` globally in input order. Mixing the two *kinds* in one
-    corpus is not supported.
+13. ~~**`benchmark/evaluation/test_states_generator.py` is not touched.**~~
+    **Superseded — it was rewired onto the shared walk** (§3.1 and §9 win over
+    §11). Leaving it alone would have meant two copies of the AMLGym
+    plan/substitute/replan loop drifting apart, and the S_test copy is the one
+    with the private-API coupling worth having in a single place. It keeps its
+    own S_test post-processing; only the walk moved. Its module-global `random`
+    seeding becomes a per-instance `random.Random`, which changes which states
+    a given seed produces — accepted, since S_test is regenerated per run and
+    no stored S_test is reproduced from a recorded seed.
+14. ~~**Many inputs, one corpus.**~~ **Not built.** `build_source` takes one
+    `problem_file` *or* one `trajectory_file`, and `generate_corpus` takes one
+    source. Multi-input would also void gotcha §10.5's uniform object universe,
+    which ROSAME-I requires, so it is not a free extension. Adding it later
+    means a loop over sources in `generate_corpus`, a global window counter,
+    and threading item 15's signatures — no change to the cutter or emitter.
 15. **Deduplication is global across inputs.** `cut()` takes
     `exclude_signatures`; the caller threads the accumulated signatures through
     successive calls. The set is copied, never mutated, so `cut()` stays pure
-    (§4).
+    (§4). Built and tested, but with item 14 unbuilt it has no caller yet.
 16. **`cut_mode=none` means one window per input**, i.e. the trace as-is,
     uncut. With a single input that yields a one-problem corpus, which
     `experiment_runner.py:301` rejects (it needs ≥ 2 problem dirs) — so `none` is
@@ -100,13 +117,17 @@ plan left open. Where these conflict with the sections below, these win.
     final state; a source problem's own goal is discarded; closed-world positive
     fluents only; window lengths count *actions*; and two independent
     `random.Random` instances (walk RNG, cutter RNG), per §10.4.
-19. **Scope of this implementation: §8 steps 1–5.** Step 6 (arbitrary-problem
-    injection into the pddlgym backend) is excluded. Step 5's stated verification
-    — regenerate an existing npuzzle corpus at the same seed and diff — is
-    **unmeetable**: the corpus on disk records no seed, and its
+19. **Scope of this implementation: §8 steps 1–4.** Steps 5 (retrofitting
+    `PDDLGymProblemGenerator` onto the shared cutter and emitter) and 6
+    (arbitrary-problem injection into the pddlgym backend) are both excluded, so
+    `src/trajectory_handlers/pddlgym_problem_generator.py` is untouched and the
+    imaged path still runs its own private walk/cut/emit. Step 5's stated
+    verification — regenerate an existing npuzzle corpus at the same seed and
+    diff — is **unmeetable**: the corpus on disk records no seed, and its
     `_trajectory.json` files were overwritten in place by the inference pass.
-    Substituted check: two fresh `--no-inference` runs at one fixed seed, one
-    before and one after the retrofit, must produce byte-identical trees.
+    Substituted check, to be run when step 5 is: two fresh `--no-inference` runs
+    at one fixed seed, one before and one after the retrofit, must produce
+    byte-identical trees.
 
 ---
 
@@ -173,29 +194,58 @@ A symbolic corpus therefore needs exactly those two artifacts to be complete.
 
 ```
 src/trace_generation/
-  sources.py    TraceSource → (steps, objects, domain)
-                ├─ ProblemWalkSource(problem_file, domain_file,
-                │                    backend={native|pddlgym}, p_rnd, seed)
-                └─ TrajectorySource(trajectory_file, problem_file)
-  cutter.py     cut(steps, mode, skip, num_problems, seed) → [Window]
-  emitter.py    emit(window, out_dir, name, render) → problemN/
-  up_bridge.py  UPState / ActionInstance  ↔  our .trajectory / .pddl formats
+  trace_step.py   TraceState / TraceStep — the one record both sources produce
+  sources.py      TraceSource → (steps(), domain_name, describe())
+                  ├─ ProblemWalkSource(problem_file, domain_file,
+                  │                    backend={native|pddlgym}, p_rnd, seed)
+                  └─ TrajectorySource(trajectory_file, problem_file, domain_file)
+                  plus walk_problem(), the shared AMLGym loop test_states_generator
+                  now calls
+  cutter.py       cut(steps, mode, skip, num_problems, seed) → [Window]
+  emitter.py      emit_window(window, ...) → problemN/ in both trees
+                  build_generation_info / write_generation_info → the manifest
+  corpus.py       build_source() + generate_corpus() — the one place the three
+                  meet; returns a Corpus describing what landed
+  up_bridge.py    UP State / ActionInstance   → the eval schema (native walk)
+  pddl_bridge.py  pddl-plus-parser State / ActionCall → the eval schema (replay)
+  eval_schema.py  the one definition of how a literal, an action and a typed
+                  object are spelled, so the two bridges cannot drift
 ```
+
+The two bridges exist because the two sources speak different libraries — the
+native walk holds `unified_planning` objects, the replay holds
+`pddl-plus-parser` ones — and neither library's rendering matches the eval
+schema. `eval_schema.py` is what makes their outputs comparable.
 
 ### 2.1 The one type that keeps this compact
 
 Both backends must produce the **same** step record, so the cutter and emitter
-never branch on source. Today's `WalkStep` is already 90% of it:
+never branch on source. `PDDLGymProblemGenerator`'s `WalkStep` was already 90%
+of it; `trace_step.py` is the remaining 10%.
+
+As built, states and actions are **strings in the eval schema**, not library
+objects — the bridge happens at the source, so nothing downstream of `TraceStep`
+imports `unified_planning` or `pddl-plus-parser`:
 
 ```python
-@dataclass
+@dataclass(frozen=True)
+class TraceState:
+    literals: Tuple[str, ...]   # positive fluents, "on(a:block,b:block)"
+    objects: Tuple[str, ...]    # the universe, "a:block"
+
+@dataclass(frozen=True)
 class TraceStep:
-    prev_state: State          # our state repr, not pddlgym's / UP's
-    action: GroundedAction
-    next_state: State
+    prev_state: TraceState
+    action: str                 # "stack(a:block, b:block)"
+    next_state: TraceState
     frame_before: Optional[Path] = None   # None for symbolic sources
     frame_after:  Optional[Path] = None
 ```
+
+Both are frozen with tuple fields, so a window can be hashed and deduplicated
+without defensive copying. Note the schema's deliberate asymmetry: literal
+arguments are joined with `","`, action arguments with `", "`. That is what the
+eval code already expects; `eval_schema.py` is the single place it is spelled.
 
 Get this right first. Every "how do I share X?" question downstream dissolves
 into "produce a `TraceStep`".
@@ -231,19 +281,30 @@ the critical path for this plan.
 ### 3.3 `TrajectorySource(trajectory_file, problem_file)`
 
 Parse with `TrajectoryParser(domain, problem)`, emit `TraceStep`s with frames
-`None`. Object universe and types come from the problem's `:objects`. If the
-source folder happens to carry `state_*.png`, slicing them per window is a
-contiguous-slice one-liner — **wire the plumbing but leave it off**, per the
-symbolic-only decision.
+`None`. Object universe and types come from the problem's `:objects` — **merged
+with the domain's `:constants`**, because `ProblemParser` does not fold constants
+into `problem.objects` (UP's `PDDLReader` does, which is why `up_bridge` needs no
+equivalent). A domain declaring constants would otherwise emit windows whose
+`:objects` block omits objects their own literals mention.
+
+Frames were **built and left off by default**, not left unwired: `attach_frames`
+on the source plus `render` on the corpus copies a window's contiguous
+`state_*.png` slice out. Both default false, so the symbolic-only decision holds
+unless a caller asks otherwise.
 
 ---
 
 ## 4. Cutter
 
 ```python
-def cut(steps, *, mode, length_range=None, buckets=None,
-        skip=1, num_problems=None, seed=None) -> List[Window]
+def cut(steps: Iterable[TraceStep], *, mode, length_range=None, buckets=None,
+        skip=1, num_problems=None, seed=None,
+        exclude_signatures=()) -> List[Window]
 ```
+
+`steps` is an `Iterable`, pulled lazily, never a materialized list: a walk with
+`max_steps=1000` cut into 5 windows must not walk 1000 steps first. All modes but
+`NONE` stop pulling once `num_problems` windows are accepted.
 
 - `mode="none"` — one window spanning every step.
 - `mode="uniform"` — today's behaviour: `length ~ U(*length_range)`.
@@ -262,9 +323,10 @@ No I/O, no env. That is what makes it testable and what stops it drifting.
 
 ## 5. Emitter
 
-Port `_write_problem`, `_write_problem_pddl`, `_write_plan`, `_write_images`,
-`_write_gt_trajectory` from `PDDLGymProblemGenerator` into `emitter.py`,
-generalized off `TraceStep`:
+Reproduce `_write_problem`, `_write_problem_pddl`, `_write_plan`, `_write_images`
+from `PDDLGymProblemGenerator` in `emitter.py`, generalized off `TraceStep`.
+They are reimplemented rather than moved, because step 5 — which would delete the
+originals — is out of scope (item 19), so for now the two copies coexist:
 
 - `.pddl` — objects from the window's initial state, `init` = window's first
   state fluents, **`goal` = the window's full final state** (keep this
@@ -273,21 +335,40 @@ generalized off `TraceStep`:
 - GT `.trajectory` + `_trajectory.json`.
 - `state_*.png` only when `render=True` **and** the source supplied frames.
 
-Plus one **new** artifact, `generation_info.json` at corpus level:
+Plus one **new** artifact, `generation_info.json` at corpus level. As built it is
+the source's own `describe()` merged with the cut parameters, so a walk corpus
+carries `backend` / `p_rnd` / `seed` / `max_steps` and a replay corpus carries
+`trajectory_file` / `attach_frames` instead — the manifest describes whichever
+source actually ran rather than a union with nulls in it:
 
 ```json
 {
-  "source_kind": "problem" | "trajectory",
-  "source_file": "...",
-  "backend": "native" | "pddlgym",
-  "p_rnd": 0.0, "seed": 42,
-  "cut_mode": "buckets", "buckets": [5, 10, 20, 40], "skip": 1,
-  "windows": [{"name": "problem0", "length": 10, "index": 0}, ...]
+  "source_kind": "problem",
+  "source_file": ".../problem1.pddl",
+  "domain_file": ".../blocks.pddl",
+  "backend": "native", "p_rnd": 1.0, "seed": 7, "max_steps": 60,
+  "preserve_solvability": false, "stop_at_goal": true,
+
+  "cut_mode": "uniform", "length_range": [4, 7], "buckets": null,
+  "skip": 1, "num_problems": 5, "cut_seed": 3, "render": false,
+
+  "uniform_object_universe": true,
+  "object_signature": ["a:block", "b:block", "c:block", "d:block"],
+
+  "num_windows": 5,
+  "windows": [{"name": "problem0", "index": 0, "length": 6, "source": "..."}]
 }
 ```
 
 This is what lets a mixed-bucket pool be grouped by length at report time, and
 it is what the experiment-reporting work will read to describe a corpus.
+
+Three fields carry more than they look like. `num_problems` is what was *asked
+for* and `num_windows` what was *produced*, so item 11's warned shortfall stays
+legible after the fact instead of a short corpus looking like the intended one.
+`object_signature` is gotcha §10.5's uniform-universe claim written down, so it
+can be checked rather than assumed once item 14 lands. And `seed` / `cut_seed`
+are separate because the RNGs are (§10.4).
 
 ---
 
@@ -298,29 +379,64 @@ the only genuinely new logic in the plan; everything else is a move or a rewire.
 Get the object-name and predicate-arity conventions right against a domain that
 already has a known-good corpus on disk, and diff.
 
+**As built there are two bridges, not one**, because the replay source never
+holds a UP object: `pddl_bridge.py` does the same job for `pddl-plus-parser`'s
+`State` and `ActionCall`. Neither owns the conventions — `eval_schema.py` does,
+and both call it, which is what stops the two paths emitting subtly different
+spellings of the same state. Verification is a round trip rather than a diff
+against disk: emitted `.pddl` and `.trajectory` files are re-read by the real
+`ProblemParser` / `TrajectoryParser` in `test_emitter.py`, and §8.1's gripper
+fold confirms the replay path against a real learner.
+
 ---
 
 ## 7. Entry point and config
 
-One `data_generator` function composing source → cutter → emitter.
-`generate_trajectories_via_generation` becomes a thin preset over it
-(`backend="pddlgym"`, `render=True`, then LLM inference).
+The composition itself is `src/trace_generation/corpus.py:generate_corpus`, not a
+`data_generator` function: it needs no config, so keeping it in the library lets
+it be unit-tested directly. `data_generator.generate_trajectories_via_trace` is
+the shell around it — config resolution, output-dir naming, banners — reached by
+`--gen-mode trace`.
 
-New keys in `config.yaml` under `domains.<d>.generation`, alongside the existing
-`num_problems` / `length_min` / `length_max` / `skip` / `default_problem_index`:
+`generate_trajectories_via_generation` was **not** made a preset over it; that
+is §8 step 5, excluded (item 19). The two entry points are still independent.
 
-| Key | Values |
-|---|---|
-| `source_kind` | `problem` \| `trajectory` |
-| `problem_file` / `trajectory_file` | path |
-| `backend` | `native` \| `pddlgym` |
-| `p_rnd` | float in `[0, 1]` |
-| `render` | bool |
-| `cut_mode` | `none` \| `uniform` \| `buckets` |
-| `buckets` | list of ints |
+### 7.1 `config.yaml` keys
 
-All CLI-overridable, matching the existing `--num-problems` / `--length-min`
-style in `data_generator.py`'s argparse block.
+All under `domains.<key>.generation`. The existing `default_problem_index` moves
+down into a `from_pddlgym:` sub-block, so which mode reads a key is visible from
+its position rather than needing to be remembered:
+
+| Key | Values | Default | CLI |
+|---|---|---|---|
+| `num_problems` | int | 10 | `--num-problems` |
+| `length_min` / `length_max` | int | 9 / 20 | `--length-min` / `--length-max` |
+| `skip` | int | 1 | `--skip` |
+| `cut_mode` | `none` \| `uniform` \| `buckets` | **required** | `--cut-mode` |
+| `buckets` | list of ints | none | `--buckets` |
+| `source_kind` | `problem` \| `trajectory` | **required** | `--source-kind` |
+| `problem_file` | path | **required** | `--problem-file` |
+| `trajectory_file` | path | required iff `source_kind: trajectory` | `--trajectory-file` |
+| `backend` | `native` \| `pddlgym` | `native` | `--backend` |
+| `p_rnd` | float in `[0, 1]` | 1.0 | `--p-rnd` |
+| `max_steps` | int | 1000 | `--max-steps` |
+| `render` | bool | false | `--render` / `--no-render` |
+| `from_pddlgym.default_problem_index` | int | **required** for `--gen-mode generate` | `--problem-index` |
+
+Two seeds, never one, per gotcha §10.4: `--seed` drives the walk and `--cut-seed`
+the window lengths. `--cut-seed` defaults to `--seed`, so one flag still
+reproduces a corpus, and `generation_info.json` records both as `seed` and
+`cut_seed` so the manifest always shows which was used. Neither has a config
+key — a recorded seed belongs to a run, not to a domain.
+
+Every key is CLI-overridable and the flag wins. A **required** key that is set
+in neither place raises, naming both the config path and the flag; nothing here
+falls back to a plausible-looking default. `--render` is a tri-state
+(`BooleanOptionalAction`, `default=None`) so `--no-render` can override a config
+`true` rather than only the other way round.
+
+`config.yaml` is gitignored, so `config.example.yaml` is the tracked copy of this
+contract; it carries the block for `blocksworld` and `hanoi`.
 
 ---
 
@@ -331,7 +447,8 @@ style in `data_generator.py`'s argparse block.
 2. `up_bridge.py` + `ProblemWalkSource(backend="native")`.
 3. `TrajectorySource`.
 4. **Prove it**: generate a symbolic corpus, run a simulated experiment on it
-   end to end. This is the acceptance gate for the new path.
+   end to end. This is the acceptance gate for the new path. **Passed** — see
+   §8.1.
 5. **Only then** retrofit `PDDLGymProblemGenerator` onto the shared cutter and
    emitter, and verify by regenerating
    `benchmark/data/npuzzle/npuzzle_generated_problem0__final-version_fixed`
@@ -339,20 +456,59 @@ style in `data_generator.py`'s argparse block.
 6. Arbitrary-problem injection for the pddlgym backend (§3.2) — last, and only
    if imaged generation from foreign problems is actually wanted.
 
+### 8.1 The acceptance gate, as run
+
+Both sources were taken through generation *and* one simulated CDPS fold, since
+a corpus that parses is not the same as a corpus a learner can consume:
+
+| | walk source | replay source |
+|---|---|---|
+| domain | blocksworld | gripper |
+| corpus | 10 problems, `uniform(9,20)`, `--seed 17 --cut-seed 5` | 5 problems, `uniform(2,3)`, `--cut-seed 5` |
+| fold | `--n-folds 5 --folds 0 --num-trajectories 3`, mask 0.1 / noise 0.2 | same |
+| precision / recall | 0.87 / 0.88 | 0.77 / 0.77 |
+| search | 1457 nodes, 10 conflict-free models, hit its timeout | 1513 nodes, 3 models, **exhausted** |
+
+The replay arm exhausting its search rather than timing out is the load-bearing
+result: it means every observation grounded, so the eval-schema round trip
+through `pddl_bridge` holds against a real learner and not only against tests.
+Its `solving_ratio` of 0 follows from 8 transitions cut into 2–3 step windows —
+a property of the only trajectory on disk long enough to cut, not of the path.
+
+Two things the gate exposed, neither a defect in this work:
+
+- `experiment_runner`'s `batch_timeout = n_jobs × learning_timeout × 2` can
+  expire while a fold's *evaluation* is still running, after the fold itself has
+  written `fold_result.json`. The run then reports `Total result rows: 0` while
+  the results are on disk; `--resume` reloads them and reports 1. This is
+  pre-existing and applies to any corpus.
+- No `.trajectory` in `src/domains/` exceeds ~20 steps, so `cut_mode=uniform`
+  with realistic lengths yields 2–3 windows from a replay source. Replay corpora
+  large enough for a fold need either short windows or item 14's multi-input
+  support.
+
 ---
 
 ## 9. Files touched
 
 | File | Change |
 |---|---|
-| `src/trace_generation/{sources,cutter,emitter,up_bridge}.py` | **new** |
-| `src/trajectory_handlers/pddlgym_problem_generator.py` | keep the walk; move cut/emit out |
+| `src/trace_generation/{trace_step,sources,cutter,emitter,corpus,up_bridge,pddl_bridge,eval_schema}.py` | **new**, each with a colocated `test_*.py` |
+| `src/utils/pddl_trajectory.py` | gains `export_gt_trajectory`, moved out of `gt_builder` (which re-exports it) so `src/` no longer needs `benchmark/` to write GT |
+| `benchmark/experiment_running_helpers/gt_builder.py` | re-exports the moved function; no behaviour change |
 | `benchmark/evaluation/test_states_generator.py` | walk loop moves to the native source; keeps S_test post-processing |
-| `benchmark/data_generator.py` | new composed entry point + CLI |
-| `config.yaml` | generation keys above |
+| `benchmark/data_generator.py` | `generate_trajectories_via_trace` + `--gen-mode trace` CLI; `_resolve_problem_index` loses its silent default |
+| `config.yaml` / `config.example.yaml` | generation keys above |
 
-**Not touched:** anything under `benchmark/experiment_running_helpers/`,
-`src/milp/`, `src/plan_denoising/`. Zero file overlap with the ROSAME-I+MILP work.
+**Not touched:** `src/trajectory_handlers/pddlgym_problem_generator.py` (§8
+step 5, excluded), anything under `src/milp/` or `src/plan_denoising/`.
+
+`gt_builder.py` is the one file under `benchmark/experiment_running_helpers/`
+that this work modifies. This table originally listed that whole directory as
+untouched, on the grounds that it is where the concurrent ROSAME-I+MILP work
+lives. The change is a re-export line: the function had to move so the emitter
+could call it without `src/` importing `benchmark/`. No behaviour that branch
+depends on is altered.
 
 ---
 
@@ -383,4 +539,7 @@ style in `data_generator.py`'s argparse block.
 - Imaged output from the new paths.
 - Predefined mode (`generate_trajectories`) and the external depot/gripper flow.
 - Folding `test_states_generator`'s S_test post-processing into the shared
-  pipeline — it has a different purpose and does not want the cutter.
+  pipeline — it has a different purpose and does not want the cutter. Only its
+  *walk* moved (item 13); everything downstream of the walk stayed.
+- §8 steps 5 and 6, per item 19.
+- Multi-input corpora, per item 14.
