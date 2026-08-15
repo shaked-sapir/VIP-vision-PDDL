@@ -266,6 +266,55 @@ def _positive_propositions(entries: List[ObservationP]) -> List:
     return [op.proposition for op in entries if op.prob > 0.5]
 
 
+def _resolve_fluents(
+    instance: PSInstance, fluents: Optional[Set[Tuple[str, Tuple[str, ...]]]]
+) -> Optional[List]:
+    """``(name, args)`` fluent tuples -> instance Propositions; None stays None."""
+    if fluents is None:
+        return None
+    resolved = []
+    for name, arg_names in fluents:
+        prop = proposition_of(instance, name, arg_names)
+        if prop is not None:
+            resolved.append(prop)
+    return resolved
+
+
+def _resolve_actions(
+    instance: PSInstance, calls: Sequence[Tuple[str, Sequence[str]]]
+) -> Dict[int, PSAction]:
+    """1-based step -> grounded Action; raises on any call with no grounding."""
+    actions: Dict[int, PSAction] = {}
+    for t, (name, arg_names) in enumerate(calls, start=1):
+        args = list(arg_names)
+        action = _action_of(instance, name, args)
+        if action is None:
+            raise ValueError(
+                f"Step {t}: no grounded action matches the observed call "
+                f"({name} {' '.join(args)}) — "
+                f"{_unmatched_action_reason(instance, name, args)}"
+            )
+        actions[t] = action
+    return actions
+
+
+def _assemble_trace(
+    instance: PSInstance,
+    step: int,
+    init: List,
+    obs_p: Dict[int, List[ObservationP]],
+    goal: Optional[List],
+    actions: Dict[int, PSAction],
+    hard_states: Dict[int, Set],
+) -> ObservationT:
+    """ObservationT plus the three attributes our encoder reads off it."""
+    trace = ObservationT(step, init, obs_p, goal, obs_a={})
+    trace.instance = instance
+    trace.actions = actions
+    trace.hard_states = hard_states
+    return trace
+
+
 def observation_to_trace(
     instance: PSInstance,
     observation,
@@ -329,32 +378,14 @@ def observation_to_trace(
                 hard_states[state_idx + 1] = set(_positive_propositions(obs_p[state_idx + 1]))
 
     # goal: GT final state when provided, else None (soft)
-    goal = None
-    if goal_fluents is not None:
-        goal = []
-        for name, arg_names in goal_fluents:
-            prop = proposition_of(instance, name, arg_names)
-            if prop is not None:
-                goal.append(prop)
+    goal = _resolve_fluents(instance, goal_fluents)
 
-    # observed actions per step
-    actions = {}
-    for t, comp in enumerate(components, start=1):
-        call = comp.grounded_action_call
-        action = _action_of(instance, call.name, list(call.parameters))
-        if action is None:
-            raise ValueError(
-                f"Step {t}: no grounded action matches the observed call "
-                f"({call.name} {' '.join(call.parameters)}) — "
-                f"{_unmatched_action_reason(instance, call.name, list(call.parameters))}"
-            )
-        actions[t] = action
-
-    trace = ObservationT(step, init, obs_p, goal, obs_a={})
-    trace.instance = instance
-    trace.actions = actions
-    trace.hard_states = hard_states
-    return trace
+    calls = [
+        (c.grounded_action_call.name, list(c.grounded_action_call.parameters))
+        for c in components
+    ]
+    actions = _resolve_actions(instance, calls)
+    return _assemble_trace(instance, step, init, obs_p, goal, actions, hard_states)
 
 
 def try_observation_to_trace(*args, **kwargs) -> Optional[ObservationT]:
@@ -377,6 +408,88 @@ def try_observation_to_trace(*args, **kwargs) -> Optional[ObservationT]:
     except ValueError as error:
         logger.warning("Observation could not be encoded, dropping it: %s", error)
         return None
+
+
+def _hard_row(instance: PSInstance, fluents: Set[Tuple[str, Tuple[str, ...]]]) -> List[ObservationP]:
+    """Every instance proposition at ``1 - eps`` if in ``fluents``, else ``eps``."""
+    true_props = set(_resolve_fluents(instance, fluents) or [])
+    return [
+        ObservationP(prop, 1.0 - _EPS if prop in true_props else _EPS)
+        for prop in instance.propositions
+    ]
+
+
+def cv_predictions_to_trace(
+    instance: PSInstance,
+    proposition_names: Sequence[str],
+    probs: Sequence[Sequence[float]],
+    calls: Sequence[Tuple[str, Sequence[str]]],
+    init_fluents: Set[Tuple[str, Tuple[str, ...]]],
+    goal_fluents: Optional[Set[Tuple[str, Tuple[str, ...]]]] = None,
+) -> Optional[ObservationT]:
+    """A CV head's per-frame proposition probabilities -> vendored ObservationT.
+
+    The soft rows cover the interior frames ``t = 2 .. T``; the two endpoints are
+    hard rows built from ``init_fluents`` and ``goal_fluents``, so ``probs[0]``
+    and ``probs[T]`` are never read. Every proposition of ``instance`` appears in
+    every row; one the CV head has no column for gets ``0.5``, which carries zero
+    weight in the encoder's objective.
+
+    Args:
+        proposition_names: the CV head's column order, as ``"name arg1 arg2"``
+            strings (ROSAME's ``rosame.propositions`` keys).
+        probs: ``(T + 1, n_props)`` values, clamped here to ``[eps, 1 - eps]``.
+        calls: ``T`` observed grounded action calls as ``(name, args)``.
+        init_fluents: positive fluents of the GT initial state.
+        goal_fluents: positive fluents of the GT final state; ``None`` leaves the
+            final state soft and drops the hard row at ``T + 1``.
+
+    Raises:
+        ValueError: on a shape mismatch, or an action call with no grounding.
+    """
+    step = len(calls)
+    if len(probs) != step + 1:
+        raise ValueError(f"expected {step + 1} prediction rows for {step} actions, got {len(probs)}")
+    if step and len(probs[0]) != len(proposition_names):
+        raise ValueError(
+            f"prediction width {len(probs[0])} != {len(proposition_names)} proposition names"
+        )
+
+    columns: Dict[Any, int] = {}
+    unmapped = 0
+    for index, key in enumerate(proposition_names):
+        parts = key.split()
+        prop = proposition_of(instance, parts[0], parts[1:]) if parts else None
+        if prop is None:
+            unmapped += 1
+            continue
+        columns[prop] = index
+    if unmapped:
+        logger.warning(
+            "%d of %d CV propositions have no counterpart in the instance grounding",
+            unmapped, len(proposition_names),
+        )
+
+    obs_p: Dict[int, List[ObservationP]] = {}
+    for t in range(2, step + 1):
+        row = probs[t - 1]
+        obs_p[t] = [
+            ObservationP(
+                prop,
+                min(max(float(row[columns[prop]]), _EPS), 1.0 - _EPS)
+                if prop in columns else 0.5,
+            )
+            for prop in instance.propositions
+        ]
+
+    obs_p[1] = _hard_row(instance, init_fluents)
+    if goal_fluents is not None:
+        obs_p[step + 1] = _hard_row(instance, goal_fluents)
+
+    init = _resolve_fluents(instance, init_fluents) or []
+    goal = _resolve_fluents(instance, goal_fluents)
+    actions = _resolve_actions(instance, calls)
+    return _assemble_trace(instance, step, init, obs_p, goal, actions, hard_states={})
 
 
 def gt_final_state_fluents(gt_trajectory_path: Path) -> Optional[Set[Tuple[str, Tuple[str, ...]]]]:

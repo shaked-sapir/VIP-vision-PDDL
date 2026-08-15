@@ -182,9 +182,7 @@ class RosameIBaselineRunner(BaselineRunner):
         Returns:
             ``(prepared_problems, gt_trajectory_paths)``, the latter positionally
             aligned with the former and holding the trajectory each final-state
-            anchor was read from (``None`` where none was found). It is a list,
-            not a dict: image-mode problem PDDLs are not uniquely named (every
-            blocksworld problem declares ``(problem blocks)``).
+            anchor was read from (``None`` where none was found).
         """
         prepared_problems: List[Tuple[object, List[Path], List[str], List[str]]] = []
         gt_trajectory_paths: List[Optional[Path]] = []
