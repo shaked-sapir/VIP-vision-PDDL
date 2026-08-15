@@ -463,6 +463,19 @@ class PisamMilpConfig:
             f"Only {MilpSolver.CPSAT.value!r} is implemented."
         )
 
+    def resolve_gt_states(
+        self, gt_states_by_obs: Optional[Mapping[int, Any]]
+    ) -> Optional[Mapping[int, Any]]:
+        """The GT map this arm may read; ``None`` under ``gt_anchoring: none``.
+
+        The map reaches two consumers — the encoder's hard states and the
+        ``source_is_gt`` tag PI-SAM stamps on conflicts — so the arm must drop it
+        once rather than per consumer.
+        """
+        if self.gt_anchoring is GtAnchoring.NONE:
+            return None
+        return gt_states_by_obs
+
     def resolve_time_limit(self, cdps_budget_seconds: Optional[int]) -> Optional[int]:
         """Solver budget: the explicit setting, else the fold's CDPS budget."""
         return self.time_limit_seconds if self.time_limit_seconds is not None \

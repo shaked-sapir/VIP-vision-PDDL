@@ -307,6 +307,7 @@ def run_single_round(
     """
     start = time.perf_counter()
     stats: Dict[str, Any] = {"config": config.as_stats()}
+    gt_states_by_obs = config.resolve_gt_states(gt_states_by_obs)
 
     ps_domain, obs_t = _build_traces(
         partial_domain, observations, config, gt_states_by_obs, object_types_by_obs

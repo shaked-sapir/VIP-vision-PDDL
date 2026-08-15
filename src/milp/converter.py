@@ -45,10 +45,13 @@ class GtAnchoring(Enum):
       project). Matches plain ``cdps``.
     - ``ALL_GT_STATES``: every state in ``gt_state_indices``. Matches
       ``cdps_anchored``, whose data prep injects the final state as GT too.
+    - ``NONE``: nothing is hard-fixed. Every state including the initial one is
+      repairable, and ``gt_state_indices`` is ignored. No CDPS variant matches.
     """
 
     INIT_ONLY = "init_only"
     ALL_GT_STATES = "all_gt_states"
+    NONE = "none"
 
 
 _STATE_BLOCK_RE = re.compile(r"\((?::init|:state)((?:\s*\([^()]*\))*)\s*\)")
@@ -275,9 +278,10 @@ def observation_to_trace(
 ) -> Optional[ObservationT]:
     """One (grounded, masked) pddl_plus Observation -> vendored ObservationT.
 
-    The returned ObservationT carries three extra attributes used by our encoder:
+    The returned ObservationT carries four extra attributes used by our encoder:
     ``instance`` (the trace's own grounding), ``actions`` (t -> observed grounded
-    Action) and ``hard_states`` (t -> set of true Propositions to hard-fix).
+    Action), ``hard_states`` (t -> set of true Propositions to hard-fix) and
+    ``anchor_init`` (whether the initial state is hard-fixed).
 
     Args:
         goal_fluents: positive fluents of the (GT) final state as
@@ -354,6 +358,7 @@ def observation_to_trace(
     trace.instance = instance
     trace.actions = actions
     trace.hard_states = hard_states
+    trace.anchor_init = gt_anchoring is not GtAnchoring.NONE
     return trace
 
 

@@ -409,6 +409,114 @@ def test_gt_anchoring_out_of_range_index_ignored():
     print("PASS  out-of-range GT state indices are ignored")
 
 
+def test_gt_anchoring_none_marks_the_trace_unanchored():
+    """``NONE`` clears ``anchor_init`` and ignores ``gt_state_indices`` entirely."""
+    _, instance = _micro_world(3)
+    observation = _three_state_observation()
+
+    unanchored = observation_to_trace(
+        instance, observation, gt_state_indices={1}, gt_anchoring=GtAnchoring.NONE
+    )
+    assert unanchored.anchor_init is False, "NONE must not anchor the initial state"
+    assert unanchored.hard_states == {}, "NONE must ignore gt_state_indices"
+
+    for mode in (GtAnchoring.INIT_ONLY, GtAnchoring.ALL_GT_STATES):
+        trace = observation_to_trace(
+            instance, observation, gt_state_indices={1}, gt_anchoring=mode
+        )
+        assert trace.anchor_init is True, f"{mode} must still anchor the initial state"
+    print("PASS  gt_anchoring NONE marks the trace unanchored")
+
+
+def test_encoder_drops_the_init_pin_only_under_none():
+    """``hard_states`` must actually differ, not just the config that named it.
+
+    The init pin is the encoder's own doing, so a ``NONE`` that never reached it
+    would give an arm labelled ``gt=none`` that solves the anchored problem.
+    """
+    domain, instance = _micro_world(3)
+    at1, at2 = _prop(instance, "at", ["r1"]), _prop(instance, "at", ["r2"])
+    move = _action(instance, "move", ["r1", "r2"])
+
+    anchored = _trace(instance, [{at1}, {at2}], [move], goal_index=None)
+    unanchored = _trace(instance, [{at1}, {at2}], [move], goal_index=None)
+    unanchored.anchor_init = False
+
+    traces = Traces(instance=None, obs_m=None, obs_t=[anchored, unanchored])
+    encoder = CPSATObservedActions(
+        domain, traces, {"state"}, config=MilpEncodingConfig.cdps_dialect()
+    )
+    assert encoder.hard_states(1) == {1: {at1}}, "the anchored trace keeps its init pin"
+    assert encoder.hard_states(2) == {}, "the unanchored trace must pin nothing"
+    print("PASS  the encoder drops the init pin only when the trace says so")
+
+
+def test_trace_without_anchor_init_is_still_pinned():
+    """A trace carrying no ``anchor_init`` stays anchored.
+
+    ``rosame_milp*`` and the upstream encoding share this encoder and build their
+    traces without the attribute.
+    """
+    domain, instance = _micro_world(3)
+    at1, at2 = _prop(instance, "at", ["r1"]), _prop(instance, "at", ["r2"])
+    trace = _trace(
+        instance, [{at1}, {at2}], [_action(instance, "move", ["r1", "r2"])],
+        goal_index=None,
+    )
+    assert not hasattr(trace, "anchor_init")
+
+    traces = Traces(instance=None, obs_m=None, obs_t=[trace])
+    encoder = CPSATObservedActions(
+        domain, traces, {"state"}, config=MilpEncodingConfig.cdps_dialect()
+    )
+    assert encoder.hard_states(1) == {1: {at1}}, "an attribute-less trace is anchored"
+    print("PASS  traces without anchor_init keep the upstream init pin")
+
+
+def test_unanchored_init_is_repairable():
+    """Without the init pin, a noisy initial fluent can be repaired at the source.
+
+    ``at(r3)`` binds to no argument of either observed ``move``, so it is
+    frame-locked across the whole trace: one value must explain all three states.
+    Observed true in the initial state and false in the other two, it costs 2
+    flips while the initial state is pinned and 1 once it is not.
+    """
+    domain, instance = _micro_world(3)
+    at1, at2, at3 = (_prop(instance, "at", [r]) for r in ("r1", "r2", "r3"))
+    actions = [
+        _action(instance, "move", ["r1", "r2"]),
+        _action(instance, "move", ["r2", "r1"]),
+    ]
+    states = [{at1, at3}, {at2}, {at1}]  # at(r3) in the initial state is the noise
+
+    anchored = _trace(instance, states, actions, goal_index=None)
+    encoder, ok = _solve(domain, [anchored], MilpEncodingConfig.cdps_dialect())
+    assert ok, "the anchored repair problem must be feasible"
+    assert at3 in encoder.repaired_states(1)[0], "the pinned initial state cannot change"
+    assert _disagreements(encoder, 1, anchored) == 2, "the pin forces two later flips"
+
+    unanchored = _trace(instance, states, actions, goal_index=None)
+    unanchored.anchor_init = False
+    encoder, ok = _solve(domain, [unanchored], MilpEncodingConfig.cdps_dialect())
+    assert ok, "the unanchored repair problem must be feasible"
+    assert at3 not in encoder.repaired_states(1)[0], "the noisy initial fluent is repaired"
+    assert at1 in encoder.repaired_states(1)[0], "the observed at(r1) must survive"
+    assert _disagreements(encoder, 1, unanchored) == 1, "repairing at the source costs 1"
+    print("PASS  an unanchored initial state is repairable")
+
+
+def test_resolve_gt_states_drops_the_map_only_under_none():
+    """``NONE`` withholds the GT map from PI-SAM too, not only from the encoder."""
+    gt_map = {0: {0, 2}}
+    for mode in (GtAnchoring.INIT_ONLY, GtAnchoring.ALL_GT_STATES):
+        config = PisamMilpConfig(gt_anchoring=mode)
+        assert config.resolve_gt_states(gt_map) == gt_map, f"{mode} keeps the GT map"
+
+    none_config = PisamMilpConfig(gt_anchoring=GtAnchoring.NONE)
+    assert none_config.resolve_gt_states(gt_map) is None, "NONE withholds the GT map"
+    print("PASS  gt_anchoring NONE withholds the GT map from every consumer")
+
+
 # --------------------------------------------------------- object typing
 
 def _depot_lite():
@@ -649,6 +757,11 @@ if __name__ == "__main__":
     test_repeated_args_action_unifies_both_bindings()
     test_gt_anchoring_modes()
     test_gt_anchoring_out_of_range_index_ignored()
+    test_gt_anchoring_none_marks_the_trace_unanchored()
+    test_encoder_drops_the_init_pin_only_under_none()
+    test_trace_without_anchor_init_is_still_pinned()
+    test_unanchored_init_is_repairable()
+    test_resolve_gt_states_drops_the_map_only_under_none()
     test_inferred_object_type_makes_an_action_ungroundable()
     test_object_types_overlay_restores_the_grounding()
     test_object_types_overlay_ignores_unknown_names()

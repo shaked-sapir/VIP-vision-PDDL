@@ -237,15 +237,19 @@ class CPSATObservedActions:
         hard-fix for trace ``i``. Everything else at that index is forced false
         (closed-world), so a hard state is a fully known, unrepairable state.
 
-        Always includes the initial state (GT by assumption; paper eqs. 19-20)
-        and, when the trace supplies a goal, the final state (eqs. 21-22). A
-        trace may additionally carry a ``hard_states`` dict — that is how our
-        ``gt_anchoring: all_gt_states`` mode pins the intermediate GT states —
-        which is merged on top.
+        Includes the initial state (GT by assumption; paper eqs. 19-20) unless the
+        trace sets ``anchor_init`` False, and, when the trace supplies a goal, the
+        final state (eqs. 21-22). A trace may additionally carry a ``hard_states``
+        dict — that is how our ``gt_anchoring: all_gt_states`` mode pins the
+        intermediate GT states — which is merged on top. A trace carrying neither
+        attribute is fully anchored, which is what the ``rosame_milp*`` baselines
+        and the upstream encoding expect.
         """
         obs = self._trace(i)
         steps = self._steps(i)
-        fixed: Dict[int, set] = {1: set(obs.init)}
+        fixed: Dict[int, set] = {}
+        if getattr(obs, "anchor_init", True):
+            fixed[1] = set(obs.init)
         if obs.goal is not None:
             fixed[steps + 1] = set(obs.goal)
         fixed.update(getattr(obs, "hard_states", None) or {})

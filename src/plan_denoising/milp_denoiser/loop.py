@@ -558,6 +558,7 @@ def run_loop(
             fixpoint rule, with nothing in the results saying so.
     """
     start = time.perf_counter()
+    gt_states_by_obs = config.resolve_gt_states(gt_states_by_obs)
     stop_rules = config.effective_stop_rules()
     # One argument, two budgets, each with its own override. Deriving them
     # separately is what keeps ``time_limit_seconds: 30`` (a per-solve cap) from
