@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import random
 from pathlib import Path
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -103,17 +103,32 @@ class RosameI_Runner(PORosame_Runner):
 
     # ------------------------------------------------------------------ grounding
 
-    def ground_problem(self, problem) -> None:
-        """Ground the domain on ``problem`` and (lazily) build the CV head.
+    def ground_union(self, problems: Sequence[object]) -> None:
+        """Ground the domain once on the union of every problem's objects.
 
-        Uses the inherited build-once / re-ground-after ``add_problem`` so schema
-        and CV parameters persist across trajectories.
+        Builds the ROSAME schemas from the first problem (inherited build-once
+        ``add_problem``), then re-grounds on the union and builds the CV head.
         """
-        self.add_problem(problem)
+        if not problems:
+            raise ValueError("ground_union requires at least one problem")
+        self.add_problem(problems[0])
+        self.objects = self._union_objects(problems)
+        self.rosame.ground_from_dict(self.objects)
         self._ensure_cv_model()
 
+    def _union_objects(self, problems: Sequence[object]) -> Dict[str, List[str]]:
+        """Merge each problem's ``{type: [object]}`` map, preserving first-seen order."""
+        union: Dict[str, List[str]] = {}
+        for problem in problems:
+            for type_name, names in self.get_objects(problem.objects).items():
+                bucket = union.setdefault(type_name, [])
+                for name in names:
+                    if name not in bucket:
+                        bucket.append(name)
+        return union
+
     def _ensure_cv_model(self) -> None:
-        """Create the CV head on the first grounding; assert stable grounding after."""
+        """Create the CV head on the first grounding; assert the grounding is stable."""
         props = tuple(self.rosame.propositions.keys())
         if self.cv_model is None:
             self._proposition_signature = props
@@ -121,11 +136,9 @@ class RosameI_Runner(PORosame_Runner):
             self.cv_model.train()
             self._build_optimizer()
         elif props != self._proposition_signature:
-            raise ValueError(
-                "ROSAME-I requires a shared object universe across trajectories; "
-                f"got differing groundings ({len(props)} vs "
-                f"{len(self._proposition_signature)} propositions). The CV head is "
-                "a fixed-size proposition vector fixed at the first grounding."
+            raise RuntimeError(
+                "the grounding changed after the CV head was built: "
+                f"{len(props)} vs {len(self._proposition_signature)} propositions"
             )
 
     def _build_optimizer(self) -> None:
@@ -185,24 +198,61 @@ class RosameI_Runner(PORosame_Runner):
         final_vec = self._encode_state(final_state_predicates).to(self.device)
         return _PreparedTrace(images, action_indices, final_vec, name)
 
+    def prepare_traces(
+        self,
+        prepared_problems: Sequence[Tuple[object, Sequence[Path], Sequence[str], Sequence[str]]],
+    ) -> List[_PreparedTrace]:
+        """Union-ground on all problems, then build one trace per usable problem.
+
+        Traces are named after their image directory; image-mode problem PDDLs do
+        not carry unique ``(problem <name>)`` headers.
+        """
+        problems = [problem for problem, _images, _actions, _final in prepared_problems]
+        self.ground_union(problems)
+
+        traces: List[_PreparedTrace] = []
+        for idx, (_problem, image_paths, action_strings, final_preds) in enumerate(
+            prepared_problems
+        ):
+            name = image_paths[0].parent.name if image_paths else f"problem{idx}"
+            trace = self._prepare_trace(image_paths, action_strings, final_preds, name)
+            if trace is not None:
+                traces.append(trace)
+        return traces
+
     # ------------------------------------------------------------------ loss
 
-    def _trajectory_loss(
-        self, trace: _PreparedTrace, gamma: float, lambda_: float, augment: bool
+    def _forward_predictions(
+        self, trace: _PreparedTrace, augment: bool
     ) -> torch.Tensor:
-        """Single-trace ROSAME-I loss (faithful port of ``train.py::run``).
-
-        Consistency (t=1..T-1) + gamma-anchored GT final state + applicability
-        + lambda-weighted precondition prior. RAW logits, ``reduction='sum'``.
-        """
+        """One CV forward pass over a trace's frames → ``(T+1, n_props)`` raw logits."""
         images = trace.images
         if augment:  # per-image horizontal flip (blocksworld symmetry), prob 0.5
             flip_mask = torch.rand(images.shape[0], device=images.device) < 0.5
             if bool(flip_mask.any()):
                 images = images.clone()
                 images[flip_mask] = torch.flip(images[flip_mask], dims=[-1])
+        return self.cv_model(images)
 
-        preds = self.cv_model(images)                      # (T+1, n_props) raw logits
+    def _trajectory_loss(
+        self, trace: _PreparedTrace, gamma: float, lambda_: float, augment: bool
+    ) -> torch.Tensor:
+        """Single-trace ROSAME-I loss (faithful port of ``train.py::run``)."""
+        preds = self._forward_predictions(trace, augment)
+        return self._loss_from_predictions(preds, trace, gamma, lambda_)
+
+    def _loss_from_predictions(
+        self,
+        preds: torch.Tensor,
+        trace: _PreparedTrace,
+        gamma: float,
+        lambda_: float,
+    ) -> torch.Tensor:
+        """ROSAME-I loss for already-computed predictions.
+
+        Consistency (t=1..T-1) + gamma-anchored GT final state + applicability
+        + lambda-weighted precondition prior. RAW logits, ``reduction='sum'``.
+        """
         pre, add, dele = self.rosame.build(trace.action_indices)  # CPU tensors
         pre = pre.to(self.device)
         add = add.to(self.device)
@@ -303,17 +353,7 @@ class RosameI_Runner(PORosame_Runner):
         Returns the final total training loss, or ``None`` if no trace is usable.
         """
         _set_seed(self.seed)
-
-        traces: List[_PreparedTrace] = []
-        for idx, (problem, image_paths, action_strings, final_preds) in enumerate(
-            prepared_problems
-        ):
-            self.ground_problem(problem)
-            name = getattr(problem, "name", None) or f"problem{idx}"
-            trace = self._prepare_trace(image_paths, action_strings, final_preds, name)
-            if trace is not None:
-                traces.append(trace)
-
+        traces = self.prepare_traces(prepared_problems)
         if not traces:
             return None
 
