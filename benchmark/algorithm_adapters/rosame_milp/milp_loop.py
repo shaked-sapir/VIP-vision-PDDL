@@ -24,6 +24,7 @@ import torch
 import torch.optim as optim
 
 from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner, _BATCH_SZ
+from benchmark.algorithm_adapters.rosame_milp.model_bridge import model_cross_entropy
 
 # One MILP round: called with the current model, returns
 # (labels per schema, agreement in [0,1], solve stats dict, decoded solution).
@@ -41,30 +42,8 @@ class MilpPORosame(PORosame_Runner):
         self._model_labels = labels
 
     def _model_ce(self) -> Optional[torch.Tensor]:
-        """Cross-entropy of each schema's 4-way distribution vs the pseudo-labels.
-
-        Mirrors upstream ``loss_pseudo_m`` (``dl/model.py``): summed CE over all
-        rows of all schemas, normalized by the total row count, undecayed.
-        Deviation note: upstream feeds (activated) outputs into
-        ``F.cross_entropy`` (which expects logits); AMLGym's ``forward()`` ends
-        in Softmax, so we apply the mathematically intended cross-entropy
-        directly on the probabilities: ``-(target * log(p)).sum()``.
-        """
-        if not self._model_labels:
-            return None
-        total_rows = 0
-        ce = None
-        for schema in self.rosame.action_schemas:
-            target = self._model_labels.get(schema.name)
-            if target is None:
-                continue
-            probs = schema()
-            term = -(target * torch.log(probs + 1e-9)).sum()
-            ce = term if ce is None else ce + term
-            total_rows += probs.shape[0]
-        if ce is None or total_rows == 0:
-            return None
-        return ce / total_rows
+        """Cross-entropy of each schema's 4-way distribution vs the pseudo-labels."""
+        return model_cross_entropy(self.rosame.action_schemas, self._model_labels)
 
     def _train_step(
         self,

@@ -142,6 +142,32 @@ def extract_model_labels(runner, ps_domain: PSDomain, sol: ObservationM) -> Dict
     return labels
 
 
+def model_cross_entropy(action_schemas, labels: Dict[str, "object"]):
+    """CE of each schema's 4-way distribution vs its pseudo-labels, or ``None``.
+
+    Summed over all rows of all schemas and normalized by the total row count,
+    undecayed — upstream ``loss_pseudo_m`` (``dl/model.py``). Upstream feeds
+    activated outputs into ``F.cross_entropy``, which expects logits; AMLGym's
+    ``forward()`` ends in Softmax, so the cross-entropy is applied directly to
+    the probabilities.
+    """
+    import torch
+
+    total_rows = 0
+    ce = None
+    for schema in action_schemas:
+        target = labels.get(schema.name) if labels else None
+        if target is None:
+            continue
+        probs = schema()
+        term = -(target * torch.log(probs + 1e-9)).sum()
+        ce = term if ce is None else ce + term
+        total_rows += probs.shape[0]
+    if ce is None or total_rows == 0:
+        return None
+    return ce / total_rows
+
+
 def model_agreement(runner, labels: Dict[str, "object"]) -> float:
     """Fraction of rows where argmax(ROSAME 4-way) == argmax(pseudo-label)."""
     import torch
