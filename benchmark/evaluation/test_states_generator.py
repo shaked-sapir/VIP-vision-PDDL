@@ -1,11 +1,16 @@
-"""
-Generate S_test (predictive power test states) for evaluating learned domain models.
+"""Generate S_test (predictive power test states) for evaluating learned models.
 
 Follows the procedure described in the AMLGym paper (Stern et al.):
+
   1. For each test problem, solve it with a planner using the reference domain.
   2. Execute the plan but interleave random actions with probability p_rnd.
   3. After a random action, replan from the resulting state.
   4. Collect all visited states as S_test.
+
+Steps 1-3 are :func:`src.trace_generation.sources.walk_problem`; this module owns
+only the S_test-specific part: repeat until enough trajectories are collected,
+drop the short ones, deduplicate states, and write them in AMLGym's literal
+format, which is not the eval schema the trace-generation corpus uses.
 
 The generated states are saved as a JSON file compatible with AMLGym's
 predictive_power / applicability / predicted_effects metric functions.
@@ -21,214 +26,137 @@ Usage:
     )
 """
 
-import contextlib
 import json
 import logging
-import os
 import random
-from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Sequence
 
-import unified_planning
-from unified_planning.io import PDDLReader
-from unified_planning.model import Problem, UPState
-from unified_planning.plans import ActionInstance
-from unified_planning.shortcuts import OneshotPlanner, SequentialSimulator
-
-from tarski.io import PDDLReader as TarskiPDDLReader
-from tarski.grounding import LPGroundingStrategy
-
-# Disable printing of planning engine credits
-unified_planning.shortcuts.get_environment().credits_stream = None
+from src.trace_generation.sources import (
+    ground_actions_of,
+    parse_problem,
+    walk_problem,
+)
+from src.trace_generation.up_bridge import ground_fluents
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Planner configuration (same as AMLGym's gen_states_predictability.py)
-# ---------------------------------------------------------------------------
-_DOWNWARD_SEARCH_CFG = (
-    "let(hff,ff(),"
-    "let(hcea,cea(),"
-    "lazy_greedy([hff,hcea],preferred=[hff,hcea])))"
-)
-
-_DEFAULT_MAX_PLANNING_TIME = 120       # seconds
-_DEFAULT_MAX_REPLANNING_TIME = 60      # seconds for feasibility check after random action
-_DEFAULT_MAX_RANDOM_TRIALS = 3         # max re-samples when random action makes problem infeasible
 _DEFAULT_TRAJ_LEN_MIN = 5
 _DEFAULT_TRAJ_LEN_MAX = 30
 _DEFAULT_P_RND = 0.2
 _DEFAULT_NUM_TRAJECTORIES_PER_PROBLEM = 50
+_DEFAULT_MAX_PLANNING_TIME = 120       # seconds
+_DEFAULT_MAX_REPLANNING_TIME = 60      # seconds, for the post-random-action check
+_DEFAULT_MAX_RANDOM_TRIALS = 3         # re-samples when a random action blocks the goal
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _build_planner_cfg(timeout: int, use_optimal: bool = False) -> dict:
-    """Build a planner configuration dict for unified-planning."""
-    if use_optimal:
-        return {"name": "fast-downward-opt"}
-    return {
-        "name": "fast-downward",
-        "params": {
-            "fast_downward_search_config": _DOWNWARD_SEARCH_CFG,
-            "fast_downward_search_time_limit": f"{timeout}s",
-        },
-    }
-
-
-def _ground_actions(domain_path: str, problem_path: str) -> dict:
-    """Ground all actions for a problem using tarski's LP grounder."""
-    reader = TarskiPDDLReader(raise_on_error=True)
-    reader.parse_domain(domain_path)
-    reader.parse_instance(problem_path)
-    grounder = LPGroundingStrategy(reader.problem)
-    return grounder.ground_actions()
-
-
-def _replan(
-    problem: Problem,
-    current_state: UPState,
-    action_instance: ActionInstance,
-    planner_cfg: dict,
-    max_replanning_time: int,
-) -> Optional[object]:
-    """Check that executing `action_instance` keeps the problem solvable; return new plan or None."""
-    problem = problem.clone()
-    for fluent in problem.initial_values:
-        problem.set_initial_value(fluent, current_state.get_value(fluent))
-
-    with SequentialSimulator(problem=problem) as sim:
-        next_state = sim.apply(current_state, action_instance)
-
-    problem = problem.clone()
-    for fluent in problem.initial_values:
-        problem.set_initial_value(fluent, next_state.get_value(fluent))
-
-    with contextlib.redirect_stdout(open(os.devnull, "w")):
-        with OneshotPlanner(problem_kind=problem.kind, **planner_cfg) as planner:
-            result = planner.solve(problem, timeout=max_replanning_time)
-    return result.plan
-
-
-def _generate_single_trajectory(
-    problem: Problem,
-    domain_path: str,
-    problem_path: str,
+def _trajectory_states(
+    problem: Any,
     ground_actions: dict,
-    p_rnd: float = _DEFAULT_P_RND,
-    traj_len_max: int = _DEFAULT_TRAJ_LEN_MAX,
-    max_planning_time: int = _DEFAULT_MAX_PLANNING_TIME,
-    max_replanning_time: int = _DEFAULT_MAX_REPLANNING_TIME,
-    max_random_trials: int = _DEFAULT_MAX_RANDOM_TRIALS,
-) -> List[UPState]:
+    rng: random.Random,
+    p_rnd: float,
+    traj_len_max: int,
+    max_planning_time: int,
+    max_replanning_time: int,
+    max_random_trials: int,
+) -> List[Any]:
+    """Walk the problem once and return the states it visited, in order.
+
+    Returns an empty list when the walk yields no transition at all; such a
+    trajectory is below any sensible ``traj_len_min`` and the caller drops it.
     """
-    Generate a single trajectory and return the list of visited UPStates.
-
-    Follows the AMLGym paper procedure: execute planned actions, with probability
-    p_rnd substitute a random applicable action (if it keeps the problem solvable).
-    """
-    planner_cfg = _build_planner_cfg(max_planning_time)
-    replan_cfg = _build_planner_cfg(max_replanning_time)
-
-    with SequentialSimulator(problem=problem) as simulator:
-        current_state = simulator.get_initial_state()
-        states = [current_state]
-        plan = None
-
-        while len(states) < traj_len_max:
-            # Compute a plan from the current state
-            if plan is None:
-                prob_clone = problem.clone()
-                for fluent in prob_clone.initial_values:
-                    prob_clone.set_initial_value(fluent, current_state.get_value(fluent))
-
-                with contextlib.redirect_stdout(open(os.devnull, "w")):
-                    with OneshotPlanner(problem_kind=prob_clone.kind, **planner_cfg) as planner:
-                        result = planner.solve(prob_clone, timeout=max_planning_time)
-                        plan = result.plan
-
-            if plan is None:
-                logger.debug("Planning failed; stopping trajectory generation.")
-                break
-
-            for action_instance in plan.actions:
-                # Possibly execute a random action instead
-                if random.random() < p_rnd:
-                    applicable = [
-                        (problem.action(k.lower()), [problem.object(o.lower()) for o in objs])
-                        for k, params in ground_actions.items()
-                        for objs in params
-                        if simulator._is_applicable(
-                            current_state,
-                            problem.action(k.lower()),
-                            [problem.object(o.lower()) for o in objs],
-                        )
-                    ]
-                    applicable = sorted(applicable, key=lambda x: f"{x[0]} - {x[1]}")
-
-                    # Try random actions until one preserves solvability
-                    trial = 0
-                    new_plan = None
-                    while trial < max_random_trials:
-                        action, params = random.choice(applicable)
-                        rand_action = ActionInstance(action, params)
-                        new_plan = _replan(
-                            problem, current_state, rand_action, replan_cfg, max_replanning_time
-                        )
-                        trial += 1
-                        if new_plan is not None:
-                            break
-
-                    if new_plan is None:
-                        # No feasible random action found; skip randomization this step
-                        logger.debug("No feasible random action found; continuing with plan.")
-                    else:
-                        # Execute the random action
-                        current_state = simulator.apply(current_state, rand_action)
-                        states.append(current_state)
-                        plan = new_plan  # use the replanned plan from here
-                        break  # restart the plan-following loop
-
-                # Execute the planned action
-                current_state = simulator.apply(current_state, action_instance)
-                if current_state is None:
-                    logger.warning(f"Action {action_instance} failed; stopping trajectory.")
-                    return states
-                states.append(current_state)
-
-            # Check if we finished the plan
-            if plan is not None and (
-                len(plan.actions) == 0 or action_instance == plan.actions[-1]
-            ):
-                logger.debug("Goal state reached.")
-                break
-
-    return states
+    steps = list(walk_problem(
+        problem,
+        ground_actions,
+        rng=rng,
+        p_rnd=p_rnd,
+        max_steps=max(traj_len_max - 1, 0),
+        preserve_solvability=True,
+        stop_at_goal=True,
+        max_planning_time=max_planning_time,
+        max_replanning_time=max_replanning_time,
+        max_random_trials=max_random_trials,
+    ))
+    if not steps:
+        return []
+    return [steps[0].prev_state] + [step.next_state for step in steps]
 
 
-def _upstate_to_literals(state: UPState) -> List[str]:
-    """Convert a UPState to a list of string literals in AMLGym format.
+def _upstate_to_literals(state: Any, fluents: Sequence[Any]) -> List[str]:
+    """Convert a UPState to its true fluents, as '(predicate_name obj1 obj2)'.
 
-    Positive fluents:  '(predicate_name obj1 obj2)'
-    Negative fluents:  '(not (predicate_name obj1 obj2))'
+    False fluents are omitted; ``CompatibleUPEnv._state_from_literals`` rebuilds
+    a state from the positive literals over an all-false base, so absence is how
+    falsity is expressed.
+
+    Every fluent is evaluated explicitly, because a UPState may store only its
+    difference from an ancestor rather than the whole assignment.
     """
     literals = []
-    for fluent_expr, value in state._values.items():
+    for fluent_expr in fluents:
+        if not state.get_value(fluent_expr).is_true():
+            continue
         name = fluent_expr.fluent().name
         objs = [str(o) for o in fluent_expr.args]
-        if objs:
-            formatted = f"({name} {' '.join(objs)})"
-        else:
-            formatted = f"({name})"
-
-        if value.is_true():
-            literals.append(formatted)
-        else:
-            literals.append(f"(not {formatted})")
+        literals.append(f"({name} {' '.join(objs)})" if objs else f"({name})")
     return literals
+
+
+def _collect_problem_states(
+    domain_str: str,
+    problem_path_str: str,
+    rng: random.Random,
+    num_trajectories: int,
+    p_rnd: float,
+    traj_len_min: int,
+    traj_len_max: int,
+    max_planning_time: int,
+) -> List[List[str]]:
+    """Walk one problem repeatedly, returning its deduplicated visited states."""
+    ground_acts = ground_actions_of(Path(domain_str), Path(problem_path_str))
+
+    collected_states: List[List[str]] = []
+    seen_state_sets = set()
+
+    trajectories_generated = 0
+    attempts = 0
+    max_attempts = num_trajectories * 3  # allow retries for short trajectories
+
+    while trajectories_generated < num_trajectories and attempts < max_attempts:
+        attempts += 1
+        # Re-parse the problem each time; planning mutates it.
+        problem = parse_problem(Path(domain_str), Path(problem_path_str))
+        fluents = ground_fluents(problem)
+        try:
+            states = _trajectory_states(
+                problem, ground_acts, rng, p_rnd, traj_len_max,
+                max_planning_time, _DEFAULT_MAX_REPLANNING_TIME,
+                _DEFAULT_MAX_RANDOM_TRIALS,
+            )
+        except Exception as e:
+            logger.debug(f"Trajectory generation failed: {e}")
+            continue
+
+        if len(states) < traj_len_min:
+            logger.debug(
+                f"Trajectory too short ({len(states)} < {traj_len_min}), retrying."
+            )
+            continue
+
+        trajectories_generated += 1
+
+        for state in states:
+            literals = _upstate_to_literals(state, fluents)
+            key = frozenset(literals)
+            if key not in seen_state_sets:
+                seen_state_sets.add(key)
+                collected_states.append(literals)
+
+    return collected_states
 
 
 # ---------------------------------------------------------------------------
@@ -276,70 +204,26 @@ def generate_predictive_power_test_states(
         logger.info(f"S_test already exists at {output_path}, skipping generation.")
         return output_path
 
-    UPState.MAX_ANCESTORS = None
-    reader = PDDLReader()
+    rng = random.Random(seed)
     domain_str = str(domain_ref_path)
-
-    random.seed(seed)
 
     # Collect states per problem: {problem_filename: [state_literals_list, ...]}
     all_test_states: Dict[str, List[List[str]]] = {}
 
     for problem_path in test_problem_paths:
-        problem_path_str = str(problem_path)
         problem_filename = Path(problem_path).name
         logger.info(f"Generating S_test for {problem_filename}...")
 
-        # Parse and ground
-        problem = reader.parse_problem(domain_str, problem_path_str)
-        ground_acts = _ground_actions(domain_str, problem_path_str)
-
-        collected_states: List[List[str]] = []
-        seen_state_sets = set()  # deduplicate states
-
-        trajectories_generated = 0
-        max_attempts = num_trajectories_per_problem * 3  # allow retries for short trajectories
-        attempts = 0
-
-        while trajectories_generated < num_trajectories_per_problem and attempts < max_attempts:
-            attempts += 1
-            try:
-                # Re-parse problem each time (planner modifies it)
-                prob = reader.parse_problem(domain_str, problem_path_str)
-                states = _generate_single_trajectory(
-                    problem=prob,
-                    domain_path=domain_str,
-                    problem_path=problem_path_str,
-                    ground_actions=ground_acts,
-                    p_rnd=p_rnd,
-                    traj_len_max=traj_len_max,
-                    max_planning_time=max_planning_time,
-                )
-            except Exception as e:
-                logger.debug(f"Trajectory generation failed: {e}")
-                continue
-
-            if len(states) < traj_len_min:
-                logger.debug(
-                    f"Trajectory too short ({len(states)} < {traj_len_min}), retrying."
-                )
-                continue
-
-            trajectories_generated += 1
-
-            # Convert states to string literals and deduplicate
-            for state in states:
-                literals = _upstate_to_literals(state)
-                # Use frozenset of positive literals for dedup (neg literals are deterministic)
-                pos_key = frozenset(l for l in literals if not l.startswith("(not "))
-                if pos_key not in seen_state_sets:
-                    seen_state_sets.add(pos_key)
-                    collected_states.append(literals)
+        collected_states = _collect_problem_states(
+            domain_str, str(problem_path), rng,
+            num_trajectories_per_problem, p_rnd,
+            traj_len_min, traj_len_max, max_planning_time,
+        )
 
         all_test_states[problem_filename] = collected_states
         logger.info(
             f"  {problem_filename}: {len(collected_states)} unique states "
-            f"from {trajectories_generated} trajectories"
+            f"from up to {num_trajectories_per_problem} trajectories"
         )
 
     # Save
