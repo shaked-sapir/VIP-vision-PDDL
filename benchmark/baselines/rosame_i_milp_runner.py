@@ -120,7 +120,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         ps_domain,
         partial_domain: Domain,
         prepared_problems: Sequence[Tuple[object, Sequence[Path], Sequence[str], Sequence[str]]],
-        gt_paths: Sequence[Optional[Path]],
+        gt_paths: Sequence[Path],
     ) -> Tuple[Dict[str, _TraceContext], int]:
         """``trace name -> _TraceContext`` plus the count with a GT-anchored goal.
 

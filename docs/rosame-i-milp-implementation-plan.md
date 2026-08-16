@@ -432,7 +432,11 @@ if that description is inaccurate this factor inherits the error.
      runs stage under `trajectories_normalized`. The gate never fires, the
      candidate list falls through to `problem_dir/<problem>.trajectory` — the
      *degraded VLM* trajectory — and the "GT anchor" is silently not GT. Accept
-     both directory names.
+     both directory names, and drop the fallback entirely: with no
+     `gt_trajectories/` entry, `resolve_final_state_path` raises
+     `FileNotFoundError` rather than substituting a degraded trajectory or an
+     all-false anchor. A datasource missing its GT export is a data defect and
+     must surface as one, not as a silently weaker arm.
 
    Resolve the path **once** and derive both the γ-anchor strings and the MILP
    `goal_fluents` from that one result (§4).
