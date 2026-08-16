@@ -52,11 +52,51 @@ from benchmark.algorithm_adapters.rosame_milp.model_bridge import (
 )
 from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
 from benchmark.baselines.rosame_runner import RosameBaselineRunner, _setup_rosame_workspace
+from benchmark.experiment_running_helpers.normalize import _normalize_hyphens
 
 from constraint_opt.factory import resolve as resolve_encoder
 from planning_structs.traces import Traces
 
 _OBJECTIVES = {"state", "model"}
+
+
+def goal_fluents_from_trajectory(
+    gt_trajectory_path: Optional[Path],
+    normalize_identifiers: bool = False,
+) -> Optional[set]:
+    """Final-state fluents of a GT trajectory, or None (-> soft final state).
+
+    Args:
+        gt_trajectory_path: an already-resolved GT ``.trajectory``.
+        normalize_identifiers: hyphen→underscore the fluent names and arguments,
+            matching the normalization image-mode staging applies to the domain
+            and to trajectories but not to ``gt_trajectories/``.
+    """
+    if gt_trajectory_path is None:
+        return None
+    fluents = gt_final_state_fluents(gt_trajectory_path)
+    if fluents is None or not normalize_identifiers:
+        return fluents
+    return {
+        (_normalize_hyphens(name), tuple(_normalize_hyphens(arg) for arg in args))
+        for name, args in fluents
+    }
+
+
+def goal_fluents_for(
+    problem_pddl_path: Optional[Path],
+    goal_mode: str = "gt",
+    normalize_identifiers: bool = False,
+) -> Optional[set]:
+    """GT final-state fluents for one problem, or None (-> soft final state)."""
+    if goal_mode != "gt" or problem_pddl_path is None:
+        return None
+    gt_path = find_gt_trajectory(problem_pddl_path)
+    if gt_path is None:
+        print(f"  [MILP] Warning: no GT trajectory for "
+              f"{problem_pddl_path.stem} — final state left soft")
+        return None
+    return goal_fluents_from_trajectory(gt_path, normalize_identifiers)
 
 
 class RosameMilpBaseRunner(RosameBaselineRunner):
@@ -94,14 +134,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
 
     def _goal_fluents_for(self, problem_pddl_path: Optional[Path]):
         """GT final-state fluents for one problem, or None (-> soft final state)."""
-        if self.goal_mode != "gt" or problem_pddl_path is None:
-            return None
-        gt_path = find_gt_trajectory(problem_pddl_path)
-        if gt_path is None:
-            print(f"  [MILP] Warning: no GT trajectory for "
-                  f"{problem_pddl_path.stem} — final state left soft")
-            return None
-        return gt_final_state_fluents(gt_path)
+        return goal_fluents_for(problem_pddl_path, self.goal_mode)
 
     def _build_milp_traces(
         self,
