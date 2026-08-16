@@ -36,7 +36,7 @@ shared:
   pisam_milp:
     eq16: off                           # on | off — precondition bias (lambda_pre). NOTE: changes T' itself, so it voids the cost(MILP) <= cost(CDPS) sanity check
     lambda_pre: 0.4                     # any float; used only when eq16: on
-    gt_anchoring: init_only             # init_only | all_gt_states | none — which known-GT states are hard-fixed (unrepairable). `none` hard-fixes nothing, so the init state is repairable too and no GT reaches the arm at all; its repair cost comes from a larger feasible set, so it is not comparable with the other two
+    gt_anchoring: none             # init_only | all_gt_states | none — which known-GT states are hard-fixed (unrepairable). `none` hard-fixes nothing, so the init state is repairable too and no GT reaches the arm at all; its repair cost comes from a larger feasible set, so it is not comparable with the other two
     solver: cpsat                       # cpsat (gurobi is declared but unimplemented — needs a license)
     time_limit_seconds:                 # cap for ONE solve. blank = inherit learning_timeout_seconds, which is what makes the head-to-head with CDPS fair
 

@@ -17,11 +17,12 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 | `src/object_detection/` | Detect objects in a single image frame. Input: image. Output: list of `BoundedObject`. |
 | `src/fluent_classification/` | Classify PDDL fluents from a single image frame. Input: image. Output: `Dict[str, PredicateTruthValue]`. LLM path uses `ImageLLMBackend` protocol + `ImageLLMBackendFactory` (OpenAI/Gemini). |
 | `src/trajectory_handlers/` | Image→trajectory pipeline per domain. Split into inference base, PDDLGym source, external source, LLM mixin layers, and `pddlgym_problem_generator.py` (ROSAME-style problem generation). |
+| `src/trace_generation/` | Source-agnostic **symbolic** corpus generation (no images, no LLM). `sources.py` (`TraceSource`: walk a problem or replay a `.trajectory`) → `cutter.py` (pure windows) → `emitter.py` (problemN folders). `corpus.py` composes the three. Driven by `benchmark/data_generator.py --gen-mode trace`. |
 | `src/pi_sam/` | PI-SAM itself (`pi_sam_learning.py`): observations in, action model out. It takes what it is given at face value — deciding which observations to believe is not its job. |
 | `src/observation_degradation/` | Deliberate corruption of otherwise-clean observations, applied *before* any learner sees them. `masking/` — masking strategies (random, percentage, uncertain); `noising/` — noising strategies (random, percentage) for flipping unmasked predicate polarity; `predicate_masking.py` / `predicate_noising.py` — the `PredicateMasker` / `PredicateNoiser` drivers. Nothing here imports a learner, and no learner imports it. |
 | `src/plan_denoising/` | Conflict-Directed Patch Search (CDPS): `conflict_search.py`, `conflict_search_config.py` (`CDPSConfig`), `frontier.py` (search mode / node / conflict-group / fluent-branch strategies). GT-aware via `gt_states_by_obs` (init state always GT). `typings.py` holds the shared repair vocabulary — `Conflict`, `ModelLevelPatch`, `FluentLevelPatch`, `NodeExpansionEvent`; import these from here, not from whichever module happens to re-export them. `noisy_learner_mixin.py` is the learner-side half of the protocol (report conflicts, accept patches) and is abstract over the SAM family; `noisy_pisam_learning.py` binds it to PI-SAM, and `conflict_search_pisam.py` (`ConflictDrivenPatchSearchPISAM`) binds the search to that learner. Those bindings live here, not in `src/pi_sam/`, so the dependency stays one-way. They are two files, not one: `conflict_search.py` names no concrete learner, and `milp_denoiser/` builds a `NoisyPisamLearner` directly, so it must be able to import the learner without importing the search it replaces. Also `evaluator.py` — `observations_reconstruction_score`, a **ground-truth-free** model score (effect mismatches + inapplicability events, rollout and one-step, against the frozen original observations). Use it for online selection; **never** `benchmark/experiment_running_helpers/evaluation.py:evaluate_model`, which needs GT and is for offline reporting only. And `patch_accounting.py` — the one rule for counting *realized* fluent edits (odd parity over normalized keys, because patches are toggles); every consumer comparing repair magnitudes must use it. |
 | `src/plan_denoising/milp_denoiser/` | The CDPS repair problem handed to CP-SAT instead of to search: `config.py` (`PisamMilpConfig`), `trajectory_extraction.py` (solved MILP → re-masked T′), `single_round.py` (the `pisam_milp_single_round` driver), `loop.py` (the `pisam_milp_loop` driver), `model_prior.py` (a learned `LearnerDomain` → the encoder's reference channel). Everything here presumes the caller is CDPS; the encoder it drives does not. |
-| `src/milp/` | The CP-SAT encoder and its vocabulary, shared by two unrelated learners (`pisam_milp_*` and the `rosame_milp*` baselines) — hence `src/`, not under either one. `encoder.py` (`CPSATObservedActions`), `encoding_config.py` (`MilpEncodingConfig`, presets `upstream()`/`tag()`/`cdps_dialect()`), `converter.py` (pddl_plus → `planning_structs`, `GtAnchoring`, `RepeatedArgsInstance`, `problem_object_types` — the declared-type overlay that stops trajectory-inferred object types from making an observed action ungroundable; `observation_to_trace` **raises**, `try_observation_to_trace` returns `None` and is only for the loop's optional warm-start hints), `vendor/` (upstream code, see `vendor/UPSTREAM.md`). Importing `src.milp` is what puts `vendor/` on `sys.path`, so it is the precondition for any bare `from planning_structs...` import. |
+| `src/milp/` | The CP-SAT encoder and its vocabulary, shared by two unrelated learners (`pisam_milp_*` and the `rosame_milp*` / `rosame_i_milp` baselines) — hence `src/`, not under either one. `encoder.py` (`CPSATObservedActions`), `encoding_config.py` (`MilpEncodingConfig`, presets `upstream()`/`tag()`/`cdps_dialect()`), `converter.py` (pddl_plus → `planning_structs`, `GtAnchoring`, `RepeatedArgsInstance`, `problem_object_types` — the declared-type overlay that stops trajectory-inferred object types from making an observed action ungroundable; `observation_to_trace` **raises**, `try_observation_to_trace` returns `None` and is only for the loop's optional warm-start hints; `cv_predictions_to_trace` builds a vendored trace from ROSAME-I CV logits), `vendor/` (upstream code, see `vendor/UPSTREAM.md`). Importing `src.milp` is what puts `vendor/` on `sys.path`, so it is the precondition for any bare `from planning_structs...` import. |
 | `src/domains/` | Domain PDDL files and per-domain problem folders (`problems/problemN/`). One subdir per domain. |
 | `src/action_model/` | Parsers between PDDL ↔ gym ↔ SAM formats. |
 | `src/llms/` | LLM integration: prompts, constants, ground-truth files, precision/recall evaluation. |
@@ -29,7 +30,7 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 | `src/typings/` | Shared type aliases and TypedDicts. No logic. |
 | `benchmark/` | Experiment runners, data generators, evaluation scripts. Not part of the library. |
 | `benchmark/experiment_running_helpers/` | Fold execution glue: `run_fold.py` (spine), `data_source.py` (image vs simulated), `learning_helpers.py` (CDPS), `trajectory_utils.py` (fold prep / anchored GT), `resume.py` (fold I/O + `run_params` checks), `gt_builder.py` (GT export/validation), `collect_results.py` + `result_schema.py` (per-cell JSON → tables). |
-| `benchmark/algorithm_adapters/` | ROSAME PO encoding (`po_rosame_runner.py`) and `rosame_milp/` (the ROSAME↔MILP bridge + milp loop; the encoder itself lives in `src/milp/`). Used by `baselines/`. CDPS calls `ConflictDrivenPatchSearchPISAM` directly from `learning_helpers.py`. |
+| `benchmark/algorithm_adapters/` | ROSAME family glue used by `baselines/`: `po_rosame_runner.py` (symbolic PO ROSAME), `rosame_i_runner.py` (imaged ROSAME-I), `rosame_milp/` (symbolic MILP loop + `milp_loop_i.py` for ROSAME-I+MILP). The encoder itself lives in `src/milp/`. CDPS calls `ConflictDrivenPatchSearchPISAM` directly from `learning_helpers.py`. |
 | `benchmark/baselines/` | Pluggable competitor runners (`BaselineRunner` ABC) registered in `BASELINE_REGISTRY` (`rosame`, `rosame_i`, `rosame_i_milp`, `rosame_milp*`). |
 | `benchmark/diagnosis/` | CDPS search-trace tooling: `trace_serialization.py`, `visualize_trace.py`, `retrace_search.py`. |
 | `benchmark/simulated_version/` | Simulated-experiment utilities: `run_simulated_experiment.py`, `noise_injection.py`, `noise_evaluation.py`. |
@@ -38,7 +39,7 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 
 ## Base Class Contracts
 
-When adding a new detector, classifier, or trajectory handler, **always extend the base class**. Never duplicate the interface.
+When adding a new detector, classifier, trajectory handler, or trace source, **always extend the base class**. Never duplicate the interface.
 
 ### Object Detector
 ```python
@@ -138,6 +139,25 @@ class NoisingStrategy(ABC):
 - Returns the subset of predicates whose polarity should be flipped. Does **not** mutate — caller uses `flip_fluent_in_state` from `utils/pddl_state.py`.
 - Pass only unmasked predicates; the strategy has no masking awareness.
 
+### Trace Source
+```python
+# src/trace_generation/sources.py
+class TraceSource(ABC):
+    @property
+    @abstractmethod
+    def domain_name(self) -> str: ...
+    @property
+    @abstractmethod
+    def objects(self) -> Tuple[str, ...]: ...
+    @abstractmethod
+    def steps(self) -> Iterator[TraceStep]: ...
+    @abstractmethod
+    def describe(self) -> Dict[str, Any]: ...
+```
+- Yields a homogeneous `TraceStep` stream. The cutter and emitter never branch on where the trace came from.
+- Concrete sources: `ProblemWalkSource` (planner / random / mixed via `unified_planning`) and `TrajectorySource` (replay a `.trajectory` + its problem `.pddl`).
+- Symbolic output only. Images stay the existing trajectory-handler pipeline.
+
 ---
 
 ## Modularity & Code Reuse Rules
@@ -150,9 +170,9 @@ Every utility function that is not domain-specific belongs in `src/utils/`. Befo
 | File | What it provides |
 |---|---|
 | `utils/containers.py` | `to_list`, `serialize`, `group_objects_by_key`, `sort_objects_numerically`, `shrink_whitespaces` |
-| `utils/pddl_state.py` | `get_state_grounded_predicates`, `get_state_unmasked_predicates`, `get_state_masked_predicates`, `find_predicate_negation`, `state_positive_set`, `compare_states`, `compare_observations`, `observations_equal`, `copy_state`, `copy_observation`, `copy_observation_linked`, `flip_fluent_in_state`, `ground_observation_completely`, `ground_all_predicates_in_state`, `ground_all_states_in_observation`, `get_all_possible_groundings`, `get_all_possible_groundings_for_domain` |
+| `utils/pddl_state.py` | `get_state_grounded_predicates`, `get_state_unmasked_predicates`, `get_state_masked_predicates`, `find_predicate_negation`, `state_positive_set`, `compare_states`, `compare_observations`, `observations_equal`, `copy_state`, `copy_observation`, `copy_observation_linked`, `flip_fluent_in_state`, `normalize_predicate_types_in_state`, `ground_observation_completely`, `ground_all_predicates_in_state`, `ground_all_states_in_observation`, `get_all_possible_groundings`, `get_all_possible_groundings_for_domain` |
 | `utils/pddl_gym.py` | `set_problem_by_name`, `ground_action`, `parse_gym_to_pddl_literal`, `parse_gym_to_pddl_ground_action`, `multi_replace_predicate`, `translate_pddlgym_state_to_image_predicates`, `extract_objects_from_pddlgym_state`, `translate_problem_pddl_text` |
-| `utils/pddl_trajectory.py` | `build_trajectory_file`, `observation_to_trajectory_file`, `ensure_trajectory_json`, `extract_actions_from_trajectory_json`, `propagate_frame_axioms_in_trajectory`, `propagate_frame_axioms_in_memory`, `propagate_frame_axioms_selective`, `inject_gt_states_by_percentage` |
+| `utils/pddl_trajectory.py` | `build_trajectory_file`, `export_gt_trajectory`, `observation_to_trajectory_file`, `ensure_trajectory_json`, `extract_actions_from_trajectory_json`, `propagate_frame_axioms_in_trajectory`, `propagate_frame_axioms_in_memory`, `propagate_frame_axioms_selective`, `inject_gt_states_by_percentage` |
 | `utils/trajectory_json_converter.py` | `convert_trajectory_to_json` — `.trajectory` + `.pddl` → `_trajectory.json` |
 | `utils/masking.py` | `mask_state`, `mask_observation`, `mask_observations`, `save_masking_info`, `load_masking_info`, `load_masked_observation` |
 | `utils/visualize.py` | `draw_objects`, `to_int_rgb`, `find_exact_rgb_color_mask`, `load_image`, `encode_image_to_base64` |
@@ -216,7 +236,8 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - **Template Method** — base classes define the pipeline; subclasses fill in domain-specific steps via hooks.
 - **Handler Layering** — `ImageTrajectoryHandler` (inference) ← `PDDLGymImageTrajectoryHandler` / `ExternalImageTrajectoryHandler` (data source) ← domain concrete class. LLM domains add `LLMVisualComponentsMixin` via multiple inheritance.
 - **Mixin Composition** — noise handling (`NoisyLearnerMixin`) and LLM wiring (`LLMVisualComponentsMixin`) are mixins, not deep subclass chains.
-- **Strategy** — masking via `MaskingStrategy`; noising via `NoisingStrategy`. Algorithm selection via `benchmark/algorithms.py` (`cdps` / `cdps_anchored` + baseline keys from `benchmark/baselines/`).
+- **Strategy** — masking via `MaskingStrategy`; noising via `NoisingStrategy`; trace generation via `TraceSource`. Algorithm selection via `benchmark/algorithms.py` (`cdps` / `cdps_anchored` + baseline keys from `benchmark/baselines/`).
+- **Trace pipeline** — `TraceSource` → `cutter.cut` → `emitter.emit_window`, composed only in `corpus.generate_corpus`. A new walk/replay backend is a new `TraceSource`; cutting and emission stay shared.
 - **DataSource** — `ImageDataSource` vs `SimulatedDataSource` in `benchmark/experiment_running_helpers/data_source.py` decouple observation preparation from fold execution.
 - **CDPSConfig** — immutable dataclass in `conflict_search_config.py` bundles search *shape* (`search_mode`, `node_choosing_strategy`, `conflict_group_strategy`, `fluent_branch_mode`, patch costs/weights, `negative_precondition_policy`, `seed`); runtime timeout and `gt_states_by_obs` are passed separately to `ConflictDrivenPatchSearchBase.run`.
 - **GT-aware CDPS** — search always respects `gt_states_by_obs` (init state is GT; never fluent-patch GT states; reject GT-refuted model constraints). The anchored variant (`cdps_anchored`) differs in **data prep** (also inject final state as GT via `trajectory_utils` / `inject_gt_states_by_percentage(..., anchor_final=True)`), not search shape.
@@ -235,7 +256,7 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - Entry points:
   - `benchmark/benchmark_runner.py` — config-driven batch runner (`benchmark/run_config.yaml`); delegates each cell to `experiment_runner`
   - `benchmark/experiment_runner.py` — single experiment (one domain, one data source); `--algorithms cdps rosame` (default)
-  - `benchmark/data_generator.py` — multi-problem trajectory generation via `_DOMAIN_REGISTRY`
+  - `benchmark/data_generator.py` — multi-problem trajectory generation via `_DOMAIN_REGISTRY`; `--gen-mode predefined` (existing problems) / `generate` (PDDLGym walk + LLM inference) / `trace` (`src/trace_generation/` symbolic corpus)
   - `benchmark/generate_gt_trajectories.py` — GT backfill/validation CLI (`gt_builder.py`)
   - `benchmark/simulated_version/run_simulated_experiment.py` — standalone simulated runs
   - `benchmark/backfill_baseline.py` — retrofit baseline results into existing cells (`original_observations/` → learn → evaluate → merge into `fold_result.json`); supports `--workers N` for parallel cells
