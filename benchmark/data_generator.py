@@ -408,6 +408,13 @@ def _describe_lengths(mode_name: str, length_range: Optional[tuple],
     return f"the whole trace as one problem ({mode_name})"
 
 
+def _describe_problem_count(produced: int, asked: Optional[int]) -> str:
+    """One banner phrase for the produced problem count, naming any shortfall."""
+    if asked is None or produced >= asked:
+        return str(produced)
+    return f"{produced}  *** SHORT: asked for {asked} ***"
+
+
 def generate_trajectories_via_trace(
     domain: str,
     output_base_dir: Path,
@@ -511,6 +518,8 @@ def generate_trajectories_via_trace(
     print("=" * 80)
     print()
 
+    asked = num_problems if mode is not CutMode.NONE else None
+
     corpus = generate_corpus(
         source,
         corpus_root=corpus_root,
@@ -518,7 +527,7 @@ def generate_trajectories_via_trace(
         length_range=length_range,
         buckets=buckets,
         skip=skip,
-        num_problems=num_problems if mode is not CutMode.NONE else None,
+        num_problems=asked,
         seed=cut_seed if cut_seed is not None else seed,
         problem_prefix=domain_config.get("problem_prefix", "problem"),
         render=render,
@@ -529,7 +538,7 @@ def generate_trajectories_via_trace(
     print("TRACE-MODE TRAJECTORY GENERATION COMPLETE")
     print("=" * 80)
     print(f"\nCorpus saved to: {corpus.root}")
-    print(f"  Problems: {corpus.num_problems}")
+    print(f"  Problems: {_describe_problem_count(corpus.num_problems, asked)}")
     print(f"  Trajectories: {corpus.trajectories_dir}")
     print(f"  GT trajectories: {corpus.root / 'gt_trajectories'}")
     print(f"  Manifest: {corpus.info_file}")
