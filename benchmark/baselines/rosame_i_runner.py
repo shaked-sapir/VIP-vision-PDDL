@@ -288,24 +288,44 @@ class RosameIBaselineRunner(BaselineRunner):
             )
         return self._state_positive_predicates(observation.components[-1].next_state)
 
-    # In image mode the reference domain is hyphen-normalized (underscores), but
-    # the problem PDDLs and gt_trajectories on disk keep their original (often
-    # hyphenated) identifiers. Parsing those raw against the normalized domain
-    # raises an ``illegal state component`` error, so every input is normalized to
-    # underscores first — a no-op for domains that never used hyphens.
+    # Problem PDDLs and gt_trajectories on disk keep whichever dialect they were
+    # written in, which need not match the reference domain: an image experiment
+    # that ran normalize_experiment_data has an underscored domain, one that
+    # skipped it keeps the raw domain. Parsing an input against a domain in the
+    # other dialect raises ``illegal state component``, so inputs are conformed to
+    # the dialect the domain itself declares.
 
     @staticmethod
-    def _normalized_tempfile(source: Path, suffix: str) -> Path:
-        """Write a hyphen→underscore-normalized copy of ``source`` to a temp file."""
-        normalized_text = _normalize_hyphens(source.read_text())
+    def _domain_uses_hyphens(partial_domain: Domain) -> bool:
+        """True if any identifier the domain declares contains a hyphen."""
+        declared = (
+            list(partial_domain.predicates)
+            + list(partial_domain.actions)
+            + list(getattr(partial_domain, "types", None) or {})
+            + list(getattr(partial_domain, "constants", None) or {})
+        )
+        return any("-" in name for name in declared)
+
+    @classmethod
+    def _conformed_tempfile(
+        cls, source: Path, suffix: str, partial_domain: Domain
+    ) -> Path:
+        """Write a copy of ``source`` in ``partial_domain``'s dialect to a temp file.
+
+        Hyphens are rewritten to underscores unless the domain declares hyphenated
+        identifiers, in which case ``source`` is copied verbatim.
+        """
+        text = source.read_text()
+        if not cls._domain_uses_hyphens(partial_domain):
+            text = _normalize_hyphens(text)
         with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False) as tmp:
-            tmp.write(normalized_text)
+            tmp.write(text)
             return Path(tmp.name)
 
     @classmethod
     def _parse_problem_normalized(cls, partial_domain: Domain, problem_pddl_path: Path) -> Problem:
-        """Parse a problem PDDL whose identifiers may be hyphenated."""
-        tmp_path = cls._normalized_tempfile(problem_pddl_path, ".pddl")
+        """Parse a problem PDDL, conforming its dialect to the domain's."""
+        tmp_path = cls._conformed_tempfile(problem_pddl_path, ".pddl", partial_domain)
         try:
             return ProblemParser(tmp_path, partial_domain).parse_problem()
         finally:
@@ -315,8 +335,8 @@ class RosameIBaselineRunner(BaselineRunner):
     def _parse_trajectory_normalized(
         cls, partial_domain: Domain, problem: Problem, trajectory_path: Path
     ):
-        """Parse a trajectory whose identifiers may be hyphenated."""
-        tmp_path = cls._normalized_tempfile(trajectory_path, ".trajectory")
+        """Parse a trajectory, conforming its dialect to the domain's."""
+        tmp_path = cls._conformed_tempfile(trajectory_path, ".trajectory", partial_domain)
         try:
             return TrajectoryParser(partial_domain, problem).parse_trajectory(tmp_path)
         finally:

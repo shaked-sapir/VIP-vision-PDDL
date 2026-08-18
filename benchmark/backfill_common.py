@@ -44,25 +44,27 @@ def is_cell_dir(path: Path) -> bool:
     return path.is_dir() and _CELL_RE.match(path.name) is not None
 
 
-def find_problem_pddl(data_dir: Path, problem_name: str) -> Optional[Path]:
-    """Locate a problem's PDDL file under the experiment's data directory.
+def find_problem_pddl(search_root: Path, problem_name: str) -> Optional[Path]:
+    """Locate a problem's PDDL file under a problem-source root.
 
-    Covers the known data_dir layouts:
-      <data_dir>/training/trajectories/<problem>/<problem>.pddl  (standard)
-      <data_dir>/<problem>/<problem>.pddl
-      <data_dir>/problems/<problem>/<problem>.pddl
-      <data_dir>/<problem>.pddl
+    ``search_root`` is what :func:`resolve_problem_dir` returns — either the
+    experiment's data_dir or its normalized trajectories dir — never assumed to
+    be the data_dir. Covers the known layouts:
+      <root>/training/trajectories/<problem>/<problem>.pddl  (standard data_dir)
+      <root>/<problem>/<problem>.pddl                        (trajectories dir)
+      <root>/problems/<problem>/<problem>.pddl
+      <root>/<problem>.pddl
     """
     candidates = [
-        data_dir / "training" / "trajectories" / problem_name / f"{problem_name}.pddl",
-        data_dir / problem_name / f"{problem_name}.pddl",
-        data_dir / "problems" / problem_name / f"{problem_name}.pddl",
-        data_dir / f"{problem_name}.pddl",
+        search_root / "training" / "trajectories" / problem_name / f"{problem_name}.pddl",
+        search_root / problem_name / f"{problem_name}.pddl",
+        search_root / "problems" / problem_name / f"{problem_name}.pddl",
+        search_root / f"{problem_name}.pddl",
     ]
     for c in candidates:
         if c.exists():
             return c
-    for parent in (data_dir / "training" / "trajectories", data_dir, data_dir / "problems"):
+    for parent in (search_root / "training" / "trajectories", search_root, search_root / "problems"):
         problem_dir = parent / problem_name
         if problem_dir.is_dir():
             pddl_files = sorted(problem_dir.glob("*.pddl"))
@@ -189,6 +191,38 @@ def resolve_data_dir(
         return recorded, "run_params.json"
 
     return None, "unresolved"
+
+
+def resolve_problem_dir(exp_dir: Path, data_dir: Path) -> Path:
+    """Return the root whose problem PDDLs speak the cells' predicate dialect.
+
+    ``normalize_experiment_data`` rewrites hyphens to underscores in PDDL
+    identifiers. It runs for image experiments only, writes its output to
+    ``<data_dir>/training/trajectories_normalized``, and its ``_domain.pddl``
+    becomes every cell's ``domain_reference.pddl``. Simulated experiments never
+    normalize, so their cells keep the raw hyphenated dialect — and both modes
+    can point at the same ``data_dir``, so the directory alone does not say which
+    dialect a cell speaks. ``run_params.json``'s ``normalized`` field does.
+
+    Reading the raw ``training/trajectories`` for a normalized experiment pairs a
+    hyphenated problem with an underscored domain; parsing the two together
+    raises ``Received illegal state component``.
+
+    Falls back to ``data_dir`` when the flag is absent or the normalized copy has
+    since been deleted.
+    """
+    params = read_run_params(exp_dir)
+    if not (params and params.get("normalized")):
+        return data_dir
+
+    normalized = data_dir / "training" / "trajectories_normalized"
+    if normalized.is_dir():
+        return normalized
+
+    print(f"[WARN] {exp_dir.name}: run_params.json says normalized=true but "
+          f"{normalized} is missing; falling back to {data_dir}, which may hold "
+          f"problem PDDLs in a different predicate dialect than the cells")
+    return data_dir
 
 
 def worker_init() -> None:

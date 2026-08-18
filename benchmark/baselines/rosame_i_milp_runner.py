@@ -128,18 +128,25 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         """
         contexts: Dict[str, _TraceContext] = {}
         n_gt_goals = 0
-        for idx, (problem, image_paths, action_strings, _final) in enumerate(prepared_problems):
+        for idx, (problem, image_paths, action_strings, final_preds) in enumerate(prepared_problems):
             name = image_paths[0].parent.name if image_paths else f"problem{idx}"
             calls = []
             for action_str in action_strings:
                 parts = action_str.split()
                 calls.append((parts[0], parts[1:]))
 
+            # ``final_preds`` is the GT final state already resolved by
+            # RosameIBaselineRunner._resolve_final_state — parsed, and conformed to
+            # the reference domain's dialect. Re-reading the GT trajectory here would
+            # be a *second* lookup with its own dialect policy (the hazard called out
+            # in docs/rosame-i-milp-implementation-plan.md §7.7): the raw-text reader
+            # cannot see whether the domain is hyphenated, so on an un-normalized
+            # hyphenated domain none of its fluents ground, the goal resolves to the
+            # empty set, and the encoder's closed-world hard state then forces every
+            # proposition false at step+1 — infeasible on every round.
             goal = None
-            if self.goal_mode == "gt":
-                goal = goal_fluents_from_trajectory(
-                    gt_paths[idx], normalize_identifiers=True
-                )
+            if self.goal_mode == "gt" and final_preds:
+                goal = {(p[0], tuple(p[1:])) for p in (s.split() for s in final_preds)}
             if goal is not None:
                 n_gt_goals += 1
 

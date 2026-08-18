@@ -1,0 +1,79 @@
+{
+  "run_name": "TO=600__hanoi_generated_problem1__final-version_fixed",
+  "source": "image",
+  "generated_at": "17-08-2026T23-21-43",
+  "run_status": "ok",
+  "selected_domains": "all",
+  "shared": {
+    "n_folds": 5,
+    "num_trajectories": [
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "gt_rates": [
+      0
+    ],
+    "learning_timeout_seconds": 600,
+    "planning_timeout_seconds": 60,
+    "search_mode": "dfs",
+    "node_choosing_strategy": "model_patch_first",
+    "model_constraint_weight": 0.0,
+    "conflict_group_strategy": "largest",
+    "fluent_branch_mode": "single",
+    "events_tracing": false,
+    "normalize": false,
+    "resume": false,
+    "algorithms": [
+      "cdps",
+      "pisam_milp_single_round",
+      "pisam_milp_loop"
+    ],
+    "pisam_milp": {
+      "eq16": false,
+      "lambda_pre": 0.4,
+      "gt_anchoring": "init_only",
+      "solver": "cpsat",
+      "time_limit_seconds": null,
+      "sampler": "random",
+      "subset_size": "half",
+      "learner_input": "subset_only",
+      "pool_policy": "frozen",
+      "co_sample_conflicts": false,
+      "w_prior": "tiebreak",
+      "seed": 42,
+      "stop": {
+        "budget_seconds": null,
+        "no_improvement_rounds": null,
+        "stop_on_perfect_fit": true,
+        "max_rounds": null,
+        "stop_on_fixpoint": true
+      },
+      "eval": {
+        "effect_mismatch_weight": 1.0,
+        "inapplicability_weight": 1.0
+      }
+    }
+  },
+  "simulation": null,
+  "num_cells": 1,
+  "by_domain": {
+    "hanoi": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/TO=600__hanoi_generated_problem1__final-version_fixed"
+    ]
+  },
+  "cells": [
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "TO=600__hanoi_generated_problem1__final-version_fixed",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/TO=600__hanoi_generated_problem1__final-version_fixed",
+      "masking_p": null,
+      "noising_p": null,
+      "status": "ok",
+      "error": null
+    }
+  ]
+}

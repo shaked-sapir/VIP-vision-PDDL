@@ -1,0 +1,32 @@
+# pisam_milp block for: backfill_cdps --algorithm pisam_milp_loop
+#
+# Mirrors the shared.pisam_milp block of benchmark/run_config.yaml. Every knob
+# is written out rather than left to a default so this arm cannot drift when
+# either that file or the dataclass defaults change.
+#
+# gt_anchoring is the ONLY key that differs from loop_gt_none.yaml.
+# `variant` is absent on purpose: --algorithm pins it.
+
+eq16: off
+lambda_pre: 0.4
+gt_anchoring: init_only
+solver: cpsat
+time_limit_seconds:          # blank = inherit the cell's learning_timeout_seconds
+
+# ---- loop-only ----
+sampler: random
+subset_size: half
+learner_input: subset_only
+pool_policy: frozen
+co_sample_conflicts: off
+w_prior: tiebreak
+seed: 42
+stop:
+  budget_seconds:            # blank = inherit the cell's learning_timeout_seconds
+  no_improvement_rounds:     # blank = off (the dataclass default is 5)
+  stop_on_perfect_fit: true
+  max_rounds:
+  stop_on_fixpoint: true
+eval:
+  effect_mismatch_weight: 1.0
+  inapplicability_weight: 1.0

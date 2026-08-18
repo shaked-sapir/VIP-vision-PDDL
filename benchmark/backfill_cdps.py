@@ -73,6 +73,7 @@ from benchmark.backfill_common import (
     parse_cell_name,
     read_run_params,
     resolve_data_dir,
+    resolve_problem_dir,
     worker_init,
 )
 from benchmark.experiment_running_helpers.resume import FOLD_RESULT_FILENAME
@@ -178,9 +179,14 @@ class ExperimentSettings:
     Resolved once per experiment from its ``run_params.json`` (with CLI
     overrides) and then shared by all of that experiment's cells, so cell-level
     code takes a single object instead of a long positional argument list.
+
+    ``data_dir`` is the experiment's data root, holding ``gt_trajectories/``.
+    ``problem_dir`` is where problem PDDLs are looked up; it differs from
+    ``data_dir`` for normalized experiments (see ``resolve_problem_dir``).
     """
 
     data_dir: Path
+    problem_dir: Path
     bench_name: str
     cdps_search_params: Dict[str, object]
     learn_timeout: int
@@ -207,7 +213,7 @@ def _degraded_files(cell: Path, problem: str) -> Optional[Tuple[Path, Path]]:
 
 
 def _frozen_fold_trajectories(
-    cell: Path, data_dir: Path, fold_info: dict, gt_rate: int,
+    cell: Path, problem_dir: Path, fold_info: dict, gt_rate: int,
 ) -> List[Tuple[Path, Path, Path, Set[int]]]:
     """The cell's frozen degraded files as plain (un-anchored) fold tuples.
 
@@ -237,9 +243,9 @@ def _frozen_fold_trajectories(
             print(f"    Warning: no degraded trajectory/masking for {problem}, skipping")
             continue
 
-        problem_pddl = find_problem_pddl(data_dir, problem)
+        problem_pddl = find_problem_pddl(problem_dir, problem)
         if problem_pddl is None:
-            print(f"    Warning: no problem PDDL for {problem} under {data_dir}, skipping")
+            print(f"    Warning: no problem PDDL for {problem} under {problem_dir}, skipping")
             continue
 
         prepared.append((*degraded, problem_pddl, {0}))
@@ -248,7 +254,7 @@ def _frozen_fold_trajectories(
 
 
 def _stage_anchored_inputs(
-    cell: Path, data_dir: Path, fold_info: dict, stage_dir: Path,
+    cell: Path, settings: ExperimentSettings, fold_info: dict, stage_dir: Path,
 ) -> List[Tuple[Path, Path, Path, set]]:
     """Stage each training problem's degraded obs + clean GT JSON for anchoring.
 
@@ -275,14 +281,16 @@ def _stage_anchored_inputs(
             continue
         degraded_traj, degraded_mask = degraded
 
-        gt_json = data_dir / "gt_trajectories" / problem / f"{problem}_trajectory.json"
+        gt_json = (settings.data_dir / "gt_trajectories" / problem
+                   / f"{problem}_trajectory.json")
         if not gt_json.exists():
             print(f"    Warning: no clean GT JSON for {problem} at {gt_json}, skipping")
             continue
 
-        problem_pddl = find_problem_pddl(data_dir, problem)
+        problem_pddl = find_problem_pddl(settings.problem_dir, problem)
         if problem_pddl is None:
-            print(f"    Warning: no problem PDDL for {problem} under {data_dir}, skipping")
+            print(f"    Warning: no problem PDDL for {problem} under "
+                  f"{settings.problem_dir}, skipping")
             continue
 
         prob_stage = stage_dir / problem
@@ -298,11 +306,11 @@ def _stage_anchored_inputs(
     return staged
 
 
-def _resolve_test_problem_paths(data_dir: Path, fold_info: dict) -> List[str]:
+def _resolve_test_problem_paths(problem_dir: Path, fold_info: dict) -> List[str]:
     """Resolve the cell's held-out test problems to on-disk PDDL paths."""
     paths: List[str] = []
     for problem in fold_info.get("test_problems", []):
-        p = find_problem_pddl(data_dir, problem)
+        p = find_problem_pddl(problem_dir, problem)
         if p is not None:
             paths.append(str(p))
         else:
@@ -320,7 +328,7 @@ def _anchored_fold_trajectories(
     needs to be thrown away afterwards.
     """
     with tempfile.TemporaryDirectory(prefix="cdps_anchored_stage_") as tmp:
-        staged = _stage_anchored_inputs(cell, settings.data_dir, fold_info, Path(tmp))
+        staged = _stage_anchored_inputs(cell, settings, fold_info, Path(tmp))
         if not staged:
             return []
         return prepare_anchored_fold_trajectories(
@@ -339,7 +347,7 @@ def _fold_inputs(
     """The trajectories this arm learns from — anchored, or the frozen originals."""
     if spec.milp_config is None:
         return _anchored_fold_trajectories(cell, settings, fold_info, gt_rate)
-    return _frozen_fold_trajectories(cell, settings.data_dir, fold_info, gt_rate)
+    return _frozen_fold_trajectories(cell, settings.problem_dir, fold_info, gt_rate)
 
 
 def backfill_cell(
@@ -364,7 +372,7 @@ def backfill_cell(
         print(f"  [SKIP] {cell.name}: {spec.row_name} row already present")
         return "skip"
 
-    test_problem_paths = _resolve_test_problem_paths(settings.data_dir, fold_info)
+    test_problem_paths = _resolve_test_problem_paths(settings.problem_dir, fold_info)
     if not test_problem_paths:
         print(f"  [SKIP] {cell.name}: no test problem PDDLs found")
         return "skip"
@@ -469,8 +477,11 @@ def resolve_experiment(
         print(f"[SKIP] {exp_dir}: no run_params.json — CDPS hyperparameters unavailable")
         return None
 
+    problem_dir = resolve_problem_dir(exp_dir, data_dir)
+
     settings = ExperimentSettings(
         data_dir=data_dir,
+        problem_dir=problem_dir,
         bench_name=args.domain or exp_dir.parent.name,
         cdps_search_params={
             k: run_params.get(k, default) for k, default in _CDPS_SEARCH_DEFAULTS.items()
@@ -479,7 +490,9 @@ def resolve_experiment(
         planning_timeout=args.planning_timeout or run_params.get("planning_timeout_seconds") or 60,
         frame_axiom_mode=args.frame_axiom_mode or run_params.get("frame_axiom_mode", "after_gt_only"),
     )
-    print(f"[{settings.bench_name}] {exp_dir.name}: data_dir from {src}: {data_dir} | "
+    dialect_note = "" if problem_dir == data_dir else f" | problems from {problem_dir.name}/"
+    print(f"[{settings.bench_name}] {exp_dir.name}: data_dir from {src}: {data_dir}"
+          f"{dialect_note} | "
           f"learn_timeout={settings.learn_timeout}s "
           f"planning_timeout={settings.planning_timeout}s "
           f"frame_axiom_mode={settings.frame_axiom_mode}")

@@ -9,8 +9,8 @@
 # A timestamped manifest (params + per-domain output paths) is archived to:
 #   benchmark/finished_run_configs/<run_name>/<timestamp>.json
 
-run_name: simulation-final-run            # names the output experiments + the manifest dir
-source: simulated                       # image | simulated
+run_name: TO=600__hanoi_generated_problem1__final-version_fixed           # names the output experiments + the manifest dir
+source: image                       # image | simulated
 
 # Shared benchmark params — forwarded to experiment_runner.main().
 # Any omitted key falls back to main()'s own default.
@@ -18,7 +18,7 @@ shared:
   n_folds: 5                            # any int >= 1
   num_trajectories: [3, 4, 5, 6, 7, 8]  # list of ints (trajectory counts to evaluate)
   gt_rates: [0]                         # list of ints — GT injection rates in % (e.g. 0, 25, 50)
-  learning_timeout_seconds: 300         # any int (seconds)
+  learning_timeout_seconds: 600         # any int (seconds)
   planning_timeout_seconds: 60          # any int (seconds)
   search_mode: dfs                      # dfs | ucs
   node_choosing_strategy: model_patch_first  # model_patch_first | fluent_patch_first | fluent_patch_first_then_model | randomized
@@ -26,8 +26,9 @@ shared:
   conflict_group_strategy: largest      # first | largest | largest_model_patchable | most_observations | smallest
   fluent_branch_mode: single            # group | single
   events_tracing: false                  # true | false -> make this true only when debugging, this produces an html showing the whole search space and it is HEAVY
+  normalize: false  
   resume: false                         # true | false -> skip fold instances already completed (fold_result.json present); strict-aborts if config differs from the saved run_params.json
-  algorithms: [cdps, rosame, rosame_milp, rosame_milp_tag]          # any subset of: cdps (ours), cdps_anchored, pisam_milp_single_round, pisam_milp_loop, rosame, rosame_i, rosame_i_milp (imaged cells only), rosame_milp*. e.g. [cdps] or [rosame] to run one standalone
+  algorithms: [cdps, pisam_milp_single_round, pisam_milp_loop]          # any subset of: cdps (ours), cdps_anchored, pisam_milp_single_round, pisam_milp_loop, rosame, rosame_i, rosame_i_milp (imaged cells only), rosame_milp*. e.g. [cdps] or [rosame] to run one standalone
 
   # Shared by both MILP arms; each arm pins its own variant from the selected
   # algorithm key, so listing both runs both off this one block. Only read when
@@ -36,7 +37,7 @@ shared:
   pisam_milp:
     eq16: off                           # on | off — precondition bias (lambda_pre). NOTE: changes T' itself, so it voids the cost(MILP) <= cost(CDPS) sanity check
     lambda_pre: 0.4                     # any float; used only when eq16: on
-    gt_anchoring: none             # init_only | all_gt_states | none — which known-GT states are hard-fixed (unrepairable). `none` hard-fixes nothing, so the init state is repairable too and no GT reaches the arm at all; its repair cost comes from a larger feasible set, so it is not comparable with the other two
+    gt_anchoring: init_only             # init_only | all_gt_states | none — which known-GT states are hard-fixed (unrepairable). `none` hard-fixes nothing, so the init state is repairable too and no GT reaches the arm at all; its repair cost comes from a larger feasible set, so it is not comparable with the other two
     solver: cpsat                       # cpsat (gurobi is declared but unimplemented — needs a license)
     time_limit_seconds:                 # cap for ONE solve. blank = inherit learning_timeout_seconds, which is what makes the head-to-head with CDPS fair
 
@@ -90,8 +91,8 @@ simulation:
 # training/trajectories/ (for imaged version) and gt_trajectories/ (for simulated version).
 
 domains:
-  - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"}
+  # - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"}
   - {domain_key: hanoi,       data_dir: "benchmark/data/hanoi/hanoi_generated_problem1__final-version_fixed"}
-  - {domain_key: npuzzle,     data_dir: "benchmark/data/npuzzle/npuzzle_generated_problem0__final-version_fixed"}
-  - {domain_key: depot,       data_dir: "benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"}
-  - {domain_key: gripper,     data_dir: "benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"}
+  # - {domain_key: npuzzle,     data_dir: "benchmark/data/npuzzle/npuzzle_generated_problem0__final-version_fixed"}
+  # - {domain_key: depot,       data_dir: "benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"}
+  # - {domain_key: gripper,     data_dir: "benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"}

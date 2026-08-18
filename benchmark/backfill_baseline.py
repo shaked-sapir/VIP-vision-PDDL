@@ -61,6 +61,7 @@ from benchmark.backfill_common import (
     merge_row,
     parse_cell_name,
     resolve_data_dir,
+    resolve_problem_dir,
     worker_init,
 )
 from benchmark.baselines import resolve_baselines
@@ -70,7 +71,7 @@ from benchmark.experiment_running_helpers.statistics import count_total_transiti
 
 
 def _build_prepared_trajectories(
-    cell: Path, data_dir: Path, fold_info: dict,
+    cell: Path, problem_dir: Path, fold_info: dict,
 ) -> List[Tuple[Path, Optional[Path], Path, set]]:
     """Rebuild run_fold-style prepared trajectory tuples from a saved cell."""
     obs_dir = cell / "original_observations"
@@ -88,9 +89,9 @@ def _build_prepared_trajectories(
         masking = traj.with_suffix(".masking_info")
         masking_path = masking if masking.exists() else None
 
-        problem_pddl = find_problem_pddl(data_dir, problem)
+        problem_pddl = find_problem_pddl(problem_dir, problem)
         if problem_pddl is None:
-            print(f"    Warning: no problem PDDL for {problem} under {data_dir}, skipping")
+            print(f"    Warning: no problem PDDL for {problem} under {problem_dir}, skipping")
             continue
 
         # gt_indices unknown for saved cells; baselines don't consume it.
@@ -118,7 +119,7 @@ def _copy_shared_fields(fold_result_path: Path) -> dict:
 
 def backfill_cell(
     cell: Path,
-    data_dir: Path,
+    problem_dir: Path,
     bench_name: str,
     baselines: list,
     planning_timeout: int,
@@ -147,14 +148,14 @@ def backfill_cell(
         return "skip"
 
     # Inputs shared by all runners in this cell
-    prepared = _build_prepared_trajectories(cell, data_dir, fold_info)
+    prepared = _build_prepared_trajectories(cell, problem_dir, fold_info)
     if not prepared:
         print(f"  [SKIP] {cell.name}: no usable trajectories")
         return "skip"
 
     test_problem_paths: List[str] = []
     for problem in fold_info.get("test_problems", []):
-        p = find_problem_pddl(data_dir, problem)
+        p = find_problem_pddl(problem_dir, problem)
         if p is not None:
             test_problem_paths.append(str(p))
         else:
@@ -224,7 +225,7 @@ def backfill_cell(
 
 def _backfill_cell_worker(
     cell_str: str,
-    data_dir_str: str,
+    problem_dir_str: str,
     bench_name: str,
     baseline_keys: List[str],
     planning_timeout: int,
@@ -249,7 +250,7 @@ def _backfill_cell_worker(
             baseline_keys, train_per_trajectory=train_per_trajectory
         )
         status = backfill_cell(
-            Path(cell_str), Path(data_dir_str), bench_name, baselines,
+            Path(cell_str), Path(problem_dir_str), bench_name, baselines,
             planning_timeout=planning_timeout, learn_timeout=learn_timeout,
             force=force, dry_run=False,
         )
@@ -301,10 +302,12 @@ def main() -> None:
     if args.workers < 1:
         raise SystemExit("--workers must be >= 1")
 
-    # Gather (bench_name, cell, data_dir) work items across all experiment dirs.
-    # Each experiment's data_dir is read from its own run_params.json so the
+    # Gather (bench_name, cell, problem_dir) work items across all experiment
+    # dirs. Each experiment's data_dir is read from its own run_params.json so the
     # operator can't accidentally point at a regenerated/sibling dir (e.g.
-    # *_fixed); --data-dir, when given, overrides this for every experiment.
+    # *_fixed); --data-dir, when given, overrides this for every experiment. The
+    # problem_dir is then resolved from it so the problem PDDLs match the cells'
+    # predicate dialect.
     tasks: List[Tuple[str, Path, Path]] = []
     for exp_dir in args.experiment_dir:
         exp_dir = exp_dir.resolve()
@@ -328,9 +331,11 @@ def main() -> None:
         if args.cells:
             cells = [c for c in cells if args.cells in c.name]
 
+        problem_dir = resolve_problem_dir(exp_dir, data_dir)
+        dialect_note = "" if problem_dir == data_dir else f", problems from {problem_dir.name}/"
         print(f"[{bench_name}] {exp_dir.name}: {len(cells)} cells "
-              f"(data_dir from {src}: {data_dir})")
-        tasks.extend((bench_name, cell, data_dir) for cell in cells)
+              f"(data_dir from {src}: {data_dir}{dialect_note})")
+        tasks.extend((bench_name, cell, problem_dir) for cell in cells)
 
     if not tasks:
         print("Nothing to do.")
@@ -343,9 +348,9 @@ def main() -> None:
         baselines = resolve_baselines(
             args.baselines, train_per_trajectory=args.train_per_trajectory
         )
-        for bench_name, cell, data_dir in tasks:
+        for bench_name, cell, problem_dir in tasks:
             backfill_cell(
-                cell, data_dir, bench_name, baselines,
+                cell, problem_dir, bench_name, baselines,
                 planning_timeout=args.planning_timeout,
                 learn_timeout=args.learn_timeout,
                 force=args.force, dry_run=args.dry_run,
@@ -360,11 +365,11 @@ def main() -> None:
         futures = {
             executor.submit(
                 _backfill_cell_worker,
-                str(cell), str(data_dir), bench_name, args.baselines,
+                str(cell), str(problem_dir), bench_name, args.baselines,
                 args.planning_timeout, args.learn_timeout, args.force,
                 args.train_per_trajectory,
             ): cell
-            for bench_name, cell, data_dir in tasks
+            for bench_name, cell, problem_dir in tasks
         }
         for i, future in enumerate(as_completed(futures), start=1):
             try:
