@@ -1,3 +1,13 @@
+---
+name: compare-original-observations
+description: >
+  Compare a fold's frozen `original_observations/` trajectories against the source GT100
+  training trajectories, state by state, reporting the symmetric difference per state.
+  Use when: "how corrupted are this fold's observations", "diff the observations against
+  ground truth", "which fluents were masked or flipped in fold X", or when investigating
+  whether a fold's degraded input explains a bad learned model.
+---
+
 Compare a fold's `original_observations/` against the source GT100 training trajectories, state by state.
 
 **Input**: experiment directory and fold name, separated by a space — e.g.  

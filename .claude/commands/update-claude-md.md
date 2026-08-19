@@ -1,3 +1,12 @@
+---
+name: update-claude-md
+description: >
+  Re-explore the codebase and update CLAUDE.md so its module map, base-class contracts,
+  utils inventory, architectural patterns and domain list match reality. Use when:
+  "update CLAUDE.md", "CLAUDE.md is out of date", "refresh the project context", or
+  after a feature branch lands that adds or moves modules under `src/` or `benchmark/`.
+---
+
 Update the project's CLAUDE.md to reflect the current state of the codebase. Follow these steps carefully:
 
 ## Step 1 — Read the current CLAUDE.md
