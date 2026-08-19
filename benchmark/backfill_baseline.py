@@ -64,7 +64,7 @@ from benchmark.backfill_common import (
     resolve_problem_dir,
     worker_init,
 )
-from benchmark.baselines import resolve_baselines
+from benchmark.baselines import RESIZE_FROM_TABLE, resolve_baselines
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import FOLD_RESULT_FILENAME
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt
@@ -223,6 +223,31 @@ def backfill_cell(
 
 # ── Parallel execution (one process per cell) ──────────────────────────────
 
+def _parse_resize(value: str):
+    """``--resize`` argument -> ``int`` | ``[h, w]`` | ``None`` (native)."""
+    text = value.strip().lower()
+    if text in ("native", "none", "null"):
+        return None
+    if "," in text:
+        parts = [p.strip() for p in text.split(",")]
+        if len(parts) != 2:
+            raise argparse.ArgumentTypeError(
+                f"--resize expects N, H,W or 'native'; got {value!r}"
+            )
+        try:
+            return [int(p) for p in parts]
+        except ValueError:
+            raise argparse.ArgumentTypeError(
+                f"--resize H,W must be integers; got {value!r}"
+            ) from None
+    try:
+        return int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"--resize expects N, H,W or 'native'; got {value!r}"
+        ) from None
+
+
 def _backfill_cell_worker(
     cell_str: str,
     problem_dir_str: str,
@@ -232,6 +257,7 @@ def _backfill_cell_worker(
     learn_timeout: int,
     force: bool,
     train_per_trajectory: bool = True,
+    resize: object = RESIZE_FROM_TABLE,
 ) -> Tuple[str, str]:
     """Process-pool entry point: resolve runners locally (no pickling of torch
     objects across processes) and backfill one cell.
@@ -247,7 +273,7 @@ def _backfill_cell_worker(
         except ImportError:
             pass
         baselines = resolve_baselines(
-            baseline_keys, train_per_trajectory=train_per_trajectory
+            baseline_keys, train_per_trajectory=train_per_trajectory, resize=resize
         )
         status = backfill_cell(
             Path(cell_str), Path(problem_dir_str), bench_name, baselines,
@@ -288,6 +314,17 @@ def main() -> None:
                     help="ROSAME-I training schedule: per-trajectory (default) "
                          "vs pooled (--no-train-per-trajectory). Ignored by "
                          "baselines that don't accept it.")
+    ap.add_argument("--resize", type=_parse_resize, default=RESIZE_FROM_TABLE,
+                    metavar="N|H,W|native",
+                    help="Override the per-domain image resize for the pixel "
+                         "arms (ROSAME-I, ROSAME-I+MILP). 'N' resizes the "
+                         "shorter edge to N and preserves aspect (upstream's "
+                         "form); 'H,W' forces that size and distorts (note the "
+                         "order is height,width); 'native' skips the resize. "
+                         "Omit to use the per-domain table. A non-default value "
+                         "suffixes the row name (e.g. ROSAME-I__res=64x64) so "
+                         "two resolutions can never be averaged under one "
+                         "label. Ignored by baselines that don't accept it.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--workers", type=int, default=1,
                     help="Number of cells to backfill in parallel (one process "
@@ -346,7 +383,8 @@ def main() -> None:
     if workers == 1:
         # Sequential — identical to the original behavior.
         baselines = resolve_baselines(
-            args.baselines, train_per_trajectory=args.train_per_trajectory
+            args.baselines, train_per_trajectory=args.train_per_trajectory,
+            resize=args.resize,
         )
         for bench_name, cell, problem_dir in tasks:
             backfill_cell(
@@ -367,7 +405,7 @@ def main() -> None:
                 _backfill_cell_worker,
                 str(cell), str(problem_dir), bench_name, args.baselines,
                 args.planning_timeout, args.learn_timeout, args.force,
-                args.train_per_trajectory,
+                args.train_per_trajectory, args.resize,
             ): cell
             for bench_name, cell, problem_dir in tasks
         }

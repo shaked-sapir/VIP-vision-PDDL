@@ -15,7 +15,10 @@ from typing import Dict, List, Type
 
 from benchmark.baselines.base_runner import BaselineRunner
 from benchmark.baselines.rosame_runner import RosameBaselineRunner
-from benchmark.baselines.rosame_i_runner import RosameIBaselineRunner
+from benchmark.baselines.rosame_i_runner import (
+    RosameIBaselineRunner,
+    _RESIZE_FROM_TABLE as RESIZE_FROM_TABLE,  # sentinel: use the per-domain table
+)
 from benchmark.baselines.rosame_i_milp_runner import RosameIMilpRunner
 from benchmark.baselines.rosame_milp_runner import (
     RosameMilpBaseRunner,

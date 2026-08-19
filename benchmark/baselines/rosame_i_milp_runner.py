@@ -35,6 +35,7 @@ from benchmark.baselines.rosame_i_runner import (
     _AUGMENT_DOMAINS,
     _DEFAULT_HYPERPARAMS,
     _HYPERPARAMS,
+    _RESIZE_FROM_TABLE,
     RosameIBaselineRunner,
 )
 from benchmark.baselines.rosame_milp_runner import goal_fluents_from_trajectory
@@ -75,9 +76,11 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         encoding_config: Optional[MilpEncodingConfig] = None,
         goal_mode: str = "gt",
         milp_solver: str = "cp-sat-observed",
+        resize: object = _RESIZE_FROM_TABLE,
     ) -> None:
         super().__init__(
-            train_per_trajectory=False, n_seeds=n_seeds, device=device, base_seed=base_seed
+            train_per_trajectory=False, n_seeds=n_seeds, device=device,
+            base_seed=base_seed, resize=resize,
         )
         self.psi = psi
         self.pre_mip_epochs = pre_mip_epochs
@@ -91,7 +94,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
 
     @property
     def name(self) -> str:
-        return "ROSAME-I_MILP"
+        return f"ROSAME-I_MILP{self._resize_suffix}"
 
     @property
     def display_name(self) -> str:
@@ -226,6 +229,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         bench = self._infer_domain_name(domain_path, partial_domain)
         hp = _HYPERPARAMS.get(bench, _DEFAULT_HYPERPARAMS)
         augment = bench in _AUGMENT_DOMAINS
+        resize = self._resolve_resize(bench)
 
         prepared_problems, gt_paths = self._resolve_inputs(
             partial_domain, prepared_trajectories, bench
@@ -243,6 +247,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
             "mip_interval": self.mip_interval,
             "mip_traces": self.mip_traces,
             "n_seeds": self.n_seeds,
+            "resize": resize,
         }
         try:
             ps_domain = build_ps_domain(partial_domain)
@@ -257,7 +262,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
 
         model, run_extra = self._train_seeds(
             domain_path, work_dir, timeout_seconds, prepared_problems,
-            ps_domain, contexts, hp, augment,
+            ps_domain, contexts, hp, augment, resize,
         )
         extra.update(run_extra)
         return model, extra
@@ -272,6 +277,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         contexts: Dict[str, _TraceContext],
         hp: Dict[str, float],
         augment: bool,
+        resize: object,
     ) -> Tuple[Optional[str], Dict]:
         """Train each seed's loop, keep the lowest-final-loss model."""
         from benchmark.algorithm_adapters.rosame_milp.milp_loop_i import MilpRosameI
@@ -294,7 +300,8 @@ class RosameIMilpRunner(RosameIBaselineRunner):
                 continue
             try:
                 rosame = MilpRosameI(
-                    str(domain_path), device=self.device, seed=seed, psi=self.psi
+                    str(domain_path), device=self.device, seed=seed, psi=self.psi,
+                    resize=resize,
                 )
                 report = rosame.learn_pooled_with_milp(
                     prepared_problems,

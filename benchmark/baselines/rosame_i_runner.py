@@ -54,6 +54,36 @@ _DOMAIN_ALIASES: Dict[str, str] = {
 # Domains whose renderings are horizontal-flip invariant (paper augments these).
 _AUGMENT_DOMAINS = {"blocksworld"}
 
+# Per-domain image resize, applied by every pixel arm (ROSAME-I, ROSAME-I+MILP).
+# Written out per domain rather than left to a code default: resolution is an
+# experimental variable here, so it belongs where the experiment is read.
+#   int          -> Resize(n), shorter edge, aspect PRESERVED (ICAPS-24 form)
+#   (h, w)       -> Resize((h, w)), forced, aspect distorted -- torchvision order
+#                   is (height, width), not (width, height)
+#   None         -> no resize, native size (ICAPS-26 form)
+# See docs/rosame-i-milp-26-implementation-plan.md §4.6 / §4.6.1.
+_RESIZE_DEFAULT: int = 64
+_RESIZE: Dict[str, object] = {
+    "blocksworld": 64,
+    "hanoi": 64,
+    "npuzzle": 64,
+    "gripper": 64,
+    "depot": 64,  # candidate for 224 -- see docs/algorithm_comparison_analysis.md §5.1
+}
+
+# Sentinel: "no explicit override, use the per-domain table".
+_RESIZE_FROM_TABLE = object()
+
+
+def _resize_tag(resize: object) -> str:
+    """Row-name suffix fragment for a non-default resize (``64``, ``64x96``, ``native``)."""
+    if resize is None:
+        return "native"
+    if isinstance(resize, int):
+        return str(resize)
+    return "x".join(str(int(v)) for v in resize)
+
+
 # Staging directory names that sit one level above a problem's trajectory dir.
 _TRAJECTORY_DIR_NAMES = {"trajectories", "trajectories_normalized"}
 
@@ -67,15 +97,36 @@ class RosameIBaselineRunner(BaselineRunner):
         n_seeds: int = 3,
         device: Optional[str] = None,
         base_seed: int = 8800,
+        resize: object = _RESIZE_FROM_TABLE,
     ) -> None:
         self.train_per_trajectory = train_per_trajectory
         self.n_seeds = n_seeds
         self.device = device
         self.base_seed = base_seed
+        self.resize = resize
+
+    def _resolve_resize(self, bench: str) -> object:
+        """Explicit override if given, else the per-domain table, else the default."""
+        if self.resize is not _RESIZE_FROM_TABLE:
+            return self.resize
+        return _RESIZE.get(bench, _RESIZE_DEFAULT)
+
+    @property
+    def _resize_suffix(self) -> str:
+        """``__res=<tag>`` when an explicit override is in force, else empty.
+
+        Two resolutions averaged under one row name would be two algorithms
+        wearing one label -- the failure the ``__gt=none`` suffix rule exists to
+        prevent. The per-domain table is the default *for that domain*, so it
+        gets no suffix; an explicit override always does.
+        """
+        if self.resize is _RESIZE_FROM_TABLE:
+            return ""
+        return f"__res={_resize_tag(self.resize)}"
 
     @property
     def name(self) -> str:
-        return "ROSAME-I"
+        return f"ROSAME-I{self._resize_suffix}"
 
     @property
     def display_name(self) -> str:
@@ -98,6 +149,7 @@ class RosameIBaselineRunner(BaselineRunner):
         bench = self._infer_domain_name(domain_path, partial_domain)
         hp = _HYPERPARAMS.get(bench, _DEFAULT_HYPERPARAMS)
         augment = bench in _AUGMENT_DOMAINS
+        resize = self._resolve_resize(bench)
 
         prepared_problems, _gt_paths = self._resolve_inputs(
             partial_domain, prepared_trajectories, bench
@@ -124,7 +176,9 @@ class RosameIBaselineRunner(BaselineRunner):
                 skipped_seeds.append(seed)
                 continue
             try:
-                runner = RosameI_Runner(str(domain_path), device=self.device, seed=seed)
+                runner = RosameI_Runner(
+                    str(domain_path), device=self.device, seed=seed, resize=resize
+                )
                 final_loss = runner.learn_full(
                     prepared_problems,
                     train_per_trajectory=self.train_per_trajectory,
@@ -161,6 +215,7 @@ class RosameIBaselineRunner(BaselineRunner):
             "chosen_seed": chosen,
             "chosen_final_loss": seed_losses[chosen],
             "train_per_trajectory": self.train_per_trajectory,
+            "resize": resize,
         }
         if skipped_seeds:
             extra_info["skipped_seeds_timeout"] = skipped_seeds

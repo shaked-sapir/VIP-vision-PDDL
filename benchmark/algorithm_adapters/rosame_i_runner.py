@@ -30,8 +30,38 @@ from torchvision import transforms
 from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
 
 
-# Paper synth/resnet preprocessing: resize to 64x64, to float tensor in [0, 1].
-_IMAGE_TF = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
+# Paper synth/resnet preprocessing. ICAPS-24 ``train.py:211/226/237`` uses
+# ``transforms.Resize(64)`` -- an *int*, which scales the shorter edge and
+# **preserves aspect ratio**. ``Resize((64, 64))`` is a different operation: it
+# forces a square and distorts (hanoi 630x224 -> 2.81x horizontal squeeze,
+# gripper/depot 800x600 -> 1.33x). We follow upstream. See
+# ``docs/rosame-i-milp-26-implementation-plan.md`` §4.6.1.
+_DEFAULT_RESIZE: int = 64
+
+
+def _build_image_tf(resize: "int | Sequence[int] | None" = _DEFAULT_RESIZE):
+    """Build the image transform for a given resize setting.
+
+    Args:
+        resize: ``int`` -> ``Resize(n)``, shorter edge, aspect preserved (the
+            ICAPS-24 form, and the default). A 2-sequence ``(h, w)`` ->
+            ``Resize((h, w))``, forced, aspect distorted -- note torchvision's
+            order is **(height, width)**. ``None`` -> no resize, native size.
+
+    Returns:
+        A ``transforms.Compose`` ending in ``ToTensor()`` (float in ``[0, 1]``).
+    """
+    steps = []
+    if resize is not None:
+        if isinstance(resize, int):
+            steps.append(transforms.Resize(resize))
+        else:
+            hw = tuple(int(v) for v in resize)
+            if len(hw) != 2:
+                raise ValueError(f"resize must be an int, a 2-sequence or None; got {resize!r}")
+            steps.append(transforms.Resize(hw))
+    steps.append(transforms.ToTensor())
+    return transforms.Compose(steps)
 
 
 def _resolve_device(device: Optional[str | torch.device]) -> torch.device:
@@ -70,7 +100,7 @@ class _PreparedTrace:
 
     def __init__(
         self,
-        images: torch.Tensor,          # (T+1, 3, 64, 64)
+        images: torch.Tensor,          # (T+1, 3, H, W) -- H,W set by ``resize``
         action_indices: List[int],     # length T, ROSAME action indices
         final_state_vec: torch.Tensor, # (n_props,) GT final state, {0,1}
         name: str,
@@ -91,12 +121,15 @@ class RosameI_Runner(PORosame_Runner):
         seed: int = 8800,
         lr_schema: float = 1e-3,
         lr_cv: float = 1e-3,
+        resize: "int | Sequence[int] | None" = _DEFAULT_RESIZE,
     ) -> None:
         super().__init__(domain_file)
         self.device = _resolve_device(device)
         self.seed = seed
         self.lr_schema = lr_schema
         self.lr_cv = lr_cv
+        self.resize = resize
+        self._image_tf = _build_image_tf(resize)
         self.cv_model: Optional[nn.Module] = None
         self.optimizer: Optional[torch.optim.Optimizer] = None
         self._proposition_signature: Optional[Tuple[str, ...]] = None
@@ -153,9 +186,13 @@ class RosameI_Runner(PORosame_Runner):
     # ------------------------------------------------------------------ data prep
 
     def _load_image(self, path: Path) -> torch.Tensor:
-        """PNG → (3, 64, 64) float tensor (PIL; torchvision.io is broken in venv11)."""
+        """PNG → (3, H, W) float tensor (PIL; torchvision.io is broken in venv11).
+
+        ``H, W`` follow ``self.resize``; the ResNet head is resolution-agnostic
+        (``AdaptiveAvgPool2d`` before ``fc``), so non-square input is fine.
+        """
         with Image.open(path) as img:
-            return _IMAGE_TF(img.convert("RGB"))
+            return self._image_tf(img.convert("RGB"))
 
     def _encode_state(self, positive_predicate_strings: Sequence[str]) -> torch.Tensor:
         """Binary vector over ``rosame.propositions`` (matched positives → 1, CWA → 0)."""

@@ -505,12 +505,23 @@ not a constant.
 **Two layers, deliberately belt-and-braces:**
 
 1. **Code fallback = `64` as an `int`** — i.e. `transforms.Resize(64)`, shorter edge, aspect
-   **preserved**: the ICAPS-24-faithful form. A config without the key gets that, and no old
-   config crashes. The 24 arm's `_IMAGE_TF` is currently the forced-square `Resize((64, 64))` and
-   changes to match — §4.6.1.
-2. **The value is nevertheless written out explicitly for every domain** in `config.yaml` and
-   `config.example.yaml`. An operator reading the config must be able to see what resolution a
-   run used without reading Python.
+   **preserved**: the ICAPS-24-faithful form. Anything that does not ask for a resolution gets
+   that, and nothing old crashes.
+2. **The value is nevertheless written out explicitly for every domain**, so an operator can see
+   what resolution a run used without inferring it from a default.
+
+**Status: built, in the `_HYPERPARAMS` style.** `_RESIZE` in
+`benchmark/baselines/rosame_i_runner.py` lists all five domains at `64` explicitly beside
+`_HYPERPARAMS`, keyed on the same `_infer_domain_name` bench key; `RosameI_Runner`/`MilpRosameI`
+take a `resize` argument; `backfill_baseline` grew `--resize N|H,W|native` as a per-run override.
+That satisfies layer 1, layer 2 and the three requirements below without new plumbing through
+`BaselineRunner`, which is what this section asked for.
+
+**Not built: a `config.yaml` surface.** The sketch below is the shape it would take if the value
+ever needs to vary per *experiment* rather than per *domain* or per *run*. It needs `resize`
+threaded from config through `BaselineRunner`, which the paragraph above deliberately avoids, so
+it stays a sketch until something actually needs it. Today the two live surfaces are the `_RESIZE`
+table (the per-domain default) and `--resize` (the per-run override):
 
 That second point is not redundancy for its own sake. Three times in this project a default that
 lived only in code has produced a wrong or unexplainable result — `backfill_baseline`'s
@@ -518,22 +529,29 @@ lived only in code has produced a wrong or unexplainable result — `backfill_ba
 `mip_time_limit: 60` which never actually binds (measured median solve: 0.318 s). Resolution is
 now an experimental variable; it belongs where the experiment is configured.
 
+```python
+# benchmark/baselines/rosame_i_runner.py — built, beside _HYPERPARAMS
+_RESIZE_DEFAULT: int = 64
+_RESIZE: Dict[str, object] = {
+    "blocksworld": 64,   # int   -> Resize(N), shorter edge, aspect preserved (ICAPS-24 form)
+    "hanoi": 64,         # [H,W] -> Resize((H,W)), forced (torchvision order is (h, w))
+    "npuzzle": 64,       # None  -> no resize at all, native (ICAPS-26 form)
+    "gripper": 64,
+    "depot": 64,         # candidate for 224 — see analysis §5.1
+}
+```
+
+```bash
+# per-run override, suffixes the row name automatically
+python -m benchmark.backfill_baseline ... --resize 64,64     # the old forced-square form
+python -m benchmark.backfill_baseline ... --resize native    # no resize
+```
+
 ```yaml
+# NOT BUILT — the per-experiment surface, if it is ever needed
 domains:
-  blocksworld:
-    ...
-    image_preprocessing:
-      resize: 64         # int   -> Resize(N), shorter edge, aspect preserved (ICAPS-24 form)
-                         # [H,W] -> Resize((H,W)), forced (torchvision order is (h, w))
-                         # null  -> no resize at all, native (ICAPS-26 form)
   hanoi:
     image_preprocessing: {resize: 64}
-  npuzzle:
-    image_preprocessing: {resize: 64}
-  gripper:
-    image_preprocessing: {resize: 64}
-  depot:
-    image_preprocessing: {resize: 64}    # candidate for 224 — see analysis §5
 ```
 
 Resolution rules:
