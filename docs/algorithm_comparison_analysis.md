@@ -107,10 +107,49 @@ asymmetry *is* the precondition/effect split above.
 degenerate basin. More data, mini-batching instead of per-trajectory training, or a bounded
 state range would plausibly escape it. This is fixable.
 
+**Candidate contributors, in order of plausibility.** Our port is faithful line-for-line to
+ICAPS-24 — same head, same four loss terms, same missing sigmoid, same 4-way argmax read-out — so
+the gap to the published numbers is in the *regime*, not the algorithm:
+
+1. **Data volume.** 3–8 traces (one CV fold) vs upstream's generated corpus at batch 128. The
+   degenerate optimum is trivially reachable when almost nothing contradicts it.
+2. **Schedule.** `train_per_trajectory=True` trains each trace to convergence in turn — the most
+   forgetting-prone schedule available, and the furthest from upstream's shuffled mini-batches.
+   ROSAME-I+MILP already forces `False`. **Cheapest discriminating experiment: flip this flag.**
+3. **Epoch semantics.** Upstream: one epoch = a full pass at batch 128. Ours: one optimizer step
+   per trace. The number matches; the gradient signal is ~100× smaller.
+4. **Aspect-ratio distortion (new).** Our `_IMAGE_TF` is `Resize((64, 64))` — forced square —
+   while ICAPS-24 uses `Resize(64)`, shorter edge, aspect preserved. This squeezes hanoi
+   **2.81×** and gripper/depot **1.33×** horizontally. On hanoi that is precisely the axis the
+   fluents live on: which peg holds a disc is a left/right position, and disc identity is width.
+   The prediction is discriminating — blocksworld (480×480) and npuzzle (187×187) are already
+   square and take **no** distortion, and blocksworld is also the *least* collapsed domain (2/4
+   empty) while hanoi, the most distorted, is the *most* collapsed (4/4). The fix is decided:
+   move both pixel arms to the int form (see the 26-arm plan §4.6.1).
+**Ruled out: augmentation.** ICAPS-24 splits into a `grid_*` family (`CVGrid` over MNIST-composed
+cells, with `RearrangeColumn` / `RearrangeBalls` / `RearrangeItems`) and a `synth_*` family
+(resnet18 + the head we port, with `Resize(64)` and `RandomHorizontalFlip(0.5)` on blocks only).
+We port `synth_*`, and our `_AUGMENT_DOMAINS = {"blocksworld"}` flip matches it exactly — hanoi
+and npuzzle correctly get none. **For every domain with a published counterpart, our augmentation
+is upstream's augmentation**, so it is not a contributor here.
+
+An aggravator, not an alternative: a degenerate optimum reachable at 85×64 stays reachable at
+64×64. (4) can make the collapse easier to fall into and harder to escape; it cannot by itself
+be the whole story, because the collapse also occurs in the two undistorted domains.
+
 **Detection.** Assert the learned model has ≥1 add-or-delete effect across all schemas. One
 line, and it would have caught 150 void rows immediately.
 
 ### 3.2 Identifiability limit — "static fluent" (ROSAME-I + MILP, gripper)
+
+**First, what this result is and is not.** ICAPS-24 runs gripper only as `grid_gripper`, on a
+`CVGrid` network over MNIST-composed cells — there is no `synth_gripper` for the resnet18 head we
+port, and none for depot. ICAPS-26 keeps the same shape; its gripper augmentation assumes a 4×6
+grid of 16 px cells. So **no published number exists for this architecture on a rendered gripper
+scene**, and our gripper row is a new measurement rather than a failure to reproduce one. All five
+of our domains are rendered images by design, and that design is not in question here — the point
+is only that "ROSAME-I does worse than reported on gripper" is not a sentence anyone can write.
+The mechanism below stands on its own evidence regardless.
 
 **Symptom.** `solving_ratio` 0.000 with **`false_plans_ratio` 1.000** — the planner finds a plan
 for every test problem and every one fails validation. Nothing unsolvable, nothing timed out.
@@ -195,10 +234,158 @@ The fourth row is worth fixing in the schema: `amlgym.problem_solving` returns a
 `syntax_errors` ratio that `evaluate_model` discards, so a model that unified-planning cannot
 parse is indistinguishable from one that simply solved nothing.
 
-## 5. Open items
+## 5. Input resolution — a confound we impose on the competitor
 
-1. Re-run all ROSAME-I rows once §3.1 is addressed — the current 150 are void as a fair baseline.
-2. Depot ablation with `forbid_redundant_adds=False` (§3.3).
-3. Is CDPS timeout-limited or capability-limited? One cell at a much larger budget answers it.
-4. Surface `syntax_errors` in `result_schema.py`.
-5. Add the degenerate-model guard (§3.1) to every learner's output path, not just ROSAME-I's.
+`transforms.Resize` is **interpolation, not a crop**: every object stays in frame, nothing is
+cut off. But an object can stop being *resolvable*, which is the more insidious failure because
+nothing in the pipeline reports it.
+
+Measured across our data (`_IMAGE_TF` targets 64; aspect-preserving `Resize(64)` shown):
+
+| domain | native | after `Resize(64)` | linear | **pixels lost** | identity encoded by | glyph @64 | verdict |
+|---|---|---|---|---|---|---|---|
+| npuzzle | 187×187 | 64×64 | 2.9× | 8.5× | white digits (22 px native) | **7.5 px** | legible ✅ |
+| hanoi | 630×224 | 180×64 | 3.5× | 12× | disc size | — | fine ✅ |
+| blocksworld | 480×480 | 64×64 | 7.5× | 56× | colour | — | fine ✅ |
+| gripper | 800×600 | 85×64 | 9.4× | **88×** | position (rooms L/R; balls in a row) | — | workable ✅ |
+| **depot** | 800×600 | 85×64 | 9.4× | **88×** | **rendered text** (40 px native) | **4.3 px** | **lost ❌** |
+
+![Resize effect by domain](images/resize_effect_by_domain.png)
+
+*Native (left) vs `Resize(64)` (middle) vs forced `Resize((64,64))` (right). Middle and right are
+shown at 4× nearest-neighbour — that is what the ResNet actually receives.*
+
+![Fluent legibility sweep](images/fluent_legibility_sweep.png)
+
+*The region where a single action changes the state, at each resize. Top: gripper `pick ball1`.
+Bottom: depot `unstack c2`.*
+
+**What actually survives.** The pixel count alone is misleading — an 88× reduction sounds fatal
+and is not. At shorter-edge 64 the **geometry survives everywhere**: the sweep shows the gripper
+arm holding a ball with four balls remaining below it, and depot's crane, lifted crate and truck
+all present.
+
+What the resize destroys is **rendered text**, and that matters only where identity is encoded
+textually. The question to ask of a domain is therefore *how identity is encoded* — colour, size,
+position or text — not how many pixels it lost:
+
+* **npuzzle** — white digits, 22 px native → 7.5 px at 64. Verified legible in the render, and
+  the domain scores `solving_ratio` 1.000. Not a problem.
+* **gripper** — rooms are distinguished by left/right position and balls by their order in the
+  row; both survive the resize. **Resolution therefore does not explain gripper's failure.**
+* **depot** — object identity (`D1`/`D2`, crate and pallet labels) exists *only* as rendered text
+  at ~40 px native, which becomes **4.3 px** at shorter-edge 64. Legible glyphs need roughly
+  8–10 px, i.e. **shorter-edge ≥ 120**, realistically ~224 for comfort.
+
+So the resolution hypothesis is **specific to depot**, not general.
+
+### 5.1 The asymmetry, stated plainly
+
+The VLM classification that feeds CDPS and PI-SAM ran at data-generation time on the **native
+800×600** frames. ROSAME-I sees **85×64**. So our pipeline reads `free(g:gripper)` off a
+full-resolution image while the competitor has to find it in ~2 px — an information asymmetry in
+our favour, imposed by our own preprocessing, on precisely the domains where we win.
+
+Matching upstream's *transform* is not the same as matching upstream's *input*. ICAPS-24's
+`Resize(64)` was applied to images rendered to be legible at 64 px; ours are not. Faithfulness to
+the number produces an unfaithful comparison.
+
+**This does not touch §3.2.** Gripper's identity is positional and positions survive at 64, so
+the resize does *not* explain its `free` failure — the anchored-endpoint identifiability argument
+in §3.2 remains the best explanation, and the legibility sweep is the evidence for that rather
+than against it.
+
+**Depot is different, and arguably not unfairness at all.** Our VLM reads text; a from-scratch
+ResNet at any practical resolution cannot read a 4-pixel glyph. That is a real capability
+difference between a pretrained multimodal model and a small CNN trained on 3–8 traces, not a
+preprocessing artifact we introduced. It is a legitimate point in our favour and it is *stronger*
+stated plainly than hidden behind a resize choice.
+
+**Recommended handling.** Keep 64 for npuzzle, hanoi, blocksworld and gripper — it matches
+upstream and loses nothing that matters. For **depot, run both 64 and 224** as a two-row
+ablation. That converts a confound into a measured result — "depot at upstream's resolution vs.
+depot at a resolution where labels are legible" — which is far more useful than picking one and
+defending it.
+
+**Optional confirmation.** Running our own fluent classifier on the resized frames would settle
+it empirically per domain. It requires an API key and real spend (~40 image calls for a
+5-size × 4-domain sweep); depot at 64/96/128/160/224 is the only slice likely to change a
+decision.
+
+### 5.2 Why this also bounds how large a problem the pixel approach can take
+
+The figure suggests a scaling limit that is easy to miss. Every object must remain legible at the
+network's input resolution, so the number of objects a domain can depict is bounded by the image
+budget — a fourth peg in hanoi, or a sixth ball in gripper, competes for the same pixels. That is
+consistent with the small object counts in the upstream domains, and it is a property of the
+*approach*, not of any particular implementation: raising the object count forces either a larger
+image (and a larger, slower encoder — see §6) or smaller, less resolvable objects.
+
+Our pipeline does not have this coupling: object count changes the predicate vocabulary, not the
+image budget.
+
+## 6. Where the perception cost is paid — the structural difference
+
+This is the cleanest architectural distinction between the two families, and it is independent of
+any measured result.
+
+**ROSAME resolves perception *inside* the learning loop.** The CV encoder's input dimensions are
+fixed when the net is built, and the symbol net's output width equals the number of grounded
+propositions — which depends on the object universe, and therefore must be frozen before training
+starts. (Our `ground_union` exists for exactly this reason: the grounding has to be stable across
+every trace in a fold.) Consequences:
+
+* **Bigger images ⇒ bigger encoder feature maps ⇒ more compute per epoch**, paid on every one of
+  the 5000 epochs, not once.
+* **More objects ⇒ wider symbol net and more schema parameters**, again fixed at build time.
+* Setup complexity is therefore determined *mid-process*: the architecture must be sized for the
+  perception problem before the learning problem is known to be solvable.
+
+**Our pipeline resolves perception *before* learning.** The VLM/geometric classifier converts each
+frame to a predicate set once, pre-learning; the learner then operates on symbols and never sees a
+pixel. Consequences:
+
+* Perception is paid **once per frame**, not once per frame per epoch.
+* **Image resolution is fully decoupled from model capacity** — an 800×600 frame costs the learner
+  nothing, which is precisely why we can afford the native resolution that §5.1 shows ROSAME-I
+  cannot.
+* Adding objects changes the predicate count but no network architecture.
+
+**The honest flip side**, which belongs in the same paragraph whenever this argument is made: our
+approach *requires the predicate vocabulary up front*, and any classifier error is baked in before
+learning begins — the learner has no way to revisit the pixels and revise a misread fluent. ROSAME's
+end-to-end coupling is a cost, but it is also a capability: in principle it can learn perceptual
+features tuned to the dynamics, which a fixed pre-pass cannot. The fair claim is about *cost
+structure and scaling*, not about one approach dominating the other.
+
+## 7. Open items
+
+**Decided, and it comes before the rest: `Resize(64)`.** The int / aspect-preserving ICAPS-24 form
+is the default, applied to *both* pixel arms — including the existing 24 arm's `_IMAGE_TF`
+(`benchmark/algorithm_adapters/rosame_i_runner.py:34`), which is currently the forced-square
+`Resize((64, 64))`. §3.1 item 4 explains why it may contribute to the empty-effects collapse; the
+26-arm plan §4.6.1 carries the change itself. It goes first because every item below is measured
+against a baseline it moves.
+
+1. **Re-run both pixel arms** — after that change and after §3.1 is addressed, in one pass.
+   ROSAME-I's 150 rows are already void as a fair baseline; ROSAME-I_MILP's are currently
+   *usable* and become non-comparable, so this is a real cost rather than bookkeeping.
+2. **Resize A/B on hanoi and blocksworld** — the cheapest test of §3.1 item 4. Hanoi (2.81×
+   distortion, 4/4 empty effects) should improve; blocksworld (no distortion, 2/4) should not.
+   If neither moves, the distortion is a faithfulness fix only and items 1–3 of §3.1 own the
+   collapse outright.
+3. **Depot at two resolutions (64 and 224)** — §5.1. Converts the one real resolution confound
+   into a measured row instead of an argument. Run it *after* the `_IMAGE_TF` change: under the
+   forced-square form depot's 800×600 is squeezed to 64×64, so a "64" row before and a "64" row
+   after are different experiments.
+4. **Depot ablation with `forbid_redundant_adds=False`** (§3.3). Depot has *two* candidate
+   explanations — text-label resolution and the encoding constraint — so run both ablations
+   before attributing its gap to either. **Caveat for the 26 arm specifically:** upstream's
+   `extract_sol_model` labels the four classes with precedence `add > del > pre > none`, so an
+   atom that is both a precondition and an add-effect is recorded as `add` and its precondition is
+   silently dropped. That case is unreachable while `forbid_redundant_adds` is on — and becomes
+   reachable exactly when this ablation turns it off. Read the pseudo-labels, not just the final
+   model, when interpreting that run.
+5. Is CDPS timeout-limited or capability-limited? One cell at a much larger budget answers it.
+6. Surface `syntax_errors` in `result_schema.py`.
+7. Add the degenerate-model guard (§3.1) to every learner's output path, not just ROSAME-I's.
