@@ -92,7 +92,10 @@ identical in a table and require completely different responses.
 ### 3.1 Optimisation collapse — "empty effects" (ROSAME-I, no MILP)
 
 **Symptom.** The learned PDDL has `:effect (and )` on most actions. Empty/total: hanoi 4/4,
-gripper 3/3, npuzzle 1/1, depot 6/7, blocksworld 2/4.
+gripper 3/3, npuzzle 1/1, depot 6/7, blocksworld **3.4/4** — the last corrected from an earlier
+"2/4" by the 30-cell census in §5.3, which never once observed a 2/4 blocksworld model. The other
+four figures the census could check held at scale; only blocksworld's did not, and it was the one
+load-bearing for the hypothesis in item 4 below.
 
 **Metric signature.** Effect *precision* ≈ 1.000 with effect *recall* ≈ 0.000–0.044 — precision
 is vacuous when you predict nothing. Precondition recall stays healthy (0.25–0.77).
@@ -118,14 +121,19 @@ the gap to the published numbers is in the *regime*, not the algorithm:
    ROSAME-I+MILP already forces `False`. **Cheapest discriminating experiment: flip this flag.**
 3. **Epoch semantics.** Upstream: one epoch = a full pass at batch 128. Ours: one optimizer step
    per trace. The number matches; the gradient signal is ~100× smaller.
-4. **Aspect-ratio distortion (new).** Our `_IMAGE_TF` is `Resize((64, 64))` — forced square —
-   while ICAPS-24 uses `Resize(64)`, shorter edge, aspect preserved. This squeezes hanoi
-   **2.81×** and gripper/depot **1.33×** horizontally. On hanoi that is precisely the axis the
-   fluents live on: which peg holds a disc is a left/right position, and disc identity is width.
-   The prediction is discriminating — blocksworld (480×480) and npuzzle (187×187) are already
-   square and take **no** distortion, and blocksworld is also the *least* collapsed domain (2/4
-   empty) while hanoi, the most distorted, is the *most* collapsed (4/4). The fix is decided:
-   move both pixel arms to the int form (see the 26-arm plan §4.6.1).
+4. ~~**Aspect-ratio distortion.**~~ **REFUTED — measured, see §5.3.** The hypothesis was that
+   `_IMAGE_TF`'s forced-square `Resize((64, 64))` squeezes hanoi **2.81×** and gripper/depot
+   **1.33×** horizontally, and that on hanoi this is precisely the axis the fluents live on —
+   which peg holds a disc is a left/right position, and disc identity is width. The A/B ran on
+   four domains, 30 paired cells each. **Hanoi did not move: 4/4 empty in 30/30 cells under both
+   transforms, not one cell different.** Gripper moved slightly the wrong way. The correlation
+   this item was built on — least-distorted domain also least collapsed — rested on the "2/4"
+   blocksworld figure now corrected to 3.4/4, and does not survive the correction.
+
+   **The transform change stands anyway**, on faithfulness grounds alone: `Resize(64)` is what
+   ICAPS-24 does (26-arm plan §4.6.1). It is now known to be causally inert for the collapse,
+   which is what makes it safe — it removes a confound from the 24-vs-26 comparison without
+   moving the thing being compared. Items 1–3 own the collapse outright.
 **Ruled out: augmentation.** ICAPS-24 splits into a `grid_*` family (`CVGrid` over MNIST-composed
 cells, with `RearrangeColumn` / `RearrangeBalls` / `RearrangeItems`) and a `synth_*` family
 (resnet18 + the head we port, with `Resize(64)` and `RandomHorizontalFlip(0.5)` on blocks only).
@@ -133,9 +141,10 @@ We port `synth_*`, and our `_AUGMENT_DOMAINS = {"blocksworld"}` flip matches it 
 and npuzzle correctly get none. **For every domain with a published counterpart, our augmentation
 is upstream's augmentation**, so it is not a contributor here.
 
-An aggravator, not an alternative: a degenerate optimum reachable at 85×64 stays reachable at
-64×64. (4) can make the collapse easier to fall into and harder to escape; it cannot by itself
-be the whole story, because the collapse also occurs in the two undistorted domains.
+(4) was held as an aggravator rather than an alternative, on the reasoning that a degenerate
+optimum reachable at 85×64 stays reachable at 64×64. The measurement in §5.3 is stronger than
+that hedge: at the resolutions tested it is not an aggravator either. The collapse occurs in the
+undistorted domains, and undoing the distortion does not lift it in the distorted ones.
 
 **Detection.** Assert the learned model has ≥1 add-or-delete effect across all schemas. One
 line, and it would have caught 150 void rows immediately.
@@ -324,6 +333,53 @@ image (and a larger, slower encoder — see §6) or smaller, less resolvable obj
 Our pipeline does not have this coupling: object count changes the predicate vocabulary, not the
 image budget.
 
+### 5.3 The resize A/B — result: the distortion is not the cause
+
+Run on four domains, 30 paired cells each (5 folds × 6 trajectory counts), same fold data, same
+seeds, arms distinguished only by the transform: control `Resize((64, 64))` (forced square, the
+old `_IMAGE_TF`) against treatment `Resize(64)` (shorter edge, aspect preserved, ICAPS-24's form).
+Empty-effect counts read directly out of the learned PDDL, with `learned_domain_CDPS.pddl` and
+`domain_reference.pddl` from the same cells as positive controls for the counter.
+
+| domain | native | control → treatment | control empty | treatment empty | cells moved |
+|---|---|---|---|---|---|
+| blocksworld | 480×480 | 64×64 → 64×64 *(same op)* | 103/120 | 103/120 | **0** |
+| **hanoi** | 630×224 | 64×64 → **180×64** | 120/120 | 120/120 | **0** |
+| gripper | 800×600 | 64×64 → 85×64 | 88/90 | 90/90 | 2, both worse |
+| depot | 800×600 | 64×64 → 85×64 | 178/210 | 176/210 | 7 (5 better, 2 worse) |
+
+**Blocksworld is a null control, not a test.** At 480×480 the two transforms are the *same
+operation*, so it could not move. It came out exactly null — 0/30 cells, every metric delta
+identically 0.000 — which is the evidence that the harness is deterministic and the pairing is
+sound. The original prediction "hanoi improves, blocksworld does not" was therefore only ever
+one-armed; the blocksworld half was vacuous.
+
+**Hanoi is the test, and it is flat.** The most distorted domain, on the axis its fluents live on,
+2.81× — and 4/4 empty in 30/30 cells under both transforms, not one cell different, effect recall
+0.000 → 0.000 in every cell. Preconditions moved +0.006 recall in 3 cells. Nothing here is a small
+effect that more cells would resolve; it is no effect.
+
+**Gripper moved backwards** — the two cells that had one non-empty schema lost it (28 → 30
+all-empty cells). Consistent with §5.1: gripper identity is positional and positions survive at
+64 either way.
+
+**Depot's movement is noise.** 5 cells better, 2 worse — a two-sided sign test at p ≈ 0.45. It is
+also *not* the depot test: §5.1 argues depot needs shorter edge ≥ 120, and this A/B is 64 against
+64. The depot resolution question (item 3 of §7) remains open and untouched by this.
+
+**Ignore the wall-clock column.** It shows depot and gripper 2.2× *faster* under treatment, 30/30
+cells, while receiving 1.33× *more* pixels — backwards. The run windows overlap across domains
+(control 11:46–13:29, treatment 12:00–14:16 on one box), so several domains trained concurrently
+and `learning_time_seconds` is measuring contention. Only hanoi moves in the physically expected
+direction (2.81× pixels, +34 s), and it is confounded the same way. Nothing about throughput can
+be concluded from this run.
+
+**Consequence.** §3.1 item 4 is refuted; items 1–3 (data volume, schedule, epoch semantics) own
+the collapse. The transform change is kept as a faithfulness fix, and its measured inertness is
+what makes it safe to keep — it de-confounds the 24-vs-26 comparison without moving the quantity
+being compared. The surviving hypothesis is *undertraining*, which promotes the unbudgeted
+5000-epoch control cells (26-arm plan §9.7) from a nice-to-have to the next informative run.
+
 ## 6. Where the perception cost is paid — the structural difference
 
 This is the cleanest architectural distinction between the two families, and it is independent of
@@ -360,24 +416,30 @@ structure and scaling*, not about one approach dominating the other.
 
 ## 7. Open items
 
-**Decided, and it comes before the rest: `Resize(64)`.** The int / aspect-preserving ICAPS-24 form
-is the default, applied to *both* pixel arms — including the existing 24 arm's `_IMAGE_TF`
-(`benchmark/algorithm_adapters/rosame_i_runner.py:34`), which is currently the forced-square
-`Resize((64, 64))`. §3.1 item 4 explains why it may contribute to the empty-effects collapse; the
-26-arm plan §4.6.1 carries the change itself. It goes first because every item below is measured
-against a baseline it moves.
+**DONE: `Resize(64)` is in.** The int / aspect-preserving ICAPS-24 form is now the default for
+both pixel arms, per-domain configurable, and off-default values suffix the row name
+(`benchmark/baselines/rosame_i_runner.py`). §5.3 measured what it did to the collapse: **nothing**.
+It is retained as a faithfulness fix, and its inertness is the reason it is safe to retain.
 
-1. **Re-run both pixel arms** — after that change and after §3.1 is addressed, in one pass.
-   ROSAME-I's 150 rows are already void as a fair baseline; ROSAME-I_MILP's are currently
-   *usable* and become non-comparable, so this is a real cost rather than bookkeeping.
-2. **Resize A/B on hanoi and blocksworld** — the cheapest test of §3.1 item 4. Hanoi (2.81×
-   distortion, 4/4 empty effects) should improve; blocksworld (no distortion, 2/4) should not.
-   If neither moves, the distortion is a faithfulness fix only and items 1–3 of §3.1 own the
-   collapse outright.
-3. **Depot at two resolutions (64 and 224)** — §5.1. Converts the one real resolution confound
-   into a measured row instead of an argument. Run it *after* the `_IMAGE_TF` change: under the
-   forced-square form depot's 800×600 is squeezed to 64×64, so a "64" row before and a "64" row
-   after are different experiments.
+**DONE and refuted: the resize A/B** (was item 2 here) — §5.3. It also came out one-armed:
+blocksworld at 480×480 takes the *same* operation under both transforms, so its half of the
+prediction was vacuous, and hanoi — the only real test — did not move in a single cell of 30.
+
+1. **Re-run both pixel arms.** Now **bookkeeping, not science**: §5.3 puts the expected
+   substantive effect at ~0, so the existing ROSAME-I_MILP rows are still *substantively*
+   comparable. What is wrong with them is the label — they carry no recorded `resize` and sit
+   under a bare `ROSAME-I_MILP` name, which under the new default means forced-square results
+   wearing the aspect-preserving arm's label. Re-run with `--force` for label integrity, and
+   demote it behind item 2 if compute is contended.
+2. **The 5000-epoch control cells** — 26-arm plan §9.7, one unbudgeted cell per domain. Replaces
+   the A/B as the live question: with item 4 of §3.1 refuted, *undertraining* is the leading
+   surviving explanation and this is its direct test. The next informative run.
+3. **Depot at two resolutions (64 and 224)** — §5.1. Untouched by §5.3, which compared 64 against
+   64 and so could not speak to depot's ≥120 legibility threshold. Converts the one real
+   resolution confound into a measured row instead of an argument. Now expressible without a name
+   collision. Use a per-run `--resize 224` override rather than a `_RESIZE["depot"]` table entry:
+   a table entry would make 224 depot's *default* and invert which row carries the suffix. Add a
+   `ROSAME-I__res=224` key to `dashboard_config.yaml` first or the series will not render.
 4. **Depot ablation with `forbid_redundant_adds=False`** (§3.3). Depot has *two* candidate
    explanations — text-label resolution and the encoding constraint — so run both ablations
    before attributing its gap to either. **Caveat for the 26 arm specifically:** upstream's

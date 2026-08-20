@@ -571,12 +571,30 @@ new plumbing through `BaselineRunner` is required.
 
 Three requirements that follow, each of which we have already been bitten by once:
 
-1. **Record it.** The effective per-domain preprocessing goes into `run_params.json`, and the
+1. **Record it.** ~~The effective per-domain preprocessing goes into `run_params.json`~~, and the
    resolution into each row's `algorithm_specific`. A row must know what produced it.
-2. **Label it.** When the resolution is not the default, the row name carries a suffix
-   (`ROSAME-I_MILP__res=224`), following the same rule as `pisam_milp_algorithm_name`. Two
-   resolutions that are averaged into one row name would be two algorithms wearing one label —
-   the exact failure the `__gt=none` suffix rule exists to prevent.
+
+   **Amended: `algorithm_specific` only; the `run_params.json` half is withdrawn.** It was the
+   wrong home for this. `run_params.json` is written by `experiment_runner` and describes a *run*,
+   but resize is a property of a single *arm* within it, and the backfill path — which is how
+   these rows are actually produced — never writes `run_params.json` at all. Requiring it there
+   would have been satisfiable only on one of the two paths, which is worse than not requiring it.
+   `algorithm_specific.resize` is per-row, is written on both paths, and proved sufficient in
+   practice: it is what let the §9.6 census separate pre- and post-change rows post hoc, with
+   `<ABSENT>` as an unambiguous marker for the old ones.
+2. **Label it. Built** (`BaselineRunner.row_name`), **with the rule tightened.** The suffix keys
+   on the *effective* resize — `_resize_tag(effective) != _resize_tag(_RESIZE_DEFAULT)` — not on
+   whether a `--resize` override was passed. The first implementation exempted the per-domain
+   `_RESIZE` table on the grounds that it *is* that domain's default, but the table is precisely
+   where a divergence is expected to live (§5.1's depot-at-224), so an off-default entry produced
+   a bare `ROSAME-I` row at a resolution no other `ROSAME-I` row was trained at. Two resolutions
+   averaged into one row name would be two algorithms wearing one label — the exact failure the
+   `__gt=none` suffix rule exists to prevent.
+
+   `row_name` takes the **domain path**, not a bench string: `_infer_domain_name` derives the key
+   from the parsed PDDL while callers hold a different string entirely (the results-dir name, or
+   `--domain`), so accepting the caller's would let a row be labelled at one resolution and
+   trained at another.
 3. **Budget for it.** `null`/large values multiply the per-epoch cost roughly with pixel count
    (depot native is 88× the pixels of 64). The §1.2 pre-flight check must therefore include the
    image cost, not just the CP-SAT solve count, or a `resize: null` depot run at 5000 epochs will
@@ -600,7 +618,16 @@ operations on the same nominal number, and the difference is not cosmetic:
 **Decision: change `_IMAGE_TF` to the int form, in the 24 arm as well as the new one**, so the
 default is upstream-faithful everywhere and the two arms stay comparable.
 
-**Why this may matter beyond faithfulness.** Shaked's hypothesis, recorded verbatim because it is
+**Why this may matter beyond faithfulness — TESTED, AND IT DOES NOT.** The hypothesis below was
+the reason Phase 0 came first. It was run as a 4-domain, 30-paired-cell A/B (§9.6, analysis §5.3)
+and **refuted**: hanoi, the 2.81× case it was built on, was 4/4 empty in 30/30 cells under *both*
+transforms, with not one cell differing. The subsection is kept as written, because the reasoning
+was sound and the prediction was sharp enough to be killed cleanly — which is the point of
+recording it. Read what follows as the hypothesis, not as a finding.
+
+The change to `_IMAGE_TF` stands regardless, on the faithfulness grounds above.
+
+Shaked's hypothesis, recorded verbatim because it is
 testable and, if right, is a partial answer to a question `docs/algorithm_comparison_analysis.md`
 §3.1 leaves open:
 
@@ -617,17 +644,34 @@ effect recall 0.000). Gripper and depot take the same treatment at 1.33×; block
 are already square and are therefore **unaffected**, which is itself the discriminating prediction
 — blocksworld is also the domain with the *least* collapse (2/4).
 
+**Two things went wrong in that last sentence, and they were the load-bearing ones.** First, the
+figure: the 30-cell census run alongside the A/B measured blocksworld at **3/4 empty in 17 cells
+and 4/4 in 13 — mean 3.43/4, and never 2/4 in any cell**, so the claimed correlation (least
+distorted ⇒ least collapsed) was much weaker than stated before anything was tested. Second, and
+worse, blocksworld is *square*: it takes the identical operation under both transforms and so
+**could not have moved**. It was a null control, not the discriminating comparison this paragraph
+presents it as. The A/B therefore had one real arm, hanoi, and hanoi was flat.
+
 Two caveats, so this is not oversold:
 
 * It is **not** a competing explanation to the optimisation collapse (analysis §3.1); it is a
   possible *aggravator*. A degenerate optimum reachable at any resolution stays reachable at
   85×64 — and the collapse also occurs in blocksworld and npuzzle, which take no distortion.
+  **Measured: not an aggravator either** (§9.6). The hedge was not conservative enough.
 * The prediction is directional only. Confirming it needs the re-run in §9 with both forms.
+  **Done; it disconfirmed.**
 
 **Cost of the change: all existing ROSAME-I and ROSAME-I_MILP rows become non-comparable** with
 rows produced after it — moot for ROSAME-I (its 150 rows are already void, analysis §3.1) but
 *not* moot for ROSAME-I_MILP, whose rows are currently usable. Land the `_IMAGE_TF` change and the
 ROSAME-I re-run together, and re-run ROSAME-I_MILP in the same pass.
+
+**Revised by the A/B result.** "Non-comparable" turns out to be a statement about *labels*, not
+about *numbers*: with the transform measured inert, the existing ROSAME-I_MILP rows remain
+substantively comparable. What is actually wrong with them is that they carry no recorded `resize`
+under a bare `ROSAME-I_MILP` name, which under the new default reads as the aspect-preserving arm.
+Re-run them with `--force` for label integrity — but it is bookkeeping, and it should yield to
+§9.7 if compute is contended.
 
 ---
 
@@ -965,16 +1009,23 @@ In order, each cheap and each falsifiable:
    empty-effects collapse on day one with this.
 5. **Sanity run** — one blocksworld fold, DL-only mode, `pre_mip_epoch ≥ epochs`. If effects are
    non-empty here and were empty for ICAPS-24, that alone is a publishable result.
-6. **Resize A/B on the 24 arm** — the cheapest test of §4.6.1's hypothesis, and it needs none of
-   the 26 work. Re-run ROSAME-I on **hanoi** (2.81× distortion, 4/4 empty effects) and
-   **blocksworld** (no distortion, 2/4) under both `Resize((64,64))` and `Resize(64)`. The
-   hypothesis predicts hanoi improves and blocksworld does not. If neither moves, the distortion
-   is a faithfulness fix only and the collapse belongs entirely to data volume, schedule and epoch
-   semantics (analysis §3.1, items 1–3) — which is still worth knowing before the 26 arm inherits
-   the same regime.
+6. ~~**Resize A/B on the 24 arm**~~ — **DONE. The hypothesis is refuted**; see
+   `algorithm_comparison_analysis.md` §5.3 for the full result. Run on four domains, 30 paired
+   cells each. Hanoi — the 2.81× case, the only real test — was **4/4 empty in 30/30 cells under
+   both transforms, zero cells different**. Gripper moved marginally the wrong way; depot's 5-vs-2
+   split is a sign test at p ≈ 0.45; blocksworld could not move at all, being square, so its half
+   of the stated prediction was vacuous and the A/B was one-armed by construction.
+
+   **The disjunction this item wrote in advance now resolves to its second branch**: the
+   distortion is a faithfulness fix only, and the collapse belongs to data volume, schedule and
+   epoch semantics (analysis §3.1, items 1–3). That is exactly the regime the 26 arm inherits, so
+   item 7 below stops being a formality and becomes the live experiment.
 7. **Budget control** — one cell per domain at `epochs: 5000` outside the timeout (§1.2), so
    "the arm underperforms at 750 epochs" and "the arm is undertrained at 750 epochs" stay
-   distinguishable.
+   distinguishable. **Promoted by item 6's outcome**: with the distortion hypothesis dead,
+   undertraining is the leading surviving explanation for the empty-effects collapse and this is
+   its direct test. Worth running on the **24 arm first**, where the collapse is already measured
+   — it needs none of the 26 work and answers the question a phase earlier.
 
 ---
 
@@ -982,7 +1033,7 @@ In order, each cheap and each falsifiable:
 
 | Phase | Deliverable | Risk |
 |---|---|---|
-| **0** | **`_IMAGE_TF` → `Resize(64)` in the 24 arm (§4.6.1) + the resize A/B (§9.6).** Independent of everything below; do it first, because it decides what the ROSAME-I baseline the 26 arm is measured against actually is | low |
+| **0** | ~~`_IMAGE_TF` → `Resize(64)` in the 24 arm (§4.6.1) + the resize A/B (§9.6)~~ — **CLOSED.** Transform shipped and made per-domain configurable with row-name suffixing; A/B run on 4 domains × 30 paired cells; **hypothesis refuted** (§9.6, analysis §5.3). The ROSAME-I baseline the 26 arm is measured against is now upstream-faithful *and* known unmoved by the change | low — done |
 | 1 | Vendor `dl/` + `convertor/` + `util/model_perm.py`; **generate all five specs and `pddl/<domain>/domain.pddl` assets (§5, §2.1)**; import-only smoke test; **write parity tests §9.1–9.3 against the vendored code, before the adapter exists** | low |
 | 2 | Data adapter (fold → their contract, §4.1–4.4) — must pass §9.1 | **medium — most of the work** |
 | 3 | Harness replacement (§3) — must pass §9.2 | medium |
@@ -1082,12 +1133,19 @@ Every decision below was checked against the clone at `95c733f` (branch `ROSAME+
     disk** (§4.4). Upstream's cache is a single unkeyed global holding a shape-carrying per-pixel
     array; reusing it across two domains is a silent corruption.
 17. **Resize: per-domain configurable, default `Resize(64)`** — int, aspect-**preserving**, the
-    ICAPS-24 form (§4.6), recorded in `run_params` and suffixed into the row name when
-    non-default. **The existing 24 arm's `_IMAGE_TF` changes to match** (§4.6.1): today's forced
-    `Resize((64, 64))` squeezes hanoi 2.81× and gripper/depot 1.33× along the horizontal axis —
-    on hanoi, the axis the fluents live on. Held as a candidate *aggravator* of the empty-effects
-    collapse, not a competing explanation. Consequence: ROSAME-I_MILP's rows must be re-run
-    alongside ROSAME-I's.
+    ICAPS-24 form (§4.6), recorded in each row's `algorithm_specific` (the `run_params` half is
+    withdrawn, §4.6 req. 1) and suffixed into the row name whenever the **effective** value is
+    off-default (not merely when an override was passed, §4.6 req. 2). **The existing 24 arm's
+    `_IMAGE_TF` changes to match** (§4.6.1): today's forced `Resize((64, 64))` squeezes hanoi
+    2.81× and gripper/depot 1.33× along the horizontal axis — on hanoi, the axis the fluents live
+    on. Held as a candidate *aggravator* of the empty-effects collapse, not a competing
+    explanation. Consequence: ROSAME-I_MILP's rows must be re-run alongside ROSAME-I's.
+
+    **SHIPPED AND TESTED. The aggravator claim is refuted** (§9.6, analysis §5.3): 4 domains ×
+    30 paired cells, and hanoi — the case the claim was built on — did not move in a single cell.
+    The default stands on faithfulness alone, and its measured inertness is what makes it a clean
+    de-confounder for the Phase-4 comparison rather than a change that moves the baseline. The
+    re-run consequence survives, downgraded from comparability to label hygiene (§4.6.1).
 
 **Process**
 
