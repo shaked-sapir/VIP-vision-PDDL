@@ -1028,26 +1028,42 @@ In order, each cheap and each falsifiable:
    per-domain counts, 70 / 100 / 300 (`benchmark/baselines/rosame_i_runner.py:37-41`), and 5000
    against those is off-paper on both papers at once.
 
-8. **Schedule fix on the 24 arm** — the empty-effects collapse is a 24-arm defect and wants a
-   24-arm experiment. Analysis §3.1 names three co-equal suspects — data volume, schedule, epoch
-   semantics — and item 6's outcome promotes all three equally, not undertraining alone. Of the
-   three, **schedule is the cheapest and the only one that is a faithfulness fix rather than an
-   ablation**: every ROSAME-I row we hold was trained with `train_per_trajectory=True`
-   (`benchmark/baselines/rosame_i_runner.py:134`), i.e. `learn_per_trajectory` — each trace driven
-   to convergence in turn, the most forgetting-prone order available. `learn_pooled`'s docstring
-   calls itself "paper-faithful", and `rosame_i_milp_runner.py:85` already pins the flag to
-   `False`. Flip it at the paper's own epoch counts via `--no-train-per-trajectory`
-   (`experiment_runner.py:601`); no new code and no new compute budget.
+8. **Schedule fix on the 24 arm — DONE IN CODE, and it was a deletion, not an ablation.** This
+   item was scoped as "flip `train_per_trajectory` to `False` and compare". The premise did not
+   survive checking where the flag came from: it has **no counterpart in upstream ICAPS-24**.
+   `main`/`train.py` builds `DataLoader(trainset, args.batch_size, shuffle=True)` and takes one
+   reshuffled pass over the pooled corpus per epoch — there is no per-trajectory loop to select
+   between. The flag was a local invention, introduced on the image arm by
+   `docs/rosame-i-implementation-plan.md` decision #1 (now marked REVERSED) and documented there
+   at the time as the "safe default" that mirrors the *symbolic* baseline's schedule.
 
-   **Blocker, and it is the §4.6 rule again.** Neither `epochs` nor `train_per_trajectory` reaches
-   `row_name` — only the resize suffix does. Both are recorded in `algorithm_specific`
-   (`rosame_i_runner.py:276`) but that does not separate rows, so an A/B on either would average
-   two schedules under one `ROSAME-I` label: exactly the failure `__res=` was added to prevent.
-   Label first, run second.
+   So `learn_per_trajectory` and the dispatcher argument were **removed** from
+   `benchmark/algorithm_adapters/rosame_i_runner.py`. There is one loop, `learn_pooled`, and no
+   knob. Suite: 412 passed, unchanged by the removal.
 
-   Cheapest prior check, before any epoch sweep is even scoped: the adapter returns only
-   `_total_loss` at the end (`algorithm_adapters/rosame_i_runner.py:361,383`), never a curve. One
-   cell with per-epoch loss logged settles whether "undertrained" is on the table at all.
+   **The symbolic arm keeps its per-trajectory loop.** There, `PORosame_Runner.learn_per_trajectory`
+   reproduces AMLGym's vendored `learn_rosame` and is pinned to it by
+   `test_po_rosame_runner.test_local_loop_matches_vendored` — i.e. on that arm per-trajectory *is*
+   the upstream schedule. The two arms have different upstreams; deleting globally would have
+   broken fidelity on the symbolic one. The `--train-per-trajectory` CLI flags therefore stay, and
+   their help text now says they do not reach ROSAME-I.
+
+   **What this costs.** Every ROSAME-I and ROSAME-I_MILP row on disk (150 of them) was trained
+   under the removed schedule, so they are stale on substance, not just on labels. The `--force`
+   re-run of both pixel arms (analysis §7 item 1) stops being optional bookkeeping and becomes a
+   prerequisite for reading anything off the 24 arm, and for Phase 4's 24-vs-26 comparison. Run it
+   at the paper's own per-domain epochs, 70 / 100 / 300.
+
+   **What this does not settle.** Analysis §3.1's other two suspects — data volume and epoch
+   semantics — are untouched. Removing the deviation tells us what the faithful arm scores; it
+   does not attribute the collapse. New rows are distinguishable by `"schedule": "pooled"` in
+   `algorithm_specific`; old ones carry `"train_per_trajectory": true`.
+
+   **The §4.6 labelling rule still binds `epochs`.** It does not reach `row_name` — only the
+   resize suffix does — so an epoch sweep would still average two budgets under one `ROSAME-I`
+   label. Label first, run second. And the cheapest prior check is unchanged: the adapter returns
+   only `_total_loss` at the end, never a curve, so one cell with per-epoch loss logged settles
+   whether "undertrained" is on the table at all.
 
 ---
 
@@ -1069,7 +1085,7 @@ it's where the empty-effects question gets answered — against a 24 baseline th
 already made upstream-faithful.
 
 **But Phase 4 is not an architecture comparison unless you say what else moved.** A 24→26 delta
-has at least six candidate causes, and only the first is the one people will assume:
+has at least seven candidate causes, and only the first is the one people will assume:
 
 | | ICAPS-24 arm | ICAPS-26 arm |
 |---|---|---|
@@ -1079,6 +1095,12 @@ has at least six candidate causes, and only the first is the one people will ass
 | images per trace | N + 1 | **N − 1** (§4.1) |
 | proposition space | `RepeatedArgsInstance` | upstream `Instance`, no repeated args (§4.2) |
 | epoch budget | per-domain 70/100/300 | one calibrated value (§1.2) |
+| batch size | 1 — pooled and reshuffled per epoch, but one trace per optimizer step (§9 item 8) | 128, per `train_common.py` (`vendor/UPSTREAM.md`) |
+
+The last row is a narrowed gap, not a closed one. §9 item 8 removed the *ordering* deviation on
+the 24 arm — it now reshuffles the pooled corpus each epoch, as upstream does — but left the batch
+dimension at 1, which is the residual noted in `docs/rosame-i-implementation-plan.md` decision #1.
+Hold it fixed or name it; do not let a batch-size effect be reported as an architecture effect.
 
 Report the delta with that table attached, or hold the movable ones fixed in a dedicated ablation.
 Presenting it as "old architecture vs new architecture" would be the same error as the resize

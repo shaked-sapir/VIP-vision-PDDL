@@ -82,8 +82,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         resize: ResizeSpec = _RESIZE_FROM_TABLE,
     ) -> None:
         super().__init__(
-            train_per_trajectory=False, n_seeds=n_seeds, device=device,
-            base_seed=base_seed, resize=resize,
+            n_seeds=n_seeds, device=device, base_seed=base_seed, resize=resize,
         )
         self.psi = psi
         self.pre_mip_epochs = pre_mip_epochs

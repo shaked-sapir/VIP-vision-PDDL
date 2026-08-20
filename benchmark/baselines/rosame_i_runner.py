@@ -6,8 +6,8 @@ state as supervision — never the (VLM-inferred / degraded) trajectory states.
 This is the ICAPS-24 ROSAME-I baseline; see
 ``docs/rosame-i-implementation-plan.md`` for the full design.
 
-Two training schedules are selectable via the ``train_per_trajectory`` flag
-(default per-trajectory). To mitigate small-data variance, ``n_seeds`` independent
+Traces are trained pooled, one shuffled pass over all of them per epoch, as in
+ICAPS-24 ``train.py``. To mitigate small-data variance, ``n_seeds`` independent
 models are trained and the one with the lowest final training loss is kept (a
 selection rule that never touches test data).
 
@@ -131,13 +131,11 @@ class RosameIBaselineRunner(BaselineRunner):
 
     def __init__(
         self,
-        train_per_trajectory: bool = True,
         n_seeds: int = 3,
         device: Optional[str] = None,
         base_seed: int = 8800,
         resize: ResizeSpec = _RESIZE_FROM_TABLE,
     ) -> None:
-        self.train_per_trajectory = train_per_trajectory
         self.n_seeds = n_seeds
         self.device = device
         self.base_seed = base_seed
@@ -240,7 +238,6 @@ class RosameIBaselineRunner(BaselineRunner):
                 )
                 final_loss = runner.learn_full(
                     prepared_problems,
-                    train_per_trajectory=self.train_per_trajectory,
                     epochs=int(hp["epochs"]),
                     gamma=float(hp["gamma"]),
                     lambda_=float(hp["lambda_"]),
@@ -273,7 +270,9 @@ class RosameIBaselineRunner(BaselineRunner):
             "seeds": seed_losses,
             "chosen_seed": chosen,
             "chosen_final_loss": seed_losses[chosen],
-            "train_per_trajectory": self.train_per_trajectory,
+            # Distinguishes these rows from ones written before the continual
+            # schedule was removed, which carry "train_per_trajectory": true.
+            "schedule": "pooled",
             "resize": resize,
         }
         if skipped_seeds:

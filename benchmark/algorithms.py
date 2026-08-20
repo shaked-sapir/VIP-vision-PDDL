@@ -255,7 +255,7 @@ def resolve_algorithms(
         names: Algorithm keys, e.g. ``["cdps", "rosame"]``, ``["cdps_anchored"]``.
         **runner_kwargs: Optional per-baseline options forwarded only to the
             runners whose ``__init__`` accepts them (e.g.
-            ``train_per_trajectory`` for ROSAME-I).
+            ``train_per_trajectory`` for the symbolic ROSAME runners).
 
     Returns:
         run_cdps: Whether to run our (init-anchored) conflict-search learner.

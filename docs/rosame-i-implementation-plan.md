@@ -16,29 +16,44 @@
 
 ## 0. Settled design decisions (do not revisit)
 
-1. **Two training loops, selectable via a flag; default per-trajectory.**
-   A `--train-per-trajectory / --no-train-per-trajectory` CLI flag (default
-   **True** = per-trajectory) chooses the loop; the runner carries a
-   `train_per_trajectory: bool = True` constructor arg (source of truth).
-   The two loops differ ONLY in the training *schedule*; both require a shared
-   object universe across trajectories, because ROSAME-I's CV head is a
-   fixed-size proposition vector created at the first grounding (identical-
-   grounding assert, §4). This is unlike plain ROSAME/CDPS, which need no CV
+1. ~~**Two training loops, selectable via a flag; default per-trajectory.**~~
+   **REVERSED. There is one loop, pooled, and no flag.** ROSAME-I grounds once
+   (first problem), precomputes per-trajectory tensors against that single
+   grounding, then for each epoch iterates over ALL traces in a fresh shuffled
+   order, one optimizer step per trace. A trajectory whose actions don't map to
+   the shared grounding (or whose image count ≠ T+1) is skipped with a loud
+   warning. A shared object universe is required either way, because ROSAME-I's
+   CV head is a fixed-size proposition vector created at the first grounding
+   (identical-grounding assert, §4) — unlike plain ROSAME/CDPS, which need no CV
    head and tolerate varying object sets.
-   - **Per-trajectory (default):** the incremental pattern of
-     `PORosame_Runner` / `RosameBaselineRunner.learn` — for each trajectory:
-     `add_problem` → ground → train that trajectory's frames for the full
-     epoch budget, then move on; CV-model and schema parameters persist across
-     trajectories (continual-learning style).
-   - **Pooled:** ground once (first problem), precompute per-trajectory
-     tensors against that single grounding, then for each epoch iterate over
-     ALL traces (shuffled), one optimizer step per trace — closest to the
-     ICAPS-24 `train.py` DataLoader.
-   A trajectory whose actions don't map to the shared grounding (or whose
-   image count ≠ T+1) is skipped with a loud warning in both modes. Both loops
-   share the same per-trace loss primitive (§4). Per-trajectory is the safe
-   default (mirrors the existing baseline's schedule); pooled is the more
-   paper-faithful option.
+
+   **Why the original decision was wrong.** It offered a second, *continual*
+   schedule — train each trace to convergence, then move on — and made it the
+   default, on the stated grounds that it "mirrors the existing baseline's
+   schedule", while recording pooled as "the more paper-faithful option". That
+   reasoning imported a constraint from the wrong runner. The continual pattern
+   belongs to the **symbolic** side, where `PORosame_Runner.learn_per_trajectory`
+   reproduces AMLGym's vendored `learn_rosame` exactly and is pinned there by
+   `test_po_rosame_runner.test_local_loop_matches_vendored`. ROSAME-I's upstream
+   is not that API — it is ICAPS-24 `train.py` on `xikaioliver/ROSAME` `main`,
+   which is unambiguous:
+
+   ```python
+   train_loader = DataLoader(trainset, args.batch_size, shuffle=True)
+   for epoch in range(args.epochs):
+       run(epoch, cv_model, domain_model, optimizer, train_loader, ...)
+           for i, (data, label, action) in enumerate(data_loader):
+   ```
+
+   Pooled, shuffled, batched. No per-trajectory loop exists upstream, so the
+   default we shipped was a project-local invention applied to a port whose whole
+   purpose is fidelity — and every ROSAME-I row ever produced ran under it.
+
+   **Residual gap, deliberately left open.** Upstream steps on a *batch* of up to
+   128 traces; we step on one trace at a time. The iteration order is now
+   upstream's, the batch dimension is not, and at 3–8 traces per fold a literal
+   batch of 128 is not available to us. Tracked as analysis §3.1 item 3 (epoch
+   semantics), not silently closed by this change.
 2. **Anchor the FINAL state only**, exactly as in ICAPS-24 `train.py`
    (`gamma * MSE(domain_preds[:, -1], label[:, -1])`). Do NOT anchor the
    initial state. The final-state label comes from the GT trajectory JSON
@@ -184,9 +199,9 @@ class RosameI_Runner(PORosame_Runner):
 ```
 
 **Important — CV head dimension vs per-problem grounding**: the head size is
-`len(self.rosame.propositions)` of the current grounding. With the
-per-trajectory loop (decision #1), if a later problem's grounding has a
-different proposition count, the head no longer matches. Handle explicitly:
+`len(self.rosame.propositions)` of the current grounding. Traces from several
+problems share one head, so if a later problem's grounding has a different
+proposition count the head no longer matches. Handle explicitly:
 create the CV model on the first grounding; on each subsequent grounding
 **assert** the proposition list is identical (names and order); if not,
 abort the cell with a clear error ("ROSAME-I requires a shared object
@@ -231,28 +246,29 @@ created ONCE (persists across trajectories). Images: load PNG → RGB tensor,
 
 ### 4.3 Two training loops (decision #1)
 
-Both loops share the same per-trace loss primitive (`_trajectory_loss`) and
-the same single grounding (built on the first problem; identical-grounding
-assert on every subsequent one). They differ only in schedule:
+One loop, on the per-trace loss primitive (`_trajectory_loss`) and the single
+grounding (built on the first problem; identical-grounding assert on every
+subsequent one):
 
-- `learn_per_trajectory(prepared, epochs, ...)` — for each prepared trace in
-  order: run the full `epochs` budget of optimizer steps on that trace, then
-  move to the next. CV + schema params persist (continual-learning style).
 - `learn_pooled(prepared, epochs, ...)` — precompute every trace's tensors
   once, then for each epoch iterate over ALL traces in a shuffled order, one
-  optimizer step per trace. Closest to `train.py`'s DataLoader.
+  optimizer step per trace. Mirrors `train.py`'s shuffled DataLoader.
 
-A dispatcher `learn_full(prepared, train_per_trajectory, ...)` selects the
-loop. Both return the final total training loss (used for seed selection).
+`learn_full(prepared, epochs, ...)` grounds, prepares and calls it, returning
+the final total training loss (used for seed selection). The `learn_per_trajectory`
+companion and the `train_per_trajectory` dispatcher argument were removed — see
+decision #1.
 
 ### 4.4 Multi-seed wrapper (decision #5)
 
-`learn_full` runs the selected loop `n_seeds` times (fresh CV + fresh schema
+`learn_full` runs the loop `n_seeds` times (fresh CV + fresh schema
 params + torch/python seeds set per run), records each run's final total
 training loss, picks the model with the lowest, and returns
 `(pddl_str, extra_info)` where `extra_info` includes
-`{"seeds": {seed: final_loss}, "chosen_seed": s, "train_per_trajectory":
-flag}`. Save every seed's PDDL to
+`{"seeds": {seed: final_loss}, "chosen_seed": s, "schedule": "pooled",
+"resize": spec}`. The `"schedule"` key is a marker, not a knob: it exists so
+rows written after decision #1 was reversed can be told apart from the ones
+before, which carry `"train_per_trajectory": true`. Save every seed's PDDL to
 `work_dir/baseline_models/ROSAME-I/seed_<s>/model.pddl` (the harness saves
 the chosen one to `baseline_models/ROSAME-I/model.pddl` on top).
 
@@ -276,14 +292,14 @@ runner's constructor; do not add new required config keys.
 
 - `name` → `"ROSAME-I"`, key `rosame_i`, `color` → `"#d55181"` (distinct
   from ROSAME's `#e8710a`).
-- `__init__(self, train_per_trajectory: bool = True, n_seeds: int = 3,
-  device=None)` — the loop flag is a constructor arg. Threading:
-  `get_baselines` / `resolve_baselines` / `resolve_algorithms` gain a keyword
-  `train_per_trajectory=True`, passed to a runner class **only if its
-  `__init__` accepts it** (via `inspect.signature`, so `RosameBaselineRunner`
-  is untouched). CLIs (`backfill_baseline.py`, `experiment_runner.py`) expose
-  `--train-per-trajectory / --no-train-per-trajectory`
-  (`argparse.BooleanOptionalAction`, default True) and forward the value.
+- `__init__(self, n_seeds: int = 3, device=None, base_seed: int = 8800,
+  resize: ResizeSpec = _RESIZE_FROM_TABLE)` — no loop flag; the schedule is
+  fixed (decision #1). The `inspect.signature` filter in
+  `get_baselines` / `resolve_baselines` / `resolve_algorithms` stays, because
+  `train_per_trajectory` still reaches the **symbolic** ROSAME runners, which
+  is where it is upstream-faithful. It simply never reaches this one, and the
+  `--train-per-trajectory / --no-train-per-trajectory` CLI flags on
+  `backfill_baseline.py` / `experiment_runner.py` say so in their help text.
   `run_fold.py` is unchanged (it receives already-instantiated runners).
 - `learn(...)`: resolve images + actions + final states per trajectory
   (§3); **if any trajectory has no resolvable images, and none resolve at
@@ -336,8 +352,8 @@ runner's constructor; do not add new required config keys.
 
 The implementing agent correctly identified that the vendored
 `Rosame_Runner.add_problem` rebuilds the `Domain_Model` (fresh schema
-parameters) on every call, so per-trajectory learning kept only the last
-trajectory. **This is now fixed** in
+parameters) on every call, so learning across several trajectories kept only
+the last one. **This is now fixed** in
 `benchmark/algorithm_adapters/po_rosame_runner.py`: `PORosame_Runner`
 overrides `add_problem` to build the domain model once (first problem) and
 only `ground_new_trajectory()` afterwards — restoring the original ROSAME
@@ -346,10 +362,11 @@ valid across *different* object sets per their README).
 
 Consequences for this task:
 - `RosameI_Runner` should subclass or replicate the SAME override (build
-  once, re-ground per problem). Call sequence per trajectory:
-  `add_problem(problem)` (no-op rebuild after the first) →
-  `ground_new_trajectory()` (harmless if doubled) → train on that
-  trajectory. Schema AND CV parameters persist across trajectories.
+  once, re-ground per problem). As implemented it goes further: it grounds
+  on the **union** of all problems' objects up front
+  (`rosame_i_runner.py:154-158`), so the CV head is sized once and every
+  trace's tensors are precomputed against one fixed proposition list before
+  any optimizer step. Schema AND CV parameters persist across traces.
 - For the multi-seed loop (§4.4): construct a fresh `RosameI_Runner` per
   seed (do NOT try to reset weights in place).
 - The identical-grounding **assert remains required for ROSAME-I only**

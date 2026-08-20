@@ -599,8 +599,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--train-per-trajectory', action=argparse.BooleanOptionalAction, default=True,
-        help='ROSAME-I training schedule: per-trajectory (default) vs pooled '
-             '(--no-train-per-trajectory). Ignored by baselines that do not accept it.',
+        help='Symbolic ROSAME training schedule: per-trajectory (default, matches '
+             'the vendored learn_rosame) vs pooled (--no-train-per-trajectory). '
+             'Ignored by baselines that do not accept it, ROSAME-I included — it '
+             'trains pooled unconditionally, as ICAPS-24 train.py does.',
     )
 
     args = parser.parse_args()

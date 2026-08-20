@@ -42,7 +42,8 @@ def _instantiate(cls: Type[BaselineRunner], **kwargs) -> BaselineRunner:
     """Instantiate ``cls`` forwarding only the kwargs its ``__init__`` accepts.
 
     Lets us thread runner-specific options (e.g. ``train_per_trajectory`` for
-    ROSAME-I) without leaking them into runners that don't take them.
+    the symbolic ROSAME runners) without leaking them into runners that don't
+    take them — ROSAME-I among them, since it trains pooled unconditionally.
     """
     params = inspect.signature(cls.__init__).parameters
     accepted = {k: v for k, v in kwargs.items() if k in params}
@@ -57,7 +58,7 @@ def get_baselines(names: List[str], **runner_kwargs) -> List[BaselineRunner]:
             An empty list returns an empty list (no baselines).
         **runner_kwargs: Optional per-runner options forwarded only to the
             runners whose ``__init__`` accepts them (e.g.
-            ``train_per_trajectory`` for ROSAME-I).
+            ``train_per_trajectory`` for the symbolic ROSAME runners).
 
     Returns:
         Flat list of instantiated ``BaselineRunner`` objects.

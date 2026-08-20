@@ -340,26 +340,6 @@ class RosameI_Runner(PORosame_Runner):
 
     # ------------------------------------------------------------------ loops
 
-    def learn_per_trajectory(
-        self,
-        traces: Sequence[_PreparedTrace],
-        epochs: int,
-        gamma: float,
-        lambda_: float,
-        augment: bool,
-        timeout_check: Optional[Callable[[], bool]] = None,
-    ) -> float:
-        """Continual schedule: fully train each trace's frames before the next."""
-        for trace in traces:
-            for _ in range(epochs):
-                self.optimizer.zero_grad()
-                loss = self._trajectory_loss(trace, gamma, lambda_, augment)
-                loss.backward()
-                self.optimizer.step()
-            if timeout_check is not None and timeout_check():
-                break
-        return self._total_loss(traces, gamma, lambda_)
-
     def learn_pooled(
         self,
         traces: Sequence[_PreparedTrace],
@@ -369,7 +349,13 @@ class RosameI_Runner(PORosame_Runner):
         augment: bool,
         timeout_check: Optional[Callable[[], bool]] = None,
     ) -> float:
-        """Interleaved schedule (paper-faithful): each epoch steps over all traces."""
+        """Each epoch steps over every trace in a fresh random order.
+
+        Mirrors ICAPS-24 ``train.py``, which pools all traces into one dataset
+        and iterates ``DataLoader(trainset, args.batch_size, shuffle=True)`` once
+        per epoch. One trace per optimizer step rather than a batch of them; the
+        ordering is upstream's, the batch dimension is not.
+        """
         order = list(range(len(traces)))
         for _ in range(epochs):
             random.shuffle(order)
@@ -387,14 +373,13 @@ class RosameI_Runner(PORosame_Runner):
     def learn_full(
         self,
         prepared_problems: Sequence[Tuple[object, Sequence[Path], Sequence[str], Sequence[str]]],
-        train_per_trajectory: bool,
         epochs: int,
         gamma: float,
         lambda_: float,
         augment: bool,
         timeout_check: Optional[Callable[[], bool]] = None,
     ) -> Optional[float]:
-        """Ground, prepare all traces, and run the selected training schedule.
+        """Ground, prepare all traces, and train them pooled.
 
         ``prepared_problems`` items are
         ``(problem, image_paths, action_strings, final_state_predicates)``.
@@ -404,11 +389,6 @@ class RosameI_Runner(PORosame_Runner):
         traces = self.prepare_traces(prepared_problems)
         if not traces:
             return None
-
-        if train_per_trajectory:
-            return self.learn_per_trajectory(
-                traces, epochs, gamma, lambda_, augment, timeout_check
-            )
         return self.learn_pooled(traces, epochs, gamma, lambda_, augment, timeout_check)
 
     def to_pddl(self) -> str:
