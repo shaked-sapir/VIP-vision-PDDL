@@ -671,7 +671,7 @@ about *numbers*: with the transform measured inert, the existing ROSAME-I_MILP r
 substantively comparable. What is actually wrong with them is that they carry no recorded `resize`
 under a bare `ROSAME-I_MILP` name, which under the new default reads as the aspect-preserving arm.
 Re-run them with `--force` for label integrity — but it is bookkeeping, and it should yield to
-§9.7 if compute is contended.
+§9's item 8 (the schedule fix) if compute is contended.
 
 ---
 
@@ -1018,14 +1018,36 @@ In order, each cheap and each falsifiable:
 
    **The disjunction this item wrote in advance now resolves to its second branch**: the
    distortion is a faithfulness fix only, and the collapse belongs to data volume, schedule and
-   epoch semantics (analysis §3.1, items 1–3). That is exactly the regime the 26 arm inherits, so
-   item 7 below stops being a formality and becomes the live experiment.
+   epoch semantics (analysis §3.1, items 1–3) — **all three, equally**. Item 8 below is the live
+   experiment that follows; item 7 remains the separate 26-arm budget question it always was.
 7. **Budget control** — one cell per domain at `epochs: 5000` outside the timeout (§1.2), so
    "the arm underperforms at 750 epochs" and "the arm is undertrained at 750 epochs" stay
-   distinguishable. **Promoted by item 6's outcome**: with the distortion hypothesis dead,
-   undertraining is the leading surviving explanation for the empty-effects collapse and this is
-   its direct test. Worth running on the **24 arm first**, where the collapse is already measured
-   — it needs none of the 26 work and answers the question a phase earlier.
+   distinguishable. **This is a 26-arm item and stays one.** `5000` earns its place here only
+   because it is the value §1.2's pre-flight calibrates *away from*; it is the 26 code default
+   (§1.1). It is not a number the 24 arm has any use for — that arm runs the ICAPS-24 paper's own
+   per-domain counts, 70 / 100 / 300 (`benchmark/baselines/rosame_i_runner.py:37-41`), and 5000
+   against those is off-paper on both papers at once.
+
+8. **Schedule fix on the 24 arm** — the empty-effects collapse is a 24-arm defect and wants a
+   24-arm experiment. Analysis §3.1 names three co-equal suspects — data volume, schedule, epoch
+   semantics — and item 6's outcome promotes all three equally, not undertraining alone. Of the
+   three, **schedule is the cheapest and the only one that is a faithfulness fix rather than an
+   ablation**: every ROSAME-I row we hold was trained with `train_per_trajectory=True`
+   (`benchmark/baselines/rosame_i_runner.py:134`), i.e. `learn_per_trajectory` — each trace driven
+   to convergence in turn, the most forgetting-prone order available. `learn_pooled`'s docstring
+   calls itself "paper-faithful", and `rosame_i_milp_runner.py:85` already pins the flag to
+   `False`. Flip it at the paper's own epoch counts via `--no-train-per-trajectory`
+   (`experiment_runner.py:601`); no new code and no new compute budget.
+
+   **Blocker, and it is the §4.6 rule again.** Neither `epochs` nor `train_per_trajectory` reaches
+   `row_name` — only the resize suffix does. Both are recorded in `algorithm_specific`
+   (`rosame_i_runner.py:276`) but that does not separate rows, so an A/B on either would average
+   two schedules under one `ROSAME-I` label: exactly the failure `__res=` was added to prevent.
+   Label first, run second.
+
+   Cheapest prior check, before any epoch sweep is even scoped: the adapter returns only
+   `_total_loss` at the end (`algorithm_adapters/rosame_i_runner.py:361,383`), never a curve. One
+   cell with per-epoch loss logged settles whether "undertrained" is on the table at all.
 
 ---
 

@@ -377,8 +377,12 @@ be concluded from this run.
 **Consequence.** §3.1 item 4 is refuted; items 1–3 (data volume, schedule, epoch semantics) own
 the collapse. The transform change is kept as a faithfulness fix, and its measured inertness is
 what makes it safe to keep — it de-confounds the 24-vs-26 comparison without moving the quantity
-being compared. The surviving hypothesis is *undertraining*, which promotes the unbudgeted
-5000-epoch control cells (26-arm plan §9.7) from a nice-to-have to the next informative run.
+being compared. Refuting one of four candidates promotes the other three **equally** — this
+result does not name a winner among them. The next informative run is therefore the cheapest of
+the three that also happens to be a faithfulness fix rather than an ablation: flipping
+`train_per_trajectory` to `False` (§7 item 2). The 5000-epoch cells are a *26-arm budget* control
+(plan §9.7) and are not a test of this; `5000` is the 26 code default, not a number the 24 arm,
+which runs the paper's own 70 / 100 / 300, has any use for.
 
 ## 6. Where the perception cost is paid — the structural difference
 
@@ -431,15 +435,32 @@ prediction was vacuous, and hanoi — the only real test — did not move in a s
    under a bare `ROSAME-I_MILP` name, which under the new default means forced-square results
    wearing the aspect-preserving arm's label. Re-run with `--force` for label integrity, and
    demote it behind item 2 if compute is contended.
-2. **The 5000-epoch control cells** — 26-arm plan §9.7, one unbudgeted cell per domain. Replaces
-   the A/B as the live question: with item 4 of §3.1 refuted, *undertraining* is the leading
-   surviving explanation and this is its direct test. The next informative run.
+2. **Flip `train_per_trajectory` to `False`** — §3.1 item 2, which already flags itself as the
+   *cheapest discriminating experiment*. Replaces the A/B as the live question, but note that
+   §5.3 refuting item 4 promotes items 1–3 **equally**; it does not single out undertraining.
+   Schedule wins on cost and on kind: every ROSAME-I row we hold ran the continual schedule
+   (`"train_per_trajectory": true` in `algorithm_specific`), while `learn_pooled`'s docstring
+   calls itself "paper-faithful" and `rosame_i_milp_runner.py:85` already pins the flag off. So
+   this is a **faithfulness fix like `Resize(64)` was, not an ablation** — and it needs no new
+   code, just `--no-train-per-trajectory`. Run it at the paper's own epoch counts
+   (70 / 100 / 300, `baselines/rosame_i_runner.py:37-41`).
+
+   *The 5000-epoch cells are not this experiment.* `5000` is the ICAPS-**26** code default, kept
+   in plan §9.7 to check that the 600 s-calibrated budget does not silently underperform it. On
+   the 24 arm the number is off-paper on both papers and answers no question we have.
+
+   **Label before running.** Neither `epochs` nor `train_per_trajectory` reaches `row_name`
+   (only `resize` does), so an A/B on either would average both schedules under one `ROSAME-I`
+   row — the failure the suffix rule exists to prevent. And prefer the near-free prior check
+   first: the adapter returns only a final `_total_loss`, never a curve, so one cell with
+   per-epoch loss logged decides whether an epoch sweep is worth scoping at all.
 3. **Depot at two resolutions (64 and 224)** — §5.1. Untouched by §5.3, which compared 64 against
    64 and so could not speak to depot's ≥120 legibility threshold. Converts the one real
    resolution confound into a measured row instead of an argument. Now expressible without a name
    collision. Use a per-run `--resize 224` override rather than a `_RESIZE["depot"]` table entry:
-   a table entry would make 224 depot's *default* and invert which row carries the suffix. Add a
-   `ROSAME-I__res=224` key to `dashboard_config.yaml` first or the series will not render.
+   a table entry would make 224 depot's *default* and invert which row carries the suffix. The
+   `ROSAME-I__res=224` / `ROSAME-I_MILP__res=224` dashboard keys are already registered, so the
+   series will render on its first run.
 4. **Depot ablation with `forbid_redundant_adds=False`** (§3.3). Depot has *two* candidate
    explanations — text-label resolution and the encoding constraint — so run both ablations
    before attributing its gap to either. **Caveat for the 26 arm specifically:** upstream's
