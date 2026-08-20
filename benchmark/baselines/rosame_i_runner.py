@@ -71,8 +71,31 @@ _RESIZE: Dict[str, object] = {
     "depot": 64,  # candidate for 224 -- see docs/algorithm_comparison_analysis.md §5.1
 }
 
-# Sentinel: "no explicit override, use the per-domain table".
-_RESIZE_FROM_TABLE = object()
+class _ResizeFromTable:
+    """Sentinel: "no explicit override, use the per-domain table".
+
+    A bare ``object()`` is **not** usable here: ``backfill_baseline`` forwards
+    this value to a ``ProcessPoolExecutor`` worker, and pickling a plain
+    ``object()`` yields a *different* instance on the far side, so the ``is``
+    check silently fails and the sentinel itself is passed on as a resize value.
+    This singleton round-trips through pickle to the same instance.
+    """
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __reduce__(self):
+        return (_ResizeFromTable, ())
+
+    def __repr__(self) -> str:
+        return "RESIZE_FROM_TABLE"
+
+
+_RESIZE_FROM_TABLE = _ResizeFromTable()
 
 
 def _resize_tag(resize: object) -> str:

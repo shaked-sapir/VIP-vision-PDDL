@@ -56,7 +56,16 @@ def _build_image_tf(resize: "int | Sequence[int] | None" = _DEFAULT_RESIZE):
         if isinstance(resize, int):
             steps.append(transforms.Resize(resize))
         else:
-            hw = tuple(int(v) for v in resize)
+            try:
+                hw = tuple(int(v) for v in resize)
+            except TypeError:
+                # Guard the sentinel-leaked-through-pickle class of bug: without
+                # this the failure surfaces as "'object' object is not iterable"
+                # from inside a comprehension, 3 frames from the cause.
+                raise TypeError(
+                    f"resize must be an int, a 2-sequence or None; got "
+                    f"{resize!r} of type {type(resize).__name__}"
+                ) from None
             if len(hw) != 2:
                 raise ValueError(f"resize must be an int, a 2-sequence or None; got {resize!r}")
             steps.append(transforms.Resize(hw))
