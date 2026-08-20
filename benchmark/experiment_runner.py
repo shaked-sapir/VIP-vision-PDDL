@@ -593,9 +593,9 @@ if __name__ == "__main__":
     parser.add_argument('--resume', action='store_true', default=False,
                         help='Skip fold instances that already completed (fold_result.json present)')
     parser.add_argument(
-        '--algorithms', type=str, nargs='*', default=['cdps', 'rosame'],
+        '--algorithms', type=str, nargs='*', default=['cdps', 'rosame_24'],
         help=f'Algorithms to run (any subset, standalone allowed). '
-             f'Available: {", ".join(available_algorithms())}. Default: cdps rosame.',
+             f'Available: {", ".join(available_algorithms())}. Default: cdps rosame_24.',
     )
     parser.add_argument(
         '--train-per-trajectory', action=argparse.BooleanOptionalAction, default=True,

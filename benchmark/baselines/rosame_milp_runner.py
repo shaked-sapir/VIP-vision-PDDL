@@ -4,17 +4,18 @@ Two registered variants (ROSAME-side glue in
 ``benchmark/algorithm_adapters/rosame_milp/``; the MILP encoder itself lives in
 ``src/milp/``, shared with the ``pisam_milp_*`` learners):
 
-- ``rosame_milp_base`` (:class:`RosameMilpBaseRunner`) — one-shot: train ROSAME
-  exactly like the ``rosame`` baseline, then solve a single MILP over the whole
-  fold (actions observed, s0 + GT-final anchored) and decode its binary model
-  to PDDL.
-- ``rosame_milp`` (:class:`RosameMilpRunner`) — the ICAPS-26 iterative loop:
+- ``rosame_milp_24`` (:class:`RosameMilpRunner`) — the ICAPS-26 iterative loop:
   ``pre_mip_epochs`` warmup, then a MILP solve every ``mip_interval`` epochs
   whose 4-way model pseudo-labels supervise further training (undecayed, per
   upstream code); output = decode of the final MILP solution.
-- ``rosame_milp_tag`` (:class:`RosameMilpTagRunner`) — the iterative loop with
-  the ``tag`` encoding rules (``MilpEncodingConfig.tag``): >=1 add effect per
-  schema (no precondition requirement) and no redundant-add ban.
+- ``rosame_milp_24_tag`` (:class:`RosameMilpTagRunner`) — the same loop with the
+  ``tag`` encoding rules (``MilpEncodingConfig.tag``): >=1 add effect per
+  schema (no precondition requirement) and no redundant-add ban. The ``tag``
+  comparison is scoped to this arm alone; no other arm has a ``tag`` variant.
+
+:class:`RosameMilpBaseRunner` holds the MILP plumbing both share and the
+one-shot ``learn`` they inherit. It is not a registered arm: ``name`` is
+abstract there, so it cannot be instantiated.
 
 The MILP constraint rule-set is bundled in
 :class:`~src.milp.encoding_config.MilpEncodingConfig`
@@ -28,6 +29,7 @@ from __future__ import annotations
 
 import random
 import time
+from abc import abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -100,7 +102,16 @@ def goal_fluents_for(
 
 
 class RosameMilpBaseRunner(RosameBaselineRunner):
-    """One-shot variant: fully train ROSAME, then a single MILP projection."""
+    """Shared MILP plumbing plus a one-shot ``learn``: train, then project once.
+
+    Abstract: ``name`` is re-declared abstract here, so only its subclasses are
+    instantiable. Without that it would inherit ``RosameBaselineRunner``'s and
+    file its rows under that arm's label.
+    """
+
+    @property
+    @abstractmethod
+    def name(self) -> str: ...
 
     def __init__(
         self,
@@ -117,18 +128,6 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         self.encoding_config = encoding_config or MilpEncodingConfig.upstream()
         self.goal_mode = goal_mode
         self.milp_solver = milp_solver
-
-    @property
-    def name(self) -> str:
-        return "ROSAME_MILP_BASE"
-
-    @property
-    def display_name(self) -> str:
-        return "ROSAME+MILP (one-shot)"
-
-    @property
-    def color(self) -> str:
-        return "#1baf7a"
 
     # ------------------------------------------------------------ MILP plumbing
 
@@ -269,11 +268,11 @@ class RosameMilpRunner(RosameMilpBaseRunner):
 
     @property
     def name(self) -> str:
-        return "ROSAME_MILP"
+        return "ROSAME_MILP_24"
 
     @property
     def display_name(self) -> str:
-        return "ROSAME+MILP"
+        return "ROSAME+MILP (24)"
 
     @property
     def color(self) -> str:
@@ -379,11 +378,11 @@ class RosameMilpTagRunner(RosameMilpRunner):
 
     @property
     def name(self) -> str:
-        return "ROSAME_MILP_TAG"
+        return "ROSAME_MILP_24_TAG"
 
     @property
     def display_name(self) -> str:
-        return "ROSAME+MILP (tag)"
+        return "ROSAME+MILP (24, tag)"
 
     @property
     def color(self) -> str:

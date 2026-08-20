@@ -127,7 +127,7 @@ class RosameIBaselineRunner(BaselineRunner):
     """ROSAME-I (imaged-mode CV + ROSAME) baseline."""
 
     #: Row label before the resize suffix is appended.
-    _base_name: str = "ROSAME-I"
+    _base_name: str = "ROSAME-I_24"
 
     def __init__(
         self,
@@ -188,7 +188,7 @@ class RosameIBaselineRunner(BaselineRunner):
 
     @property
     def display_name(self) -> str:
-        return "ROSAME-I"
+        return "ROSAME-I (24)"
 
     @property
     def color(self) -> str:

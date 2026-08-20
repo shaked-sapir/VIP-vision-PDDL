@@ -1,6 +1,6 @@
 """ROSAME-I+MILP baseline runner (imaged mode only).
 
-The ICAPS-26 competitor in its native setting: the CV state predictor, the
+The ICAPS-24 network driven by the ICAPS-26 MILP: the CV state predictor, the
 differentiable ROSAME action model and the MILP are trained jointly from raw
 state images. Inputs are :class:`RosameIBaselineRunner`'s — images, observed
 actions and the GT final state, never the degraded trajectory states — and the
@@ -63,7 +63,7 @@ class _TraceContext:
 class RosameIMilpRunner(RosameIBaselineRunner):
     """ROSAME-I trained with MILP pseudo-labels on the model and state channels."""
 
-    _base_name: str = "ROSAME-I_MILP"
+    _base_name: str = "ROSAME-I_MILP_24"
 
     def __init__(
         self,
@@ -96,7 +96,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
 
     @property
     def display_name(self) -> str:
-        return "ROSAME-I+MILP"
+        return "ROSAME-I+MILP (24)"
 
     @property
     def color(self) -> str:

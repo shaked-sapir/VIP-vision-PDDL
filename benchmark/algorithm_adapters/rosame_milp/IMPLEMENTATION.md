@@ -10,9 +10,13 @@ commit `95c733f`) it corresponds to. Companion docs: `vendor/UPSTREAM.md`
 
 | Registry key | Class | What it is |
 |---|---|---|
-| `rosame_milp_base` | `RosameMilpBaseRunner` | **V1, one-shot**: train ROSAME exactly like the `rosame` baseline, then a *single* MILP solve over the whole fold; decode the binary solution to PDDL. Not in the paper — our ablation separating "MILP as post-processor" from the full loop. |
-| `rosame_milp` | `RosameMilpRunner` | **V2, paper-faithful loop** (paper Sec. 6 "Integrating MILP", Sec. 7): warmup training, then a MILP solve every `mip_interval` epochs whose solution supervises further training as pseudo-labels; output = decode of the last successful solve. |
-| `rosame_milp_tag` | `RosameMilpTagRunner` | **V2 loop with the `tag` rule-set** (`MilpEncodingConfig.tag`): identical loop to `rosame_milp`, but the MILP requires only ≥1 add effect per schema (no precondition requirement) and drops the redundant-add ban. |
+| `rosame_milp_24` | `RosameMilpRunner` | **The loop** (paper Sec. 6 "Integrating MILP", Sec. 7): warmup training, then a MILP solve every `mip_interval` epochs whose solution supervises further training as pseudo-labels; output = decode of the last successful solve. |
+| `rosame_milp_24_tag` | `RosameMilpTagRunner` | **The loop under the `tag` rule-set** (`MilpEncodingConfig.tag`): identical to `rosame_milp_24`, but the MILP requires only ≥1 add effect per schema (no precondition requirement) and drops the redundant-add ban. Scoped to this arm alone; no other arm has a `tag` variant. |
+
+`RosameMilpBaseRunner` holds the plumbing both share plus the one-shot `learn`
+they inherit. It re-declares `name` abstract, so it cannot be instantiated; it is
+not an arm. Merely omitting the override would not do — it would inherit
+`RosameBaselineRunner`'s and file rows under that arm's label.
 
 Registered in `benchmark/baselines/__init__.py`; all runners live in
 `benchmark/baselines/rosame_milp_runner.py`.
@@ -26,8 +30,8 @@ pass it through `encoding_config` (default `upstream()`):
 
 | Preset | `schema_nonempty` | `forbid_redundant_adds` | Used by |
 |---|---|---|---|
-| `upstream()` | `PRE_AND_ADD` (≥1 pre AND ≥1 add) | `True` | `rosame_milp`, `rosame_milp_base` |
-| `tag()` | `ADD` (≥1 add only) | `False` | `rosame_milp_tag` |
+| `upstream()` | `PRE_AND_ADD` (≥1 pre AND ≥1 add) | `True` | `rosame_milp_24` |
+| `tag()` | `ADD` (≥1 add only) | `False` | `rosame_milp_24_tag` |
 
 A future variant = one new preset (+ optional `SchemaNonemptyRule` member) and a
 thin runner subclass. The config's fields land in `solve_stats` /

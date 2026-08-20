@@ -313,7 +313,7 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     elif "baselines" in shared:
         algorithm_names = ["cdps"] + [b for b in shared["baselines"] if b != "none"]
     else:
-        algorithm_names = ["cdps", "rosame"]
+        algorithm_names = ["cdps", "rosame_24"]
     (kwargs["run_cdps"], kwargs["run_cdps_anchored"], kwargs["run_pisam_milp"],
      kwargs["run_pisam_milp_loop"], kwargs["baselines"]) = resolve_algorithms(
         algorithm_names

@@ -31,7 +31,7 @@ trajectories from different problems, hard-fixed ground-truth states):
    paper eq. 18 ``del => pre``) plus the optional objective terms (eq. 16
    precondition bias, reference-model channel weighting) are bundled in a
    :class:`encoding_config.MilpEncodingConfig`. Presets: ``upstream()`` =
-   released behavior, ``tag()`` = the ``rosame_milp_tag`` variant,
+   released behavior, ``tag()`` = the ``rosame_milp_24_tag`` variant,
    ``cdps_dialect()`` = all GT-excluding families dropped (used by
    ``pisam_milp_*``); see vendor/UPSTREAM.md.
 

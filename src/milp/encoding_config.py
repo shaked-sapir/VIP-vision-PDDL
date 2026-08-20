@@ -119,7 +119,7 @@ class MilpEncodingConfig:
 
     @classmethod
     def tag(cls) -> "MilpEncodingConfig":
-        """The ``rosame_milp_tag`` variant: >=1 add effect only, redundant adds
+        """The ``rosame_milp_24_tag`` variant: >=1 add effect only, redundant adds
         allowed."""
         return cls(
             schema_nonempty=SchemaNonemptyRule.ADD,

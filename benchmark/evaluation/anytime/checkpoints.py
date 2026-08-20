@@ -10,7 +10,7 @@ arm                           timestamps                                 models
 ``cdps`` / ``cdps_anchored``  ``conflict_free_solutions_log.json``        ``conflict_free_models/conflict_free_model_{i}/``
 ``pisam_milp_single_round``    same, or ``final_model/patch_details``      ``conflict_free_models/{conflict_free_model_0,final_model}/``
 ``pisam_milp_loop``            ``milp_loop_rounds.json``                   ``milp_loop_round_models/round_{i}/``
-``ROSAME``                    ``anytime_snapshots/ROSAME/snapshots.json`` ``anytime_snapshots/ROSAME/snapshot_{i:04d}.pddl``
+``ROSAME_24``                 ``anytime_snapshots/<arm>/snapshots.json`` ``anytime_snapshots/<arm>/snapshot_{i:04d}.pddl``
 ============================  =========================================  ==================================================
 
 The single-round arm needs the extra fallback because it writes an *empty*
@@ -43,7 +43,7 @@ ARM_SUBDIRS: Dict[str, str] = {
     "cdps_anchored": "cdps_anchored",
     "pisam_milp_single_round": "pisam_milp_single_round",
     "pisam_milp_loop": "pisam_milp_loop",
-    "ROSAME": ".",
+    "ROSAME_24": ".",
 }
 
 _SOLUTIONS_LOG = "conflict_free_solutions_log.json"
@@ -186,7 +186,7 @@ _READERS: Dict[str, Callable[[Path, str], List[Checkpoint]]] = {
     "cdps_anchored": read_cdps_checkpoints,
     "pisam_milp_single_round": read_cdps_checkpoints,
     "pisam_milp_loop": read_loop_checkpoints,
-    "ROSAME": read_snapshot_checkpoints,
+    "ROSAME_24": read_snapshot_checkpoints,
 }
 
 

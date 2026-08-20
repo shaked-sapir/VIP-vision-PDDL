@@ -76,7 +76,7 @@ class RosameBaselineRunner(BaselineRunner):
     Pooled needs no shared object universe (plain ROSAME has no CV head).
 
     ``snapshot_interval`` turns on anytime instrumentation: every Nth epoch the
-    current model is written under ``anytime_snapshots/ROSAME/``. It is off by
+    current model is written under ``anytime_snapshots/<name>/``. It is off by
     default because ROSAME otherwise emits a single model, and every existing
     result was produced that way — a run that silently started writing hundreds
     of extra files per fold would be a surprise, not a feature.
@@ -92,11 +92,11 @@ class RosameBaselineRunner(BaselineRunner):
 
     @property
     def name(self) -> str:
-        return "ROSAME"
+        return "ROSAME_24"
 
     @property
     def display_name(self) -> str:
-        return "ROSAME"
+        return "ROSAME (24)"
 
     @property
     def color(self) -> str:

@@ -106,7 +106,7 @@ def test_reads_every_arm_shape():
             {"round": 0, "elapsed_seconds": 2.0},
             {"round": 1, "elapsed_seconds": 7.5},
         ])
-        _write_snapshot_arm(fold, "ROSAME", [0.4, 0.9, 1.3])
+        _write_snapshot_arm(fold, "ROSAME_24", [0.4, 0.9, 1.3])
 
         found = read_fold_checkpoints(fold)
 
@@ -115,10 +115,10 @@ def test_reads_every_arm_shape():
         for stream in found.values():
             assert all(c.model_path.exists() for c in stream), stream
 
-    assert set(found) == {"cdps", "cdps_anchored", "pisam_milp_loop", "ROSAME"}, found
+    assert set(found) == {"cdps", "cdps_anchored", "pisam_milp_loop", "ROSAME_24"}, found
     assert [c.elapsed_seconds for c in found["cdps"]] == [3.4, 5.1]
     assert [c.elapsed_seconds for c in found["pisam_milp_loop"]] == [2.0, 7.5]
-    assert len(found["ROSAME"]) == 3
+    assert len(found["ROSAME_24"]) == 3
     print("PASS  every arm's artifact shape is read into one checkpoint stream")
 
 
@@ -160,10 +160,10 @@ def test_arm_with_no_artifacts_is_omitted():
     """"Did not run here" is distinguishable from "ran and produced nothing"."""
     with tempfile.TemporaryDirectory() as tmp:
         fold = Path(tmp)
-        _write_snapshot_arm(fold, "ROSAME", [1.0])
+        _write_snapshot_arm(fold, "ROSAME_24", [1.0])
         found = read_fold_checkpoints(fold)
 
-    assert set(found) == {"ROSAME"}, found
+    assert set(found) == {"ROSAME_24"}, found
     print("PASS  arms that left no artifacts are omitted, not mapped to []")
 
 

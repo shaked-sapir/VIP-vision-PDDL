@@ -188,37 +188,37 @@ class TestResizeRowName:
 
     def test_table_value_equal_to_the_default_gets_no_suffix(self, tmp_path: Path) -> None:
         runner = RosameIBaselineRunner()
-        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I"
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I_24"
 
     def test_table_value_differing_from_the_default_is_suffixed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setitem(rosame_i_runner._RESIZE, "depot", 224)
         runner = RosameIBaselineRunner()
-        assert runner.row_name(_domain_file(tmp_path, "depot")) == "ROSAME-I__res=224"
+        assert runner.row_name(_domain_file(tmp_path, "depot")) == "ROSAME-I_24__res=224"
 
     def test_an_override_equal_to_the_default_gets_no_suffix(self, tmp_path: Path) -> None:
         """Same operation, same name — it must overwrite, not sit beside."""
         runner = RosameIBaselineRunner(resize=64)
-        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I"
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I_24"
 
     def test_a_forced_square_is_not_the_default(self, tmp_path: Path) -> None:
         """Resize((64,64)) distorts where Resize(64) preserves aspect."""
         runner = RosameIBaselineRunner(resize=[64, 64])
-        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I__res=64x64"
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I_24__res=64x64"
 
     def test_native_is_suffixed(self, tmp_path: Path) -> None:
         runner = RosameIBaselineRunner(resize=None)
-        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I__res=native"
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I_24__res=native"
 
     def test_a_domain_absent_from_the_table_falls_back_to_the_default(
         self, tmp_path: Path
     ) -> None:
         runner = RosameIBaselineRunner()
-        assert runner.row_name(_domain_file(tmp_path, "hiking")) == "ROSAME-I"
+        assert runner.row_name(_domain_file(tmp_path, "hiking")) == "ROSAME-I_24"
 
     def test_name_is_the_stable_identity_without_a_resize(self) -> None:
-        assert RosameIBaselineRunner(resize=None).name == "ROSAME-I"
+        assert RosameIBaselineRunner(resize=None).name == "ROSAME-I_24"
 
     def test_the_label_and_the_run_resolve_the_same_bench(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -240,17 +240,17 @@ class TestResizeRowName:
 class TestResizeRowNameMilp:
     def test_default_is_unsuffixed(self, tmp_path: Path) -> None:
         assert RosameIMilpRunner().row_name(_domain_file(tmp_path, "blocks")) == (
-            "ROSAME-I_MILP"
+            "ROSAME-I_MILP_24"
         )
 
     def test_off_default_is_suffixed(self, tmp_path: Path) -> None:
         runner = RosameIMilpRunner(resize=[64, 64])
         assert runner.row_name(_domain_file(tmp_path, "blocks")) == (
-            "ROSAME-I_MILP__res=64x64"
+            "ROSAME-I_MILP_24__res=64x64"
         )
 
     def test_name_is_the_stable_identity(self) -> None:
-        assert RosameIMilpRunner(resize=None).name == "ROSAME-I_MILP"
+        assert RosameIMilpRunner(resize=None).name == "ROSAME-I_MILP_24"
 
 
 class TestRowNameDefaultsToName:

@@ -30,7 +30,7 @@ ARM_STYLES: Dict[str, Dict[str, str]] = {
     "cdps_anchored": {"color": "#7b1fa2", "label": "CDPS (anchored)"},
     "pisam_milp_single_round": {"color": "#188038", "label": "PI-SAM+MILP (single round)"},
     "pisam_milp_loop": {"color": "#c5221f", "label": "PI-SAM+MILP (loop)"},
-    "ROSAME": {"color": "#e8710a", "label": "ROSAME"},
+    "ROSAME_24": {"color": "#e8710a", "label": "ROSAME (24)"},
 }
 
 

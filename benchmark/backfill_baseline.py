@@ -28,12 +28,12 @@ Usage:
     # data_dir is read automatically from the experiment's run_params.json:
     python -m benchmark.backfill_baseline \
         --experiment-dir benchmark/running_results/hanoi/TO=600__hanoi_generated_problem1__final-version \
-        --baselines rosame_i
+        --baselines rosame_i_24
 
     # Whole grid at once (shell glob) — each experiment uses its own data_dir:
     python -m benchmark.backfill_baseline \
         --experiment-dir benchmark/running_results/hanoi/TO=600__* \
-        --baselines rosame_i
+        --baselines rosame_i_24
 
 Options:
     --data-dir  Override the per-experiment data_dir (only needed for old
@@ -298,8 +298,8 @@ def main() -> None:
                          "data_dir is read from its evaluation_results/"
                          "run_params.json; pass this only to override that "
                          "(e.g. for old experiments without run_params.json).")
-    ap.add_argument("--baselines", nargs="+", default=["rosame"],
-                    help="Baseline registry keys to backfill (default: rosame).")
+    ap.add_argument("--baselines", nargs="+", default=["rosame_24"],
+                    help="Baseline registry keys to backfill (default: rosame_24).")
     ap.add_argument("--domain", default=None,
                     help="Domain/bench name for the result rows "
                          "(default: inferred from the experiment path).")
@@ -326,7 +326,7 @@ def main() -> None:
                          "order is height,width); 'native' skips the resize. "
                          "Omit to use the per-domain table. Whenever the "
                          "effective value differs from the default, the row "
-                         "name carries a suffix (e.g. ROSAME-I__res=64x64) so "
+                         "name carries a suffix (e.g. ROSAME-I_24__res=64x64) so "
                          "two resolutions can never be averaged under one "
                          "label. Ignored by baselines that don't accept it.")
     ap.add_argument("--dry-run", action="store_true")

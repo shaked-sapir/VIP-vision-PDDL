@@ -93,7 +93,7 @@ export VECLIB_MAXIMUM_THREADS=1
 python -m benchmark.backfill_baseline \
     --experiment-dir "$EXPERIMENT_DIR" \
     --domain "$DOMAIN" \
-    --baselines rosame rosame_milp rosame_milp_tag \
+    --baselines rosame_24 rosame_milp_24 rosame_milp_24_tag \
     --learn-timeout 600 \
     --planning-timeout 60 \
     --cells "_numtrajs${NUM_TRAJS}_gtrate" \

@@ -13,7 +13,7 @@ data via ``--algorithms``.
   subsets, keeping the model that best reconstructs the original observations
   (``docs/pisam-milp-loop-plan.md``).
 - everything else — competitor baselines from ``benchmark.baselines`` (e.g.
-  ``rosame``), each a ``BaselineRunner``.
+  ``rosame_24``), each a ``BaselineRunner``.
 
 To rename our algorithm's label in every result/plot, change
 ``CDPS_ALGORITHM_NAME`` here (single source of truth).
@@ -252,7 +252,7 @@ def resolve_algorithms(
     """Split selected algorithm names into the CDPS-family flags plus baselines.
 
     Args:
-        names: Algorithm keys, e.g. ``["cdps", "rosame"]``, ``["cdps_anchored"]``.
+        names: Algorithm keys, e.g. ``["cdps", "rosame_24"]``, ``["cdps_anchored"]``.
         **runner_kwargs: Optional per-baseline options forwarded only to the
             runners whose ``__init__`` accepts them (e.g.
             ``train_per_trajectory`` for the symbolic ROSAME runners).

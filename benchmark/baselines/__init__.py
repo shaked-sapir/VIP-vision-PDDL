@@ -4,8 +4,8 @@ Usage::
 
     from benchmark.baselines import get_baselines
 
-    # From CLI arg like ``--baselines rosame``
-    baselines = get_baselines(["rosame"])
+    # From CLI arg like ``--baselines rosame_24``
+    baselines = get_baselines(["rosame_24"])
 """
 
 from __future__ import annotations
@@ -22,19 +22,17 @@ from benchmark.baselines.rosame_i_runner import (
 )
 from benchmark.baselines.rosame_i_milp_runner import RosameIMilpRunner
 from benchmark.baselines.rosame_milp_runner import (
-    RosameMilpBaseRunner,
     RosameMilpRunner,
     RosameMilpTagRunner,
 )
 
 # Maps a short CLI name to the concrete runner classes it activates.
 BASELINE_REGISTRY: Dict[str, List[Type[BaselineRunner]]] = {
-    "rosame": [RosameBaselineRunner],
-    "rosame_i": [RosameIBaselineRunner],
-    "rosame_i_milp": [RosameIMilpRunner],
-    "rosame_milp": [RosameMilpRunner],
-    "rosame_milp_tag": [RosameMilpTagRunner],
-    "rosame_milp_base": [RosameMilpBaseRunner],
+    "rosame_24": [RosameBaselineRunner],
+    "rosame_i_24": [RosameIBaselineRunner],
+    "rosame_i_milp_24": [RosameIMilpRunner],
+    "rosame_milp_24": [RosameMilpRunner],
+    "rosame_milp_24_tag": [RosameMilpTagRunner],
 }
 
 
