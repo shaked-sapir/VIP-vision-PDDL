@@ -20,6 +20,18 @@ class BaselineRunner(ABC):
         """Short machine-readable algorithm name (e.g. ``'ROSAME'``)."""
         ...
 
+    def row_name(self, domain_path: Path) -> str:
+        """Label written to disk for this runner's result row.
+
+        Defaults to :attr:`name`. Runners whose configuration varies per domain
+        override this so two configurations never share one label.
+
+        Args:
+            domain_path: Reference PDDL domain file — the same value passed to
+                :meth:`learn`, so the label and the run resolve from one input.
+        """
+        return self.name
+
     @property
     def display_name(self) -> str:
         """Human-readable name for plots and reports.  Defaults to :attr:`name`."""

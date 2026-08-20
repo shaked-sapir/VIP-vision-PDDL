@@ -21,13 +21,16 @@ import re
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 from pddl_plus_parser.models import Domain, Problem, State
 
 from benchmark.baselines.base_runner import BaselineRunner
 from benchmark.experiment_running_helpers.normalize import _normalize_hyphens
+
+# An image resize setting: shorter-edge int, explicit (h, w), or None for native.
+ResizeSpec = Union[int, Sequence[int], None]
 
 # Paper per-domain defaults (epochs, lambda_, gamma), keyed by our bench names.
 _HYPERPARAMS: Dict[str, Dict[str, float]] = {
@@ -61,9 +64,12 @@ _AUGMENT_DOMAINS = {"blocksworld"}
 #   (h, w)       -> Resize((h, w)), forced, aspect distorted -- torchvision order
 #                   is (height, width), not (width, height)
 #   None         -> no resize, native size (ICAPS-26 form)
+# An entry differing from _RESIZE_DEFAULT suffixes that domain's row name; a new
+# suffix needs a matching key in benchmark/evaluation/cfm/dashboard_config.yaml
+# or the series will not render.
 # See docs/rosame-i-milp-26-implementation-plan.md §4.6 / §4.6.1.
-_RESIZE_DEFAULT: int = 64
-_RESIZE: Dict[str, object] = {
+_RESIZE_DEFAULT: ResizeSpec = 64
+_RESIZE: Dict[str, ResizeSpec] = {
     "blocksworld": 64,
     "hanoi": 64,
     "npuzzle": 64,
@@ -98,8 +104,14 @@ class _ResizeFromTable:
 _RESIZE_FROM_TABLE = _ResizeFromTable()
 
 
-def _resize_tag(resize: object) -> str:
-    """Row-name suffix fragment for a non-default resize (``64``, ``64x96``, ``native``)."""
+def _resize_tag(resize: ResizeSpec) -> str:
+    """Canonical form of a resize setting (``64``, ``64x96``, ``native``).
+
+    Doubles as the equality test between two settings: tags compare equal iff
+    the settings name the same torchvision operation, so ``(64, 64)`` and
+    ``[64, 64]`` agree while ``64`` and ``[64, 64]`` — a preserved aspect ratio
+    versus a forced square — do not.
+    """
     if resize is None:
         return "native"
     if isinstance(resize, int):
@@ -114,42 +126,67 @@ _TRAJECTORY_DIR_NAMES = {"trajectories", "trajectories_normalized"}
 class RosameIBaselineRunner(BaselineRunner):
     """ROSAME-I (imaged-mode CV + ROSAME) baseline."""
 
+    #: Row label before the resize suffix is appended.
+    _base_name: str = "ROSAME-I"
+
     def __init__(
         self,
         train_per_trajectory: bool = True,
         n_seeds: int = 3,
         device: Optional[str] = None,
         base_seed: int = 8800,
-        resize: object = _RESIZE_FROM_TABLE,
+        resize: ResizeSpec = _RESIZE_FROM_TABLE,
     ) -> None:
         self.train_per_trajectory = train_per_trajectory
         self.n_seeds = n_seeds
         self.device = device
         self.base_seed = base_seed
         self.resize = resize
+        self._bench_cache: Dict[Path, Tuple[str, Domain]] = {}
 
-    def _resolve_resize(self, bench: str) -> object:
+    def _bench_and_domain(self, domain_path: Path) -> Tuple[str, Domain]:
+        """Parse ``domain_path`` and derive its bench key, memoized per instance.
+
+        The single derivation shared by :meth:`row_name` and :meth:`learn`, so a
+        row can never be labelled for one domain's resolution and trained at
+        another's.
+        """
+        key = Path(domain_path).resolve()
+        if key not in self._bench_cache:
+            partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
+            self._bench_cache[key] = (
+                self._infer_domain_name(domain_path, partial_domain), partial_domain,
+            )
+        return self._bench_cache[key]
+
+    def _resolve_resize(self, bench: str) -> ResizeSpec:
         """Explicit override if given, else the per-domain table, else the default."""
         if self.resize is not _RESIZE_FROM_TABLE:
             return self.resize
         return _RESIZE.get(bench, _RESIZE_DEFAULT)
 
-    @property
-    def _resize_suffix(self) -> str:
-        """``__res=<tag>`` when an explicit override is in force, else empty.
+    def _resize_suffix(self, bench: str) -> str:
+        """``__res=<tag>`` when this domain's effective resize is off-default.
 
-        Two resolutions averaged under one row name would be two algorithms
-        wearing one label -- the failure the ``__gt=none`` suffix rule exists to
-        prevent. The per-domain table is the default *for that domain*, so it
-        gets no suffix; an explicit override always does.
+        Keyed on the effective value rather than on whether an override was
+        passed: a per-domain table entry that diverges from ``_RESIZE_DEFAULT``
+        must be labelled just as an override is, or two resolutions end up
+        averaged under one row name -- the failure the ``__gt=none`` suffix rule
+        exists to prevent.
         """
-        if self.resize is _RESIZE_FROM_TABLE:
+        tag = _resize_tag(self._resolve_resize(bench))
+        if tag == _resize_tag(_RESIZE_DEFAULT):
             return ""
-        return f"__res={_resize_tag(self.resize)}"
+        return f"__res={tag}"
+
+    def row_name(self, domain_path: Path) -> str:
+        """Row label for this domain, carrying an off-default resize."""
+        bench, _ = self._bench_and_domain(domain_path)
+        return f"{self._base_name}{self._resize_suffix(bench)}"
 
     @property
     def name(self) -> str:
-        return f"ROSAME-I{self._resize_suffix}"
+        return self._base_name
 
     @property
     def display_name(self) -> str:
@@ -168,8 +205,7 @@ class RosameIBaselineRunner(BaselineRunner):
         work_dir: Path,
         timeout_seconds: int = 60,
     ) -> Tuple[Optional[str], Dict]:
-        partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
-        bench = self._infer_domain_name(domain_path, partial_domain)
+        bench, partial_domain = self._bench_and_domain(domain_path)
         hp = _HYPERPARAMS.get(bench, _DEFAULT_HYPERPARAMS)
         augment = bench in _AUGMENT_DOMAINS
         resize = self._resolve_resize(bench)

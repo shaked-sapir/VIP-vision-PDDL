@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 from pddl_plus_parser.lisp_parsers import DomainParser
 
-from benchmark.baselines.rosame_i_runner import RosameIBaselineRunner
+from benchmark.baselines import rosame_i_runner
+from benchmark.baselines.rosame_i_milp_runner import RosameIMilpRunner
+from benchmark.baselines.rosame_i_runner import RosameIBaselineRunner, _resize_tag
 
 
 def _make_cell(root: Path, staging: str = "trajectories") -> Path:
@@ -159,3 +161,103 @@ class TestParseProblemAgainstEitherDialect:
         )
 
         assert problem.objects.keys() == {"d1"}
+
+
+_RESIZE_DOMAIN = """(define (domain {name})
+  (:requirements :strips)
+  (:predicates (clear ?d))
+  (:action noop :parameters () :precondition () :effect ())
+)
+"""
+
+
+def _domain_file(tmp_path: Path, name: str) -> Path:
+    """A minimal parseable domain whose name maps to a bench key."""
+    path = tmp_path / f"{name}.pddl"
+    path.write_text(_RESIZE_DOMAIN.format(name=name))
+    return path
+
+
+class TestResizeRowName:
+    """The suffix keys on the *effective* resize, not on whether one was passed.
+
+    A per-domain table entry that diverges from the default must be labelled
+    exactly as an explicit override is, or two resolutions get averaged under
+    one row name.
+    """
+
+    def test_table_value_equal_to_the_default_gets_no_suffix(self, tmp_path: Path) -> None:
+        runner = RosameIBaselineRunner()
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I"
+
+    def test_table_value_differing_from_the_default_is_suffixed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setitem(rosame_i_runner._RESIZE, "depot", 224)
+        runner = RosameIBaselineRunner()
+        assert runner.row_name(_domain_file(tmp_path, "depot")) == "ROSAME-I__res=224"
+
+    def test_an_override_equal_to_the_default_gets_no_suffix(self, tmp_path: Path) -> None:
+        """Same operation, same name — it must overwrite, not sit beside."""
+        runner = RosameIBaselineRunner(resize=64)
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I"
+
+    def test_a_forced_square_is_not_the_default(self, tmp_path: Path) -> None:
+        """Resize((64,64)) distorts where Resize(64) preserves aspect."""
+        runner = RosameIBaselineRunner(resize=[64, 64])
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I__res=64x64"
+
+    def test_native_is_suffixed(self, tmp_path: Path) -> None:
+        runner = RosameIBaselineRunner(resize=None)
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I__res=native"
+
+    def test_a_domain_absent_from_the_table_falls_back_to_the_default(
+        self, tmp_path: Path
+    ) -> None:
+        runner = RosameIBaselineRunner()
+        assert runner.row_name(_domain_file(tmp_path, "hiking")) == "ROSAME-I"
+
+    def test_name_is_the_stable_identity_without_a_resize(self) -> None:
+        assert RosameIBaselineRunner(resize=None).name == "ROSAME-I"
+
+    def test_the_label_and_the_run_resolve_the_same_bench(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """row_name and learn must agree, or a row is labelled at one
+        resolution and trained at another."""
+        monkeypatch.setitem(rosame_i_runner._RESIZE, "depot", 224)
+        runner = RosameIBaselineRunner()
+        domain_path = _domain_file(tmp_path, "depot")
+
+        bench, _ = runner._bench_and_domain(domain_path)
+
+        assert runner.row_name(domain_path).endswith(
+            _resize_tag(runner._resolve_resize(bench))
+        )
+        assert runner._resolve_resize(bench) == 224
+
+
+class TestResizeRowNameMilp:
+    def test_default_is_unsuffixed(self, tmp_path: Path) -> None:
+        assert RosameIMilpRunner().row_name(_domain_file(tmp_path, "blocks")) == (
+            "ROSAME-I_MILP"
+        )
+
+    def test_off_default_is_suffixed(self, tmp_path: Path) -> None:
+        runner = RosameIMilpRunner(resize=[64, 64])
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == (
+            "ROSAME-I_MILP__res=64x64"
+        )
+
+    def test_name_is_the_stable_identity(self) -> None:
+        assert RosameIMilpRunner(resize=None).name == "ROSAME-I_MILP"
+
+
+class TestRowNameDefaultsToName:
+    """Runners without a per-domain configuration are untouched by the change."""
+
+    def test_rosame_row_name_is_its_name(self, tmp_path: Path) -> None:
+        from benchmark.baselines.rosame_runner import RosameBaselineRunner
+
+        runner = RosameBaselineRunner()
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == runner.name

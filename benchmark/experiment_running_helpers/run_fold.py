@@ -102,7 +102,7 @@ def _run_baselines(
         return results
 
     for runner in baselines:
-        algo_name = runner.name
+        algo_name = runner.row_name(domain_ref_path)
         print(f"  [{algo_name}] Starting {runner.display_name} learning...")
 
         learn_start = time.perf_counter()

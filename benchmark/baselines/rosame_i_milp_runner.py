@@ -36,6 +36,7 @@ from benchmark.baselines.rosame_i_runner import (
     _DEFAULT_HYPERPARAMS,
     _HYPERPARAMS,
     _RESIZE_FROM_TABLE,
+    ResizeSpec,
     RosameIBaselineRunner,
 )
 from benchmark.baselines.rosame_milp_runner import goal_fluents_from_trajectory
@@ -62,6 +63,8 @@ class _TraceContext:
 class RosameIMilpRunner(RosameIBaselineRunner):
     """ROSAME-I trained with MILP pseudo-labels on the model and state channels."""
 
+    _base_name: str = "ROSAME-I_MILP"
+
     def __init__(
         self,
         n_seeds: int = 1,
@@ -76,7 +79,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         encoding_config: Optional[MilpEncodingConfig] = None,
         goal_mode: str = "gt",
         milp_solver: str = "cp-sat-observed",
-        resize: object = _RESIZE_FROM_TABLE,
+        resize: ResizeSpec = _RESIZE_FROM_TABLE,
     ) -> None:
         super().__init__(
             train_per_trajectory=False, n_seeds=n_seeds, device=device,
@@ -91,10 +94,6 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         self.encoding_config = encoding_config or MilpEncodingConfig.upstream()
         self.goal_mode = goal_mode
         self.milp_solver = milp_solver
-
-    @property
-    def name(self) -> str:
-        return f"ROSAME-I_MILP{self._resize_suffix}"
 
     @property
     def display_name(self) -> str:
@@ -225,8 +224,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         work_dir: Path,
         timeout_seconds: int = 60,
     ) -> Tuple[Optional[str], Dict]:
-        partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
-        bench = self._infer_domain_name(domain_path, partial_domain)
+        bench, partial_domain = self._bench_and_domain(domain_path)
         hp = _HYPERPARAMS.get(bench, _DEFAULT_HYPERPARAMS)
         augment = bench in _AUGMENT_DOMAINS
         resize = self._resolve_resize(bench)
@@ -277,7 +275,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         contexts: Dict[str, _TraceContext],
         hp: Dict[str, float],
         augment: bool,
-        resize: object,
+        resize: ResizeSpec,
     ) -> Tuple[Optional[str], Dict]:
         """Train each seed's loop, keep the lowest-final-loss model."""
         from benchmark.algorithm_adapters.rosame_milp.milp_loop_i import MilpRosameI

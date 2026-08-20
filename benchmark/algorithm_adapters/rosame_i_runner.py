@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import random
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -39,7 +39,9 @@ from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
 _DEFAULT_RESIZE: int = 64
 
 
-def _build_image_tf(resize: "int | Sequence[int] | None" = _DEFAULT_RESIZE):
+def _build_image_tf(
+    resize: Union[int, Sequence[int], None] = _DEFAULT_RESIZE,
+) -> transforms.Compose:
     """Build the image transform for a given resize setting.
 
     Args:
@@ -130,7 +132,7 @@ class RosameI_Runner(PORosame_Runner):
         seed: int = 8800,
         lr_schema: float = 1e-3,
         lr_cv: float = 1e-3,
-        resize: "int | Sequence[int] | None" = _DEFAULT_RESIZE,
+        resize: Union[int, Sequence[int], None] = _DEFAULT_RESIZE,
     ) -> None:
         super().__init__(domain_file)
         self.device = _resolve_device(device)

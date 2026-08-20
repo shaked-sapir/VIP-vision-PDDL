@@ -263,7 +263,7 @@ def main(
         "algorithms": cdps_family_names(
             run_cdps, run_cdps_anchored, run_pisam_milp, run_pisam_milp_loop,
             pisam_milp_configs,
-        ) + [r.name for r in (baselines or [])],
+        ) + [r.row_name(domain_ref_path) for r in (baselines or [])],
         "normalized": norm_trajs_dir is not None,
         "data_source_type": type(data_source).__name__,
     }

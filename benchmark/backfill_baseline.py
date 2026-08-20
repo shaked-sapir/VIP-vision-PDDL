@@ -64,7 +64,7 @@ from benchmark.backfill_common import (
     resolve_problem_dir,
     worker_init,
 )
-from benchmark.baselines import RESIZE_FROM_TABLE, resolve_baselines
+from benchmark.baselines import RESIZE_FROM_TABLE, ResizeSpec, resolve_baselines
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import FOLD_RESULT_FILENAME
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt
@@ -142,7 +142,7 @@ def backfill_cell(
 
     fold_result_path = cell / FOLD_RESULT_FILENAME
     existing = existing_algorithms(fold_result_path)
-    todo = [r for r in baselines if force or r.name not in existing]
+    todo = [r for r in baselines if force or r.row_name(domain_ref) not in existing]
     if not todo:
         print(f"  [SKIP] {cell.name}: all requested baselines already present")
         return "skip"
@@ -173,7 +173,7 @@ def backfill_cell(
         shared = {"total_transitions": total_transitions, "total_gt_transitions": total_gt}
 
     if dry_run:
-        names = ", ".join(r.name for r in todo)
+        names = ", ".join(r.row_name(domain_ref) for r in todo)
         print(f"  [DRY] {cell.name}: would run [{names}] on "
               f"{len(prepared)} trajectories, {len(test_problem_paths)} test problems"
               f"{'' if test_states_str else ' (no test states!)'}")
@@ -187,7 +187,8 @@ def backfill_cell(
     os.chdir(cell)
     try:
         for runner in todo:
-            print(f"  [{runner.name}] {cell.name}: learning...")
+            algo_name = runner.row_name(domain_ref)
+            print(f"  [{algo_name}] {cell.name}: learning...")
             learn_start = time.perf_counter()
             model, extra_info = runner.learn(
                 domain_path=domain_ref,
@@ -198,13 +199,13 @@ def backfill_cell(
             learn_time = time.perf_counter() - learn_start
 
             if model:
-                model_dir = cell / "baseline_models" / runner.name
+                model_dir = cell / "baseline_models" / algo_name
                 model_dir.mkdir(parents=True, exist_ok=True)
                 (model_dir / "model.pddl").write_text(model)
 
-            print(f"  [{runner.name}] {cell.name}: evaluating...")
+            print(f"  [{algo_name}] {cell.name}: evaluating...")
             row = evaluate_and_build_result(
-                model, runner.name, bench_name, fold, num_trajs, gt_rate,
+                model, algo_name, bench_name, fold, num_trajs, gt_rate,
                 test_problem_paths, domain_ref, cell.parent,
                 null_metrics, cell,
                 total_transitions=shared.get("total_transitions"),
@@ -215,7 +216,7 @@ def backfill_cell(
                 test_states_path=test_states_str,
             )
             merge_row(fold_result_path, row)
-            print(f"  [{runner.name}] {cell.name}: row merged into {FOLD_RESULT_FILENAME}")
+            print(f"  [{algo_name}] {cell.name}: row merged into {FOLD_RESULT_FILENAME}")
     finally:
         os.chdir(original_cwd)
     return "done"
@@ -223,7 +224,7 @@ def backfill_cell(
 
 # ── Parallel execution (one process per cell) ──────────────────────────────
 
-def _parse_resize(value: str):
+def _parse_resize(value: str) -> ResizeSpec:
     """``--resize`` argument -> ``int`` | ``[h, w]`` | ``None`` (native)."""
     text = value.strip().lower()
     if text in ("native", "none", "null"):
@@ -257,7 +258,7 @@ def _backfill_cell_worker(
     learn_timeout: int,
     force: bool,
     train_per_trajectory: bool = True,
-    resize: object = RESIZE_FROM_TABLE,
+    resize: ResizeSpec = RESIZE_FROM_TABLE,
 ) -> Tuple[str, str]:
     """Process-pool entry point: resolve runners locally (no pickling of torch
     objects across processes) and backfill one cell.
@@ -321,8 +322,9 @@ def main() -> None:
                          "shorter edge to N and preserves aspect (upstream's "
                          "form); 'H,W' forces that size and distorts (note the "
                          "order is height,width); 'native' skips the resize. "
-                         "Omit to use the per-domain table. A non-default value "
-                         "suffixes the row name (e.g. ROSAME-I__res=64x64) so "
+                         "Omit to use the per-domain table. Whenever the "
+                         "effective value differs from the default, the row "
+                         "name carries a suffix (e.g. ROSAME-I__res=64x64) so "
                          "two resolutions can never be averaged under one "
                          "label. Ignored by baselines that don't accept it.")
     ap.add_argument("--dry-run", action="store_true")
