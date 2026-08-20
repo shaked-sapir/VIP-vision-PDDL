@@ -9,6 +9,7 @@ effect and the goal-continuation behaviour, and cost a couple of seconds each.
 
 from __future__ import annotations
 
+import logging
 import random
 from pathlib import Path
 
@@ -17,7 +18,11 @@ import pytest
 from src.trace_generation import sources
 from src.trace_generation.cutter import CutMode, cut
 from src.trace_generation.emitter import emit_window
-from src.trace_generation.sources import ProblemWalkSource, TrajectorySource
+from src.trace_generation.sources import (
+    ProblemWalkSource,
+    TrajectorySource,
+    WalkConfig,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BLOCKS_DOMAIN = PROJECT_ROOT / "src" / "domains" / "blocks" / "blocks.pddl"
@@ -41,7 +46,7 @@ def _walk(problem=PROBLEM1, **kwargs) -> ProblemWalkSource:
     """A source over ``problem``, random-only and short unless overridden."""
     defaults = dict(p_rnd=1.0, seed=7, max_steps=8)
     defaults.update(kwargs)
-    return ProblemWalkSource(problem, BLOCKS_DOMAIN, **defaults)
+    return ProblemWalkSource(problem, BLOCKS_DOMAIN, walk=WalkConfig(**defaults))
 
 
 def _actions(source: ProblemWalkSource):
@@ -52,13 +57,17 @@ def _actions(source: ProblemWalkSource):
 
 def test_pddlgym_backend_is_refused_rather_than_silently_ignored():
     with pytest.raises(NotImplementedError, match="pddlgym"):
-        ProblemWalkSource(PROBLEM1, BLOCKS_DOMAIN, backend="pddlgym")
+        WalkConfig(backend="pddlgym")
 
 
 @pytest.mark.parametrize("p_rnd", [-0.1, 1.1])
 def test_p_rnd_outside_the_unit_interval_is_rejected(p_rnd):
     with pytest.raises(ValueError, match="p_rnd"):
-        ProblemWalkSource(PROBLEM1, BLOCKS_DOMAIN, p_rnd=p_rnd)
+        WalkConfig(p_rnd=p_rnd)
+
+
+def test_a_source_without_a_walk_config_defaults_to_a_random_walk():
+    assert ProblemWalkSource(PROBLEM1, BLOCKS_DOMAIN).walk == WalkConfig()
 
 
 def test_walk_problem_rejects_a_negative_step_cap():
@@ -82,6 +91,24 @@ def test_describe_records_the_walk_parameters():
     assert described["max_steps"] == 5
     assert described["backend"] == "native"
     assert Path(described["source_file"]).name == "problem1.pddl"
+
+
+def test_describe_records_every_knob_that_can_change_the_walk():
+    described = _walk(preserve_solvability=True, stop_at_goal=True,
+                      max_planning_time=17, max_replanning_time=13,
+                      max_random_trials=5).describe()
+    assert described["preserve_solvability"] is True
+    assert described["stop_at_goal"] is True
+    assert described["max_planning_time"] == 17
+    assert described["max_replanning_time"] == 13
+    assert described["max_random_trials"] == 5
+
+
+def test_describe_records_absolute_paths():
+    described = _walk(problem=Path("src/domains/blocks/problems/problem1/problem1.pddl")
+                      ).describe()
+    assert Path(described["source_file"]).is_absolute()
+    assert Path(described["domain_file"]).is_absolute()
 
 
 def test_domain_name_and_objects_come_from_the_files():
@@ -193,6 +220,163 @@ def test_randomness_diverges_from_the_plan_and_still_reaches_the_goal():
     assert len(mixed) > len(planned), "a detour should cost extra steps"
     assert PROBLEM10_GOAL <= set(mixed[-1].next_state.literals), \
         "replanning after a substitution should still land on the goal"
+
+
+# ── preserve_solvability ─────────────────────────────────────────────────
+#
+# Blocks is fully reversible, so no random action there can ever be rejected
+# and the flag would be untestable on it. `trap` is the smallest domain that
+# separates the two settings: `smash` is irreversible and makes the goal
+# unreachable, and `wait` is applicable but changes nothing.
+
+TRAP_DOMAIN = """
+(define (domain trap)
+  (:requirements :strips :typing)
+  (:types loc)
+  (:predicates (at ?l - loc) (adj ?a - loc ?b - loc) (intact))
+  (:action move
+    :parameters (?from - loc ?to - loc)
+    :precondition (and (at ?from) (adj ?from ?to))
+    :effect (and (not (at ?from)) (at ?to)))
+  (:action wait
+    :parameters (?l - loc)
+    :precondition (at ?l)
+    :effect (at ?l))
+  (:action smash
+    :parameters (?l - loc)
+    :precondition (at ?l)
+    :effect (not (intact)))
+)
+"""
+
+TRAP_PROBLEM = """
+(define (problem trap0)
+  (:domain trap)
+  (:objects l0 l1 l2 l3 - loc)
+  (:init (at l0) (intact)
+         (adj l0 l1) (adj l1 l0)
+         (adj l1 l2) (adj l2 l1)
+         (adj l2 l3) (adj l3 l2)
+         (adj l3 l0) (adj l0 l3))
+  (:goal (and (at l2) (intact)))
+)
+"""
+
+# The same domain with the adjacency dropped: smash is then the only action
+# that changes anything, and once taken nothing applicable changes the state.
+TRAP_DEAD_END = """
+(define (problem trap_dead_end)
+  (:domain trap)
+  (:objects l0 - loc)
+  (:init (at l0) (intact))
+  (:goal (and (at l0) (intact)))
+)
+"""
+
+TRAP_SEEDS = range(1, 7)
+
+
+@pytest.fixture(scope="module")
+def trap(tmp_path_factory):
+    """The (domain, problem) file pair of the trap domain."""
+    directory = tmp_path_factory.mktemp("trap")
+    domain = directory / "trap.pddl"
+    problem = directory / "trap0.pddl"
+    domain.write_text(TRAP_DOMAIN)
+    problem.write_text(TRAP_PROBLEM)
+    (directory / "trap_dead_end.pddl").write_text(TRAP_DEAD_END)
+    return domain, problem
+
+
+def _trap_walk(trap, *, seed: int, **kwargs):
+    """A mostly-random guided walk over the trap domain, stopping at the goal."""
+    domain, problem = trap
+    defaults = dict(p_rnd=0.99, seed=seed, max_steps=12, stop_at_goal=True)
+    defaults.update(kwargs)
+    return list(ProblemWalkSource(problem, domain,
+                                  walk=WalkConfig(**defaults)).steps())
+
+
+def _took_the_irreversible_action(steps) -> bool:
+    return any(step.action.startswith("smash") for step in steps)
+
+
+@pytest.fixture(scope="module")
+def preserved_walks(trap):
+    """One solvability-preserving walk per seed. Each costs several replans."""
+    return {seed: _trap_walk(trap, seed=seed, preserve_solvability=True)
+            for seed in TRAP_SEEDS}
+
+
+def test_an_unguarded_walk_does_take_the_irreversible_action(trap):
+    """The control: without the flag, smash is reachable and gets taken."""
+    assert any(_took_the_irreversible_action(
+        _trap_walk(trap, seed=seed, preserve_solvability=False))
+        for seed in TRAP_SEEDS)
+
+
+def test_preserve_solvability_never_takes_the_irreversible_action(preserved_walks):
+    for seed, steps in preserved_walks.items():
+        assert not _took_the_irreversible_action(steps), \
+            f"seed {seed} smashed the goal: {[s.action for s in steps]}"
+
+
+def test_preserve_solvability_still_reaches_the_goal(preserved_walks):
+    for steps in preserved_walks.values():
+        assert "at(l2:loc)" in steps[-1].next_state.literals
+        assert "intact()" in steps[-1].next_state.literals
+
+
+def test_a_preserved_substitution_is_never_a_no_op(preserved_walks):
+    """`wait` is applicable and solvability-preserving, but changes nothing."""
+    for steps in preserved_walks.values():
+        for step in steps:
+            assert step.prev_state.fluent_set() != step.next_state.fluent_set(), \
+                f"{step.action} left the state unchanged"
+
+
+def test_preserved_steps_chain_end_to_end(preserved_walks):
+    for steps in preserved_walks.values():
+        for earlier, later in zip(steps, steps[1:]):
+            assert earlier.next_state == later.prev_state
+
+
+def test_zero_random_trials_falls_back_to_the_plan(trap):
+    """With no trial budget every substitution fails, leaving the plan intact."""
+    planned = _trap_walk(trap, seed=1, p_rnd=0.0)
+    starved = _trap_walk(trap, seed=1, preserve_solvability=True,
+                         max_random_trials=0)
+    assert [s.action for s in starved] == [s.action for s in planned]
+
+
+# ── truncation is reported, not swallowed ────────────────────────────────
+
+def test_a_dead_end_truncates_the_random_walk_with_a_warning(trap, caplog):
+    domain, problem = trap
+    source = ProblemWalkSource(problem.with_name("trap_dead_end.pddl"), domain,
+                               walk=WalkConfig(p_rnd=1.0, seed=1, max_steps=9))
+    with caplog.at_level(logging.WARNING, logger="src.trace_generation.sources"):
+        steps = list(source.steps())
+
+    assert [s.action for s in steps] == ["smash(l0:loc)"]
+    assert "Walk truncated after 1 of 9 steps" in caplog.text
+    assert "dead end" in caplog.text
+
+
+def test_an_unsolvable_state_truncates_the_guided_walk_with_a_warning(trap, caplog):
+    """Seed 1 smashes on the first substitution, so no plan exists afterwards."""
+    with caplog.at_level(logging.WARNING, logger="src.trace_generation.sources"):
+        steps = _trap_walk(trap, seed=1, preserve_solvability=False)
+
+    assert _took_the_irreversible_action(steps)
+    assert "Walk truncated after 1 of 12 steps" in caplog.text
+    assert "found no plan" in caplog.text
+
+
+def test_a_walk_that_runs_to_the_cap_says_nothing(trap, caplog):
+    with caplog.at_level(logging.WARNING, logger="src.trace_generation.sources"):
+        assert len(_actions(_walk(PROBLEM1, p_rnd=1.0, max_steps=6))) == 6
+    assert caplog.text == ""
 
 
 # ── TrajectorySource ─────────────────────────────────────────────────────

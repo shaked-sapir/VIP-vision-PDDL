@@ -28,7 +28,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, List, Optional
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent
@@ -42,8 +42,18 @@ from src.trajectory_handlers.llm_maze_trajectory_handler import LLMMazeImageTraj
 from src.trajectory_handlers.llm_depot_trajectory_handler import LLMDepotImageTrajectoryHandler
 from src.trajectory_handlers.llm_gripper_trajectory_handler import LLMGripperImageTrajectoryHandler
 from src.trajectory_handlers.pddlgym_problem_generator import PDDLGymProblemGenerator
+from src.trace_generation.sources import (
+    DEFAULT_MAX_PLANNING_TIME,
+    DEFAULT_MAX_RANDOM_TRIALS,
+    DEFAULT_MAX_REPLANNING_TIME,
+    DEFAULT_MAX_STEPS,
+    WalkConfig,
+)
 from src.utils.config import load_config
 from src.utils.pddl_trajectory import ensure_trajectory_json, extract_actions_from_trajectory_json
+
+if TYPE_CHECKING:
+    from src.trace_generation.corpus import Corpus
 
 
 # ── Problem-file transforms (PDDLGym → AMLGym) ───────────────────────────
@@ -370,42 +380,45 @@ def generate_trajectories_via_generation(
 
 # ── Trace-mode entry point (symbolic corpus, no images and no LLM) ───────
 
-_REQUIRED = object()
-
-
-def _generation_setting(gen_cfg: dict, key: str, override: Any,
-                        default: Any = _REQUIRED) -> Any:
-    """Take the caller's override, else the config value, else the default.
+def _resolve_trace_domain_file(domain: Optional[str],
+                               domain_file: Optional[Path]) -> Path:
+    """The domain PDDL to trace against, given explicitly or via the registry.
 
     Args:
-        gen_cfg: The domain's ``generation`` block, possibly empty.
-        key: The key to read.
-        override: The caller's value; ``None`` means "not given".
-        default: Used when neither side supplies a value. Omit to make the key
-            mandatory.
+        domain: A key of ``_DOMAIN_REGISTRY``, or ``None``.
+        domain_file: An explicit path, which bypasses the registry entirely.
 
     Raises:
-        KeyError: Neither side supplied a value and ``key`` has no default.
+        ValueError: Neither was given, or ``domain`` is not registered.
+        FileNotFoundError: The resolved path does not exist, whichever branch
+            produced it.
     """
-    if override is not None:
-        return override
-    if key in gen_cfg:
-        return gen_cfg[key]
-    if default is _REQUIRED:
-        raise KeyError(
-            f"'{key}' is not set under domains.<domain>.generation in config.yaml "
-            f"and was not passed on the command line.")
-    return default
+    if domain_file is None:
+        if domain is None:
+            raise ValueError(
+                "Trace mode needs a domain: pass --domain-file for any PDDL domain, "
+                f"or --domain to use one of {sorted(_DOMAIN_REGISTRY)}.")
+        if domain not in _DOMAIN_REGISTRY:
+            raise ValueError(
+                f"Domain {domain!r} is not registered, so its domain file cannot be "
+                f"looked up. Pass --domain-file to point at the PDDL directly, or "
+                f"use one of {sorted(_DOMAIN_REGISTRY)}.")
+        domain_file = (load_config()["domains"]
+                       [_DOMAIN_REGISTRY[domain]["config_key"]]["domain_file"])
+
+    domain_file = Path(domain_file)
+    if not domain_file.is_file():
+        raise FileNotFoundError(f"No domain file at {domain_file}.")
+    return domain_file
 
 
-def _describe_lengths(mode_name: str, length_range: Optional[tuple],
-                      buckets: Optional[Sequence[int]]) -> str:
-    """One banner phrase naming whichever length setting the cut mode reads."""
-    if length_range is not None:
-        return f"length {length_range[0]}-{length_range[1]}"
-    if buckets is not None:
-        return f"buckets {list(buckets)}"
-    return f"the whole trace as one problem ({mode_name})"
+def _describe_cut(mode_name: str, asked: Optional[int], skip: int,
+                  length_range: Optional[tuple]) -> str:
+    """One banner line for the cut settings the mode actually reads."""
+    if length_range is None:
+        return f"{mode_name} | the whole trace as one problem"
+    return (f"{mode_name} | problems {asked} | skip {skip} | "
+            f"length {length_range[0]}-{length_range[1]}")
 
 
 def _describe_problem_count(produced: int, asked: Optional[int]) -> str:
@@ -415,24 +428,48 @@ def _describe_problem_count(produced: int, asked: Optional[int]) -> str:
     return f"{produced}  *** SHORT: asked for {asked} ***"
 
 
+def _print_trace_header(label: str, corpus_root: Path, source_kind: str,
+                        source_file: Path, cut_description: str) -> None:
+    """Announce what is about to be generated and where it will land."""
+    print("=" * 80)
+    print(f"GENERATING {label.upper()} PROBLEMS (trace mode)")
+    print(f"Corpus: {corpus_root}")
+    print(f"Source: {source_kind} | {source_file}")
+    print(f"Cut: {cut_description}")
+    print("=" * 80)
+    print()
+
+
+def _print_trace_summary(corpus: "Corpus") -> None:
+    """Report what was written, naming any shortfall against the request."""
+    print("=" * 80)
+    print("TRACE-MODE TRAJECTORY GENERATION COMPLETE")
+    print("=" * 80)
+    print(f"\nCorpus saved to: {corpus.root}")
+    print("  Problems: "
+          f"{_describe_problem_count(corpus.num_problems, corpus.problems_requested)}")
+    print(f"  Trajectories: {corpus.trajectories_dir}")
+    print(f"  GT trajectories: {corpus.root / 'gt_trajectories'}")
+    print(f"  Manifest: {corpus.info_file}")
+    print()
+
+
 def generate_trajectories_via_trace(
-    domain: str,
     output_base_dir: Path,
-    source_kind: Optional[str] = None,
-    problem_file: Optional[Path] = None,
+    source_kind: str,
+    problem_file: Path,
+    domain: Optional[str] = None,
+    domain_file: Optional[Path] = None,
     trajectory_file: Optional[Path] = None,
-    backend: Optional[str] = None,
-    p_rnd: Optional[float] = None,
-    max_steps: Optional[int] = None,
-    render: Optional[bool] = None,
-    cut_mode: Optional[str] = None,
-    buckets: Optional[Sequence[int]] = None,
-    num_problems: Optional[int] = None,
-    length_min: Optional[int] = None,
-    length_max: Optional[int] = None,
-    skip: Optional[int] = None,
-    seed: Optional[int] = None,
+    walk: Optional[WalkConfig] = None,
+    render: bool = False,
+    cut_mode: str = "uniform",
+    num_problems: int = 10,
+    length_min: int = 9,
+    length_max: int = 20,
+    skip: int = 1,
     cut_seed: Optional[int] = None,
+    problem_prefix: str = "problem",
     output_dir_name: Optional[str] = None,
 ) -> Path:
     """Build a symbolic corpus by cutting one trace into problem folders.
@@ -441,27 +478,31 @@ def generate_trajectories_via_trace(
     into windows and writes each as a problem folder plus its ground truth. No
     images and no LLM are involved, so the states are exact.
 
-    Every argument defaults to ``domains.<domain>.generation`` in ``config.yaml``;
-    the source file and ``source_kind`` must come from one side or the other.
+    Every setting is a plain argument with a default; nothing is read from a
+    ``generation`` block in ``config.yaml``. The corpus records what it was given
+    in its own ``generation_info.json``. ``config.yaml`` is consulted only to look
+    up ``domain``'s PDDL file, and not at all when ``domain_file`` is passed.
 
     Args:
-        domain: Domain key from _DOMAIN_REGISTRY.
         output_base_dir: Base directory for benchmark data (e.g. benchmark/data/).
         source_kind: "problem" to walk, "trajectory" to replay.
         problem_file: The problem to walk, or the replayed trajectory's problem.
+        domain: Registry key naming the domain PDDL, and the output subdirectory.
+            Optional when ``domain_file`` is given, in which case the subdirectory
+            falls back to the domain's own name.
+        domain_file: The domain PDDL. Bypasses the registry, so any PDDL domain
+            works whether or not this repo knows about it.
         trajectory_file: The trajectory to replay ("trajectory" kind only).
-        backend: Walk backend ("problem" kind only).
-        p_rnd: Probability of a random action ("problem" kind only).
-        max_steps: Cap on walked transitions ("problem" kind only).
+        walk: The walk's settings ("problem" kind only). Defaults to an unseeded
+            random walk.
         render: Copy each window's frames out as state_*.png.
-        cut_mode: "none", "uniform" or "buckets".
-        buckets: Window lengths to cycle, for cut_mode="buckets".
+        cut_mode: "none" or "uniform".
         num_problems: Cap on the number of problem folders.
         length_min: Min window length, for cut_mode="uniform".
         length_max: Max window length, for cut_mode="uniform".
         skip: States discarded between windows.
-        seed: Walk RNG seed.
-        cut_seed: Window-length RNG seed. Defaults to ``seed``.
+        cut_seed: Window-length RNG seed. Defaults to the walk's seed.
+        problem_prefix: Problem folder name prefix; folders are numbered from 0.
         output_dir_name: Override for the output directory name.
 
     Returns:
@@ -470,79 +511,47 @@ def generate_trajectories_via_trace(
     from src.trace_generation.corpus import SourceKind, build_source, generate_corpus
     from src.trace_generation.cutter import CutMode
 
-    config = load_config()
-    domain_config = config["domains"][_DOMAIN_REGISTRY[domain]["config_key"]]
-    gen_cfg = domain_config.get("generation", {})
-
-    kind = SourceKind(_generation_setting(gen_cfg, "source_kind", source_kind))
-    mode = CutMode(_generation_setting(gen_cfg, "cut_mode", cut_mode))
-    problem_file = Path(_generation_setting(gen_cfg, "problem_file", problem_file))
-    trajectory_file = _generation_setting(
-        gen_cfg, "trajectory_file", trajectory_file,
-        default=None if kind is SourceKind.PROBLEM else _REQUIRED)
-
-    num_problems = _generation_setting(gen_cfg, "num_problems", num_problems, 10)
-    length_min = _generation_setting(gen_cfg, "length_min", length_min, 9)
-    length_max = _generation_setting(gen_cfg, "length_max", length_max, 20)
-    skip = _generation_setting(gen_cfg, "skip", skip, 1)
-    buckets = _generation_setting(gen_cfg, "buckets", buckets, None)
-    render = _generation_setting(gen_cfg, "render", render, False)
+    kind = SourceKind(source_kind)
+    mode = CutMode(cut_mode)
+    walk = walk if walk is not None else WalkConfig()
 
     source = build_source(
         kind,
-        domain_file=Path(domain_config["domain_file"]),
-        problem_file=problem_file,
+        domain_file=_resolve_trace_domain_file(domain, domain_file),
+        problem_file=Path(problem_file),
         trajectory_file=Path(trajectory_file) if trajectory_file else None,
-        backend=_generation_setting(gen_cfg, "backend", backend, "native"),
-        p_rnd=_generation_setting(gen_cfg, "p_rnd", p_rnd, 1.0),
-        max_steps=_generation_setting(gen_cfg, "max_steps", max_steps, 1000),
-        seed=seed,
+        walk=walk,
         attach_frames=render and kind is SourceKind.TRAJECTORY,
     )
 
+    # NONE takes the whole trace as one window, so it reads neither setting.
     length_range = (length_min, length_max) if mode is CutMode.UNIFORM else None
-    buckets = buckets if mode is CutMode.BUCKETS else None
+    asked = num_problems if mode is not CutMode.NONE else None
+    label = domain or source.domain_name
 
     source_file = trajectory_file if kind is SourceKind.TRAJECTORY else problem_file
     timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
     auto_name = (f"trace_{timestamp}__{kind.value}={Path(source_file).stem}"
                  f"__cut={mode.value}__n={num_problems}")
-    corpus_root = output_base_dir / domain / (output_dir_name or auto_name)
+    corpus_root = output_base_dir / label / (output_dir_name or auto_name)
 
-    print("=" * 80)
-    print(f"GENERATING {_DOMAIN_REGISTRY[domain]['display_name']} PROBLEMS (trace mode)")
-    print(f"Corpus: {corpus_root}")
-    print(f"Source: {kind.value} | {source_file}")
-    print(f"Cut: {mode.value} | problems {num_problems} | skip {skip} | "
-          f"{_describe_lengths(mode.value, length_range, buckets)}")
-    print("=" * 80)
-    print()
-
-    asked = num_problems if mode is not CutMode.NONE else None
+    _print_trace_header(label, corpus_root, kind.value, source_file,
+                        _describe_cut(mode.value, asked, skip, length_range))
 
     corpus = generate_corpus(
         source,
         corpus_root=corpus_root,
         cut_mode=mode,
         length_range=length_range,
-        buckets=buckets,
         skip=skip,
         num_problems=asked,
-        seed=cut_seed if cut_seed is not None else seed,
-        problem_prefix=domain_config.get("problem_prefix", "problem"),
+        seed=cut_seed if cut_seed is not None else walk.seed,
+        problem_prefix=problem_prefix,
         render=render,
-        extra_info={"domain": domain},
+        extra_info={"domain": label},
     )
 
-    print("=" * 80)
-    print("TRACE-MODE TRAJECTORY GENERATION COMPLETE")
-    print("=" * 80)
-    print(f"\nCorpus saved to: {corpus.root}")
-    print(f"  Problems: {_describe_problem_count(corpus.num_problems, asked)}")
-    print(f"  Trajectories: {corpus.trajectories_dir}")
-    print(f"  GT trajectories: {corpus.root / 'gt_trajectories'}")
-    print(f"  Manifest: {corpus.info_file}")
-    print()
+    _print_trace_summary(corpus)
     return corpus.trajectories_dir
 
 
@@ -734,9 +743,12 @@ if __name__ == "__main__":
         description="Generate training trajectories for benchmark experiments"
     )
     parser.add_argument(
-        "--domain", type=str, required=True,
-        choices=list(_DOMAIN_REGISTRY.keys()),
-        help="Domain to generate data for",
+        "--domain", type=str, default=None,
+        help="Domain to generate data for. Required, and one of "
+             f"{sorted(_DOMAIN_REGISTRY)}, for --gen-mode predefined/generate. "
+             "In trace mode it is optional and only names the output "
+             "subdirectory; pass --domain-file to trace a domain this repo does "
+             "not know about.",
     )
     parser.add_argument(
         "--num-steps", type=int, default=100,
@@ -781,19 +793,23 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--num-problems", type=int, default=None,
-        help="Number of problems to generate (generate/trace modes, default from config)",
+        help="Number of problems to generate (generate/trace modes; default from "
+             "config in generate mode, 10 in trace mode)",
     )
     parser.add_argument(
         "--length-min", type=int, default=None,
-        help="Min window length in steps (generate/trace modes, default from config)",
+        help="Min window length in steps (generate/trace modes; default from "
+             "config in generate mode, 9 in trace mode)",
     )
     parser.add_argument(
         "--length-max", type=int, default=None,
-        help="Max window length in steps (generate/trace modes, default from config)",
+        help="Max window length in steps (generate/trace modes; default from "
+             "config in generate mode, 20 in trace mode)",
     )
     parser.add_argument(
         "--skip", type=int, default=None,
-        help="States discarded between windows (generate/trace modes, default from config)",
+        help="States discarded between windows (generate/trace modes; default "
+             "from config in generate mode, 1 in trace mode)",
     )
     parser.add_argument(
         "--seed", type=int, default=None,
@@ -810,40 +826,69 @@ if __name__ == "__main__":
     )
 
     # ── Trace-mode args (--gen-mode trace) ───────────────────────────────
+    #
+    # Trace mode reads no 'generation' block from config.yaml: every setting is
+    # a flag with a default, and generation_info.json records what was used.
+    parser.add_argument(
+        "--domain-file", type=Path, default=None,
+        help="The domain PDDL to trace against (trace mode only). Bypasses the "
+             "domain registry and config.yaml, so any PDDL domain works.",
+    )
     parser.add_argument(
         "--source-kind", type=str, default=None, choices=["problem", "trajectory"],
         help="'problem' walks a PDDL problem, 'trajectory' replays an existing "
-             ".trajectory (trace mode only, default from config)",
+             ".trajectory (trace mode only, required)",
     )
     parser.add_argument(
         "--problem-file", type=Path, default=None,
         help="The problem to walk, or the replayed trajectory's problem "
-             "(trace mode only, default from config)",
+             "(trace mode only, required)",
     )
     parser.add_argument(
         "--trajectory-file", type=Path, default=None,
         help="The .trajectory to replay (trace mode with --source-kind trajectory)",
     )
     parser.add_argument(
-        "--backend", type=str, default=None, choices=["native", "pddlgym"],
-        help="Walk backend (trace mode with --source-kind problem, default from config)",
+        "--backend", type=str, default="native", choices=["native", "pddlgym"],
+        help="Walk backend (trace mode with --source-kind problem, default: native)",
     )
     parser.add_argument(
-        "--p-rnd", type=float, default=None,
+        "--p-rnd", type=float, default=1.0,
         help="Probability of substituting a random applicable action for the planned "
-             "one; 1.0 skips the planner entirely (trace mode, default from config)",
+             "one; 1.0 skips the planner entirely (trace mode, default: 1.0)",
     )
     parser.add_argument(
-        "--max-steps", type=int, default=None,
-        help="Cap on walked transitions (trace mode, default from config)",
+        "--max-steps", type=int, default=DEFAULT_MAX_STEPS,
+        help=f"Cap on walked transitions (trace mode, default: {DEFAULT_MAX_STEPS})",
     )
     parser.add_argument(
-        "--cut-mode", type=str, default=None, choices=["none", "uniform", "buckets"],
-        help="How the trace is split into problems (trace mode, default from config)",
+        "--preserve-solvability", action="store_true",
+        help="Keep only random actions that leave the problem solvable "
+             "(trace mode with --source-kind problem)",
     )
     parser.add_argument(
-        "--buckets", type=int, nargs="+", default=None,
-        help="Window lengths to cycle, for --cut-mode buckets (trace mode)",
+        "--stop-at-goal", action="store_true",
+        help="Stop the walk as soon as the plan completes, instead of replanning "
+             "(trace mode with --source-kind problem)",
+    )
+    parser.add_argument(
+        "--max-planning-time", type=int, default=DEFAULT_MAX_PLANNING_TIME,
+        help="Planner timeout in seconds (trace mode, default: "
+             f"{DEFAULT_MAX_PLANNING_TIME})",
+    )
+    parser.add_argument(
+        "--max-replanning-time", type=int, default=DEFAULT_MAX_REPLANNING_TIME,
+        help="Solvability-check timeout in seconds, used by "
+             f"--preserve-solvability (trace mode, default: {DEFAULT_MAX_REPLANNING_TIME})",
+    )
+    parser.add_argument(
+        "--max-random-trials", type=int, default=DEFAULT_MAX_RANDOM_TRIALS,
+        help="Random actions tried per substitution under --preserve-solvability "
+             f"(trace mode, default: {DEFAULT_MAX_RANDOM_TRIALS})",
+    )
+    parser.add_argument(
+        "--cut-mode", type=str, default="uniform", choices=["none", "uniform"],
+        help="How the trace is split into problems (trace mode, default: uniform)",
     )
     parser.add_argument(
         "--cut-seed", type=int, default=None,
@@ -851,33 +896,63 @@ if __name__ == "__main__":
              "Defaults to --seed (trace mode only)",
     )
     parser.add_argument(
-        "--render", action=argparse.BooleanOptionalAction, default=None,
+        "--problem-prefix", type=str, default="problem",
+        help="Problem folder name prefix; folders are numbered from 0 "
+             "(trace mode, default: problem)",
+    )
+    parser.add_argument(
+        "--render", action=argparse.BooleanOptionalAction, default=False,
         help="Copy each window's frames out as state_*.png (trace mode, "
-             "default from config)",
+             "default: off)",
     )
 
     args = parser.parse_args()
 
+    if args.gen_mode != "trace" and args.domain not in _DOMAIN_REGISTRY:
+        parser.error(f"--gen-mode {args.gen_mode} requires --domain, one of "
+                     f"{sorted(_DOMAIN_REGISTRY)}.")
+
     if args.gen_mode == "trace":
+        if args.source_kind is None:
+            parser.error("--gen-mode trace requires --source-kind.")
+        if args.problem_file is None:
+            parser.error("--gen-mode trace requires --problem-file.")
+        # These four are shared with generate mode, which needs None to mean
+        # "fall back to config"; trace mode uses its own defaults instead.
+        cut_args = {}
+        if args.num_problems is not None:
+            cut_args["num_problems"] = args.num_problems
+        if args.length_min is not None:
+            cut_args["length_min"] = args.length_min
+        if args.length_max is not None:
+            cut_args["length_max"] = args.length_max
+        if args.skip is not None:
+            cut_args["skip"] = args.skip
+
         generate_trajectories_via_trace(
-            domain=args.domain,
             output_base_dir=Path(__file__).parent / "data",
             source_kind=args.source_kind,
             problem_file=args.problem_file,
+            domain=args.domain,
+            domain_file=args.domain_file,
             trajectory_file=args.trajectory_file,
-            backend=args.backend,
-            p_rnd=args.p_rnd,
-            max_steps=args.max_steps,
+            walk=WalkConfig(
+                backend=args.backend,
+                p_rnd=args.p_rnd,
+                seed=args.seed,
+                max_steps=args.max_steps,
+                preserve_solvability=args.preserve_solvability,
+                stop_at_goal=args.stop_at_goal,
+                max_planning_time=args.max_planning_time,
+                max_replanning_time=args.max_replanning_time,
+                max_random_trials=args.max_random_trials,
+            ),
             render=args.render,
             cut_mode=args.cut_mode,
-            buckets=args.buckets,
-            num_problems=args.num_problems,
-            length_min=args.length_min,
-            length_max=args.length_max,
-            skip=args.skip,
-            seed=args.seed,
             cut_seed=args.cut_seed,
+            problem_prefix=args.problem_prefix,
             output_dir_name=args.output_dir_name,
+            **cut_args,
         )
     elif args.gen_mode == "generate":
         generate_trajectories_via_generation(

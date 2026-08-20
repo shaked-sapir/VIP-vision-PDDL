@@ -19,27 +19,17 @@ domains:
     domain_file: "src/domains/blocks/blocks.pddl"
     problems_dir: "src/domains/blocks/problems"
     problem_prefix: "problem"
-    # Read by benchmark/data_generator.py. Every key here is also a CLI flag;
-    # the flag wins, and a key with no flag and no default is an error.
+    # Read by `benchmark/data_generator.py --gen-mode generate` only. The CLI
+    # flag of the same name wins. Trace mode (--gen-mode trace) reads nothing
+    # from here: it is driven entirely by flags and records what it used in the
+    # corpus's own generation_info.json.
     generation:
-      # Shared by every generation mode: how the trace is cut into problems.
       num_problems: 10
       length_min: 9
       length_max: 20
       skip: 1
-      cut_mode: "uniform"          # none | uniform | buckets
-      # buckets: [5, 10, 15]       # read only when cut_mode is "buckets"
-      # The symbolic trace source (--gen-mode trace).
-      source_kind: "problem"       # problem | trajectory
-      problem_file: "src/domains/blocks/problems/problem1/problem1.pddl"
-      # trajectory_file: ...       # required when source_kind is "trajectory"
-      backend: "native"            # native | pddlgym
-      p_rnd: 1.0
-      max_steps: 1000
-      render: false
-      # The PDDLGym problem generator (--gen-mode generate).
       from_pddlgym:
-        default_problem_index: 0
+        default_problem_index: 0    # 0 -> problem1, 1 -> problem2, ...
 
   hanoi:
     gym_domain_name: "PDDLEnvHanoi_operator_actions-v0"
@@ -51,13 +41,6 @@ domains:
       length_min: 9
       length_max: 20
       skip: 1
-      cut_mode: "uniform"
-      source_kind: "problem"
-      problem_file: "src/domains/hanoi/problems/problem1/problem1.pddl"
-      backend: "native"
-      p_rnd: 1.0
-      max_steps: 1000
-      render: false
       from_pddlgym:
         default_problem_index: 0
 

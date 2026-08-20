@@ -26,7 +26,7 @@ import logging
 import os
 import random
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
@@ -53,6 +53,48 @@ DEFAULT_MAX_PLANNING_TIME = 120
 DEFAULT_MAX_REPLANNING_TIME = 60
 DEFAULT_MAX_RANDOM_TRIALS = 3
 DEFAULT_MAX_STEPS = 1000
+
+
+@dataclass(frozen=True)
+class WalkConfig:
+    """Everything :class:`ProblemWalkSource` needs beyond the two PDDL files.
+
+    Attributes:
+        backend: ``"native"``. ``"pddlgym"`` is the renderer-only backend and is
+            not implemented here.
+        p_rnd: Probability of a random action. ``1`` skips the planner, so a
+            problem with an unreachable or trivial goal is still walkable.
+        seed: Seed for the walk RNG. The cutter is seeded separately.
+        max_steps: Cap on walked transitions.
+        preserve_solvability: See :func:`walk_problem`.
+        stop_at_goal: See :func:`walk_problem`.
+        max_planning_time: Planner timeout, in seconds.
+        max_replanning_time: Solvability-check timeout, in seconds.
+        max_random_trials: See :func:`walk_problem`.
+    """
+
+    backend: str = "native"
+    p_rnd: float = 1.0
+    seed: Optional[int] = None
+    max_steps: int = DEFAULT_MAX_STEPS
+    preserve_solvability: bool = False
+    stop_at_goal: bool = False
+    max_planning_time: int = DEFAULT_MAX_PLANNING_TIME
+    max_replanning_time: int = DEFAULT_MAX_REPLANNING_TIME
+    max_random_trials: int = DEFAULT_MAX_RANDOM_TRIALS
+
+    def __post_init__(self) -> None:
+        if self.backend != "native":
+            raise NotImplementedError(
+                f"backend={self.backend!r} is not available; only 'native' is "
+                "implemented. The pddlgym backend renders images and stays in "
+                "src/trajectory_handlers/pddlgym_problem_generator.py.")
+        if not 0.0 <= self.p_rnd <= 1.0:
+            raise ValueError(f"p_rnd must be in [0, 1], got {self.p_rnd}.")
+
+    def describe(self) -> Dict[str, Any]:
+        """The walk's parameters, for ``generation_info.json``."""
+        return asdict(self)
 
 
 class TraceSource(ABC):
@@ -155,10 +197,12 @@ def _random_walk(simulator: Any, resolved: Sequence[Tuple[Any, List[Any]]],
                  fluents: Sequence[Any], state: Any, rng: random.Random,
                  max_steps: int) -> Iterator[UPWalkStep]:
     """Apply random state-changing actions until the cap or a dead end."""
-    for _ in range(max_steps):
+    for emitted in range(max_steps):
         step = _random_step(simulator, resolved, fluents, state, rng)
         if step is None:
-            logger.debug("No applicable state-changing action; walk ends here.")
+            logger.warning(
+                "Walk truncated after %d of %d steps: no applicable "
+                "state-changing action remains (dead end).", emitted, max_steps)
             return
         yield step
         state = step.next_state
@@ -190,7 +234,10 @@ def _guided_walk(
         if plan is None:
             plan = _plan_from(problem, state, planner_cfg, max_planning_time)
         if plan is None:
-            logger.debug("Planning failed; leaving the guided walk.")
+            logger.warning(
+                "Walk truncated after %d of %d steps: the planner found no plan "
+                "from the current state within %ds.",
+                emitted, max_steps, max_planning_time)
             break
 
         restarted = False
@@ -216,8 +263,10 @@ def _guided_walk(
 
             next_state = simulator.apply(state, action_instance)
             if next_state is None:
-                logger.warning("Planned action %s was not applicable; walk ends here.",
-                               action_instance)
+                logger.warning(
+                    "Walk truncated after %d of %d steps: planned action %s was "
+                    "not applicable in the state it was planned for.",
+                    emitted, max_steps, action_instance)
                 return
             yield UPWalkStep(state, action_instance, next_state)
             emitted += 1
@@ -248,7 +297,7 @@ def _substitute_random_action(
     max_replanning_time: int,
     max_random_trials: int,
 ) -> Tuple[Optional[UPWalkStep], Optional[Any]]:
-    """Pick a random applicable action; return it and the plan to follow next.
+    """Pick a random applicable, state-changing action, and the plan to follow next.
 
     A ``None`` plan tells the caller to replan from the resulting state.
     """
@@ -263,12 +312,18 @@ def _substitute_random_action(
             return None, None
         action, params = rng.choice(applicable)
         instance = ActionInstance(action, params)
+
+        # Both checks precede the replan, which costs a planner invocation.
+        next_state = simulator.apply(state, instance)
+        if next_state is None:
+            continue
+        if _true_fluents(state, fluents) == _true_fluents(next_state, fluents):
+            continue
+
         new_plan = _replan(problem, state, instance, replan_cfg, max_replanning_time)
         if new_plan is None:
             continue
-        next_state = simulator.apply(state, instance)
-        if next_state is not None:
-            return UPWalkStep(state, instance, next_state), new_plan
+        return UPWalkStep(state, instance, next_state), new_plan
 
     logger.debug("No feasible random action found; continuing with the plan.")
     return None, None
@@ -315,7 +370,9 @@ def _plan_from(problem: Any, state: Any, planner_cfg: Dict[str, Any],
     for fluent in rooted.initial_values:
         rooted.set_initial_value(fluent, state.get_value(fluent))
 
-    with contextlib.redirect_stdout(open(os.devnull, "w")):
+    # Silences unified_planning's own prints only; Fast Downward runs in a
+    # subprocess and writes straight to fd 1.
+    with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         with OneshotPlanner(problem_kind=rooted.kind, **planner_cfg) as planner:
             return planner.solve(rooted, timeout=timeout).plan
 
@@ -408,63 +465,34 @@ class ProblemWalkSource(TraceSource):
         problem_file: Path,
         domain_file: Path,
         *,
-        backend: str = "native",
-        p_rnd: float = 1.0,
-        seed: Optional[int] = None,
-        max_steps: int = DEFAULT_MAX_STEPS,
-        preserve_solvability: bool = False,
-        stop_at_goal: bool = False,
-        max_planning_time: int = DEFAULT_MAX_PLANNING_TIME,
-        max_replanning_time: int = DEFAULT_MAX_REPLANNING_TIME,
-        max_random_trials: int = DEFAULT_MAX_RANDOM_TRIALS,
+        walk: Optional[WalkConfig] = None,
     ) -> None:
         """Configure the walk. Nothing is parsed until :meth:`steps` is called.
 
         Args:
             problem_file: The PDDL problem to walk.
             domain_file: Its domain.
-            backend: ``"native"``. ``"pddlgym"`` is the renderer-only backend and
-                is not implemented here.
-            p_rnd: Probability of a random action. ``1`` skips the planner, so a
-                problem with an unreachable or trivial goal is still walkable.
-            seed: Seed for the walk RNG. The cutter is seeded separately.
-            max_steps: Cap on walked transitions.
-            preserve_solvability: See :func:`walk_problem`.
-            stop_at_goal: See :func:`walk_problem`.
-            max_planning_time: Planner timeout, in seconds.
-            max_replanning_time: Solvability-check timeout, in seconds.
-            max_random_trials: See :func:`walk_problem`.
+            walk: The walk's settings. Defaults to an unseeded random walk.
         """
-        if backend != "native":
-            raise NotImplementedError(
-                f"backend={backend!r} is not available; only 'native' is implemented. "
-                "The pddlgym backend renders images and stays in "
-                "src/trajectory_handlers/pddlgym_problem_generator.py.")
-        if not 0.0 <= p_rnd <= 1.0:
-            raise ValueError(f"p_rnd must be in [0, 1], got {p_rnd}.")
-
-        self.problem_file = Path(problem_file)
-        self.domain_file = Path(domain_file)
-        self.backend = backend
-        self.p_rnd = p_rnd
-        self.seed = seed
-        self.max_steps = max_steps
-        self.preserve_solvability = preserve_solvability
-        self.stop_at_goal = stop_at_goal
-        self.max_planning_time = max_planning_time
-        self.max_replanning_time = max_replanning_time
-        self.max_random_trials = max_random_trials
+        # Resolved so generation_info.json stays readable from any directory.
+        self.problem_file = Path(problem_file).resolve()
+        self.domain_file = Path(domain_file).resolve()
+        self.walk = walk if walk is not None else WalkConfig()
 
         self._problem: Optional[Any] = None
         self._types: Optional[Dict[str, str]] = None
         self._objects: Optional[Tuple[str, ...]] = None
+        self._domain_name: Optional[str] = None
 
     @property
     def domain_name(self) -> str:
         """The domain name declared in the domain file."""
-        from pddl_plus_parser.lisp_parsers import DomainParser
+        if self._domain_name is None:
+            from pddl_plus_parser.lisp_parsers import DomainParser
 
-        return DomainParser(self.domain_file, partial_parsing=True).parse_domain().name
+            self._domain_name = DomainParser(
+                self.domain_file, partial_parsing=True).parse_domain().name
+        return self._domain_name
 
     @property
     def objects(self) -> Tuple[str, ...]:
@@ -479,19 +507,20 @@ class ProblemWalkSource(TraceSource):
         types, objects = self._types, self._objects
         fluents = ground_fluents(problem)
 
-        walk = walk_problem(
+        config = self.walk
+        transitions = walk_problem(
             problem,
             ground_actions_of(self.domain_file, self.problem_file),
-            rng=random.Random(self.seed),
-            p_rnd=self.p_rnd,
-            max_steps=self.max_steps,
-            preserve_solvability=self.preserve_solvability,
-            stop_at_goal=self.stop_at_goal,
-            max_planning_time=self.max_planning_time,
-            max_replanning_time=self.max_replanning_time,
-            max_random_trials=self.max_random_trials,
+            rng=random.Random(config.seed),
+            p_rnd=config.p_rnd,
+            max_steps=config.max_steps,
+            preserve_solvability=config.preserve_solvability,
+            stop_at_goal=config.stop_at_goal,
+            max_planning_time=config.max_planning_time,
+            max_replanning_time=config.max_replanning_time,
+            max_random_trials=config.max_random_trials,
         )
-        for step in walk:
+        for step in transitions:
             yield TraceStep(
                 prev_state=state_to_trace_state(step.prev_state, fluents, types, objects),
                 action=action_to_eval_string(step.action, types),
@@ -504,12 +533,7 @@ class ProblemWalkSource(TraceSource):
             "source_kind": "problem",
             "source_file": str(self.problem_file),
             "domain_file": str(self.domain_file),
-            "backend": self.backend,
-            "p_rnd": self.p_rnd,
-            "seed": self.seed,
-            "max_steps": self.max_steps,
-            "preserve_solvability": self.preserve_solvability,
-            "stop_at_goal": self.stop_at_goal,
+            **self.walk.describe(),
         }
 
     def _load(self) -> None:
@@ -547,11 +571,12 @@ class TrajectorySource(TraceSource):
             frames_dir: Where those frames live. Defaults to the trajectory's
                 own directory.
         """
-        self.trajectory_file = Path(trajectory_file)
-        self.problem_file = Path(problem_file)
-        self.domain_file = Path(domain_file)
+        # Resolved so generation_info.json stays readable from any directory.
+        self.trajectory_file = Path(trajectory_file).resolve()
+        self.problem_file = Path(problem_file).resolve()
+        self.domain_file = Path(domain_file).resolve()
         self.attach_frames = attach_frames
-        self.frames_dir = Path(frames_dir) if frames_dir is not None \
+        self.frames_dir = Path(frames_dir).resolve() if frames_dir is not None \
             else self.trajectory_file.parent
 
         self._domain: Optional[Any] = None
