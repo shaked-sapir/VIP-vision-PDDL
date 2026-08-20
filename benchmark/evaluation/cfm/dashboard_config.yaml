@@ -60,11 +60,25 @@ results_dashboard:
       modes: [image]
     - key: ROSAME-I_MILP  # image baseline, ROSAME-I with MILP pseudo-labels
       modes: [image]
+    # Off-default input resolution, emitted by --resize 224 on either image arm
+    # (see benchmark/baselines/rosame_i_runner.py:_resize_suffix). Registered
+    # ahead of the depot legibility ablation so the series renders the first
+    # time it has data. See docs/algorithm_comparison_analysis.md §5.1 / §7.
+    - key: ROSAME-I__res=224
+      modes: [image]
+    - key: ROSAME-I_MILP__res=224
+      modes: [image]
 
   # Baselines present in fold_result.json but omitted from learning-curve plots,
   # legend, and Δ tables. Keys must match the "algorithm" field exactly.
   exclude_algorithms:
     - ROSAME_MILP_BASE
+    # Control arm of the forced-square resize A/B: Resize((64, 64)) against the
+    # default Resize(64). Refuted -- it moved nothing on hanoi, the one domain
+    # distorted enough to be a real test (docs/algorithm_comparison_analysis.md
+    # §5.3). Its 30 rows per domain sit inside the live image experiment dirs,
+    # so without this it plots as a competitor rather than as spent ablation.
+    - ROSAME-I__res=64x64
 
   # ── Simulation section (mask x noise grid-search per domain) ──
   simulation:
