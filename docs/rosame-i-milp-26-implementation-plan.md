@@ -437,6 +437,88 @@ a test that `trans_full_state`'s zip of the state vector against `instance.propo
 *same object and the same index order* as the DL's symbol vector. That zip is unguarded, and a
 mismatch there mislabels every proposition silently.
 
+That settles which grounding *function* is used. It does not settle **what object set is
+grounded**, which is a separate axis and is still open — §4.2a.
+
+### 4.2a OPEN AND BLOCKING: one grounding for the run, or one per problem?
+
+**Nothing in Phase 2 or Phase 4 may start until this is pinned.** It is not a Phase-5 detail; it
+fixes the shape of the DL head, so it is upstream of both `ROSAME-I_26` and `ROSAME-I_MILP_26`.
+
+Upstream grounds **once**, and shares that one `Instance` across every trace in the bundle:
+
+```python
+# convertor/convertor.py:48-49, :69
+self.objects  = [(o, t.name) for t, obj_list in rosame_domain.objects.items() for o in obj_list]
+self.instance = Instance(self.domain, self.objects)
+...
+return self.problem_builder(self.domain, Traces(self.instance, obs_m, obs_t), self.objectives)
+```
+
+The DL symbol head is sized from that same object set, which is what makes the unguarded
+`zip(self.instance.propositions, probs)` (`translator.py:66`) safe there.
+
+Our 24 arm grounds **per problem** — `build_ps_instance(ps_domain, partial_domain, problem)`
+(`rosame_i_milp_runner.py:155`) with `Traces(instance=None, ...)` (`:193-197`), each `obs_t` built
+against its own instance. The union-width CV columns a problem lacks are dropped at that boundary
+(`converter.py:473-486`); the `N of M CV propositions have no counterpart` warning is that drop
+being reported.
+
+Upstream never has to choose, because its corpora are object-homogeneous. **Ours are not.**
+Blocksworld problems carry 4 or 5 blocks, so on a 4-block trace 11 of the union's 36 propositions
+name the absent block `e`.
+
+| | one grounding (upstream) | per-problem groundings (our 24 arm) |
+|---|---|---|
+| instances | one, over the corpus union | one per problem |
+| absent-object propositions | **live CP variables**, pinned false by the hard init + frame axioms | do not exist |
+| DL ↔ CP width | equal by construction | CV head is union-width, CP narrower; the converter bridges |
+| encoding size | +44% on a 4-block blocksworld trace | minimal |
+| fidelity | verbatim | a deviation — register it in §8 |
+
+Expected behavioural difference: **none**. The phantom propositions are constrained only by the
+closed-world hard init and the frame axioms, and no observed action binds `e`, so they form a
+variable block decoupled from the lifted schema variables — binding runs through the observed
+action's arguments. The cost should be a constant objective offset, not a distorted model. **That
+is a prediction, not a measurement**, and it is the same class of claim this plan has already been
+wrong about twice.
+
+What makes it blocking rather than deferrable is everything downstream that the choice sizes:
+
+* the DL symbol head's output width, and therefore the shape of every checkpoint;
+* `extract_sol_label`'s `torch.zeros(..., len(self.instance.propositions))` (`translator.py:129`)
+  and the `loss_pseudo_s` BCE it feeds;
+* whether `cv_predictions_to_trace`'s drop-and-fill path is on the 26 path at all;
+* the vocabulary every cross-arm precision and recall number is computed over.
+
+Discovering it in Phase 5 means rebuilding the adapter and re-running everything measured before
+it.
+
+**Independent of which way it goes: the union must be taken over the whole `data_dir`, not the
+fold.** Measured across all 30 cells of each of the five image experiments:
+
+| domain | per-problem object counts | fold-union `n_props` |
+|---|---|---|
+| **blocksworld** | **{4, 5}** | 36 in all 30 cells |
+| depot | {10} | 49 |
+| gripper | {10} | 28 |
+| hanoi | {7} | 55 |
+| npuzzle | {17} | 153 |
+
+Stable today — but by *composition*, not by construction: every blocksworld fold happens to
+contain at least one 5-block problem. A fold drawing only 4-block problems would ground at
+`n_props = 25`, giving that fold its own head width and its own vocabulary, and the grid would
+then average precision and recall across two of them. That is §4.4's argument — *"folds stop being
+comparable and the arm becomes sensitive to fold composition"* — applied to the vocabulary instead
+of the pixel statistic. Same fix, same cache key. It also makes a `backfill_baseline` re-run of a
+single cell vocabulary-identical to the row it replaces, which fold-level grounding does not
+guarantee.
+
+**Gate, required whichever option is chosen.** Solve one 4-block blocksworld trace under both
+groundings and assert the recovered action model is identical. If it is not, the phantom-variable
+analysis above is wrong, and the choice stops being a fidelity question and becomes a measurement
+one.
+
 ### 4.3 Other points that will bite
 
 1. **`inits` and `goals` are given, hard.** Maps cleanly onto our GT init (problem `:init`) and
@@ -1073,6 +1155,7 @@ In order, each cheap and each falsifiable:
 |---|---|---|
 | **0** | ~~`_IMAGE_TF` → `Resize(64)` in the 24 arm (§4.6.1) + the resize A/B (§9.6)~~ — **CLOSED.** Transform shipped and made per-domain configurable with row-name suffixing; A/B run on 4 domains × 30 paired cells; **hypothesis refuted** (§9.6, analysis §5.3). The ROSAME-I baseline the 26 arm is measured against is now upstream-faithful *and* known unmoved by the change | low — done |
 | 1 | Vendor `dl/` + `convertor/` + `util/model_perm.py`; **generate all five specs and `pddl/<domain>/domain.pddl` assets (§5, §2.1)**; import-only smoke test; **write parity tests §9.1–9.3 against the vendored code, before the adapter exists** | low |
+| **1½** | **PIN §4.2a — one grounding or per-problem groundings. A decision, not a deliverable, and it gates Phases 2–6.** Our problems differ in object count where upstream's do not, so upstream's single `Instance` is a choice for us rather than a default. It sizes the DL head, so it cannot be deferred to the MILP phase | **blocking** |
 | 2 | Data adapter (fold → their contract, §4.1–4.4) — must pass §9.1 | **medium — most of the work** |
 | 3 | Harness replacement (§3) — must pass §9.2 | medium |
 | 4 | DL-only arm (`ROSAME-I_26`), one blocksworld fold | low |
@@ -1085,7 +1168,7 @@ it's where the empty-effects question gets answered — against a 24 baseline th
 already made upstream-faithful.
 
 **But Phase 4 is not an architecture comparison unless you say what else moved.** A 24→26 delta
-has at least seven candidate causes, and only the first is the one people will assume:
+has at least eight candidate causes, and only the first is the one people will assume:
 
 | | ICAPS-24 arm | ICAPS-26 arm |
 |---|---|---|
@@ -1094,6 +1177,7 @@ has at least seven candidate causes, and only the first is the one people will a
 | augmentation | horizontal flip on blocksworld (`_AUGMENT_DOMAINS`) | disabled (§1.3) |
 | images per trace | N + 1 | **N − 1** (§4.1) |
 | proposition space | `RepeatedArgsInstance` | upstream `Instance`, no repeated args (§4.2) |
+| grounding scope | one `Instance` **per problem**; surplus union columns dropped at the converter | **undecided — §4.2a.** One shared `Instance` if upstream is followed, which makes absent-object propositions live CP variables |
 | epoch budget | per-domain 70/100/300 | one calibrated value (§1.2) |
 | batch size | 1 — pooled and reshuffled per epoch, but one trace per optimizer step (§9 item 8) | 128, per `train_common.py` (`vendor/UPSTREAM.md`) |
 
@@ -1199,5 +1283,22 @@ Every decision below was checked against the clone at `95c733f` (branch `ROSAME+
 
 ### Still open
 
-*Nothing blocking. The remaining unknowns are empirical and are answered by the §9 validation
-runs, not by a decision.*
+**19. BLOCKING — grounding scope: one `Instance` for the run, or one per problem? (§4.2a)**
+
+Upstream builds a single `Instance` from the ROSAME domain's object universe and shares it across
+every trace (`convertor/convertor.py:48-49`); our 24 arm builds one per problem and drops the
+surplus columns at the converter (`rosame_i_milp_runner.py:155`, `converter.py:473-486`). Upstream
+never had to choose because its corpora are object-homogeneous. Ours are not — blocksworld
+problems carry 4 or 5 blocks — so following upstream here is a **decision to make**, not a default
+to inherit, and the two options give different `n_props`, different DL head widths, and different
+CP variable sets on any problem smaller than the union.
+
+**Implementation of `ROSAME-I_26` and `ROSAME-I_MILP_26` cannot start until this is pinned**
+(Phase 1½, §10). It sizes the symbol head, so it is not a MILP-phase concern and deferring it means
+rebuilding the adapter and discarding anything measured before it. Two sub-questions travel with
+it, both in §4.2a: the union must be taken over the whole `data_dir` rather than the fold either
+way, and the equivalence gate (same model under both groundings on a 4-block blocksworld trace)
+must be run before the choice is treated as cosmetic.
+
+*The remaining unknowns are empirical and are answered by the §9 validation runs, not by a
+decision.*
