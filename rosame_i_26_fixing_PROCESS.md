@@ -895,7 +895,7 @@ catches.
 The first real milestone: the old-vs-new DL comparison *before* any MILP work,
 and where the empty-effects question gets answered.
 
-- [ ] **first, before any number: invert the argument permutation on emission.**
+- [x] **first, before any number: invert the argument permutation on emission.**
       `extract_pddl` (`src/milp/vendor/dl/util/ROSAME/rosame.py:389`,
       `format_actions` 433-484) writes `:parameters` from the **sorted**
       `params_types` with generated names `a, b, c, …`, so the emitted signature
@@ -908,20 +908,136 @@ and where the empty-effects question gets answered.
       recall ≈ 0, solving 0**. Apply the inverse of
       `domain_assets.rosame_argument_permutation` when emitting. Phase 2 built
       the input end of that bijection; this is the output end.
-- [ ] **gate this on depot or hanoi, not blocksworld.** blocksworld has **0**
+      ← **DONE**, `src/milp/rosame26_emitter.py`, and it turned out to be three
+      fixes rather than one — see "What Phase 4 found" below.
+- [x] **gate this on depot or hanoi, not blocksworld.** blocksworld has **0**
       reordered schemas (§4.2b), so the sanity fold below would pass with the bug
       in place and the collapse would first appear in Phase 6 — where it is
       indistinguishable from the architecture underperforming.
-- [ ] one blocksworld fold, `pre_mip_epoch ≥ epochs` (gate 5, sanity run)
-- [ ] **gate 4 — degenerate-model guard**: reject a learned model with zero
+      ← **DONE**. The GT round trip runs on all five domains through AMLGym's
+      own `syntactic_precision` / `syntactic_recall`, and the vendored
+      emitter's collapse is pinned beside it as the mutation check. Dropping
+      the body reordering spares blocksworld **and gripper** and fails the
+      other three — gripper's reordering is schema-only, so a predicate-only
+      check is vacuous there too.
+- [x] one blocksworld fold, `pre_mip_epoch ≥ epochs` (gate 5, sanity run)
+      ← **DONE**, and two more besides — hanoi and depot, because blocksworld
+      cannot see the emission fix. Numbers below.
+- [x] **gate 4 — degenerate-model guard**: reject a learned model with zero
       add-and-delete effects across all schemas, loudly. This would have caught
       the ICAPS-24 empty-effects collapse on day one.
+      ← **DONE**, `rosame26_emitter.check_not_degenerate`, applied **per seed**
+      so one collapsed seed loses its vote rather than the cell. A
+      precondition-only model counts as degenerate, and the collapsed PDDL is
+      written out for inspection before the null row is returned.
 - [ ] **gate 7 — budget control**: one cell per domain at `epochs: 5000` outside
       the timeout (§1.2), so *"underperforms at 750"* and *"undertrained at 750"*
       stay distinguishable. A **26-arm item only** — 5000 is the 26 code default
       and the value §1.2's pre-flight calibrates away from; the 24 arm runs the
       ICAPS-24 paper's own 70/100/300.
-- [ ] run the §1.2 pre-flight budget check before committing to any epoch count
+- [x] run the §1.2 pre-flight budget check before committing to any epoch count
+      ← **DONE**, `src/milp/rosame26_budget.py`, and **it moved the number** —
+      see "What Phase 4 found" below.
+
+**What Phase 4 found.** Three things, none of which the plan has.
+
+**1. The emission bug is three bugs, and only one of them is the permutation.**
+The checklist above describes reordering `:parameters`. Doing only that leaves a
+model that still scores near zero, because `extract_pddl` has two further defects
+that are not permutation-related and make the output **unparseable outright**:
+
+- **the bodies write bare variables.** `format_actions` grounds propositions over
+  `var`, whose values are the letters `a, b, c`, not `?a, ?b, ?c` — so a
+  precondition comes out `(at-truck a c)`, which binds to nothing. `pddl_plus_parser`
+  fails with `IndexError: list index out of range`, not with a message naming the
+  cause.
+- **an empty block is written `()`.** `:precondition ()` is what upstream emits for
+  a schema whose head wants no precondition, and the same parser rejects it. The
+  empty conjunction is `(and )`.
+
+And the permutation itself has **two ends inside one file**, not one. Correcting
+`:parameters` is not enough: `Predicate.ground` emits each *proposition's*
+arguments in that predicate's own sorted-type order, so `at-pile(pile, depot)`
+comes out `(at-pile ?x3 ?x2)` — the schema's variables bound to the wrong
+predicate slots, in a file whose signature is now right. Both ends go through
+`head_alignment.pddl_argument_order`, which Phase 2 already had.
+
+Confirmed against the 24 arm: its `rosame_to_pddl` reads the **real** domain's
+signature (`_signature_to_pddl` iterates `self.domain.actions[...].signature`)
+and passes real parameter names into `pretty_print(params)`, so it sidesteps
+`extract_pddl` entirely and never had any of the three. Its depot emission and
+ours are now type-for-type identical.
+
+**2. Two of depot's schemas are outside ROSAME's representation entirely.**
+Found because the GT round trip scored 0.982 on depot and 1.0 everywhere else.
+The four classes are *nothing / add / precondition / precondition-and-delete*,
+so **a delete effect whose literal is not also a precondition cannot be
+expressed**. depot has exactly two — `load` deletes `(at ?p ?d)` and `unload`
+deletes `(clear ?p)`, neither of which either action requires — and no other
+domain has any. Emitting them costs one spurious precondition each; omitting
+them costs one delete effect each.
+
+This is a **ceiling on what the arm can score on depot however well it trains**,
+it is not closable by training, and it applies to the 24 arm as much as the 26
+one. Pinned as `test_only_depot_is_affected`, so it stays a known quantity rather
+than being rediscovered as "the 26 arm is weak on depot".
+
+**3. §1.2's epoch table was projected from a cheaper epoch than we have.**
+The plan projects ~700–750 epochs into a 600 s cell. Measured — CPU, 3-trace
+blocksworld fold, resize 64, 60 epochs in 72.9 s — one DL epoch costs **1.216 s**,
+so the DL term is ~3.8× the MILP term even at `mip_interval: 1`, and the
+configured 600 **does not fit**: 394 epochs at one seed, **131 at three**. §1.3
+requires `n_seeds` to multiply the projection, and it is the binding constraint,
+not the MILP.
+
+Two consequences. The knob §1.2 offers second — widen `mip_interval` — buys
+almost nothing at these costs, because the epochs are what is expensive. And the
+refusal message must name an epoch count, which it does. `PER_EPOCH_DL_SECONDS`
+is a CPU figure; on cuda the check is simply slack, which is the direction a
+refuse-to-start guard should err in.
+
+The configured count stays the plan's **600**, as a ceiling the pre-flight lowers
+per cell, with the count actually run recorded in the row. A lowered count is
+**not** suffixed into the row name — it is the same 600 s budget every arm in the
+grid gets. Gate 7's control cell is a different thing: it opts out of the budget
+(`respect_budget=False`), and it is the *configured* count that labels it,
+`ROSAME-I_26__ep=5000`.
+
+**The three folds.** `fold0_numtrajs3_gtrate0` of each domain's image
+experiment, DL-only, `epochs 600` lowered to **131** by the pre-flight, 3 seeds,
+resize 64, CPU. Backfilled through the normal `backfill_baseline` path, so the
+row went through the same evaluation every other arm's does.
+
+| domain | arm | precision | recall | solving | learn s |
+|---|---|---|---|---|---|
+| blocksworld | ROSAME-I_24 | 0.32 | 0.06 | 0 | 155 |
+| blocksworld | **ROSAME-I_26** | **0.94** | **0.44** | 0 | 185 |
+| hanoi | ROSAME-I_24 | 0.60 | 0.38 | 0 | 94 |
+| hanoi | **ROSAME-I_26** | **0.96** | 0.22 | 0 | 360 |
+| depot | ROSAME-I_24 | — (null row) | — | — | — |
+| depot | **ROSAME-I_26** | 0.33 | 0.20 | 0 | 231 |
+
+**The emission gate passes on real data, which is the point of running hanoi and
+depot at all.** hanoi's `move_peg_disc` emits `(?x0 - disc ?x1 - peg ?x2 - disc)`
+and every one of depot's seven schemas emits its GT signature. Under the
+vendored emitter those would have been the sorted permutations and all three
+metrics would have read ~0 — which on this evidence is exactly what would have
+been reported as "the 26 architecture does not work on depot or hanoi".
+
+**Read the deltas with the eight-factor table, not as an architecture result.**
+Both the precision gains are large and both arms still solve nothing. Two things
+are worth saying plainly about the budget factor: the 26 arm ran **131** epochs
+against the 24 arm's per-domain 70/100/300, so it is the *less*-trained of the
+two here and the gain is not a budget artefact — but gate 7 is still what settles
+whether the remaining recall gap is undertraining.
+
+**A fourth finding: `PER_EPOCH_DL_SECONDS` is a single-domain measurement and the
+domains differ by 2x.** At 131 epochs x 3 seeds the projection allowed 480 s;
+blocksworld took 185 s, depot 231 s, hanoi 360 s. So the constant overestimates
+blocksworld by ~2.6x and hanoi by only ~1.3x, and the difference tracks the
+grounding width (blocksworld 36 propositions / 50 actions, hanoi 55 / 120). The
+guard errs slack, which is the right direction, but a per-domain estimate would
+buy back real epochs — worth doing before the Phase 6 grid, not before gate 7.
 
 **Phase 4 is not an architecture comparison unless what else moved is stated.**
 A 24→26 delta has eight candidate causes and only the first is the one people
@@ -934,10 +1050,11 @@ will assume:
 | augmentation | h-flip on blocksworld | disabled |
 | images per trace | N + 1 | **N − 1** |
 | proposition space | `RepeatedArgsInstance` | upstream `Instance` |
-| argument order | PDDL signature order | **sorted by type name** (4 of 5 domains). **Not a confound to report** — a bug to fix on emission first, or those four score ~0 (see the first checklist item above) |
+| argument order | PDDL signature order | **sorted by type name** (4 of 5 domains) internally, **PDDL order on emission** — `rosame26_emitter.py`. **Settled, not a confound**: the two arms' emitted signatures are now type-for-type identical |
 | grounding scope | per problem, then surplus union columns dropped | one `Instance` over the `data_dir` union (**DECIDED**, Phase 1½) |
-| epoch budget | per-domain 70/100/300 | one calibrated value |
-| batch size | 1 | 128 |
+| epoch budget | per-domain 70/100/300 | 600 configured, lowered per cell by the §1.2 pre-flight to what the shared 600 s budget buys — **131 at 3 seeds on CPU**. The one factor the two arms cannot be held equal on, and the reason gate 7's control cell exists |
+| batch size | 1 | 128 (capped at the fold size, so in practice the whole fold) |
+| seeds | `n_seeds`, lowest final training loss | same rule, and it multiplies the epoch budget (§1.3) |
 
 - [ ] report the delta **with this table attached**, or hold the movable ones
       fixed in a dedicated ablation
