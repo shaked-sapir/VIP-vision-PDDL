@@ -39,7 +39,7 @@ from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
 _DEFAULT_RESIZE: int = 64
 
 
-def _build_image_tf(
+def build_image_tf(
     resize: Union[int, Sequence[int], None] = _DEFAULT_RESIZE,
 ) -> transforms.Compose:
     """Build the image transform for a given resize setting.
@@ -140,7 +140,7 @@ class RosameI_Runner(PORosame_Runner):
         self.lr_schema = lr_schema
         self.lr_cv = lr_cv
         self.resize = resize
-        self._image_tf = _build_image_tf(resize)
+        self._image_tf = build_image_tf(resize)
         self.cv_model: Optional[nn.Module] = None
         self.optimizer: Optional[torch.optim.Optimizer] = None
         self._proposition_signature: Optional[Tuple[str, ...]] = None

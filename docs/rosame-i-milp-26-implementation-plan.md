@@ -1176,6 +1176,13 @@ whole point of the exercise.
 
 7. Image normalisation computed over the whole `data_dir` rather than a held-out-clean split,
    and cached per `(domain, resize-form)` on disk rather than in one unkeyed global (§4.4).
+7a. **The normalisation std is floored at 1e-6, where upstream adds 1e-20** (`normalization.py`:
+    `x / (std + 1e-20)`). Not cosmetic on our renders: a PDDLGym frame is mostly flat background,
+    so the constant-pixel fraction is **51.8% on blocksworld and 70.5% on depot**, and upstream's
+    epsilon turns each of those into a standardised magnitude of order **2.4e13 / 3.6e13** — finite,
+    but enough to dominate the encoder's input scale with pure quantisation noise. On pixels that
+    *do* vary the two agree to **exactly 0.0**, so the deviation is confined to the degenerate
+    pixels it exists for.
 8. Resize defaults to `Resize(64)` (int, aspect-preserving) rather than upstream-26's native size
    (§4.6) — configurable per domain, and `resize: null` reproduces upstream exactly. Report the
    value actually used per run.
@@ -1200,6 +1207,14 @@ whole point of the exercise.
     headline datasources this costs exactly one problem — blocksworld `problem1` — so the 26 arm
     sees 9 problems there where the 24 arm sees 10. Report the dropped set per run; it is a
     data-volume difference between the arms on top of the N−1 vs N+1 frame difference.
+11c. **Proposition and action keys are canonicalised on both sides before they are matched** —
+    hyphens to underscores, whitespace collapsed. Upstream needs no such layer because it owns one
+    spelling of every symbol; we have three sources that disagree. The reference domains keep their
+    hyphens (`at-robby`, `on-pile`, `clear-disc`), an experiment that ran `normalize_experiment_data`
+    underscores them, and `untyped_representation` renders a nullary as `"(handempty )"`, so the
+    fold walk's paren-stripping slice hands over a trailing space. Every mismatch is a `KeyError`
+    rather than a silent miss, by §4.2a's construction, so this is a correctness fix and not a
+    tolerance: the un-canonicalised form does not run at all.
 12. All five domain specs and GT `domain.pddl` assets generated from our `src/domains/*.pddl`,
     none reused from upstream (§5).
 

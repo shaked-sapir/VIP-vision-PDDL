@@ -58,6 +58,7 @@ class ResolvedTrace:
 
     problem: Problem
     problem_name: str
+    problem_dir: Path
     image_paths: List[Path]
     action_strings: List[str]
     gt_init_predicates: List[str]
@@ -106,6 +107,7 @@ def resolve_fold_inputs(
             ResolvedTrace(
                 problem=problem,
                 problem_name=problem_name,
+                problem_dir=problem_dir,
                 image_paths=image_paths,
                 action_strings=action_strings,
                 gt_init_predicates=gt_init,

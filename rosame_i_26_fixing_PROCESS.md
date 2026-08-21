@@ -46,14 +46,16 @@ states) and **2.2 done** (`src/milp/head_alignment.py`, CP index → DL head ind
 through `rosame_argument_permutation`, mutation-checked on all five domains).
 **2.3a done** (`src/milp/trace_tensors.py`, the frame arithmetic and the padded
 tensors, fed through the real vendored `Net.forward`) and **2.4 done** with it —
-gate 1 now imports `interior_frame_count` instead of restating it. What is left
-in Phase 2 is 2.3b, the fold-level half that touches disk, and 2.5. 262 new
-tests; full suite **693 passed, 1 skipped** from a 432-passed baseline. Two
-Phase-1 findings amend the plan — see
-§6 — and two more found since: the padded loss while scoping Phase 2 (plan
-§6.1a, §8 4c), and, in 2.2, that the align-by-name bug is a loud miss rather
-than a silent mis-hit on our five domains, and that the ICAPS-24 arms were never
-exposed to it.
+gate 1 now imports `interior_frame_count` instead of restating it. **2.3b done**
+(`benchmark/baselines/rosame26_data.py`, the fold-level half that touches disk),
+mutation-checked and run end to end on a real blocksworld cell. All that is left
+in Phase 2 is 2.5. 304 new tests; full suite **735 passed, 1 skipped** from a
+432-passed baseline. Two Phase-1 findings amend the plan — see §6 — and four
+more found since: the padded loss while scoping Phase 2 (plan §6.1a, §8 4c);
+in 2.2, that the align-by-name bug is a loud miss rather than a silent mis-hit
+on our five domains, and that the ICAPS-24 arms were never exposed to it; and in
+2.3b, the nullary trailing-space dialect gap (§8 11c) and the constant-pixel
+`std` floor (§8 7a), neither of which the unit tests found — the real cell did.
 
 ---
 
@@ -654,18 +656,62 @@ loading, resize, normalisation cache — and lives under `benchmark/`.
       outputs re-checked against gate 1's shapes — a shape contract cannot be
       satisfied by agreeing with itself
 
-*2.3b* — still open
+*2.3b* ← **DONE** (`benchmark/baselines/rosame26_data.py`, 42 tests)
 
-- [ ] fold → their contract (§4.1–4.4). Risk: **medium, the bulk of the effort**
-- [ ] proposition space is upstream `Instance`, **no repeated args** (§4.2) —
+- [x] fold → their contract (§4.1–4.4). `build_fold_batch` is the one entry
+      point: traces in, a `FoldBatch` out carrying the `PaddedTraces` 2.3a
+      defines, the grounding, the stats, and the kept/dropped split
+- [x] proposition space is upstream `Instance`, **no repeated args** (§4.2) —
       unlike our `RepeatedArgsInstance`
-- [ ] grounding assets (`domain_model.json` + `objects.json`) written per run
+- [x] grounding assets (`domain_model.json` + `objects.json`) written per run
       into a scoped root via `write_grounding_assets`, §6.1 below
-- [ ] image normalisation computed once over the whole `data_dir` (§4.4, DECIDED)
-- [ ] resize per-domain configurable, default `Resize(64)` (§4.6, DECIDED)
-- [ ] report the **dropped set** when `T < 1` rejects a trace — it costs
+- [x] image normalisation computed once over the whole `data_dir` (§4.4, DECIDED)
+      — cached to `.rosame26_norm__<bench>__res=<tag>.pt` beside the corpus, and
+      a cache hit reads **one** frame to check the shape rather than all of them
+- [x] resize per-domain configurable, default `Resize(64)` (§4.6, DECIDED).
+      `_build_image_tf` was promoted to `build_image_tf` so the 24 and 26 arms
+      share one definition of PNG → tensor rather than two that can drift
+- [x] report the **dropped set** when `T < 1` rejects a trace — it costs
       blocksworld `problem1` (§8 item 11b). The raise is 2.3a's; the reporting
-      is the fold walk's
+      is the fold walk's. `FoldBatch.dropped` names the problem and the reason;
+      only that documented case is dropped, and an action count that does not
+      span its frames still raises
+
+**Two things the tests alone would not have caught.** Both came out of running
+the module on the real `blocks_predefined_problems1-10_final-version` cell.
+
+*A `KeyError` on `handempty`.* `untyped_representation` renders a nullary as
+`"(handempty )"`, so the fold walk's `[1:-1]` slice yields a **trailing space**
+that no head key has. The fix widened the dialect normaliser from
+`replace("-", "_")` to `" ".join(name.replace("-", "_").split())` — but the
+useful half was changing the shared test fixture to emit `"handempty "`, so the
+suite now reproduces what `state_positive_predicates` actually produces instead
+of an idealised form. Registered as plan §8 item 11c.
+
+*A `std` floor.* Upstream divides by `std + 1e-20`. On our renders that is not
+cosmetic: **51.8% of blocksworld pixels and 70.5% of depot's are constant**, and
+that epsilon standardises each to a magnitude of order **2.4e13 / 3.6e13**.
+Floored at `1e-6` instead. On pixels with real variance the two agree to exactly
+`0.0`. Registered as plan §8 item 7a.
+
+**Mutation-checked**, because a green suite over code and tests written together
+proves little:
+
+| mutation | tests that failed |
+|---|---|
+| drop `.clamp_min(STD_FLOOR)` | 3 |
+| skip key canonicalisation | 1 |
+| never read the cache | 1 |
+| keep the endpoint frames | 9 |
+
+**And run end to end on the real cell**, through the vendored `Net.forward`:
+object union `{block: a..e}`, `n_props` **36** (the value §4.2a documents) and
+`n_actions` **50**; `problem1` dropped for having two frames, exactly as §8 item
+11b predicts, leaving 9 traces; `images (9, 11, 3, 64, 64)`,
+`states (9, 13, 36)`, `actions (9, 12, 50)`; per-trace interior filler zero and
+the goal held from each true final row; padded action rows all-zero and real
+rows one-hot; `z (9, 11, 36)`, `a (9, 12, 50)`, `z_suc_aae (9, 12, 50, 36)`,
+head width equal to `n_props`, all finite.
 
 **2.4 / 2.5 — close the Phase-1 loose ends.**
 
