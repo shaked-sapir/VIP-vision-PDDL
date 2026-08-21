@@ -35,12 +35,14 @@ Agreed order: **the rename first** (§1–§2, now done), then everything in §4
 §4 is the single authoritative list from here to completion; it follows the
 plan doc's phase numbering rather than inventing a second one.
 
-**Where it stands.** Step 1 done and landed. Step 2 (the imaged-24 re-run) done
-but the dashboard is stale. Phase 1 substantially done and **uncommitted**;
-Phase 1½ **done** — decided and its equivalence gate run and green, which
-unblocks Phase 2. 150 new tests; full suite **581 passed, 1 skipped** from a
-432-passed baseline. Phase 2 is next and has not started. Two Phase-1 findings
-amend the plan — see §6.
+**Where it stands.** Step 1 done and landed. Step 2 (the imaged-24 re-run) done,
+dashboard rebuilt, and **the two series moved** — `ROSAME-I_24` materially in
+all five domains, `ROSAME-I_MILP_24` barely at all, for a reason that checks out
+(§4, Step 2). Phase 1 done and **landed** in `0453e95f5`; Phase 1½ **done** —
+decided and its equivalence gate run and green, which unblocks Phase 2. 150 new
+tests; full suite **581 passed, 1 skipped** from a 432-passed baseline. Phase 2
+is next, scoped and not started. Two Phase-1 findings amend the plan — see §6 —
+and one more found while scoping Phase 2: the padded loss (plan §6.1a, §8 4c).
 
 ---
 
@@ -215,7 +217,7 @@ table. Phase 0 (the `Resize(64)` fix + the resize A/B) is already **CLOSED** —
 shipped, run on 4 domains × 30 paired cells, hypothesis **refuted**
 (analysis §5.3).
 
-### Step 2 — re-run both imaged 24 arms with `--force`  ← **DONE, dashboard stale**
+### Step 2 — re-run both imaged 24 arms with `--force`  ← **DONE**
 
 Not part of the plan's phase table; a debt from the `train_per_trajectory`
 deletion (`3a9d1b67e`). Every existing `ROSAME-I_24` / `ROSAME-I_MILP_24` row was
@@ -228,12 +230,61 @@ does. The migration renamed those rows; it did not make them upstream-faithful.
       2026-08-21 between 01:13 and 04:22 — blocksworld 60, depot 30 + 60
       (`__groundfix`), gripper 60, hanoi 30 + 60, npuzzle 30, and 180
       `ROSAME-I_MILP_24` rows alongside.
-- [ ] rebuild the dashboard; confirm the two series moved (if they did not, say so
-      — a null result here is still a result). **Not done.**
-      `benchmark/running_results/results_dashboard.html` was built at 01:27, and
-      **five of the seven experiment directories finished writing after that** —
-      the last at 04:22. It is currently a mix of re-run and pre-re-run numbers
-      and must not be read until rebuilt.
+- [x] rebuild the dashboard; confirm the two series moved. **Rebuilt** — bare
+      build, 29 s, 1.1 MB. `--regen-plots` / `--refresh-stats` were *not* needed
+      and would have been no-ops: of the 150 files newer than the old page, all
+      150 are `fold_result.json` and every one is in the five configured image
+      experiments. `all_solutions_metrics.json`, `conflict_free_solutions_log.json`
+      and `original_observations/` are untouched, and the trend PNGs are built
+      only from the CFM series (`build_dashboard.py:405`), never from baseline rows.
+
+**Not a null result.** Diffing the embedded `DATA` blob of the old page against
+the new, over all five image domains and all reported metrics:
+
+| arm | rows changed | size of change |
+|---|---|---|
+| `ROSAME-I_24` | 18 of 25 domain×metric cells | **large** — up to +0.35 |
+| `ROSAME-I_MILP_24` | 5 of 25 | ≤ 0.017, four of them float-ulp |
+
+`ROSAME-I_24`, mean over folds, before → after:
+
+| domain | app_prec | app_rec | eff_rec |
+|---|---|---|---|
+| blocksworld | 0.153 → 0.487 | 0.657 → 0.946 | 0.053 → 0.228 |
+| depot | 0.125 → 0.041 | 0.726 → 0.954 | 0.071 → 0.105 |
+| gripper | 0.220 → 0.220 | 0.560 → 0.345 | 0.178 → 0.333 |
+| hanoi | 0.057 → 0.154 | 0.609 → 0.963 | 0.000 → 0.095 |
+| npuzzle | 0.048 → 0.072 | 0.300 → 0.232 | 0.000 → 0.000 |
+
+Two things to read off this rather than the direction of any single arrow.
+
+**The asymmetry is explained, not mysterious.** `3a9d1b67e` rewrote
+`benchmark/algorithm_adapters/rosame_i_runner.py` (−36 lines) but touched
+`rosame_i_milp_runner.py` by three. The MILP arm runs through
+`rosame_milp/milp_loop_i.py::learn_pooled_with_milp`, which was **already**
+pooled, so the schedule deletion could not move it. Only the DL-only arm's
+training changed, and only the DL-only arm's numbers changed. That the two agree
+is a check on the causal story, not a coincidence.
+
+**`ROSAME-I_24` is now more degenerate, not less.** `pred_eff_precision` is
+1.000 in four of five domains against `pred_eff_recall` of 0.00–0.33 — vacuous
+precision over a near-empty effect set — while `pred_app_recall` runs to
+0.95–0.96 at `pred_app_precision` of 0.04–0.15, i.e. preconditions saturating
+toward "assert everything". This is precisely the shape **gate 4** (§9.4,
+degenerate-model guard) exists to catch, and it is now firing on the *24*
+baseline before the 26 arm has run at all. Do not report a 26-vs-24 delta
+against this without saying so.
+
+Two secondary observations worth keeping:
+
+* The **fold count changed** for three domains — blocksworld 22 → 28 usable
+  `pred_*` rows, depot 29 → 22, npuzzle 10 → 9, while `solving_ratio` stays at
+  30 everywhere. So the re-run changed *which* folds yield a scoreable model,
+  not only what those models score. Means taken over differently-sized
+  populations; the table above is indicative, not a paired test.
+* `ROSAME-I_24__res=64x64` — the frozen Phase-0 A/B series — did **not** move,
+  as it should not have: `bases()` keeps `__`-suffixed rows separate and the
+  re-run wrote no rows under that name.
 
 Until this lands, the 26 arm has no honest 24 baseline to be measured against,
 which is what Phase 4 exists to do.
@@ -251,8 +302,10 @@ Phase 1½'s 7 that is **150 new tests**, and the arithmetic closes: the full sui
 now reports **581 passed, 1 skipped** against a 432-passed baseline, so every new
 test is accounted for and nothing pre-existing broke.
 
-All of it is still **uncommitted** (`git status` shows every path untracked);
-nothing here has been reviewed or landed.
+All of it **landed** in `0453e95f5` "Vendor the ICAPS-26 DL tree and pin the
+grounding scope" — 50 paths, including Phase 1½. (This paragraph previously read
+"still uncommitted, `git status` shows every path untracked"; that was written
+before the commit and never updated.)
 
 - [x] vendor `dl/` + `convertor/` + `util/model_perm.py` (§2.1 fixes the exact
       boundaries). Vendored `dl/` (incl. `dl/main/normalization.py`,
@@ -412,34 +465,83 @@ therefore a decision, not an inherited default.
       contradiction the solver pays for, and it pays in the state objective,
       which is a reported number. **Re-run the inertness half of this gate on
       real head outputs in Phase 2**, once the adapter exists to produce them.
-- [ ] ~~register the outcome in the deviation register (§8) if per-problem
+- [x] ~~register the outcome in the deviation register (§8) if per-problem
       wins~~ — moot; per-problem was not chosen. What §8 *should* get instead is
       the opposite entry: that on our object-heterogeneous corpora the shared
       instance carries phantom propositions the 24 arm does not, and that this
-      is a fidelity choice made knowingly.
-- [ ] correct the plan doc's Phase-4 table row for `grounding scope`: it reads
-      `undecided`, and its 24-arm cell is wrong besides (the 24 arm grounds per
-      problem *and then drops surplus union columns*, which is not the same
-      thing as per-problem grounding). Mirrored in §4 above.
+      is a fidelity choice made knowingly. **Landed as §8 item 11a**, with the
+      Phase-2 re-check on real head outputs named in the entry itself so it
+      cannot be quietly skipped.
+- [x] correct the plan doc's Phase-4 table row for `grounding scope` — **already
+      done**, at `docs/rosame-i-milp-26-implementation-plan.md:1281`, which now
+      reads `one Instance over the data_dir union (**DECIDED**, Phase 1½)`
+      against a 24-arm cell of `per problem, then surplus union columns dropped`.
+      This bullet was left unticked; it describes work that had landed.
 
 ### Phase 2 — the data adapter  ← **the real work**
 
-- [ ] fold → their contract (§4.1–4.4). Risk: **medium, the bulk of the effort**
-- [ ] resolve the one-frame-too-long mismatch (§4.1): our traces carry N+1 images,
-      theirs N−1
-- [ ] proposition space is upstream `Instance`, **no repeated args** (§4.2) —
-      unlike our `RepeatedArgsInstance`
+Four scoping decisions taken before starting, all recorded below and in the plan
+doc: the fold walk is **extracted to a shared module** rather than duplicated;
+padding is **pad + zero-action mask with a length-aware loss subclass**
+(§6.1a, §8 item 4c); the two remaining §9.3 gate-3 obligations are **deferred to
+Phase 5**, since both need `Convertor` wired to `src/milp/encoder.py`; and the
+dashboard rebuild landed first, so Phase 4 has a settled 24 baseline to point at.
+
+**2.1 — extract the fold walk.**
+
+- [ ] `RosameIBaselineRunner._resolve_inputs` and its eight helpers
+      (`_resolve_images`, `resolve_final_state_path`, `_resolve_final_state`,
+      `_domain_uses_hyphens`, `_conformed_tempfile`, `_parse_problem_normalized`,
+      `_parse_trajectory_normalized`, `_state_positive_predicates`,
+      `_infer_domain_name`) move to a shared module. `_resolve_inputs` touches
+      `self` only to dispatch to static/class methods, so the extraction is
+      mechanical.
+- [ ] the shared version additionally returns the **GT init state**, which the 24
+      arm never reads and the 26 arm needs as a hard anchor (§4.3)
+- [ ] the 24 arm's tests stay green, unchanged — that is the check that the
+      extraction was behaviour-preserving
+
+**2.2 — head↔CP index alignment.**
+
 - [ ] **head alignment through `rosame_argument_permutation`** — new, §6.2 below.
       Not in the plan. Map CP proposition index → DL head index; aligning by
       predicate name alone is silently wrong on depot, gripper, hanoi and
       npuzzle. Gate 3 shows why this cannot be caught downstream:
       `trans_full_state` zips positionally, so a permuted vector of the right
       width produces the wrong propositions and no error
+- [ ] tested on all five domains, with a **mutation check** — perturb the map and
+      assert the test fails. blocksworld has permutation 0 and would pass a broken
+      implementation
+
+**2.3 — the adapter.**
+
+- [ ] fold → their contract (§4.1–4.4). Risk: **medium, the bulk of the effort**
+- [ ] resolve the one-frame-too-long mismatch (§4.1): our traces carry N+1 images,
+      theirs N−1. **T < 1 is rejected loudly**, with the dropped set reported —
+      it costs blocksworld `problem1` (§8 item 11b)
+- [ ] proposition space is upstream `Instance`, **no repeated args** (§4.2) —
+      unlike our `RepeatedArgsInstance`
 - [ ] grounding assets (`domain_model.json` + `objects.json`) written per run
       into a scoped root via `write_grounding_assets`, §6.1 below
 - [ ] image normalisation computed once over the whole `data_dir` (§4.4, DECIDED)
 - [ ] resize per-domain configurable, default `Resize(64)` (§4.6, DECIDED)
-- [ ] must pass gate 1
+- [ ] pad to a uniform T, emit a **per-trace length array**, and zero the action
+      one-hot on padded steps (§6.1a). The loss subclass that consumes the
+      lengths is Phase 3 work; Phase 2 owes it the data
+
+**2.4 / 2.5 — close the Phase-1 loose ends.**
+
+- [ ] must pass gate 1 — and **repoint it**: `test_vendor_net_contract.py`'s
+      `interior_frame_count` says in its own docstring that Phase 2 must replace
+      it with a call to the adapter's shared implementation
+- [ ] re-run the **phantom-inertness** half of the Phase-1½ gate on real head
+      outputs (§4.2a, §8 item 11a) — the symbolic result does not transfer,
+      because the head emits a sigmoid for `(clear e)` whether or not `e` exists
+
+**Deferred out of Phase 2** (into Phase 5, where `Convertor` is wired to
+`src/milp/encoder.py` and both become cheap): the two §9.3 gate-3 obligations —
+that the identity mappings actually reach `extract_sol_*`, and that `run_fixer`
+agrees with a direct translator call.
 
 ### Phase 3 — harness replacement
 
@@ -447,7 +549,12 @@ therefore a decision, not an inherited default.
 - [ ] pin the run-level settings explicitly (§1.3), including **augmentation
       disabled** (the 24 arm horizontally flips on blocksworld)
 - [ ] batching built for any N, not just today's N (§1.1)
-- [ ] must pass gate 2
+- [ ] **length-aware `ROSAMEGoal` subclass** consuming Phase 2's length array
+      (§6.1a, §8 4c): endpoint γ terms gathered per trace, `weight_mask_a` and
+      `loss_pseudo_s` zeroed past each trace's end, normaliser over true steps
+- [ ] must pass gate 2 — **extended**: on a length-homogeneous batch the masked
+      loss must return values bit-identical to the vendored one, which is what
+      confines 4c to the ragged case
 
 ### Phase 4 — `rosame_i_26`, DL-only, one blocksworld fold
 

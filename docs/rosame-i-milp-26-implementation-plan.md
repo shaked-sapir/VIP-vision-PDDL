@@ -1030,6 +1030,51 @@ traces the FIFO `TraceSelector` sees first, which decision 6 explicitly pins to 
 keeps that pinning meaningful, and it is the option that keeps one `max_t` honest across all three
 layers.
 
+#### 6.1a The fourth layer: the loss also reads `T`
+
+Three layers were named above. There is a fourth — `ROSAMEGoal.loss` — and it is where the
+padding is actually paid for. Settle it here rather than in Phase 3.
+
+**Most of the loss masks itself for free, but only under option B.** `loss_pred`'s prefix is
+`(a[:, :-1, :] @ mse_prefix)`, `loss_app`'s suffix is `(a[:, 1:, ...] @ ...)`, and `loss_prior`
+is `(a @ ...)`. An all-zero row in `a` makes each of those exactly zero, so a padded step
+contributes nothing. This is available to us only because we observe actions: upstream's
+`forward` discards the passed action and sets `a = self.action_activation(a_logit)`
+(`model.py:125`), a softmax that sums to 1 at every step, padding included.
+
+**Three things break regardless.**
+
+* **The two γ=10 endpoint terms are read at fixed indices.** `loss_last = a[:, -1, :] @ mse_last`
+  (`model.py:182`) is the goal anchor, at ten times the weight of anything else; `loss_first =
+  a[:, 0, :] @ ...` (`:194`) is its applicability counterpart. Right-pad and index `-1` is a
+  zero-action pad, so **the goal anchor silently vanishes for every trace shorter than `T_max`** —
+  8 of 9 traces on blocksworld. Left-pad instead and index `0` becomes the pad, and worse,
+  `z_ext = cat([i, z], 1)` then seats the GT init state next to filler rather than next to the
+  first real frame, so the init→first-frame transition is never scored at all. Neither padding
+  side is safe.
+* **`loss_pseudo_a` reads `a_logit`, not `a`** (`model.py:297-299`), and `weight_mask_a` is
+  initialised to **ones**, overwritten only for MILP-labelled traces. Even with no MILP labels at
+  all, every step — padded ones included — contributes a full-weight cross-entropy against a
+  self-generated argmax. Zero-action padding does nothing here.
+* **`loss_pseudo_s`** BCEs the full `[T, S]`, filler rows included.
+
+Secondary: the inflated `B*(T+1)` denominator rescales `loss_prior` / `loss_pred` / `loss_app` /
+`loss_pseudo_a` together but not `loss_pseudo_s` (÷ `len(trace_labels)`) or `loss_pseudo_m`
+(÷ `len_model`), so it shifts the DL-versus-MIP balance by the padding ratio. It does **not**
+reweight traces against each other — the division is one scalar per batch, and each trace's
+unnormalised contribution is already proportional to its own step count.
+
+**DECIDED: the adapter emits a per-trace length; a `ROSAMEGoal` subclass consumes it.** It
+gathers the two endpoint terms at per-trace indices, zeroes `weight_mask_a` and the
+`loss_pseudo_s` rows past each trace's end, and divides by the true step total. "Pad only, loss
+untouched" is not on the menu: the first two failures above delete the goal anchor and train the
+action head on fabricated labels.
+
+**What keeps this honest is that it is testable as a no-op.** Extend gate 2 with: on a batch
+whose traces all share one `T`, the masked loss returns values bit-identical to the vendored one.
+That confines the deviation, provably, to the ragged case upstream never has. Registered as §8
+item 4c.
+
 **Two silent-failure paths in the extractor, both worth an assertion:**
 
 * **Action fallback.** `extract_sol_label` scans for the first action variable true at step `t`
@@ -1113,6 +1158,13 @@ whole point of the exercise.
     (§0.1). Retained for the `mip_gt_dist` diagnostic only.
 4b. Pseudo-labels padded and masked to a uniform horizon, since `extract_sol_label` sizes its
     outputs from a single `max_t` (§6.1).
+4c. **`ROSAMEGoal.loss` subclassed to be length-aware** (§6.1a): the two γ=10 endpoint terms
+    gathered at per-trace indices instead of `[:, 0]` / `[:, -1]`, `weight_mask_a` and the
+    `loss_pseudo_s` rows zeroed past each trace's end, and the normaliser taken over true rather
+    than padded steps. Forced by 4b — without it, right-padding deletes the goal anchor for every
+    short trace and `loss_pseudo_a` trains the action head on filler at full weight. Bounded by a
+    gate-2 test asserting bit-identical values to the vendored loss on a length-homogeneous batch,
+    so the deviation is confined to the ragged case upstream does not have.
 5. Per-domain image augmentation (`BlocksworldPilePermute`, `RoomBallPermute`, `ItemPermute`)
    **not ported** — each hard-asserts a render layout ours does not have, so they are inapplicable
    rather than switched off (§3). Upstream therefore trains its `blocks` / `gripper` / `logistics`
@@ -1134,6 +1186,20 @@ whole point of the exercise.
     Consequence: `state_acc` is measured against filler and is not reported as accuracy (§4.3).
 11. Proposition space follows upstream's `Instance` (no repeated args), so the 26 arm's `n_props`
     differs from our other arms' — report it alongside them (§4.2).
+11a. **One `Instance` over the whole `data_dir` object union** (§4.2a, Phase 1½), as upstream,
+    where the 24 arm grounds per problem and then drops the surplus union columns. On our
+    object-heterogeneous corpora that means a trace from a 4-block problem carries live CP
+    variables for propositions over objects it never mentions. Measured inert on a clean
+    blocksworld trace — identical lifted model, identical repaired live states, no phantom true at
+    any step (`src/milp/test_grounding_scope_equivalence.py`, 7 tests) — so the choice is
+    fidelity-preserving at no measurement cost *in the symbolic setting*. Re-checked on real CV
+    head outputs in Phase 2, where the per-step values are sigmoids rather than a CWA completion
+    and the head has no way to know the object is absent.
+11b. **Traces with fewer than three frames are dropped**, since both endpoints become symbolic
+    anchors (§4.1, deviation 9) and a 2-image trace leaves T=0 interior frames. On the five
+    headline datasources this costs exactly one problem — blocksworld `problem1` — so the 26 arm
+    sees 9 problems there where the 24 arm sees 10. Report the dropped set per run; it is a
+    data-volume difference between the arms on top of the N−1 vs N+1 frame difference.
 12. All five domain specs and GT `domain.pddl` assets generated from our `src/domains/*.pddl`,
     none reused from upstream (§5).
 
