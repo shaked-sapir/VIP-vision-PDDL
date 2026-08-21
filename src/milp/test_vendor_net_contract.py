@@ -31,9 +31,10 @@ endpoint frames are dropped and re-enter symbolically, as ``inits`` and
     actions = a_1..a_N          T+1 = N
     states  = s_0..s_N          T+2 = N+1
 
-``interior_frame_count`` below states that arithmetic. Phase 2's adapter must
-call one shared implementation and this gate must be repointed at it; until then
-the contract lives here so the number cannot be silently re-derived.
+That arithmetic is :func:`src.milp.trace_tensors.interior_frame_count`, which the
+adapter calls to select frames and this gate imports rather than restates, so the
+number has one definition. The gate still owns the *contract*: what ``T`` has to
+be for the vendored network's shapes to line up.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ torch = pytest.importorskip("torch")
 
 import src.milp  # noqa: F401  (vendor sys.path bootstrap)
 from src.milp.domain_assets import write_grounding_assets
+from src.milp.trace_tensors import interior_frame_count
 
 from dl.model import ROSAMEGoal
 
@@ -75,23 +77,6 @@ PINNED_PARAMETERS: Dict[str, Any] = {
     # what that costs. `DL_to_MIP` is unaffected and is not a network parameter.
     "MIP_to_DL": ["state", "action", "model"],
 }
-
-
-def interior_frame_count(n_images: int) -> int:
-    """Images the network sees, given a trace of ``n_images`` frames (§4.1).
-
-    Both endpoints are dropped, so ``T = n_images - 2``. Raises when that leaves
-    nothing: a 2-image trace has no interior frame and must be rejected rather
-    than handed to the network as ``T = 0``.
-    """
-    interior = n_images - 2
-    if interior < 1:
-        raise ValueError(
-            f"a {n_images}-image trace has no interior frame (T={interior}); "
-            "both endpoints enter symbolically as inits/goals, so at least 3 "
-            "images are needed"
-        )
-    return interior
 
 
 # A gate is a fixed target, so nothing here may vary run to run. This seeds the

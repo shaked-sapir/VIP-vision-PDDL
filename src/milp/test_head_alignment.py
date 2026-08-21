@@ -29,10 +29,12 @@ from src.milp.domain_assets import (
 )
 from src.milp.head_alignment import (
     action_head_indices,
+    action_index_by_name,
     head_key,
     invert,
     pddl_argument_order,
     proposition_head_indices,
+    proposition_index_by_name,
 )
 
 from dl.util.ROSAME.rosame import get_domain_model
@@ -157,6 +159,47 @@ class TestAlignmentAgainstTheVendoredHead:
         instance, model = _both_groundings(domain_key, tmp_path)
         aligned = proposition_head_indices(instance, model)
         assert [aligned[cp] for cp in invert(aligned)] == list(range(len(aligned)))
+
+
+@pytest.mark.parametrize("domain_key", BENCH_DOMAINS)
+class TestIndexByName:
+    """The string-keyed form the adapter consumes, in PDDL argument order."""
+
+    def test_propositions_are_keyed_by_their_pddl_order_name(
+        self, domain_key, tmp_path
+    ) -> None:
+        instance, model = _both_groundings(domain_key, tmp_path)
+        by_name = proposition_index_by_name(instance, model)
+
+        assert len(by_name) == len(instance.propositions)
+        assert sorted(by_name.values()) == list(range(len(by_name)))
+        for proposition in instance.propositions:
+            key = " ".join(
+                [proposition.predicate.name, *(o.name for o in proposition.args)]
+            ).strip()
+            assert key in by_name
+
+    def test_actions_are_keyed_by_their_pddl_order_name(
+        self, domain_key, tmp_path
+    ) -> None:
+        instance, model = _both_groundings(domain_key, tmp_path)
+        by_name = action_index_by_name(instance, model)
+
+        assert len(by_name) == len(instance.actions)
+        assert sorted(by_name.values()) == list(range(len(by_name)))
+
+    def test_it_agrees_with_the_index_form(self, domain_key, tmp_path) -> None:
+        instance, model = _both_groundings(domain_key, tmp_path)
+        by_name = proposition_index_by_name(instance, model)
+
+        for cp_index, head_index in enumerate(
+            proposition_head_indices(instance, model)
+        ):
+            proposition = instance.propositions[cp_index]
+            key = " ".join(
+                [proposition.predicate.name, *(o.name for o in proposition.args)]
+            ).strip()
+            assert by_name[key] == head_index
 
 
 # ── the mutation check ──────────────────────────────────────────────────

@@ -43,9 +43,13 @@ decided and its equivalence gate run and green, which unblocks Phase 2. Phase 2
 is under way: **2.1 done** (the fold walk extracted to
 `benchmark/baselines/image_fold_inputs.py`, now returning both GT endpoint
 states) and **2.2 done** (`src/milp/head_alignment.py`, CP index → DL head index
-through `rosame_argument_permutation`, mutation-checked on all five domains);
-2.3–2.5 scoped and not started. 208 new tests; full suite **639 passed, 1
-skipped** from a 432-passed baseline. Two Phase-1 findings amend the plan — see
+through `rosame_argument_permutation`, mutation-checked on all five domains).
+**2.3a done** (`src/milp/trace_tensors.py`, the frame arithmetic and the padded
+tensors, fed through the real vendored `Net.forward`) and **2.4 done** with it —
+gate 1 now imports `interior_frame_count` instead of restating it. What is left
+in Phase 2 is 2.3b, the fold-level half that touches disk, and 2.5. 262 new
+tests; full suite **693 passed, 1 skipped** from a 432-passed baseline. Two
+Phase-1 findings amend the plan — see
 §6 — and two more found since: the padded loss while scoping Phase 2 (plan
 §6.1a, §8 4c), and, in 2.2, that the align-by-name bug is a loud miss rather
 than a silent mis-hit on our five domains, and that the ICAPS-24 arms were never
@@ -626,27 +630,49 @@ recovers PDDL order by accident of dict insertion order, and
 round-trip on all five domains — 19 passed. No permutation step is needed there,
 and none was silently missing.
 
-**2.3 — the adapter.**
+**2.3 — the adapter.** Split in two, because `src/` may not import `benchmark/`
+and gate 1 lives in `src/milp/`. **2.3a is the tensor contract** — pure, no I/O,
+`src/milp/trace_tensors.py`. **2.3b is the fold adapter** — object union, image
+loading, resize, normalisation cache — and lives under `benchmark/`.
+
+*2.3a* ← **DONE** (`src/milp/trace_tensors.py`, 39 tests)
+
+- [x] resolve the one-frame-too-long mismatch (§4.1): `interior_frame_count` is
+      the single implementation, both endpoints dropped so `T = N−1`, and
+      **T < 1 raises**. `interior_frame_indices` is the frame-selection form
+- [x] pad to a uniform T, emit a **per-trace length array**, and zero the action
+      one-hot on padded steps (§6.1a). The loss subclass that consumes the
+      lengths is Phase 3 work; Phase 2 owes it the data
+- [x] `state_traces` per §4.3: GT init at row 0, **zero filler** interior, GT
+      goal **held from each trace's true final row to the end** — so the
+      vendored `state_traces[:, -1, :]` slice is that trace's goal whatever its
+      length, and no VLM state ever enters
+- [x] PDDL-order names → head columns via `head_alignment`'s new
+      `proposition_index_by_name` / `action_index_by_name`, which is the exact
+      string form `image_fold_inputs` already emits (paren-free, space-separated)
+- [x] the batch is fed through the **real vendored `Net.forward`** and its
+      outputs re-checked against gate 1's shapes — a shape contract cannot be
+      satisfied by agreeing with itself
+
+*2.3b* — still open
 
 - [ ] fold → their contract (§4.1–4.4). Risk: **medium, the bulk of the effort**
-- [ ] resolve the one-frame-too-long mismatch (§4.1): our traces carry N+1 images,
-      theirs N−1. **T < 1 is rejected loudly**, with the dropped set reported —
-      it costs blocksworld `problem1` (§8 item 11b)
 - [ ] proposition space is upstream `Instance`, **no repeated args** (§4.2) —
       unlike our `RepeatedArgsInstance`
 - [ ] grounding assets (`domain_model.json` + `objects.json`) written per run
       into a scoped root via `write_grounding_assets`, §6.1 below
 - [ ] image normalisation computed once over the whole `data_dir` (§4.4, DECIDED)
 - [ ] resize per-domain configurable, default `Resize(64)` (§4.6, DECIDED)
-- [ ] pad to a uniform T, emit a **per-trace length array**, and zero the action
-      one-hot on padded steps (§6.1a). The loss subclass that consumes the
-      lengths is Phase 3 work; Phase 2 owes it the data
+- [ ] report the **dropped set** when `T < 1` rejects a trace — it costs
+      blocksworld `problem1` (§8 item 11b). The raise is 2.3a's; the reporting
+      is the fold walk's
 
 **2.4 / 2.5 — close the Phase-1 loose ends.**
 
-- [ ] must pass gate 1 — and **repoint it**: `test_vendor_net_contract.py`'s
-      `interior_frame_count` says in its own docstring that Phase 2 must replace
-      it with a call to the adapter's shared implementation
+- [x] must pass gate 1 — and **repoint it**: `test_vendor_net_contract.py` now
+      imports `interior_frame_count` from `src.milp.trace_tensors` instead of
+      restating it. The gate keeps the *contract* (what `T` must be for the
+      vendored shapes to line up); the arithmetic has one definition
 - [ ] re-run the **phantom-inertness** half of the Phase-1½ gate on real head
       outputs (§4.2a, §8 item 11a) — the symbolic result does not transfer,
       because the head emits a sigmoid for `(clear e)` whether or not `e` exists

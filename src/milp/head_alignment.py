@@ -108,6 +108,28 @@ def action_head_indices(instance: PSInstance, domain_model: object) -> List[int]
     )
 
 
+def proposition_index_by_name(
+    instance: PSInstance, domain_model: object
+) -> Dict[str, int]:
+    """``{"on a b": head column}`` for every proposition, keyed in PDDL order."""
+    return _index_by_pddl_name(
+        instance.propositions,
+        getattr(domain_model, "propositions"),
+        lambda p: (p.predicate.name, p.predicate.types),
+        "proposition",
+    )
+
+
+def action_index_by_name(instance: PSInstance, domain_model: object) -> Dict[str, int]:
+    """``{"pick-up a": head index}`` for every action, keyed in PDDL order."""
+    return _index_by_pddl_name(
+        instance.actions,
+        getattr(domain_model, "actions"),
+        lambda a: (a.action_schema.name, a.action_schema.types),
+        "action",
+    )
+
+
 def invert(indices: Sequence[int]) -> List[int]:
     """The inverse map: ``out[head_index]`` is the CP index that claimed it."""
     inverse: List[int] = [-1] * len(indices)
@@ -118,6 +140,23 @@ def invert(indices: Sequence[int]) -> List[int]:
             raise ValueError(f"head index {target} is claimed twice; not a bijection")
         inverse[target] = source
     return inverse
+
+
+def _index_by_pddl_name(
+    cp_items: Sequence[_Item],
+    head_index: Dict[str, int],
+    signature_of: Callable[[_Item], Tuple[str, Sequence[PSType]]],
+    kind: str,
+) -> Dict[str, int]:
+    """``"name arg1 arg2"`` in PDDL argument order, to the head's index."""
+    by_name: Dict[str, int] = {}
+    for item, head in zip(cp_items, _align(cp_items, head_index, signature_of, kind)):
+        name, _ = signature_of(item)
+        key = " ".join([name, *(obj.name for obj in item.args)]).strip()
+        if key in by_name:
+            raise ValueError(f"the CP grounding carries {kind} {key!r} twice")
+        by_name[key] = head
+    return by_name
 
 
 def _align(
