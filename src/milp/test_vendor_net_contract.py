@@ -21,6 +21,17 @@ Gate 2 — losses (§9.2):
   * both ``loss_pseudo_a`` regimes: full strength with no MILP labels (because
     ``weight_mask_a`` is initialised to ones), and re-weighted with them
 
+Gate 2a — the length-aware loss is a no-op on a homogeneous batch (§6.1a, §8 4c):
+  * :class:`~src.milp.rosame26_model.Rosame26Goal` returns values **bit-identical**
+    to the vendored ``ROSAMEGoal`` when every trace in the batch shares one ``T``,
+    in both ``loss_pseudo_a`` regimes and with ``lengths`` omitted altogether
+  * and it does **not** on a ragged batch, so the identity above is a property of
+    the masking and not of an unexercised code path
+
+  This is what confines deviation 4c, provably, to the ragged case upstream never
+  has. Phase 3 is therefore the first thing this file imports from the arm: gates
+  1 and 2 predate the adapter on purpose, 2a cannot.
+
 FRAME ALIGNMENT (§4.1). Our data has ``N+1`` images for ``N`` actions. Both
 endpoint frames are dropped and re-enter symbolically, as ``inits`` and
 ``goals``, so the network sees ``T = N-1`` interior images::
@@ -48,6 +59,7 @@ torch = pytest.importorskip("torch")
 
 import src.milp  # noqa: F401  (vendor sys.path bootstrap)
 from src.milp.domain_assets import write_grounding_assets
+from src.milp.rosame26_model import Rosame26Goal
 from src.milp.trace_tensors import interior_frame_count
 
 from dl.model import ROSAMEGoal
@@ -495,3 +507,175 @@ def test_milp_state_label_must_be_t_rows_not_t_plus_2(
     )
     with pytest.raises((RuntimeError, ValueError)):
         _loss(network, outputs, state_traces, mip_pseudo_labels=ragged)
+
+
+# --------------------------------------------------------------------------
+# Gate 2a — the length-aware loss is a no-op on a homogeneous batch (§6.1a)
+# --------------------------------------------------------------------------
+
+# One full-length trace and one genuinely short one, so nothing below passes by
+# way of a degenerate batch.
+RAGGED_LENGTHS = torch.tensor([T, T - 2])
+
+
+@pytest.fixture(scope="module")
+def masked_twin(built_network) -> Rosame26Goal:
+    """A :class:`Rosame26Goal` reading the very same parameters as ``built_network``.
+
+    Only ``loss()`` is exercised, and that reaches nothing the build produces
+    beyond ``parameters["action_dim"]``, so the twin is deliberately not built:
+    a second ResNet would let the two sides differ by weight init rather than by
+    the masking under test.
+    """
+    network, _, _ = built_network
+    return Rosame26Goal(network.path, network.parameters)
+
+
+def _masked_loss(twin, outputs, state_traces, lengths, mip_pseudo_labels=None):
+    return twin.loss(
+        outputs,
+        [state_traces, None],
+        indices=torch.arange(B),
+        mip_pseudo_labels=mip_pseudo_labels,
+        lengths=lengths,
+    )
+
+
+def _assert_bit_identical(masked, vendored) -> None:
+    assert set(masked) == set(vendored), "the masked loss must report the same terms"
+    differing = {
+        key: (masked[key].item(), vendored[key].item())
+        for key in vendored
+        if not torch.equal(masked[key], vendored[key])
+    }
+    assert not differing, f"masking changed a homogeneous batch: {differing}"
+
+
+def _observed_actions(lengths, n_actions) -> "torch.Tensor":
+    """Option B's ``a``: a one-hot at every live step, zeros past each trace's end."""
+    actions = torch.zeros(B, T + 1, n_actions)
+    for row, length in enumerate(lengths.tolist()):
+        actions[row, : length + 1, 0] = 1.0
+    return actions
+
+
+def test_masking_is_bit_identical_on_a_length_homogeneous_batch(
+    built_network, masked_twin, outputs, state_traces
+) -> None:
+    """§6.1a's confinement claim, in the regime upstream actually has."""
+    network, _, _ = built_network
+    lengths = torch.full((B,), T)
+
+    _assert_bit_identical(
+        _masked_loss(masked_twin, outputs, state_traces, lengths),
+        _loss(network, outputs, state_traces),
+    )
+
+
+def test_omitting_lengths_altogether_is_upstream_exactly(
+    built_network, masked_twin, outputs, state_traces
+) -> None:
+    """``lengths=None`` is the default, so a caller who never padded pays nothing."""
+    network, _, _ = built_network
+
+    _assert_bit_identical(
+        _masked_loss(masked_twin, outputs, state_traces, None),
+        _loss(network, outputs, state_traces),
+    )
+
+
+def test_masking_is_bit_identical_in_the_milp_labelled_regime(
+    built_network, masked_twin, outputs, state_traces, override_parameter
+) -> None:
+    """The second ``loss_pseudo_a`` regime, where the two formulations differ textually.
+
+    Upstream *assigns* the solver's weight into ``weight_mask_a``; the masked
+    form multiplies it into the live-step mask. At one shared ``T`` that mask is
+    exactly ``1.0``, so the two agree to the bit — which is the whole reason the
+    multiply is safe.
+    """
+    from convertor.pseudo_label import PseudoLabels
+
+    network, n_props, _ = built_network
+    override_parameter("MIP_to_DL", ["state", "action"])
+
+    labelled_row, weight = 0, 0.5
+
+    def labels():
+        # `loss()` decays the weight in place, so each side needs its own store.
+        return PseudoLabels(
+            traces={
+                labelled_row: (
+                    weight,
+                    torch.zeros(T, n_props),
+                    torch.zeros(T + 1, dtype=torch.long),
+                )
+            }
+        )
+
+    masked_labels, vendored_labels = labels(), labels()
+    _assert_bit_identical(
+        _masked_loss(
+            masked_twin, outputs, state_traces, torch.full((B,), T), masked_labels
+        ),
+        _loss(network, outputs, state_traces, mip_pseudo_labels=vendored_labels),
+    )
+    assert masked_labels.traces[labelled_row][0] == vendored_labels.traces[labelled_row][0], (
+        "the masked form must decay the solver's weight on the same schedule"
+    )
+
+
+def test_masking_does_change_a_ragged_batch(
+    built_network, masked_twin, outputs, state_traces
+) -> None:
+    """Otherwise the identity above would be a property of an unexercised path.
+
+    Fed option B's zero-padded ``a``, the vendored loss reads its ``gamma`` goal
+    anchor at ``a[:, -1]`` — which for a short trace is the all-zero padding, so
+    the anchor is silently lost. That is deviation 4c's whole reason to exist.
+    """
+    network, _, n_actions = built_network
+    padded = dict(outputs, a=_observed_actions(RAGGED_LENGTHS, n_actions))
+
+    masked = _masked_loss(masked_twin, padded, state_traces, RAGGED_LENGTHS)
+    vendored = _loss(network, padded, state_traces)
+
+    for key in ("loss_pred", "total_loss"):
+        assert abs(masked[key].item() - vendored[key].item()) > 0.01 * abs(
+            vendored[key].item()
+        ), f"{key} must move well clear of float noise on a ragged batch"
+
+
+def test_the_ragged_gap_is_step_l_being_scored_against_the_wrong_target(
+    built_network, masked_twin, outputs, state_traces
+) -> None:
+    """Names the ``loss_pred`` gap exactly, so a regression cannot be waved through.
+
+    Step ``L`` is the short trace's goal transition. Upstream puts it in the
+    prefix, scoring it against ``z[:, L]`` — interior zero filler — and reads its
+    ``gamma`` anchor at ``a[:, -1]``, which the padding has zeroed. So the gap
+    per short row is the anchor upstream never charges *minus* the filler term it
+    charges instead. Both halves, or the deviation is a reweighting rather than a
+    fix. A full-length row has no gap: step ``T`` is already outside ``a[:, :-1]``
+    and ``a[:, -1]`` is already its anchor.
+    """
+    network, _, n_actions = built_network
+    padded = dict(outputs, a=_observed_actions(RAGGED_LENGTHS, n_actions))
+    goals = state_traces[:, -1, :]
+
+    masked = masked_twin.loss_pred(padded, goals, RAGGED_LENGTHS)
+    vendored = network.loss_pred(padded, goals)
+
+    gamma = network.parameters["gamma"]
+    for row, length in enumerate(RAGGED_LENGTHS.tolist()):
+        if length == T:
+            assert masked[row].item() == pytest.approx(
+                vendored[row].item(), rel=CANCELLATION_TOLERANCE
+            ), "a full-length row inside a ragged batch must be left alone"
+            continue
+        action, successor = padded["a"][row, length], padded["z_suc_aae"][row, length]
+        anchor = (action @ (successor - goals[row]) ** 2).sum()
+        filler = (action @ (successor - padded["z"][row, length]) ** 2).sum()
+        assert masked[row].item() == pytest.approx(
+            (vendored[row] + gamma * anchor - filler).item(), rel=CANCELLATION_TOLERANCE
+        )

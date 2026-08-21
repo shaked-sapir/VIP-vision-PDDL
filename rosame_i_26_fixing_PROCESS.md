@@ -53,14 +53,19 @@ the phantom-inertness re-check, run as a sweep over every value a head can emit
 rather than one head's outputs, which **corrects the plan**: the phantoms cost
 nothing in the objective, not the constant offset §4.2a predicted, and the cost
 lands in the disagreement count instead (plan §4.2a′). **Phase 2 is closed.**
-326 new tests; full suite **757 passed, 1 skipped** from a 432-passed baseline.
-Two Phase-1 findings amend the plan — see §6 — and five more found since: the
+**Phase 3 is closed** too — `src/milp/rosame26_model.py` (observed actions +
+length-masked loss) and `src/milp/rosame26_training.py` (the §3 one-method
+override and the §1.3 pins), with gate 2 extended by gate 2a. 68 further tests;
+full suite **825 passed, 1 skipped** from a 432-passed baseline.
+Two Phase-1 findings amend the plan — see §6 — and six more found since: the
 padded loss while scoping Phase 2 (plan §6.1a, §8 4c); in 2.2, that the
 align-by-name bug is a loud miss rather than a silent mis-hit on our five
 domains, and that the ICAPS-24 arms were never exposed to it; in 2.3b, the
 nullary trailing-space dialect gap (§8 11c) and the constant-pixel `std` floor
-(§8 7a), neither of which the unit tests found — the real cell did; and in 2.5,
-the objective correction above.
+(§8 7a), neither of which the unit tests found — the real cell did; in 2.5,
+the objective correction above; and in Phase 3, that §6.1a understates the
+ragged `loss_pred` gap — upstream loses the γ anchor **and** charges step `L`
+against zero filler, so 4c is two halves of one fix, not one.
 
 ---
 
@@ -817,18 +822,65 @@ It is the sole non-vacuity guard for the class, and the class docstring says so.
 that the identity mappings actually reach `extract_sol_*`, and that `run_fixer`
 agrees with a direct translator call.
 
-### Phase 3 — harness replacement
+### Phase 3 — harness replacement  ← **DONE**
 
-- [ ] override one method, keep everything else (§3)
-- [ ] pin the run-level settings explicitly (§1.3), including **augmentation
-      disabled** (the 24 arm horizontally flips on blocksworld)
-- [ ] batching built for any N, not just today's N (§1.1)
-- [ ] **length-aware `ROSAMEGoal` subclass** consuming Phase 2's length array
-      (§6.1a, §8 4c): endpoint γ terms gathered per trace, `weight_mask_a` and
-      `loss_pseudo_s` zeroed past each trace's end, normaliser over true steps
-- [ ] must pass gate 2 — **extended**: on a length-homogeneous batch the masked
-      loss must return values bit-identical to the vendored one, which is what
-      confines 4c to the ragged case
+Two new modules, no vendor edits. `src/milp/rosame26_model.py` is the model half
+and `src/milp/rosame26_training.py` the harness half; the split is that the first
+is what option A would keep and the second is what every run configures.
+
+- [x] **override one method, keep everything else (§3).** `Rosame26Trainer`
+      subclasses `Rosame26Goal` and re-expresses `train` and `_run_training` only.
+      The **two gating sites** survive as one `solving = is_mip_epoch(epoch, ...)`
+      evaluated once per epoch and read at both, so they cannot drift apart;
+      `clear()` still runs once per epoch, unconditionally, at the head.
+- [x] **pin the run-level settings explicitly (§1.3).** `UPSTREAM_PARAMETERS` is
+      §6's table verbatim; `default_parameters` layers the four starred
+      deviations on top and `DEVIATING_PARAMETERS` names them. `select_device`
+      is cuda-else-cpu with **MPS excluded**. **Augmentation is not ported** —
+      not disabled by a flag but absent from the module, which is why the test
+      for it is a namespace assertion: the five transform classes hard-assert
+      layouts our renders lack, so they raise rather than corrupt and cannot be
+      caught behaviourally.
+- [x] **batching built for any N (§1.1).** `resolve_batch_size` is upstream's own
+      `min(batch_size, N)` and raises on an empty fold. `build_loader` seeds the
+      shuffle explicitly — the FIFO `TraceSelector` fills from the first batches,
+      so an unseeded order silently changes which traces the MILP ever sees. The
+      `num_workers=64, prefetch_factor=8, persistent_workers=True` settings are
+      **not** copied (§8 13).
+- [x] **length-aware `ROSAMEGoal` subclass (§6.1a, §8 4c).** `LengthMaskedLossMixin`
+      over two masks — `live_action_steps` (`t <= L`, the rows of `a`/`a_logit`)
+      and `live_prefix_steps` (`t < L`, `loss_pred`'s transitions) — plus
+      `total_action_steps` (`sum(L)+B`) as the normaliser. `ObservedActionMixin`
+      is separate and wraps rather than reimplements `Net.forward`, so **dropping
+      a mixin is literally option A**.
+- [x] **gate 2, extended.** Gate 2a in `test_vendor_net_contract.py`: five tests
+      comparing `Rosame26Goal` against the vendored `ROSAMEGoal` value-for-value
+      — `torch.equal` on all five reported terms for a homogeneous batch, with
+      `lengths` omitted, and in the MILP-labelled regime; then the same pair
+      *differing* on a ragged batch, so the identity is not a property of an
+      unexercised path. 4c is confined, provably, to the ragged case.
+
+**What Phase 3 corrects in the plan.** §6.1a reads as though both endpoints need
+gathering. They do not: under right-padding `loss_app` needs **no** mask at all
+(its first and last terms are already per-row correct and the padded rows of `a`
+are zero), and `loss_pred` needs **two** halves of one fix rather than one —
+stopping the prefix at `t < L` *and* gathering the anchor at `t == L`. The gap on
+a short row is therefore not just "the lost γ anchor": upstream both misses the
+anchor (reading `a[:, -1]`, which padding has zeroed) *and* charges step `L`
+against `z[:, L]`, interior zero filler. `test_the_ragged_gap_is_step_l_being_scored_against_the_wrong_target`
+pins both halves. This was found by the test failing, not by re-reading the plan.
+
+**Two decisions taken here, not in the plan.** The MILP is an *injected*
+`MipRepairer` Protocol collaborator, `None` meaning DL-only — and `_run_training`
+raises **before epoch 0** if the schedule would solve without one, rather than
+discovering it at epoch 50. And `self.evaluate` is not called: it reaches
+`compute_permutation` → `model_permutation`, which §0.1 forbids, and builds a
+`Convertor` the arm does not use (§6.1). `resume()` raises `NotImplementedError`.
+
+63 new tests (27 model, 36 harness) plus gate 2a's 5; full suite **825 passed, 1
+skipped**. Mutation-checked at **16/16 killed** across both modules, with gate 2a
+among the killers for six — including both normaliser mutants, which nothing else
+catches.
 
 ### Phase 4 — `rosame_i_26`, DL-only, one blocksworld fold
 

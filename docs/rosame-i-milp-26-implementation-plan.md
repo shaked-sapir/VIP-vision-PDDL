@@ -1147,6 +1147,27 @@ whose traces all share one `T`, the masked loss returns values bit-identical to 
 That confines the deviation, provably, to the ragged case upstream never has. Registered as §8
 item 4c.
 
+#### 6.1a′ What Phase 3 corrected in the section above
+
+Implemented and gated (`src/milp/rosame26_model.py`, gate 2a). Two things above are wrong about
+*which* terms move, though not about the decision.
+
+* **`loss_app` needs no mask at all.** "The two γ=10 endpoint terms are read at fixed indices" is
+  true of both, but only one of them is *wrong* under right-padding. `loss_first = a[:, 0, :] @ ...`
+  reads index 0, which is live for every trace regardless of length, and `loss_app`'s suffix over
+  `a[:, 1:]` self-masks on the zero rows. Right-padding leaves `loss_app` correct as written; only
+  `loss_pred`'s anchor at `[:, -1]` lands in padding. Left-padding would have been the mirror
+  image — which is the section's real point, and it stands.
+* **`loss_pred` needs two changes, not one.** Gathering the anchor at `a[:, L]` is half the fix.
+  The other half is stopping the prefix at `t < L`: upstream's prefix runs to `t = T_max - 1`, so
+  for a short trace step `L` is charged as an ordinary transition against `z[:, L]` — interior zero
+  filler — and never as the anchor it actually is. The per-row gap between the two losses is
+  therefore `γ·anchor(L) − filler(L)`, not `γ·anchor(L)`.
+
+Found by `test_the_ragged_gap_is_step_l_being_scored_against_the_wrong_target` failing against an
+oracle written from this section. Both masks are now named: `live_action_steps` (`t <= L`, the rows
+of `a` / `a_logit`) and `live_prefix_steps` (`t < L`, `loss_pred`'s transitions).
+
 **Two silent-failure paths in the extractor, both worth an assertion:**
 
 * **Action fallback.** `extract_sol_label` scans for the first action variable true at step `t`
@@ -1230,13 +1251,18 @@ whole point of the exercise.
     (§0.1). Retained for the `mip_gt_dist` diagnostic only.
 4b. Pseudo-labels padded and masked to a uniform horizon, since `extract_sol_label` sizes its
     outputs from a single `max_t` (§6.1).
-4c. **`ROSAMEGoal.loss` subclassed to be length-aware** (§6.1a): the two γ=10 endpoint terms
-    gathered at per-trace indices instead of `[:, 0]` / `[:, -1]`, `weight_mask_a` and the
+4c. **`ROSAMEGoal.loss` subclassed to be length-aware** (§6.1a, §6.1a′) — **DONE**,
+    `LengthMaskedLossMixin` in `src/milp/rosame26_model.py`: `loss_pred`'s γ=10 goal anchor
+    gathered at `a[:, L]` *and* its prefix stopped at `t < L`, `weight_mask_a` and the
     `loss_pseudo_s` rows zeroed past each trace's end, and the normaliser taken over true rather
-    than padded steps. Forced by 4b — without it, right-padding deletes the goal anchor for every
-    short trace and `loss_pseudo_a` trains the action head on filler at full weight. Bounded by a
-    gate-2 test asserting bit-identical values to the vendored loss on a length-homogeneous batch,
-    so the deviation is confined to the ragged case upstream does not have.
+    than padded steps. `loss_app` is left exactly as vendored — under right-padding its `[:, 0]`
+    endpoint is already per-row correct (§6.1a′ corrects §6.1a, which implied both endpoints
+    moved). Forced by 4b — without it, right-padding deletes the goal anchor for every short
+    trace, scores that step against zero filler instead, and `loss_pseudo_a` trains the action
+    head on filler at full weight. Bounded by **gate 2a**, asserting bit-identical values to the
+    vendored loss on a length-homogeneous batch — in both `loss_pseudo_a` regimes and with
+    `lengths` omitted — and *differing* values on a ragged one, so the deviation is confined to
+    the ragged case upstream does not have.
 5. Per-domain image augmentation (`BlocksworldPilePermute`, `RoomBallPermute`, `ItemPermute`)
    **not ported** — each hard-asserts a render layout ours does not have, so they are inapplicable
    rather than switched off (§3). Upstream therefore trains its `blocks` / `gripper` / `logistics`
@@ -1418,7 +1444,7 @@ In order, each cheap and each falsifiable:
 | 1 | ~~Vendor `dl/` + `convertor/` + `util/model_perm.py`; generate all five specs and `pddl/<domain>/domain.pddl` assets (§5, §2.1); import-only smoke test; write parity tests §9.1–9.3 against the vendored code, before the adapter exists~~ — **DONE**, 143 tests over six new files, plus a **third asset family** §5 did not anticipate (§5) and an **argument reordering** the plan did not have (§4.2b). Gate §9.3 is **two of its four obligations**: the other two need the Phase-2 adapter and move to Phase 2. Suite 581 passed / 1 skipped, from a 432 baseline | low — done |
 | **1½** | ~~PIN §4.2a — one grounding or per-problem groundings~~ — **DONE. One `Instance` over the `data_dir` union, as upstream.** Equivalence gate written, run and green (`src/milp/test_grounding_scope_equivalence.py`). Phases 2–6 unblocked | low — done |
 | 2 | ~~Data adapter (fold → their contract, §4.1–4.4) — must pass §9.1. Also inherits four items from Phase 1: the **head-argument permutation** (§4.2b), the two §9.3 obligations that need an adapter, the run-scoped **grounding assets** (§5), and the **phantom-inertness re-check** (§4.2a)~~ — **DONE, 2.1–2.5.** Fold walk shared (`image_fold_inputs.py`), head↔CP alignment (`head_alignment.py`), tensor contract (`trace_tensors.py`), fold adapter (`rosame26_data.py`); gate §9.1 repointed at the shared `interior_frame_count` instead of restating it. Inertness re-checked as a **sweep over the whole emittable range** rather than one head's outputs, which **corrected §4.2a** (§4.2a′): zero objective cost, not a constant offset. Two bugs only a real cell found (§8 7a, 11c). The two §9.3 obligations move on to Phase 5. Suite 757 passed / 1 skipped, from a 432 baseline | done |
-| 3 | Harness replacement (§3) — must pass §9.2 | medium |
+| 3 | ~~Harness replacement (§3) — must pass §9.2~~ — **DONE.** `src/milp/rosame26_model.py` (`ObservedActionMixin` + `LengthMaskedLossMixin` → `Rosame26Goal`; dropping a mixin *is* option A) and `src/milp/rosame26_training.py` (`Rosame26Trainer`, overriding `train` / `_run_training` only; §6 parameters pinned, augmentation absent rather than disabled, MILP injected as a `MipRepairer` collaborator that must be present *before* epoch 0 if the schedule solves). §9.2 passes, **extended by gate 2a** — bit-identity on homogeneous batches, difference on ragged ones. **Corrected §6.1a** (§6.1a′): `loss_app` needs no mask, and `loss_pred` needs two changes rather than one. 68 tests, 16/16 mutants killed; suite 825 passed / 1 skipped | done |
 | 4 | DL-only arm (`ROSAME-I_26`), one blocksworld fold | low |
 | 5 | Turn the MILP on (`ROSAME-I_MILP_26`) with `src/milp/encoder.py` (§6.1), one fold, verify `mip_gt_dist` logs — must pass §9.3 | medium |
 | 6 | Full grid across 5 domains via backfill | compute only |
