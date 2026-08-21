@@ -208,6 +208,75 @@ def format_action(
     )
 
 
+class DegenerateModelError(RuntimeError):
+    """A learned model with no add and no delete effect anywhere (gate 4).
+
+    Such a model is not a weak model, it is an empty one: no action changes any
+    state, so every plan of length > 0 is unsound and every solving score is 0.
+    The ICAPS-24 arm reached exactly this on several cells and it went unnoticed
+    for a whole grid, so the ICAPS-26 arm raises instead of reporting a row.
+    """
+
+
+def effect_counts(text: str) -> Dict[str, int]:
+    """``{action: number of effect literals}`` for an emitted domain string.
+
+    Counts syntactically, on the emitter's own one-line ``:effect`` form, so the
+    guard does not depend on a PDDL parser accepting the model it is guarding.
+    """
+    counts: Dict[str, int] = {}
+    name = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("(:action "):
+            name = stripped[len("(:action ") :].strip()
+        elif stripped.startswith(":effect") and name is not None:
+            counts[name] = _top_level_literals(stripped[len(":effect") :].strip())
+            name = None
+    return counts
+
+
+def _top_level_literals(conjunction: str) -> int:
+    """How many literals an ``(and ...)`` block holds, negations counted once.
+
+    Depth is tracked rather than parentheses counted, so ``(not (p ?x0))`` is
+    one literal and an empty ``(and )`` is zero.
+    """
+    depth = 0
+    literals = 0
+    for character in conjunction:
+        if character == "(":
+            depth += 1
+            if depth == 2:
+                literals += 1
+        elif character == ")":
+            depth -= 1
+    return literals
+
+
+def check_not_degenerate(text: str) -> Dict[str, int]:
+    """Raise unless some action of ``text`` has at least one effect (gate 4).
+
+    Returns:
+        The per-action effect counts, so a caller can log them.
+
+    Raises:
+        DegenerateModelError: if every action's effect block is empty.
+    """
+    counts = effect_counts(text)
+    if not counts:
+        raise DegenerateModelError(
+            "the emitted domain carries no action at all; nothing was learned"
+        )
+    if not any(counts.values()):
+        raise DegenerateModelError(
+            f"every one of the {len(counts)} learned schemas has an empty effect "
+            f"block, so no action changes any state; this is the empty-effects "
+            f"collapse, not a weak model"
+        )
+    return counts
+
+
 def emit_pddl(domain_model: object, bench: str) -> str:
     """The trained ``domain_model`` as a PDDL domain in ``bench``'s own order.
 

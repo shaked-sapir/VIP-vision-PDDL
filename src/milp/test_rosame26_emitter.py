@@ -36,6 +36,9 @@ from src.milp.domain_assets import (
 from src.milp.rosame26_emitter import (
     ADD_EFFECT_CLASS,
     DELETE_EFFECT_CLASS,
+    DegenerateModelError,
+    check_not_degenerate,
+    effect_counts,
     emit_pddl,
     format_signature,
     parameter_names,
@@ -473,6 +476,106 @@ class TestTheRepresentationHasACeiling:
                 "unload": [("clear", "?p")],
             }
         }
+
+
+class TestGateFourTheDegenerateModelGuard:
+    """A model whose every schema has an empty effect block must raise.
+
+    This is the ICAPS-24 empty-effects collapse: not a weak model but an empty
+    one, in which no action changes any state, so every solving score is 0 for a
+    structural reason no metric names. It went unnoticed for a whole grid.
+    """
+
+    @pytest.mark.parametrize("domain_key", BENCH_DOMAINS)
+    def test_a_reference_model_passes(self, domain_key, tmp_path) -> None:
+        model = _head(domain_key, tmp_path)
+        _plant_reference_semantics(model, domain_key)
+        counts = check_not_degenerate(emit_pddl(model, domain_key))
+
+        assert all(count > 0 for count in counts.values()), counts
+
+    @pytest.mark.parametrize("domain_key", BENCH_DOMAINS)
+    def test_an_all_neutral_head_raises(self, domain_key, tmp_path) -> None:
+        model = _head(domain_key, tmp_path)
+        _neutralise(model)
+        with pytest.raises(DegenerateModelError, match="empty-effects collapse"):
+            check_not_degenerate(emit_pddl(model, domain_key))
+
+    @pytest.mark.parametrize("domain_key", BENCH_DOMAINS)
+    def test_a_precondition_only_head_still_raises(
+        self, domain_key, tmp_path
+    ) -> None:
+        """Preconditions are not effects; a model of pure guards is degenerate."""
+        model = _head(domain_key, tmp_path)
+        for schema in model.action_schemas:
+            width = schema.randn.shape[0]
+            schema.forward = (  # type: ignore[method-assign]
+                lambda width=width: torch.nn.functional.one_hot(
+                    torch.full((width,), 2, dtype=torch.long), num_classes=4
+                ).float()
+            )
+        with pytest.raises(DegenerateModelError, match="empty-effects collapse"):
+            check_not_degenerate(emit_pddl(model, domain_key))
+
+    def test_one_surviving_effect_is_enough(self, tmp_path) -> None:
+        model = _head("blocksworld", tmp_path)
+        _neutralise(model)
+        schema = model.action_schemas[0]
+        width = schema.randn.shape[0]
+        rows = torch.zeros(width, dtype=torch.long)
+        rows[0] = ADD_EFFECT_CLASS
+        schema.forward = (  # type: ignore[method-assign]
+            lambda rows=rows: torch.nn.functional.one_hot(rows, num_classes=4).float()
+        )
+
+        assert sum(check_not_degenerate(emit_pddl(model, "blocksworld")).values()) == 1
+
+    def test_a_domain_with_no_action_raises(self) -> None:
+        with pytest.raises(DegenerateModelError, match="no action at all"):
+            check_not_degenerate("(define (domain d) (:predicates (p ?x0 - t)))")
+
+
+class TestEffectCounts:
+    def test_a_negation_counts_once(self) -> None:
+        text = (
+            "    (:action a\n"
+            "        :parameters (?x0 - t)\n"
+            "        :precondition (and (p ?x0))\n"
+            "        :effect (and (not (p ?x0)) (q ?x0))\n"
+            "    )"
+        )
+        assert effect_counts(text) == {"a": 2}
+
+    def test_an_empty_block_counts_zero(self) -> None:
+        text = (
+            "    (:action a\n"
+            "        :parameters (?x0 - t)\n"
+            "        :precondition (and (p ?x0))\n"
+            "        :effect (and )\n"
+            "    )"
+        )
+        assert effect_counts(text) == {"a": 0}
+
+    def test_preconditions_are_not_counted(self) -> None:
+        text = (
+            "    (:action a\n"
+            "        :parameters (?x0 - t)\n"
+            "        :precondition (and (p ?x0) (q ?x0) (r ?x0))\n"
+            "        :effect (and )\n"
+            "    )"
+        )
+        assert effect_counts(text) == {"a": 0}
+
+
+def _neutralise(domain_model) -> None:
+    """Pin every schema head to the neutral class."""
+    for schema in domain_model.action_schemas:
+        width = schema.randn.shape[0]
+        schema.forward = (  # type: ignore[method-assign]
+            lambda width=width: torch.nn.functional.one_hot(
+                torch.zeros(width, dtype=torch.long), num_classes=4
+            ).float()
+        )
 
 
 def _vendored_signatures(text: str) -> Dict[str, List[str]]:

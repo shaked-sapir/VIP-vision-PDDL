@@ -20,6 +20,7 @@ from benchmark.baselines.rosame_i_runner import (
     RosameIBaselineRunner,
     _RESIZE_FROM_TABLE as RESIZE_FROM_TABLE,  # sentinel: use the per-domain table
 )
+from benchmark.baselines.rosame26_runner import Rosame26BaselineRunner
 from benchmark.baselines.rosame_i_milp_runner import RosameIMilpRunner
 from benchmark.baselines.rosame_milp_runner import (
     RosameMilpRunner,
@@ -30,6 +31,7 @@ from benchmark.baselines.rosame_milp_runner import (
 BASELINE_REGISTRY: Dict[str, List[Type[BaselineRunner]]] = {
     "rosame_24": [RosameBaselineRunner],
     "rosame_i_24": [RosameIBaselineRunner],
+    "rosame_i_26": [Rosame26BaselineRunner],
     "rosame_i_milp_24": [RosameIMilpRunner],
     "rosame_milp_24": [RosameMilpRunner],
     "rosame_milp_24_tag": [RosameMilpTagRunner],

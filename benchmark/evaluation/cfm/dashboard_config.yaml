@@ -60,6 +60,14 @@ results_dashboard:
       modes: [image]
     - key: ROSAME-I_MILP_24  # image baseline, ROSAME-I with MILP pseudo-labels
       modes: [image]
+    - key: ROSAME-I_26  # image baseline, the ICAPS-26 network, DL-only
+      modes: [image]
+    # Gate 7's budget-control arm: the ICAPS-26 code default of 5000 epochs, run
+    # outside the cell timeout so "underperforms at the grid budget" and
+    # "undertrained at it" stay distinguishable
+    # (rosame_i_26_fixing_PROCESS.md §4, Phase 4).
+    - key: ROSAME-I_26__ep=5000
+      modes: [image]
     # Off-default input resolution, emitted by --resize 224 on either image arm
     # (see benchmark/baselines/rosame_i_runner.py:_resize_suffix). Registered
     # ahead of the depot legibility ablation so the series renders the first
