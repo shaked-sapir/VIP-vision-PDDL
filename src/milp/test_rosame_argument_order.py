@@ -22,9 +22,10 @@ so the 24 arms never see the reordering and the 26 arms always do. That is why
 ``benchmark/algorithm_adapters/test_check_predicate.py`` passes without a
 permutation step and this file exists separately.
 
-**Phase-2 obligation.** The adapter must map CP proposition index to DL head
-index through :func:`rosame_argument_permutation`. A head aligned by name alone
-would silently mis-associate arguments on four of our five domains.
+The reconciliation itself is :mod:`src.milp.head_alignment`, tested in
+``test_head_alignment.py``; this file only pins the disagreement it exists to
+absorb. A head aligned by predicate name alone mis-associates arguments on four
+of our five domains.
 """
 
 from __future__ import annotations

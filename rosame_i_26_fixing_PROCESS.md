@@ -42,10 +42,14 @@ all five domains, `ROSAME-I_MILP_24` barely at all, for a reason that checks out
 decided and its equivalence gate run and green, which unblocks Phase 2. Phase 2
 is under way: **2.1 done** (the fold walk extracted to
 `benchmark/baselines/image_fold_inputs.py`, now returning both GT endpoint
-states), 2.2–2.5 scoped and not started. 163 new tests; full suite **594 passed,
-1 skipped** from a 432-passed baseline. Two Phase-1 findings amend the plan —
-see §6 — and one more found while scoping Phase 2: the padded loss (plan §6.1a,
-§8 4c).
+states) and **2.2 done** (`src/milp/head_alignment.py`, CP index → DL head index
+through `rosame_argument_permutation`, mutation-checked on all five domains);
+2.3–2.5 scoped and not started. 208 new tests; full suite **639 passed, 1
+skipped** from a 432-passed baseline. Two Phase-1 findings amend the plan — see
+§6 — and two more found since: the padded loss while scoping Phase 2 (plan
+§6.1a, §8 4c), and, in 2.2, that the align-by-name bug is a loud miss rather
+than a silent mis-hit on our five domains, and that the ICAPS-24 arms were never
+exposed to it.
 
 ---
 
@@ -557,17 +561,70 @@ dashboard rebuild landed first, so Phase 4 has a settled 24 baseline to point at
       `problem1` carries 2 frames for 1 action, so its `T = N-1 = 0` and it is
       the trace §8 item 11b says the 26 arm must drop.
 
-**2.2 — head↔CP index alignment.**
+**2.2 — head↔CP index alignment.** ← **DONE**
 
-- [ ] **head alignment through `rosame_argument_permutation`** — new, §6.2 below.
+- [x] **head alignment through `rosame_argument_permutation`** — new, §6.2 below.
       Not in the plan. Map CP proposition index → DL head index; aligning by
       predicate name alone is silently wrong on depot, gripper, hanoi and
       npuzzle. Gate 3 shows why this cannot be caught downstream:
       `trans_full_state` zips positionally, so a permuted vector of the right
       width produces the wrong propositions and no error
-- [ ] tested on all five domains, with a **mutation check** — perturb the map and
+
+      `src/milp/head_alignment.py`. `head_key(name, args, types)` is the
+      primitive — args in PDDL order out as the head's space-joined key —
+      and `proposition_head_indices` / `action_head_indices` lift it to a whole
+      grounding, returning CP index → head index. Both **raise** rather than
+      skip, on a size mismatch, on a key the head lacks, and on a collision;
+      `invert` gives the other direction and raises unless the map is a
+      bijection. Actions are covered as well as propositions, because §2.3's
+      `action_traces` is one-hot in head order.
+
+- [x] tested on all five domains, with a **mutation check** — perturb the map and
       assert the test fails. blocksworld has permutation 0 and would pass a broken
       implementation
+
+      `src/milp/test_head_alignment.py`, 45 tests. The DL side is the real
+      vendored `Domain_Model` via `get_domain_model`, not a reimplementation of
+      its ordering rule. Bijectivity alone would be satisfied by *any*
+      permutation, so `test_the_aligned_head_key_names_the_same_objects` also
+      pins that each CP proposition lands on the column holding its own objects.
+      The mutation is `rosame_argument_permutation` monkeypatched to the
+      identity — exactly the align-by-name bug — and it raises on all four
+      reordering domains; `test_blocksworld_cannot_detect_the_mutation` pins the
+      converse so the parametrisation is never trimmed back to blocksworld.
+      Beyond the synthetic universe, `TestOnARealObjectUnion` runs the whole
+      alignment over the real object union of the checked-in depot and
+      blocksworld cells, where object names are arbitrary rather than named
+      after their type.
+
+**Two findings from 2.2, both worth recording.**
+
+*The align-by-name bug is loud on our domains, not silent.* Measured, propositions
+then actions, on two objects per leaf type:
+
+| domain | propositions | actions |
+|---|---|---|
+| blocksworld | 9/9 correct | 8/8 correct |
+| depot | 30/42, 12 miss | 0/84, 84 miss |
+| gripper | 12/12 correct | 2/18, 16 miss |
+| hanoi | 12/16, 4 miss | 8/12, 4 miss |
+| npuzzle | 4/8, 4 miss | 0/4, 4 miss |
+
+Every failure is a **miss**, never a wrong hit — on the real depot and
+blocksworld unions too. Our five domains declare disjoint types, so a mis-ordered
+tuple is not type-valid and the head simply has no such key. That is a property
+of these domains, not of the scheme, and it does not make name alignment safe: a
+wrong tuple that happened to be type-valid would decode silently, and even a miss
+only reaches `cv_predictions_to_trace`'s `unmapped` counter, which **warns and
+defaults the column to 0.5**.
+
+*The ICAPS-24 arms carry no defect from this.* Worth stating explicitly, because
+the reordering would otherwise implicate already-reported `ROSAME-I_MILP_24`
+numbers on four of five domains. AMLGym's fork carries the sort commented out and
+recovers PDDL order by accident of dict insertion order, and
+`benchmark/algorithm_adapters/test_check_predicate.py` pins the identity
+round-trip on all five domains — 19 passed. No permutation step is needed there,
+and none was silently missing.
 
 **2.3 — the adapter.**
 
