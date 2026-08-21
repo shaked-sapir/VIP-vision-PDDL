@@ -39,6 +39,7 @@ from benchmark.baselines.rosame_i_runner import (
     _RESIZE_FROM_TABLE,
     _resize_tag,
 )
+from src.milp.rosame26_budget import PER_EPOCH_DL_SECONDS
 
 #: Epochs per domain, before the §1.2 pre-flight is allowed to lower it. 5000 is
 #: the ICAPS-26 code default and is what gate 7 measures against *outside* the
@@ -55,6 +56,11 @@ _EPOCHS: Dict[str, int] = {
     "gripper": 600,
     "depot": 600,
 }
+
+#: Epochs the timing probe runs before the budget is re-projected (§1.2). Small
+#: enough to be a rounding error against the budget, large enough that build and
+#: first-batch overhead do not dominate the per-epoch figure it yields.
+_PROBE_EPOCHS: int = 20
 
 #: Image resize, as the 24 arm's table. Kept equal to it on purpose: resolution
 #: is one of the eight movable factors, and holding it fixed is what keeps the
@@ -216,6 +222,86 @@ class Rosame26BaselineRunner(BaselineRunner):
         )
         return projection.max_epochs, report
 
+    def _reprojected_epochs(
+        self,
+        bench: str,
+        fold: object,
+        epochs: int,
+        timeout_seconds: float,
+        run_dir: Path,
+    ) -> Tuple[int, Dict]:
+        """Time a short probe and re-project the budget against it (§1.2).
+
+        The seeded per-epoch constant is one domain's, and the domains differ by
+        roughly 2x, so it is slack by up to ~2.6x — the right direction for a
+        refuse-to-start guard, the wrong one for an epoch budget. Timing
+        :data:`_PROBE_EPOCHS` on this fold recovers the difference without a
+        per-domain table.
+
+        The probe is thrown away rather than continued: the trainer builds its
+        own network per run and continuing one would mean a partially-trained
+        seed 0, which the lowest-final-loss selection would then compare against
+        fully-trained peers.
+
+        Returns:
+            ``(epochs, probe report)``. The count is only ever *raised* — a
+            probe that finds the run more expensive than projected leaves the
+            already-conservative count alone rather than shrinking a budget the
+            pre-flight has agreed to.
+        """
+        from src.milp.rosame26_budget import reproject
+        from src.milp.rosame26_training import Rosame26Trainer, default_parameters
+
+        if not self.respect_budget or epochs >= self._resolve_epochs(bench):
+            return epochs, {"ran": False, "reason": "budget not binding"}
+
+        start = time.perf_counter()
+        try:
+            parameters = default_parameters(
+                domain=bench,
+                domain_assets_root=fold.grounding.assets_root,
+                epoch=_PROBE_EPOCHS,
+                batch_size=self.batch_size,
+                pre_mip_epoch=_PROBE_EPOCHS,
+                device=self.device,
+                seed=self.base_seed,
+            )
+            Rosame26Trainer(
+                run_dir / "probe", parameters, mip_repairer=None
+            ).train(fold.batch)
+        except Exception as error:  # a probe failure is not a cell failure
+            print(f"  [ROSAME-I 26] probe failed, keeping {epochs} epochs: {error}")
+            return epochs, {"ran": False, "reason": str(error)}
+        measured = time.perf_counter() - start
+
+        projection = reproject(
+            epochs=self._resolve_epochs(bench),
+            measured_seconds=measured,
+            measured_epochs=_PROBE_EPOCHS,
+            pre_mip_epoch=self._resolve_epochs(bench),
+            mip_interval=1,
+            timeout_seconds=timeout_seconds,
+            elapsed_seconds=measured * self.n_seeds,
+            n_seeds=self.n_seeds,
+        )
+        probe = {
+            "ran": True,
+            "probe_epochs": _PROBE_EPOCHS,
+            "probe_seconds": measured,
+            "measured_per_epoch": measured / _PROBE_EPOCHS,
+            "seeded_per_epoch": PER_EPOCH_DL_SECONDS,
+            "reprojected_epochs": projection.max_epochs,
+        }
+        if projection.max_epochs <= epochs:
+            return epochs, probe
+
+        print(
+            f"  [ROSAME-I 26] probe: {measured / _PROBE_EPOCHS:.3f} s/epoch "
+            f"against the seeded {PER_EPOCH_DL_SECONDS:.3f}; raising "
+            f"{epochs} epochs to {projection.max_epochs}"
+        )
+        return projection.max_epochs, probe
+
     # ---------------------------------------------------------------- learn
 
     def learn(
@@ -281,6 +367,12 @@ class Rosame26BaselineRunner(BaselineRunner):
             "action_dim": len(fold.grounding.action_index),
             "timeout_seconds": timeout_seconds,
         }
+
+        epochs, probe = self._reprojected_epochs(
+            bench, fold, epochs, timeout_seconds, run_dir
+        )
+        report["epochs"] = epochs
+        report["budget"] = dict(budget, probe=probe)
 
         seed_losses: Dict[int, float] = {}
         seed_models: Dict[int, str] = {}

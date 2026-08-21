@@ -18,6 +18,16 @@ the epoch count that would fit. Refusing before epoch 0 rather than discovering
 it at epoch 4000 is the whole point: the operator is told what to override
 before burning a grid, not after.
 
+§1.2 also asks for the estimate to be **re-projected once against a measurement
+of the run itself**, and :func:`reproject` is that. The seeded constants are one
+domain's, and the domains differ by roughly 2x — measured at 131 epochs x 3
+seeds against one 480 s budget, blocksworld took 185 s, depot 231 s and hanoi
+360 s, tracking grounding width (36/50, 49/122, 55/120 propositions/actions).
+So the seeded projection is slack by 1.3x-2.6x, which is the right direction for
+a refuse-to-start guard and the wrong one for an epoch budget: it costs real
+epochs on the cheap domains. Timing a short probe and re-projecting recovers
+them without needing a per-domain table nobody would maintain.
+
 ``per_solve`` is **measured**, not ``mip_time_limit``. Projecting from the cap
 refuses ``epochs > 60`` on a configuration that in fact finishes in a tenth of
 the budget, which would make the check unusable — see :data:`PER_SOLVE_SECONDS`.
@@ -168,6 +178,51 @@ def check_budget(
             else ""
         )
         + ", or run this cell outside the timeout as a control."
+    )
+
+
+def reproject(
+    *,
+    epochs: int,
+    measured_seconds: float,
+    measured_epochs: int,
+    pre_mip_epoch: int,
+    mip_interval: int,
+    timeout_seconds: float,
+    elapsed_seconds: float = 0.0,
+    n_seeds: int = 1,
+    per_solve: float = PER_SOLVE_SECONDS,
+    headroom: float = BUDGET_HEADROOM,
+) -> Projection:
+    """:func:`project` again, with the DL cost measured on this run (§1.2).
+
+    Args:
+        epochs: The count currently planned.
+        measured_seconds: Wall clock the probe took.
+        measured_epochs: Epochs the probe ran. Must be positive.
+        elapsed_seconds: What the run has already spent, the probe included;
+            deducted from the budget so the re-projection is against what is
+            left rather than against the whole cell.
+
+    Raises:
+        ValueError: if ``measured_epochs`` is not positive.
+    """
+    if measured_epochs < 1:
+        raise ValueError(
+            f"a probe must run at least one epoch, got {measured_epochs}"
+        )
+    remaining = max(timeout_seconds * headroom - elapsed_seconds, 0.0)
+    # `project` applies the headroom itself, so hand it a timeout that survives
+    # the multiplication as the budget already left.
+    return project(
+        epochs=epochs,
+        pre_mip_epoch=pre_mip_epoch,
+        mip_interval=mip_interval,
+        timeout_seconds=max(remaining / headroom, 1e-9),
+        n_seeds=n_seeds,
+        per_solve=per_solve,
+        per_epoch_dl=measured_seconds / measured_epochs,
+        headroom=headroom,
     )
 
 

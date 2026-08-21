@@ -1037,7 +1037,23 @@ blocksworld took 185 s, depot 231 s, hanoi 360 s. So the constant overestimates
 blocksworld by ~2.6x and hanoi by only ~1.3x, and the difference tracks the
 grounding width (blocksworld 36 propositions / 50 actions, hanoi 55 / 120). The
 guard errs slack, which is the right direction, but a per-domain estimate would
-buy back real epochs — worth doing before the Phase 6 grid, not before gate 7.
+buy back real epochs.
+
+Fixed rather than deferred, and by §1.2's own prescription rather than by a
+per-domain table nobody would maintain: `rosame26_budget.reproject` plus a
+20-epoch timing probe in the runner. The probe measures *this* fold on *this*
+machine and re-projects the remaining budget against it. It only ever **raises**
+the count — lowering a budget the pre-flight has already agreed to, on the
+strength of a 20-epoch sample, is the wrong way round — and it does not run at
+all when the budget did not bind or for a gate-7 control cell.
+
+One thing the probe does **not** establish, and should not be read as
+establishing: the 0.47 s/epoch figure above was measured on a quiet machine and
+the probe measures the machine as it actually is. Those are different quantities
+and the second is the right one for a budget, but it means the probe's raise
+will be smaller on a loaded machine than the table above suggests. A probe run
+against a concurrent gate-7 job measured 1.042 s/epoch — barely under the seeded
+1.216 — and correctly declined to raise anything.
 
 **Phase 4 is not an architecture comparison unless what else moved is stated.**
 A 24→26 delta has eight candidate causes and only the first is the one people

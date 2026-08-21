@@ -19,6 +19,7 @@ from benchmark.baselines import BASELINE_REGISTRY, get_baselines
 from benchmark.baselines.base_runner import BaselineRunner
 from benchmark.baselines.rosame26_runner import (
     _EPOCH_DEFAULT,
+    _PROBE_EPOCHS,
     _EPOCHS,
     _RESIZE,
     _RESIZE_DEFAULT,
@@ -171,6 +172,51 @@ class TestTheBudgetPreflight:
         )
 
         assert model is None
+
+
+class TestTheTimingProbe:
+    """The probe only ever raises the count, and only when the budget binds.
+
+    Lowering it would shrink a budget the pre-flight has already agreed to on
+    the strength of a 20-epoch sample, which is the wrong way round: the seeded
+    constant is deliberately conservative, and a probe that happens to measure
+    high is not evidence enough to overrule it.
+    """
+
+    def test_it_does_not_run_when_the_budget_did_not_bind(self) -> None:
+        runner = Rosame26BaselineRunner(n_seeds=1)
+        epochs, probe = runner._reprojected_epochs(
+            "blocksworld", object(), _EPOCH_DEFAULT, 100000, Path("/nowhere")
+        )
+
+        assert epochs == _EPOCH_DEFAULT
+        assert probe["ran"] is False
+
+    def test_it_does_not_run_for_a_control_cell(self) -> None:
+        """Gate 7 opts out of the budget; there is nothing to re-project."""
+        runner = Rosame26BaselineRunner(
+            n_seeds=1, epochs=5000, respect_budget=False
+        )
+        epochs, probe = runner._reprojected_epochs(
+            "blocksworld", object(), 5000, 600, Path("/nowhere")
+        )
+
+        assert epochs == 5000
+        assert probe["ran"] is False
+
+    def test_a_probe_that_raises_is_not_a_cell_failure(self, tmp_path: Path) -> None:
+        """``fold`` is a bare object, so building the probe trainer will fail."""
+        runner = Rosame26BaselineRunner(n_seeds=1)
+        epochs, probe = runner._reprojected_epochs(
+            "blocksworld", object(), 50, 600, tmp_path
+        )
+
+        assert epochs == 50
+        assert probe["ran"] is False
+        assert probe["reason"]
+
+    def test_the_probe_is_short_against_any_budget_it_would_inform(self) -> None:
+        assert _PROBE_EPOCHS < _EPOCH_DEFAULT // 10
 
 
 class TestSeedSelection:

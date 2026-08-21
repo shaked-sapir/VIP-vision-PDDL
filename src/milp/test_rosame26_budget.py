@@ -21,6 +21,7 @@ from src.milp.rosame26_budget import (
     check_budget,
     project,
     projection_for,
+    reproject,
 )
 
 #: The cell timeout every arm in the grid gets (§1.2).
@@ -217,6 +218,77 @@ class TestHeadroom:
         )
         assert projection.budget == pytest.approx(CELL_TIMEOUT * BUDGET_HEADROOM)
         assert projection.budget < CELL_TIMEOUT
+
+
+class TestReprojection:
+    """§1.2's "re-project once against a measurement of the run itself".
+
+    The seeded constants are one domain's, and the domains differ by roughly 2x,
+    so a seeded projection is slack on the cheap ones. Timing a probe recovers
+    the epochs that slack costs.
+    """
+
+    def _kwargs(self, **overrides):
+        base = dict(
+            epochs=600,
+            measured_seconds=10.0,
+            measured_epochs=20,
+            pre_mip_epoch=600,
+            mip_interval=1,
+            timeout_seconds=600.0,
+            n_seeds=1,
+        )
+        base.update(overrides)
+        return base
+
+    def test_a_cheaper_measurement_allows_more_epochs(self) -> None:
+        seeded = project(
+            epochs=600, pre_mip_epoch=600, mip_interval=1, timeout_seconds=600
+        )
+        cheap = reproject(**self._kwargs(measured_seconds=20 * 0.4))
+
+        assert cheap.max_epochs > seeded.max_epochs
+
+    def test_a_dearer_measurement_allows_fewer(self) -> None:
+        seeded = project(
+            epochs=600, pre_mip_epoch=600, mip_interval=1, timeout_seconds=600
+        )
+        dear = reproject(**self._kwargs(measured_seconds=20 * 5.0))
+
+        assert dear.max_epochs < seeded.max_epochs
+
+    def test_time_already_spent_is_deducted(self) -> None:
+        fresh = reproject(**self._kwargs(elapsed_seconds=0.0))
+        spent = reproject(**self._kwargs(elapsed_seconds=200.0))
+
+        assert spent.max_epochs < fresh.max_epochs
+        assert spent.budget < fresh.budget
+
+    def test_spending_the_whole_budget_leaves_nothing(self) -> None:
+        spent = reproject(**self._kwargs(elapsed_seconds=10_000.0))
+
+        assert spent.max_epochs == 0
+
+    def test_seeds_still_multiply(self) -> None:
+        one = reproject(**self._kwargs(n_seeds=1))
+        three = reproject(**self._kwargs(n_seeds=3))
+
+        assert three.max_epochs < one.max_epochs
+
+    def test_reproducing_the_seeded_cost_reproduces_the_seeded_answer(self) -> None:
+        """The re-projection is the same formula, only the constant differs."""
+        seeded = project(
+            epochs=600, pre_mip_epoch=600, mip_interval=1, timeout_seconds=600
+        )
+        same = reproject(
+            **self._kwargs(measured_seconds=20 * PER_EPOCH_DL_SECONDS)
+        )
+
+        assert same.max_epochs == seeded.max_epochs
+
+    def test_a_zero_epoch_probe_raises(self) -> None:
+        with pytest.raises(ValueError, match="at least one epoch"):
+            reproject(**self._kwargs(measured_epochs=0))
 
 
 class TestProjectionForParameters:
