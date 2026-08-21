@@ -990,10 +990,28 @@ deletes `(clear ?p)`, neither of which either action requires — and no other
 domain has any. Emitting them costs one spurious precondition each; omitting
 them costs one delete effect each.
 
-This is a **ceiling on what the arm can score on depot however well it trains**,
-it is not closable by training, and it applies to the 24 arm as much as the 26
-one. Pinned as `test_only_depot_is_affected`, so it stays a known quantity rather
-than being rediscovered as "the 26 arm is weak on depot".
+Concretely, from `src/domains/depot.pddl`:
+
+    (:action load    :parameters (?c - crane ?p - package ?t - truck ?d - depot)
+        :precondition (at-crane ?c ?d) (at-truck ?t ?d) (holding ?c ?p)
+        :effect       ... (not (at ?p ?d))          <- (at ?p ?d) is not a precondition
+    (:action unload  :parameters (?c - crane ?p - package ?t - truck ?d - depot)
+        :precondition (at-crane ?c ?d) (at-truck ?t ?d) (empty-crane ?c) (in-truck ?p ?t)
+        :effect       ... (not (clear ?p))          <- (clear ?p) is not a precondition
+
+Class 3 welds "is a precondition" and "is deleted" into one indivisible choice,
+and there is no code path in `format_actions` that emits `(not (p ...))` without
+also emitting `(p ...)`. So the head must either take class 3 and pay **one
+spurious precondition**, or take class 1/0 and **lose the delete effect**. Either
+way one literal is wrong, per affected schema.
+
+Three things follow. It is a **ceiling on what either ROSAME arm can score on
+depot however well it trains** — a property of the action-schema representation,
+not of either network. It is worth **~0.018 precision** on depot (the 0.982 in
+the table above), and **nothing** on the other four. And it is therefore *not*
+an explanation for the ~0.23 depot gap between the two arms measured above;
+that still needs gate 7. Pinned as `test_only_depot_is_affected`, so it stays a
+known quantity rather than being rediscovered as "the 26 arm is weak on depot".
 
 **3. §1.2's epoch table was projected from a cheaper epoch than we have.**
 The plan projects ~700–750 epochs into a 600 s cell. Measured — CPU, 3-trace
@@ -1059,10 +1077,33 @@ read before passing `--experiment-dir`. The orphaned row has been removed.
 
 **The emission gate passes on real data, which is the point of running hanoi and
 depot at all.** hanoi's `move_peg_disc` emits `(?x0 - disc ?x1 - peg ?x2 - disc)`
-and every one of depot's seven schemas emits its GT signature. Under the
-vendored emitter those would have been the sorted permutations and all three
-metrics would have read ~0 — which on this evidence is exactly what would have
-been reported as "the 26 architecture does not work on depot or hanoi".
+and every one of depot's seven schemas emits its GT signature, so the scores
+above are the model's quality rather than an artefact of the file describing a
+different action.
+
+**And the cost is now measured, not asserted — the plan's "~0" is too strong.**
+Taking a *semantically perfect* model (the reference domain's own preconditions
+and effects planted into the head) and emitting it twice, once in GT order and
+once in the sorted order `extract_pddl` writes:
+
+| domain | reordered schemas | correct order | sorted order |
+|---|---|---|---|
+| blocksworld | 0/4 | 1.000 / 1.000 | 1.000 / 1.000 |
+| depot | 7/7 | 0.982 / 1.000 | **0.298 / 0.300** |
+| gripper | 2/3 | 1.000 / 1.000 | **0.464 / 0.464** |
+| hanoi | 1/4 | 1.000 / 1.000 | **0.818 / 0.818** |
+| npuzzle | 1/1 | 1.000 / 1.000 | **0.200 / 0.200** |
+
+The loss tracks the *fraction* of schemas that reorder, so it is fatal on npuzzle
+and depot, serious on gripper, a visible dent on hanoi, and nothing at all on
+blocksworld. §4.2b's "precision ≈ 0, recall ≈ 0" holds only for a domain that
+reorders every schema *and* whose literals all bind reordered arguments; use this
+table instead. The mechanism is `SimpleDomainReader.py:452`'s
+`for k, param in enumerate(params)`, which renames every parameter to
+`?param_<k>` by position and discards whatever name was written.
+
+(depot's 0.982 in the *correct* column is not a residual bug — it is the
+representational ceiling below.)
 
 **Read the deltas with the eight-factor table, not as an architecture result.**
 Both the precision gains are large and both arms still solve nothing. Two things
