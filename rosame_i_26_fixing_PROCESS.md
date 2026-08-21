@@ -48,14 +48,19 @@ through `rosame_argument_permutation`, mutation-checked on all five domains).
 tensors, fed through the real vendored `Net.forward`) and **2.4 done** with it —
 gate 1 now imports `interior_frame_count` instead of restating it. **2.3b done**
 (`benchmark/baselines/rosame26_data.py`, the fold-level half that touches disk),
-mutation-checked and run end to end on a real blocksworld cell. All that is left
-in Phase 2 is 2.5. 304 new tests; full suite **735 passed, 1 skipped** from a
-432-passed baseline. Two Phase-1 findings amend the plan — see §6 — and four
-more found since: the padded loss while scoping Phase 2 (plan §6.1a, §8 4c);
-in 2.2, that the align-by-name bug is a loud miss rather than a silent mis-hit
-on our five domains, and that the ICAPS-24 arms were never exposed to it; and in
-2.3b, the nullary trailing-space dialect gap (§8 11c) and the constant-pixel
-`std` floor (§8 7a), neither of which the unit tests found — the real cell did.
+mutation-checked and run end to end on a real blocksworld cell. **2.5 done** —
+the phantom-inertness re-check, run as a sweep over every value a head can emit
+rather than one head's outputs, which **corrects the plan**: the phantoms cost
+nothing in the objective, not the constant offset §4.2a predicted, and the cost
+lands in the disagreement count instead (plan §4.2a′). **Phase 2 is closed.**
+326 new tests; full suite **757 passed, 1 skipped** from a 432-passed baseline.
+Two Phase-1 findings amend the plan — see §6 — and five more found since: the
+padded loss while scoping Phase 2 (plan §6.1a, §8 4c); in 2.2, that the
+align-by-name bug is a loud miss rather than a silent mis-hit on our five
+domains, and that the ICAPS-24 arms were never exposed to it; in 2.3b, the
+nullary trailing-space dialect gap (§8 11c) and the constant-pixel `std` floor
+(§8 7a), neither of which the unit tests found — the real cell did; and in 2.5,
+the objective correction above.
 
 ---
 
@@ -478,6 +483,10 @@ therefore a decision, not an inherited default.
       contradiction the solver pays for, and it pays in the state objective,
       which is a reported number. **Re-run the inertness half of this gate on
       real head outputs in Phase 2**, once the adapter exists to produce them.
+      → **Done in 2.5, and the last sentence above is false.** It pays nothing
+      in the objective, at any confidence; the accounting is in the disagreement
+      count instead. Left standing as written, since it is what was believed at
+      the time — see 2.5 below for the correction and its arithmetic.
 - [x] ~~register the outcome in the deviation register (§8) if per-problem
       wins~~ — moot; per-problem was not chosen. What §8 *should* get instead is
       the opposite entry: that on our object-heterogeneous corpora the shared
@@ -491,7 +500,7 @@ therefore a decision, not an inherited default.
       against a 24-arm cell of `per problem, then surplus union columns dropped`.
       This bullet was left unticked; it describes work that had landed.
 
-### Phase 2 — the data adapter  ← **the real work**
+### Phase 2 — the data adapter  ← **the real work. DONE, 2.1 through 2.5.**
 
 Four scoping decisions taken before starting, all recorded below and in the plan
 doc: the fold walk is **extracted to a shared module** rather than duplicated;
@@ -719,9 +728,89 @@ head width equal to `n_props`, all finite.
       imports `interior_frame_count` from `src.milp.trace_tensors` instead of
       restating it. The gate keeps the *contract* (what `T` must be for the
       vendored shapes to line up); the arithmetic has one definition
-- [ ] re-run the **phantom-inertness** half of the Phase-1½ gate on real head
+- [x] re-run the **phantom-inertness** half of the Phase-1½ gate on real head
       outputs (§4.2a, §8 item 11a) — the symbolic result does not transfer,
-      because the head emits a sigmoid for `(clear e)` whether or not `e` exists
+      because the head emits a value for `(clear e)` whether or not `e` exists
+      ← **DONE**, and it found the plan wrong (22 tests, `src/milp/test_grounding_scope_equivalence.py`)
+
+The checklist said "on real head outputs". That would have settled the question
+for one head. Sweeping the phantom rows across the whole `[ε, 1−ε]` range
+`cv_predictions_to_trace` clamps into settles it for **any** head, needs no
+training run, and takes 2 s instead of 100 epochs. Seven values, and on every
+one of them the recovered model, the repaired states **and the objective** are
+identical to the ε baseline.
+
+**The objective is where the plan was wrong.** §4.2a predicted a phantom pulled
+true by the head and pushed false by the frame would be "a contradiction the
+solver pays for, in the state objective, which is a reported number", costing a
+constant offset. It pays nothing. The objective is 39 999 200 at ε and 39 999 200
+at 1−ε. The reason is arithmetic: an observed proposition contributes
+`_w(prob, scale) × hol[i,t,p]`, and the frame has already forced that `hol` to 0,
+so the term is worth zero whatever the coefficient — the objective can only price
+a disagreement *through* the variable the frame took away.
+
+The cost does exist; it is just not in the objective. It is in the disagreement
+count: 0 while the phantom is observed below 0.5, and exactly 11 × 5 = 55 above
+it. Nothing in the reported objective sees those 55, but anything that counts
+flips against the observations does — a repair magnitude, a state-agreement
+rate. So the honest statement is narrower than §4.2a's: the union grounding is
+free *to the solver*, not free to every metric computed downstream.
+
+One channel runs the other way and is worth naming, because I nearly filed it
+under "cost" too. `extract_sol_label` (`vendor/convertor/translator.py:129`)
+reads `hol` over `self.instance.propositions` — the union list — for every
+interior step, so the head is handed a supervised **0** on every phantom column.
+That label is *correct*; the object genuinely is absent. The union grounding
+hands the head free, correct supervision that a per-problem grounding could not
+have given, because those columns would carry no label at all. It is probably
+worth very little — the trained head is already at median 0.021 there — but it
+is a benefit, not a cost, and it is a real difference between the arms.
+
+Then anchored empirically anyway, since "no head can move it" is a stronger
+claim if a real head is also shown not to try. The ICAPS-24 CV head is already
+union-width (`ground_union`), so a trained one has the same phantom structure —
+100 epochs on the real blocksworld cell, seed 42, final loss 520.46:
+
+```
+phantom cells: 308  >0.5: 0  median 0.021  mean 0.046  max 0.353
+real cells:    700  >0.5: 316  median 0.417  mean 0.438
+```
+
+Not one phantom above 0.5. The most confident of the 308 is 0.353, still below
+the free point. The >0.5 branch is reachable in principle and not reached in
+practice. (No checkpoint existed to read this off — the ROSAME-I paths persist
+only `model.pddl` — so it cost one training run.)
+
+**Mutation-checked, seven mutations, and two surprises.**
+
+| mutation | phantoms float | objective moves | model moves |
+|---|---|---|---|
+| frame eq. 36 dropped | no | no | no |
+| frame eq. 37 dropped | no | no | no |
+| **both dropped** | **yes, >0.5 only** | **yes** | no |
+| goal anchor + eq. 37 dropped | no | no | no |
+| init anchor + eq. 36 dropped | no | no | no |
+| `_bindings` made argument-blind | — | — | **yes** |
+| the sweep unplumbed | — | — | — |
+
+First surprise: inertness is **over-determined**. `{init anchor, eq. 36}` pins
+the phantoms forward and `{goal anchor, eq. 37}` pins them backward, and either
+route does the whole job alone — dropping a frame direction on its own changes
+nothing, and only dropping both breaks it. When both go, the phantoms float in
+the interior and disagreements fall from 55 to 22, which is 2 anchored endpoints
+× 11: the break lands exactly where the argument says it should.
+
+Second surprise: the model-invariance rests on none of that. It rests on the
+`unifies` filter in `_bindings`, the only channel by which a phantom could reach
+a lifted variable. Opening it is the one mutation of the seven that moves the
+model — and it moves it at *every* phantom value, including ε.
+
+The last row is the one that matters for reading the other three tests. With the
+sweep unplumbed — the phantom value computed but never handed to the solver —
+**21 of the 22 tests still pass**, because they assert that nothing moves and
+nothing was asked to. Only
+`test_a_confidently_observed_phantom_is_still_paid_for_in_disagreements` fails.
+It is the sole non-vacuity guard for the class, and the class docstring says so.
 
 **Deferred out of Phase 2** (into Phase 5, where `Convertor` is wired to
 `src/milp/encoder.py` and both become cheap): the two §9.3 gate-3 obligations —

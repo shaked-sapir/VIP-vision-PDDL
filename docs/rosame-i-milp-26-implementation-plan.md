@@ -548,13 +548,85 @@ a chance to detect. The `hol` row shows the two solves really are two problems. 
 not CP-SAT tie-breaking — `solve` pins `random_seed`, which would make the gate pass for free if
 the optimum were underdetermined; it is not, and seeds 7 and 1234 return the same 78 values.
 
-**One half of this gate must be re-run in Phase 2.** Here every phantom is handed to the solver at
+**One half of this gate had to be re-run in Phase 2.** Here every phantom is handed to the solver at
 ε, so it is false *because the observation says so*; the frame argument is what should carry the
 result, and the gate cannot separate the two. In `rosame_i_*` the per-step values are the network's
-sigmoid outputs, and the head cannot know `e` is absent from *this* problem, so it will emit some
-value for `(clear e)` — possibly a confident one. A phantom pulled true by the observation channel
-and pushed false by the frame is a contradiction the solver pays for, in the state objective, which
-is a reported number. Re-run the inertness check on real head outputs once the adapter exists.
+outputs, and the head cannot know `e` is absent from *this* problem, so it will emit some value for
+`(clear e)` — possibly a confident one.
+
+#### 4.2a′ The re-run (Phase 2.5) — done, and it corrects the paragraph above
+
+The obligation was written as "re-run on real head outputs". One head's outputs would settle the
+question for that head. Instead the phantom rows are swept across the whole `[ε, 1−ε]` range
+`cv_predictions_to_trace` clamps into — seven values, `TestPhantomObservationValue`, 22 tests, 2 s —
+which settles it for *any* head, trained or not, and needs no training run. On all seven values:
+
+| phantom observed at | ε … 0.5 | 0.75, 0.9, 1−ε |
+|---|---|---|
+| lifted variables that moved | 0 | 0 |
+| phantoms true at any step | 0 | 0 |
+| objective value | 39 999 200 | 39 999 200 |
+| phantom disagreements | 0 | **55** |
+
+**The claim above about the objective is wrong, and this is the correction.** The phantom does not
+cost "a constant objective offset"; it costs *nothing at all*, at any confidence. The objective is
+identical to the digit. The reason is arithmetic, not luck: each observed proposition contributes
+`_w(prob, scale) * hol[i,t,p]` (`encoder.py:378`), and a phantom's `hol` is forced to 0, so the term
+is worth 0 whatever the coefficient. A contradiction between the observation channel and the frame
+is priced only through `hol`, and `hol` is exactly what the frame has already taken away.
+
+Where the cost *does* land is the disagreement count: 0 at ε, and 11 phantoms × 5 states = 55 once
+the phantom crosses 0.5. Nothing in the objective sees those 55. Anything that *counts* flips
+against the observations does — a repair magnitude, a state-agreement rate. So the union grounding
+is free to the solver and not free to every metric computed downstream of it, which is a narrower
+claim than §4.2a originally made and the one that is true.
+
+The pseudo-label channel is the interesting exception, and it runs the other way. `extract_sol_label`
+(`vendor/convertor/translator.py:129`) reads `hol` for `t = 2..max_t-1` over
+`self.instance.propositions` — the union list — so the head is handed a supervised **0** on every
+phantom column at every interior step. That label is *correct*: the object really is absent. Under
+the union grounding the head therefore gets extra, free, correct supervision that a per-problem
+grounding could not have given it, since those columns would carry no label at all. Whether it is
+worth anything is a separate question: the trained head already sits at median 0.021 on phantoms, so
+the gradient this contributes is near zero. It is a difference between the arms either way, and it
+is a benefit rather than a cost.
+
+Anchored empirically as well, using the fact that the ICAPS-24 CV head is *already* union-width
+(`ground_union`, `rosame_i_runner.py:150`), so a trained one has the same phantom structure. 100
+epochs on the real blocksworld cell, seed 42, final loss 520.46:
+
+```
+phantom cells: 308  >0.5: 0  median 0.021  mean 0.046  max 0.353
+real cells:    700  >0.5: 316  median 0.417  mean 0.438
+```
+
+A trained head never once asserts a proposition over an absent object; its most confident phantom,
+0.353, is still below the free point at 0.5. The >0.5 branch the sweep found is reachable in
+principle and not reached in practice.
+
+Mutation-checked, and two of the results were not what was expected:
+
+| mutation | phantoms float | objective moves | model moves |
+|---|---|---|---|
+| frame eq. 36 dropped | no | no | no |
+| frame eq. 37 dropped | no | no | no |
+| **both dropped** | **yes, >0.5 only** | **yes** | no |
+| goal anchor + eq. 37 dropped | no | no | no |
+| init anchor + eq. 36 dropped | no | no | no |
+| `_bindings` made argument-blind | — | — | **yes** |
+
+Inertness is **over-determined**: `{init anchor, eq. 36}` forward and `{goal anchor, eq. 37}`
+backward each pin the phantoms alone, so losing either route whole changes nothing and only losing
+both frame directions breaks it. Under that mutation the phantoms float in the interior and
+disagreements fall to 22 — the 2 anchored endpoints × 11, which is the arithmetic confirming the
+break is exactly where it should be. Model-invariance rests on a different thing entirely, the
+`unifies` filter in `_bindings`: that is the only channel by which a phantom could touch a lifted
+variable, and opening it is the only mutation of the seven that moves the model.
+
+The one test that is not vacuous by construction is the disagreement test. The three sweeping tests
+assert that nothing moves, so they pass even when the sweep is unplumbed and the solver never sees a
+phantom value at all — verified: 21 of 22 still pass. The disagreement test is the guard that the
+sweep reaches the solver, and it is noted as such in the class docstring.
 
 ### 4.2b The DL head grounds arguments in sorted-type order; the PDDL does not
 
@@ -1199,9 +1271,16 @@ whole point of the exercise.
     variables for propositions over objects it never mentions. Measured inert on a clean
     blocksworld trace — identical lifted model, identical repaired live states, no phantom true at
     any step (`src/milp/test_grounding_scope_equivalence.py`, 7 tests) — so the choice is
-    fidelity-preserving at no measurement cost *in the symbolic setting*. Re-checked on real CV
-    head outputs in Phase 2, where the per-step values are sigmoids rather than a CWA completion
-    and the head has no way to know the object is absent.
+    fidelity-preserving at no measurement cost *in the symbolic setting*. Re-checked in Phase 2.5
+    over the whole `[ε, 1−ε]` range a CV head can emit rather than one head's outputs (22 further
+    tests, §4.2a′): the model, the states and even the objective are **identical at every value**,
+    because a phantom's objective term is `coef × hol` and the frame forces `hol` to 0. The cost
+    lands entirely in the disagreement count — 0 below 0.5, 55 above — so the grounding is free to
+    the solver but **not** to a repair magnitude or a state-agreement rate. That branch is reachable
+    but not reached: a head trained 100 epochs on the real blocksworld cell puts 0 of 308 phantom
+    cells above 0.5 (max 0.353). The pseudo-label channel runs the *other* way — `extract_sol_label`
+    labels every phantom column 0 at every interior step, which is correct supervision the
+    per-problem grounding cannot give.
 11b. **Traces with fewer than three frames are dropped**, since both endpoints become symbolic
     anchors (§4.1, deviation 9) and a 2-image trace leaves T=0 interior frames. On the five
     headline datasources this costs exactly one problem — blocksworld `problem1` — so the 26 arm
@@ -1338,7 +1417,7 @@ In order, each cheap and each falsifiable:
 | **0** | ~~`_IMAGE_TF` → `Resize(64)` in the 24 arm (§4.6.1) + the resize A/B (§9.6)~~ — **CLOSED.** Transform shipped and made per-domain configurable with row-name suffixing; A/B run on 4 domains × 30 paired cells; **hypothesis refuted** (§9.6, analysis §5.3). The ROSAME-I baseline the 26 arm is measured against is now upstream-faithful *and* known unmoved by the change | low — done |
 | 1 | ~~Vendor `dl/` + `convertor/` + `util/model_perm.py`; generate all five specs and `pddl/<domain>/domain.pddl` assets (§5, §2.1); import-only smoke test; write parity tests §9.1–9.3 against the vendored code, before the adapter exists~~ — **DONE**, 143 tests over six new files, plus a **third asset family** §5 did not anticipate (§5) and an **argument reordering** the plan did not have (§4.2b). Gate §9.3 is **two of its four obligations**: the other two need the Phase-2 adapter and move to Phase 2. Suite 581 passed / 1 skipped, from a 432 baseline | low — done |
 | **1½** | ~~PIN §4.2a — one grounding or per-problem groundings~~ — **DONE. One `Instance` over the `data_dir` union, as upstream.** Equivalence gate written, run and green (`src/milp/test_grounding_scope_equivalence.py`). Phases 2–6 unblocked | low — done |
-| 2 | Data adapter (fold → their contract, §4.1–4.4) — must pass §9.1. Also inherits four items from Phase 1: the **head-argument permutation** (§4.2b — the head is reordered relative to PDDL on four of five domains), the two §9.3 obligations that need an adapter, the run-scoped **grounding assets** (§5), and the **phantom-inertness re-check on real head outputs** (§4.2a) | **medium — most of the work** |
+| 2 | ~~Data adapter (fold → their contract, §4.1–4.4) — must pass §9.1. Also inherits four items from Phase 1: the **head-argument permutation** (§4.2b), the two §9.3 obligations that need an adapter, the run-scoped **grounding assets** (§5), and the **phantom-inertness re-check** (§4.2a)~~ — **DONE, 2.1–2.5.** Fold walk shared (`image_fold_inputs.py`), head↔CP alignment (`head_alignment.py`), tensor contract (`trace_tensors.py`), fold adapter (`rosame26_data.py`); gate §9.1 repointed at the shared `interior_frame_count` instead of restating it. Inertness re-checked as a **sweep over the whole emittable range** rather than one head's outputs, which **corrected §4.2a** (§4.2a′): zero objective cost, not a constant offset. Two bugs only a real cell found (§8 7a, 11c). The two §9.3 obligations move on to Phase 5. Suite 757 passed / 1 skipped, from a 432 baseline | done |
 | 3 | Harness replacement (§3) — must pass §9.2 | medium |
 | 4 | DL-only arm (`ROSAME-I_26`), one blocksworld fold | low |
 | 5 | Turn the MILP on (`ROSAME-I_MILP_26`) with `src/milp/encoder.py` (§6.1), one fold, verify `mip_gt_dist` logs — must pass §9.3 | medium |
@@ -1479,7 +1558,9 @@ and §8 gets no deviation entry. The union is taken over the whole `data_dir`, n
 §4.4's argument. The equivalence gate is written, run and green
 (`src/milp/test_grounding_scope_equivalence.py`): identical action model, no phantom true at any
 step, +44% `hol` variables. One half of it — inertness under *network* outputs rather than ε
-observations — is a Phase-2 obligation; see the end of §4.2a.
+observations — was a Phase-2 obligation, discharged in Phase 2.5 over the whole `[ε, 1−ε]` range
+rather than one head's outputs; see §4.2a′, which also corrects §4.2a's claim that the phantoms cost
+a constant objective offset. They cost zero, and the accounting moves to the disagreement count.
 
 This was blocking on Phase 2 and Phase 4. It no longer is.
 

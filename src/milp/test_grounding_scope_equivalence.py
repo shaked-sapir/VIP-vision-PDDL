@@ -25,12 +25,19 @@ Non-vacuity: ``test_the_two_encodings_are_genuinely_different_problems`` shows
 the two solves really are two problems, and
 ``test_the_recovered_model_does_not_depend_on_the_solver_seed`` shows the
 equality is a property of the encoding rather than of CP-SAT tie-breaking.
+
+The Phase-1½ half above hands every phantom to the solver at ``eps``, so a
+phantom is false because the *observation* says so and the frame argument never
+has to carry the result. ``TestPhantomObservationValue`` is the Phase-2.5 half:
+it sweeps the phantom rows across the whole ``[eps, 1 - eps]`` range a CV head
+could emit, which settles the question for any head rather than for one head's
+particular outputs.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 import pytest
 
@@ -101,7 +108,17 @@ def _flat_obs_m(ps_domain):
     return type("ObsM", (), {"pre": pre, "add": add, "dele": dele})()
 
 
-def _traces(ps_domain, instance: PSInstance) -> Traces:
+def _traces(
+    ps_domain,
+    instance: PSInstance,
+    phantom_prob: Optional[float] = None,
+    phantoms: FrozenSet[str] = frozenset(),
+) -> Traces:
+    """The clean trace, optionally overriding what ``phantoms`` are observed at.
+
+    ``phantom_prob=None`` leaves every proposition at its closed-world value,
+    which is the Phase-1½ setup.
+    """
     states = [
         {_proposition(instance, entry[0], entry[1:]) for entry in state}
         for state in _STATES
@@ -115,11 +132,13 @@ def _traces(ps_domain, instance: PSInstance) -> Traces:
     ]
     assert all(action is not None for action in actions), "trace is ungroundable"
 
+    def observed(p, positives) -> float:
+        if phantom_prob is not None and str(p) in phantoms:
+            return phantom_prob
+        return 1 - _EPS if p in positives else _EPS
+
     obs_p = {
-        t: [
-            ObservationP(p, 1 - _EPS if p in positives else _EPS)
-            for p in instance.propositions
-        ]
+        t: [ObservationP(p, observed(p, positives)) for p in instance.propositions]
         for t, positives in enumerate(states, start=1)
     }
     trace = ObservationT(
@@ -134,8 +153,18 @@ def _traces(ps_domain, instance: PSInstance) -> Traces:
     return Traces(instance=None, obs_m=_flat_obs_m(ps_domain), obs_t=[trace])
 
 
-def _solve(ps_domain, instance: PSInstance, **solve_kwargs) -> CPSATObservedActions:
-    encoder = CPSATObservedActions(ps_domain, _traces(ps_domain, instance), {"state", "model"})
+def _solve(
+    ps_domain,
+    instance: PSInstance,
+    phantom_prob: Optional[float] = None,
+    phantoms: FrozenSet[str] = frozenset(),
+    **solve_kwargs,
+) -> CPSATObservedActions:
+    encoder = CPSATObservedActions(
+        ps_domain,
+        _traces(ps_domain, instance, phantom_prob, phantoms),
+        {"state", "model"},
+    )
     assert encoder.solve(time_limit=60, **solve_kwargs), "the clean trace must be solvable"
     return encoder
 
@@ -254,6 +283,108 @@ def test_the_repaired_live_states_are_identical(solved, instances) -> None:
         assert {str(p) for p in narrow_state} == {
             str(p) for p in wide_state
         } - phantoms
+
+
+class TestPhantomObservationValue:
+    """Phase 2.5: the same question, for any value a CV head could emit.
+
+    A head sized on the corpus union has no way to know that block ``e`` is
+    absent from *this* problem, so it emits some value for ``(clear e)``. The
+    gate above only ever showed it ``eps``. Sweeping the phantom rows over the
+    whole clamped range covers every head, trained or not, rather than one
+    head's outputs.
+
+    Non-vacuity: the three sweeping tests below all pass even when the sweep
+    never reaches the solver, since they assert that nothing moves.
+    ``test_a_confidently_observed_phantom_is_still_paid_for_in_disagreements``
+    is what shows it does reach it.
+    """
+
+    #: The range `cv_predictions_to_trace` clamps a head's output into.
+    VALUES = (_EPS, 0.1, 0.25, 0.5, 0.75, 0.9, 1 - _EPS)
+
+    @staticmethod
+    def _swept(ps_domain, instances, value: float) -> CPSATObservedActions:
+        _narrow, wide = instances
+        return _solve(
+            ps_domain, wide, value, frozenset(_phantom_propositions(instances))
+        )
+
+    @pytest.mark.parametrize("value", VALUES)
+    def test_the_recovered_action_model_never_moves(
+        self, ps_domain, instances, solved, value: float
+    ) -> None:
+        """The gate itself, now for the whole range."""
+        baseline = _lifted_model(solved[0])
+        model = _lifted_model(self._swept(ps_domain, instances, value))
+        differing = {key for key in baseline if baseline[key] != model[key]}
+        assert not differing, (
+            f"at phantom value {value}, {len(differing)} of {len(baseline)} "
+            f"lifted variables moved: {sorted(differing)[:10]}"
+        )
+
+    @pytest.mark.parametrize("value", VALUES)
+    def test_no_phantom_floats_true_however_confidently_it_is_observed(
+        self, ps_domain, instances, value: float
+    ) -> None:
+        """The hard init and the frame axioms outrank the observation channel.
+
+        No observed action binds ``e``, so nothing can lift a phantom off the
+        false the closed-world init pins it to — an observation asserting one at
+        ``1 - eps`` is simply overruled.
+        """
+        phantoms = _phantom_propositions(instances)
+        repaired = self._swept(ps_domain, instances, value).repaired_states(1)
+        floated = [
+            (t, str(p))
+            for t, state in enumerate(repaired)
+            for p in state
+            if str(p) in phantoms
+        ]
+        assert not floated, f"at phantom value {value}, these became true: {floated}"
+
+    @pytest.mark.parametrize("value", VALUES)
+    def test_the_objective_value_does_not_move_either(
+        self, ps_domain, instances, solved, value: float
+    ) -> None:
+        """Not merely bounded — identical.
+
+        Each phantom contributes ``_w(prob, scale) * hol``, and ``hol`` is
+        forced to 0, so the term is worth 0 whatever the coefficient. §4.2a
+        predicted the phantoms would cost "a constant objective offset"; the
+        offset is zero.
+        """
+        baseline = solved[0].solve_stats["objective_value"]
+        swept = self._swept(ps_domain, instances, value).solve_stats["objective_value"]
+        assert swept == baseline
+
+    def test_a_confidently_observed_phantom_is_still_paid_for_in_disagreements(
+        self, ps_domain, instances
+    ) -> None:
+        """Where the cost does land, since it is not the objective.
+
+        A phantom asserted true and forced false is one observation bit the
+        solution contradicts. Nothing prices it, but anything *counting* flips
+        against the observations — a repair magnitude, a state agreement rate —
+        sees 11 phantoms x 5 states of them that the per-problem grounding does
+        not have.
+        """
+        phantoms = _phantom_propositions(instances)
+
+        def phantom_disagreements(value: float) -> int:
+            encoder = self._swept(ps_domain, instances, value)
+            repaired = encoder.repaired_states(1)
+            observed = encoder.traces.obs_t[0].obs_p
+            return sum(
+                1
+                for t, ops in observed.items()
+                for op in ops
+                if str(op.proposition) in phantoms
+                and (op.prob > 0.5) != (op.proposition in repaired[t - 1])
+            )
+
+        assert phantom_disagreements(_EPS) == 0
+        assert phantom_disagreements(1 - _EPS) == len(phantoms) * len(_STATES) == 55
 
 
 def test_the_recovered_model_does_not_depend_on_the_solver_seed(
