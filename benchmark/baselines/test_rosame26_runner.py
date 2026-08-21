@@ -114,6 +114,75 @@ class TestEpochBudget:
         )
 
 
+class TestTheBudgetPreflight:
+    """§1.2: the configured epoch count is a ceiling the cell's timeout lowers.
+
+    The pre-flight binds *before* epoch 0 rather than being discovered at epoch
+    4000, and it multiplies by ``n_seeds`` — a check that passes while the grid
+    overruns by ``n_seeds``x is a check that was never run.
+    """
+
+    def test_a_generous_timeout_leaves_the_configured_count_alone(self) -> None:
+        runner = Rosame26BaselineRunner(n_seeds=1)
+        epochs, report = runner._budgeted_epochs("blocksworld", 100000)
+
+        assert epochs == _EPOCH_DEFAULT
+        assert report["fits"]
+
+    def test_a_tight_timeout_lowers_the_count(self, capsys) -> None:
+        runner = Rosame26BaselineRunner(n_seeds=1)
+        epochs, report = runner._budgeted_epochs("blocksworld", 60)
+
+        assert 0 < epochs < _EPOCH_DEFAULT
+        assert not report["fits"]
+        assert "budget" in capsys.readouterr().out
+
+    def test_seeds_lower_it_further(self) -> None:
+        one, _ = Rosame26BaselineRunner(n_seeds=1)._budgeted_epochs("blocksworld", 600)
+        three, _ = Rosame26BaselineRunner(n_seeds=3)._budgeted_epochs("blocksworld", 600)
+
+        assert three < one
+
+    def test_opting_out_keeps_the_configured_count(self) -> None:
+        """Gate 7's control cell runs 5000 whatever the projection says."""
+        runner = Rosame26BaselineRunner(epochs=5000, respect_budget=False)
+        epochs, report = runner._budgeted_epochs("blocksworld", 600)
+
+        assert epochs == 5000
+        assert not report["fits"]
+        assert report["respected"] is False
+
+    def test_the_report_carries_what_was_asked_for(self) -> None:
+        runner = Rosame26BaselineRunner(n_seeds=1)
+        _, report = runner._budgeted_epochs("blocksworld", 600)
+
+        assert report["requested_epochs"] == _EPOCH_DEFAULT
+        assert report["budget_seconds"] < 600
+
+    def test_a_timeout_no_epoch_fits_returns_a_null_row(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        runner = Rosame26BaselineRunner()
+        model, report = runner.learn(
+            _domain_file(tmp_path, "blocks"),
+            [(tmp_path / "x.trajectory", None, tmp_path / "p.pddl")],
+            tmp_path,
+            timeout_seconds=1,
+        )
+
+        assert model is None
+
+
+class TestSeedSelection:
+    def test_it_trains_several_seeds_by_default(self) -> None:
+        """The 24 arm's rule: n independent models, keep the lowest final loss."""
+        assert Rosame26BaselineRunner().n_seeds == 3
+
+    def test_seeds_are_derived_from_the_base(self) -> None:
+        runner = Rosame26BaselineRunner(n_seeds=3, base_seed=100)
+        assert [runner.base_seed + i for i in range(runner.n_seeds)] == [100, 101, 102]
+
+
 class TestSimulationModeIsSkippedNotFailed:
     def test_a_fold_with_no_images_returns_a_null_row(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
