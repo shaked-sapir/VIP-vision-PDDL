@@ -259,6 +259,7 @@ def _backfill_cell_worker(
     force: bool,
     train_per_trajectory: bool = True,
     resize: ResizeSpec = RESIZE_FROM_TABLE,
+    runner_kwargs: Optional[dict] = None,
 ) -> Tuple[str, str]:
     """Process-pool entry point: resolve runners locally (no pickling of torch
     objects across processes) and backfill one cell.
@@ -274,7 +275,10 @@ def _backfill_cell_worker(
         except ImportError:
             pass
         baselines = resolve_baselines(
-            baseline_keys, train_per_trajectory=train_per_trajectory, resize=resize
+            baseline_keys,
+            train_per_trajectory=train_per_trajectory,
+            resize=resize,
+            **(runner_kwargs or {}),
         )
         status = backfill_cell(
             Path(cell_str), Path(problem_dir_str), bench_name, baselines,
@@ -284,6 +288,24 @@ def _backfill_cell_worker(
         return cell_str, status
     except Exception as e:  # keep one failing cell from killing the whole run
         return cell_str, f"error: {e}"
+
+
+def _runner_kwargs(args: argparse.Namespace) -> dict:
+    """Runner options that only some baselines accept.
+
+    ``resolve_baselines`` forwards each key only to the runners whose
+    ``__init__`` takes it, so an option meant for one arm cannot reach another.
+    Omitted keys leave that runner's own default in place, which is why only
+    values the operator actually passed are included.
+    """
+    kwargs: dict = {}
+    if args.epochs is not None:
+        kwargs["epochs"] = args.epochs
+    if args.n_seeds is not None:
+        kwargs["n_seeds"] = args.n_seeds
+    if args.ignore_budget:
+        kwargs["respect_budget"] = False
+    return kwargs
 
 
 def main() -> None:
@@ -317,6 +339,26 @@ def main() -> None:
                          "(--no-train-per-trajectory). Ignored by baselines that "
                          "don't accept it, ROSAME-I included — it trains pooled "
                          "unconditionally, as ICAPS-24 train.py does.")
+    ap.add_argument("--epochs", type=int, default=None,
+                    help="Override the per-domain epoch budget of the ICAPS-26 "
+                         "arm (rosame_i_26). The configured value is a ceiling "
+                         "the pre-flight budget check lowers to fit the cell "
+                         "timeout; whenever the effective value differs from "
+                         "the default the row name carries an __ep= suffix, so "
+                         "two budgets can never be averaged under one label. "
+                         "Ignored by baselines that don't accept it.")
+    ap.add_argument("--n-seeds", type=int, default=None,
+                    help="Override the number of independent models trained "
+                         "per fold (the lowest-final-training-loss one is "
+                         "kept). It multiplies the pre-flight projection. "
+                         "Ignored by baselines that don't accept it.")
+    ap.add_argument("--ignore-budget", action="store_true",
+                    help="Let the ICAPS-26 arm run its configured epoch count "
+                         "whatever the pre-flight projects. This is gate 7's "
+                         "budget-control setting: one cell per domain at "
+                         "--epochs 5000 outside the timeout, so 'underperforms "
+                         "at the grid budget' and 'undertrained at it' stay "
+                         "distinguishable. Not for grid cells.")
     ap.add_argument("--resize", type=_parse_resize, default=RESIZE_FROM_TABLE,
                     metavar="N|H,W|native",
                     help="Override the per-domain image resize for the pixel "
@@ -388,7 +430,7 @@ def main() -> None:
         # Sequential — identical to the original behavior.
         baselines = resolve_baselines(
             args.baselines, train_per_trajectory=args.train_per_trajectory,
-            resize=args.resize,
+            resize=args.resize, **_runner_kwargs(args),
         )
         for bench_name, cell, problem_dir in tasks:
             backfill_cell(
@@ -409,7 +451,7 @@ def main() -> None:
                 _backfill_cell_worker,
                 str(cell), str(problem_dir), bench_name, args.baselines,
                 args.planning_timeout, args.learn_timeout, args.force,
-                args.train_per_trajectory, args.resize,
+                args.train_per_trajectory, args.resize, _runner_kwargs(args),
             ): cell
             for bench_name, cell, problem_dir in tasks
         }
