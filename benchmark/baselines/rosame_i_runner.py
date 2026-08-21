@@ -17,17 +17,19 @@ message and returns ``(None, {})`` so the harness records a null row.
 
 from __future__ import annotations
 
-import re
-import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
-from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
-from pddl_plus_parser.models import Domain, Problem, State
+from pddl_plus_parser.lisp_parsers import DomainParser
+from pddl_plus_parser.models import Domain
 
 from benchmark.baselines.base_runner import BaselineRunner
-from benchmark.experiment_running_helpers.normalize import _normalize_hyphens
+from benchmark.baselines.image_fold_inputs import (
+    ResolvedTrace,
+    infer_bench_key,
+    resolve_fold_inputs,
+)
 
 # An image resize setting: shorter-edge int, explicit (h, w), or None for native.
 ResizeSpec = Union[int, Sequence[int], None]
@@ -41,18 +43,6 @@ _HYPERPARAMS: Dict[str, Dict[str, float]] = {
     "depot": {"epochs": 100, "lambda_": 0.2, "gamma": 10},
 }
 _DEFAULT_HYPERPARAMS = {"epochs": 100, "lambda_": 0.2, "gamma": 10}
-
-# PDDL domain-name / path-part → bench key (domain names differ from bench keys).
-_DOMAIN_ALIASES: Dict[str, str] = {
-    "blocks": "blocksworld",
-    "blocksworld": "blocksworld",
-    "hanoi": "hanoi",
-    "n_puzzle": "npuzzle",
-    "n_puzzle_typed": "npuzzle",
-    "npuzzle": "npuzzle",
-    "gripper": "gripper",
-    "depot": "depot",
-}
 
 # Domains whose renderings are horizontal-flip invariant (paper augments these).
 _AUGMENT_DOMAINS = {"blocksworld"}
@@ -119,10 +109,6 @@ def _resize_tag(resize: ResizeSpec) -> str:
     return "x".join(str(int(v)) for v in resize)
 
 
-# Staging directory names that sit one level above a problem's trajectory dir.
-_TRAJECTORY_DIR_NAMES = {"trajectories", "trajectories_normalized"}
-
-
 class RosameIBaselineRunner(BaselineRunner):
     """ROSAME-I (imaged-mode CV + ROSAME) baseline."""
 
@@ -153,7 +139,7 @@ class RosameIBaselineRunner(BaselineRunner):
         if key not in self._bench_cache:
             partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
             self._bench_cache[key] = (
-                self._infer_domain_name(domain_path, partial_domain), partial_domain,
+                infer_bench_key(domain_path, partial_domain), partial_domain,
             )
         return self._bench_cache[key]
 
@@ -287,195 +273,29 @@ class RosameIBaselineRunner(BaselineRunner):
         prepared_trajectories: List[Tuple[Path, Path, Path]],
         bench: str,
     ) -> Tuple[List[Tuple[object, List[Path], List[str], List[str]]], List[Path]]:
-        """Per trajectory, resolve (problem, image paths, action strings, GT final).
-
-        Trajectories with no images on disk are dropped; an empty result means a
-        simulation-mode cell (handled by the caller).
+        """The fold walk, in the 4-tuple shape ``RosameI_Runner`` consumes.
 
         Returns:
             ``(prepared_problems, gt_trajectory_paths)``, the latter positionally
             aligned with the former and holding the GT trajectory each final-state
-            anchor was read from.
-
-        Raises:
-            FileNotFoundError: if a kept trajectory has no GT counterpart.
+            anchor was read from. The GT *init* state that
+            :func:`resolve_fold_inputs` also returns is dropped: the ICAPS-24
+            network takes only a goal anchor.
         """
-        prepared_problems: List[Tuple[object, List[Path], List[str], List[str]]] = []
-        gt_trajectory_paths: List[Path] = []
-
-        for traj_path, _masking_path, problem_pddl_path, *_ in prepared_trajectories:
-            problem_dir = problem_pddl_path.parent
-            problem_name = problem_pddl_path.stem
-
-            image_paths = self._resolve_images(problem_dir, bench, problem_name)
-            if not image_paths:
-                continue
-
-            problem = self._parse_problem_normalized(partial_domain, problem_pddl_path)
-
-            # Actions only (states here are degraded and must NOT be used).
-            observation = self._parse_trajectory_normalized(partial_domain, problem, traj_path)
-            action_strings = [
-                str(component.grounded_action_call)[1:-1]
-                for component in observation.components
-            ]
-
-            gt_path = self.resolve_final_state_path(problem_dir, problem_name)
-            final_preds = self._resolve_final_state(
-                partial_domain, problem, gt_path, problem_name
-            )
-            prepared_problems.append((problem, image_paths, action_strings, final_preds))
-            gt_trajectory_paths.append(gt_path)
-
-        return prepared_problems, gt_trajectory_paths
-
-    @staticmethod
-    def _resolve_images(problem_dir: Path, bench: str, problem_name: str) -> List[Path]:
-        """Numerically-sorted ``state_*.png`` frames for one trajectory.
-
-        Looks next to the problem PDDL first (PDDLGym-generated domains keep
-        frames in the data dir), then falls back to the external-image domain
-        layout ``src/domains/<bench>/problems/<problem>/`` (e.g. depot, gripper),
-        whose frames never get copied into ``benchmark/data``.
-        """
-        repo_root = Path(__file__).resolve().parents[2]
-        candidates = [
-            problem_dir,
-            repo_root / "src" / "domains" / bench / "problems" / problem_name,
-        ]
-        for cand in candidates:
-            images = list(cand.glob("state_*.png"))
-            if images:
-                return sorted(images, key=lambda p: int(re.search(r"\d+", p.stem).group()))
-        return []
-
-    @staticmethod
-    def resolve_final_state_path(problem_dir: Path, problem_name: str) -> Path:
-        """Path of the GT trajectory the final-state anchor is read from.
-
-        The anchor must come from
-        ``<data_dir>/gt_trajectories/<problem>/<problem>.trajectory``; the
-        degraded trajectory next to the problem PDDL is never substituted.
-
-        Raises:
-            FileNotFoundError: if ``problem_dir`` is not in the
-                ``<data_dir>/training/<staging_dir>/<problem>/`` layout, or the
-                GT trajectory is absent.
-        """
-        if problem_dir.parent.name not in _TRAJECTORY_DIR_NAMES:
-            raise FileNotFoundError(
-                f"cannot locate gt_trajectories/ for '{problem_name}': expected "
-                f"'{problem_dir}' to sit under one of {sorted(_TRAJECTORY_DIR_NAMES)}"
-            )
-        data_dir = problem_dir.parents[2]
-        gt_path = data_dir / "gt_trajectories" / problem_name / f"{problem_name}.trajectory"
-        if not gt_path.exists():
-            raise FileNotFoundError(
-                f"no GT trajectory for '{problem_name}': expected '{gt_path}'. "
-                f"ROSAME-I anchors its last predicted state on the GT final state, "
-                f"so run benchmark/generate_gt_trajectories.py for '{data_dir}' "
-                f"before using an imaged ROSAME-I arm on it."
-            )
-        return gt_path
-
-    def _resolve_final_state(
-        self,
-        partial_domain: Domain,
-        problem,
-        final_state_path: Path,
-        problem_name: str,
-    ) -> List[str]:
-        """GT final-state positive predicate strings from an already-resolved path.
-
-        Raises:
-            ValueError: if the GT trajectory holds no transition, so there is no
-                final state to anchor on.
-        """
-        observation = self._parse_trajectory_normalized(
-            partial_domain, problem, final_state_path
+        resolved = resolve_fold_inputs(partial_domain, prepared_trajectories, bench)
+        return (
+            [as_prepared_problem(trace) for trace in resolved],
+            [trace.gt_trajectory_path for trace in resolved],
         )
-        if not observation.components:
-            raise ValueError(
-                f"GT trajectory '{final_state_path}' for '{problem_name}' parsed to "
-                f"zero transitions, so it carries no final state to anchor on"
-            )
-        return self._state_positive_predicates(observation.components[-1].next_state)
 
-    # Problem PDDLs and gt_trajectories on disk keep whichever dialect they were
-    # written in, which need not match the reference domain: an image experiment
-    # that ran normalize_experiment_data has an underscored domain, one that
-    # skipped it keeps the raw domain. Parsing an input against a domain in the
-    # other dialect raises ``illegal state component``, so inputs are conformed to
-    # the dialect the domain itself declares.
 
-    @staticmethod
-    def _domain_uses_hyphens(partial_domain: Domain) -> bool:
-        """True if any identifier the domain declares contains a hyphen."""
-        declared = (
-            list(partial_domain.predicates)
-            + list(partial_domain.actions)
-            + list(getattr(partial_domain, "types", None) or {})
-            + list(getattr(partial_domain, "constants", None) or {})
-        )
-        return any("-" in name for name in declared)
-
-    @classmethod
-    def _conformed_tempfile(
-        cls, source: Path, suffix: str, partial_domain: Domain
-    ) -> Path:
-        """Write a copy of ``source`` in ``partial_domain``'s dialect to a temp file.
-
-        Hyphens are rewritten to underscores unless the domain declares hyphenated
-        identifiers, in which case ``source`` is copied verbatim.
-        """
-        text = source.read_text()
-        if not cls._domain_uses_hyphens(partial_domain):
-            text = _normalize_hyphens(text)
-        with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False) as tmp:
-            tmp.write(text)
-            return Path(tmp.name)
-
-    @classmethod
-    def _parse_problem_normalized(cls, partial_domain: Domain, problem_pddl_path: Path) -> Problem:
-        """Parse a problem PDDL, conforming its dialect to the domain's."""
-        tmp_path = cls._conformed_tempfile(problem_pddl_path, ".pddl", partial_domain)
-        try:
-            return ProblemParser(tmp_path, partial_domain).parse_problem()
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-    @classmethod
-    def _parse_trajectory_normalized(
-        cls, partial_domain: Domain, problem: Problem, trajectory_path: Path
-    ):
-        """Parse a trajectory, conforming its dialect to the domain's."""
-        tmp_path = cls._conformed_tempfile(trajectory_path, ".trajectory", partial_domain)
-        try:
-            return TrajectoryParser(partial_domain, problem).parse_trajectory(tmp_path)
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-    @staticmethod
-    def _state_positive_predicates(state: State) -> List[str]:
-        """Untyped predicate strings (no parens) of a state's positive fluents."""
-        predicates: List[str] = []
-        for grounded_set in state.state_predicates.values():
-            for pred in grounded_set:
-                predicates.append(pred.untyped_representation[1:-1])
-        return predicates
-
-    # ------------------------------------------------------------------ helpers
-
-    @staticmethod
-    def _infer_domain_name(domain_path: Path, partial_domain: Domain) -> str:
-        """Map a PDDL domain name / experiment path to a bench key."""
-        domain_name = (partial_domain.name or "").lower()
-        if domain_name in _DOMAIN_ALIASES:
-            return _DOMAIN_ALIASES[domain_name]
-        for part in Path(domain_path).resolve().parts:
-            key = part.lower()
-            if key in _HYPERPARAMS:
-                return key
-            if key in _DOMAIN_ALIASES:
-                return _DOMAIN_ALIASES[key]
-        return domain_name
+def as_prepared_problem(
+    trace: ResolvedTrace,
+) -> Tuple[object, List[Path], List[str], List[str]]:
+    """A :class:`ResolvedTrace` in the positional shape the ICAPS-24 adapter takes."""
+    return (
+        trace.problem,
+        trace.image_paths,
+        trace.action_strings,
+        trace.gt_final_predicates,
+    )

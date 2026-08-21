@@ -39,10 +39,13 @@ plan doc's phase numbering rather than inventing a second one.
 dashboard rebuilt, and **the two series moved** — `ROSAME-I_24` materially in
 all five domains, `ROSAME-I_MILP_24` barely at all, for a reason that checks out
 (§4, Step 2). Phase 1 done and **landed** in `0453e95f5`; Phase 1½ **done** —
-decided and its equivalence gate run and green, which unblocks Phase 2. 150 new
-tests; full suite **581 passed, 1 skipped** from a 432-passed baseline. Phase 2
-is next, scoped and not started. Two Phase-1 findings amend the plan — see §6 —
-and one more found while scoping Phase 2: the padded loss (plan §6.1a, §8 4c).
+decided and its equivalence gate run and green, which unblocks Phase 2. Phase 2
+is under way: **2.1 done** (the fold walk extracted to
+`benchmark/baselines/image_fold_inputs.py`, now returning both GT endpoint
+states), 2.2–2.5 scoped and not started. 163 new tests; full suite **594 passed,
+1 skipped** from a 432-passed baseline. Two Phase-1 findings amend the plan —
+see §6 — and one more found while scoping Phase 2: the padded loss (plan §6.1a,
+§8 4c).
 
 ---
 
@@ -487,19 +490,72 @@ padding is **pad + zero-action mask with a length-aware loss subclass**
 Phase 5**, since both need `Convertor` wired to `src/milp/encoder.py`; and the
 dashboard rebuild landed first, so Phase 4 has a settled 24 baseline to point at.
 
-**2.1 — extract the fold walk.**
+**2.1 — extract the fold walk.** ← **DONE**
 
-- [ ] `RosameIBaselineRunner._resolve_inputs` and its eight helpers
+- [x] `RosameIBaselineRunner._resolve_inputs` and its eight helpers
       (`_resolve_images`, `resolve_final_state_path`, `_resolve_final_state`,
       `_domain_uses_hyphens`, `_conformed_tempfile`, `_parse_problem_normalized`,
       `_parse_trajectory_normalized`, `_state_positive_predicates`,
       `_infer_domain_name`) move to a shared module. `_resolve_inputs` touches
       `self` only to dispatch to static/class methods, so the extraction is
       mechanical.
-- [ ] the shared version additionally returns the **GT init state**, which the 24
+
+      Landed as `benchmark/baselines/image_fold_inputs.py`. The walk is
+      `resolve_fold_inputs(partial_domain, prepared_trajectories, bench) ->
+      List[ResolvedTrace]`, and `ResolvedTrace` is a frozen dataclass rather
+      than the old 4-tuple, because the 26 arm needs a fifth field the 24
+      adapter must not see. `RosameIBaselineRunner._resolve_inputs` survives as
+      the shape converter — it maps `ResolvedTrace` back to the positional
+      4-tuple `RosameI_Runner.prepare_traces` unpacks — so `rosame_i_milp_24`,
+      which calls it on `self`, needed no edit at all.
+
+      One simplification taken while moving `_infer_domain_name`: its loop
+      checked `if key in _HYPERPARAMS: return key` before the alias lookup, and
+      that branch is dead — every `_HYPERPARAMS` key is also a `_DOMAIN_ALIASES`
+      key mapping to itself, so the alias lookup already returns the same value.
+      Dropping it decouples bench-key inference from the hyperparameter table,
+      which is a *paper* artefact and does not belong in a shared module. The
+      invariant that made it safe is now a test rather than an assumption:
+      `test_every_tuned_domain_is_a_resolvable_bench_key`.
+
+- [x] the shared version additionally returns the **GT init state**, which the 24
       arm never reads and the 26 arm needs as a hard anchor (§4.3)
-- [ ] the 24 arm's tests stay green, unchanged — that is the check that the
+
+      Both anchors come from **one** parse of the GT trajectory —
+      `components[0].previous_state` and `components[-1].next_state` — rather
+      than the init coming from the problem's `:init` as §4.3 describes it. One
+      parse means one grounding and one dialect policy for the two anchors,
+      which is the hazard `rosame_i_milp_runner.py:139-147` already documents
+      for the goal channel. The two sources being equal is not assumed: it is
+      checked on all ten problems of the checked-in blocksworld cell
+      (`TestGtInitAgreesWithTheProblem`), and they do agree.
+
+- [x] the 24 arm's tests stay green, unchanged — that is the check that the
       extraction was behaviour-preserving
+
+      Green, and with only one substantive change. The GT-anchor and
+      input-dialect cases moved verbatim into
+      `benchmark/baselines/test_image_fold_inputs.py` with call sites retargeted
+      at the free functions; the row-naming and resize cases stayed in
+      `test_rosame_i_runner.py` untouched. The exception is
+      `TestResolveFinalState`, which monkeypatched
+      `RosameIBaselineRunner._parse_trajectory_normalized` to inject an empty
+      observation. That patch had no target after the move, so the test was
+      rewritten to call `gt_anchors_from_observation` on a stub directly — a
+      strictly better test, since it no longer depends on which method the walk
+      happens to dispatch through, and it now also pins which component each
+      anchor is read off.
+
+      Beyond the tests: a real end-to-end smoke of the 24 arm through the
+      extracted walk on `blocks_predefined_problems1-10_final-version` — 10
+      problems resolved, 10 traces prepared, one epoch trained, a four-schema
+      model out. Full suite **594 passed, 1 skipped**, up from 581 by the 13 new
+      tests.
+
+      Two facts the new real-data tests pin, both already predicted by the plan:
+      frames outnumber actions by exactly one on every problem (§4.1), and
+      `problem1` carries 2 frames for 1 action, so its `T = N-1 = 0` and it is
+      the trace §8 item 11b says the 26 arm must drop.
 
 **2.2 — head↔CP index alignment.**
 
