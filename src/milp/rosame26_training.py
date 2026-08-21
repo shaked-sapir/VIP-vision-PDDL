@@ -2,8 +2,16 @@
 
 :class:`Rosame26Trainer` is :class:`~src.milp.rosame26_model.Rosame26Goal` with
 ``train`` / ``_run_training`` replaced and **nothing else**. Every other method
-of the vendored ``dl.network.Network`` — ``build``, ``save``, ``load``,
-``dump_actions``, the encoder/decoder/action-head construction — runs verbatim.
+of the vendored ``dl.network.Network`` — ``build``, ``save``, ``load``, the
+encoder/decoder/action-head construction — runs verbatim.
+
+``dump_actions`` is the one exception and is **overridden to raise**. It writes
+``domain_model.pddl`` through the vendored ``extract_pddl``, whose signatures are
+in sorted-type rather than PDDL order (§4.2b) — a file that scores 0.20 to 0.82
+depending on the domain. Its only upstream call site is the every-ninth-epoch
+validation block this module already drops, so nothing reaches it today;
+overriding it keeps that true if a later phase reinstates any of that block.
+:func:`~src.milp.rosame26_emitter.emit_pddl` is the emitter for this arm.
 
 WHAT THE OVERRIDE RE-EXPRESSES. Upstream's ``network.py:225-320``, minus the
 logging, is::
@@ -275,6 +283,20 @@ class Rosame26Trainer(Rosame26Goal):
             self.net.parameters(), lr=self.parameters["lr"]
         )
         return self._run_training(train_data)
+
+    def dump_actions(self, *args: Any, **kwargs: Any) -> None:
+        """Not supported; use :func:`~src.milp.rosame26_emitter.emit_pddl`.
+
+        Raises:
+            NotImplementedError: always. The vendored implementation emits
+                through ``extract_pddl``, which writes ``:parameters`` in
+                sorted-type order and its literals with bare variables.
+        """
+        raise NotImplementedError(
+            "Rosame26Trainer does not dump actions through the vendored "
+            "extract_pddl, whose signatures are permuted against the domain "
+            "PDDL; use src.milp.rosame26_emitter.emit_pddl"
+        )
 
     def resume(self, *args: Any, **kwargs: Any) -> None:
         """Not supported.

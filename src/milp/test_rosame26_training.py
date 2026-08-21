@@ -474,3 +474,15 @@ def test_resume_is_refused(assets: Path) -> None:
     trainer = make_trainer(assets, "resume")
     with pytest.raises(NotImplementedError, match="resume"):
         trainer.resume(None, None, {})
+
+
+def test_dump_actions_is_refused(assets: Path) -> None:
+    """The vendored one writes a signature permuted against the domain PDDL.
+
+    Its only upstream call site is the validation block this module drops, so
+    nothing reaches it today. The override is what keeps that true if a later
+    phase reinstates any of that block.
+    """
+    trainer = make_trainer(assets, "dump")
+    with pytest.raises(NotImplementedError, match="emit_pddl"):
+        trainer.dump_actions()
