@@ -1049,6 +1049,34 @@ row went through the same evaluation every other arm's does.
 | depot | ROSAME-I_MILP_24 | 0.64 | 0.62 | 0 | 103 |
 | depot | **ROSAME-I_26** | **0.31** | **0.19** | 0 | 423 |
 
+**Gate 7, blocksworld: answered, and it answers against the obvious reading.**
+The 5000-epoch control (`ROSAME-I_26__ep=5000`, 1 seed, 2871 s, outside the
+timeout) scores **0.67 / 0.47** against the budgeted run's **0.94 / 0.44**. The
+loss did fall — 9.73 to 6.62 — so it trained; 38x the epochs simply did not buy a
+better model. **blocksworld is not undertrained at the grid budget**, and more
+epochs is not the lever.
+
+The schemas say why, and the scalar hides it. The two runs fail in *opposite*
+directions:
+
+| | 131 epochs | 5000 epochs |
+|---|---|---|
+| `pick_up` | correct but for a missing `(holding)` add | collapsed to `(ontable)` alone |
+| `put_down` | **empty** | populated, roughly right |
+| `stack` | **empty** | populated, `(on ?x0 ?x1)` correct |
+| `unstack` | preconditions right, effects all deletes | populated, but asserts both `(holding ?x0)` *and* `(holding ?x1)` |
+
+At 131 epochs half the model is **missing** — two schemas emit nothing at all —
+so precision is high because the model abstained, not because it was right. At
+5000 every schema is populated and the errors are *commissions* rather than
+omissions. That is a precision-for-coverage trade, not a failure to converge, and
+it means the headline 0.94 above should be read with the effect counts beside it
+(`put_down: 0, stack: 0`) rather than as a straight win over the 24 arm.
+
+Neither run solves anything, and that is now the more interesting fact: at 5000
+epochs the model is no longer obviously incomplete, and it still cannot produce a
+valid plan.
+
 **Read the depot row against the other two, because it goes the other way.**
 blocksworld and hanoi both move sharply in the 26 arm's favour; depot moves
 against it, 0.31 against 0.54. depot is also the widest grounding of the three
