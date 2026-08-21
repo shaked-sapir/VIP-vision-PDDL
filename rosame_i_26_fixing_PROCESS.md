@@ -57,6 +57,11 @@ lands in the disagreement count instead (plan §4.2a′). **Phase 2 is closed.**
 length-masked loss) and `src/milp/rosame26_training.py` (the §3 one-method
 override and the §1.3 pins), with gate 2 extended by gate 2a. 68 further tests;
 full suite **825 passed, 1 skipped** from a 432-passed baseline.
+**Phase 4 is closed but for gate 7**, which is compute and is running — the
+emission permutation (three fixes, not one), gate 4, the §1.2 pre-flight plus a
+runtime timing probe, the `rosame_i_26` arm itself, and three real folds on the
+domains `dashboard_config.yaml` names. 143 further tests; full suite **968
+passed, 1 skipped**.
 Two Phase-1 findings amend the plan — see §6 — and six more found since: the
 padded loss while scoping Phase 2 (plan §6.1a, §8 4c); in 2.2, that the
 align-by-name bug is a loud miss rather than a silent mis-hit on our five
@@ -66,6 +71,10 @@ nullary trailing-space dialect gap (§8 11c) and the constant-pixel `std` floor
 the objective correction above; and in Phase 3, that §6.1a understates the
 ragged `loss_pred` gap — upstream loses the γ anchor **and** charges step `L`
 against zero filler, so 4c is two halves of one fix, not one.
+
+**That one is now fixed** — see Phase 4 below, where it turned out to be three
+defects rather than one, and where four further findings came out of doing it.
+The original note read:
 
 **One more, found while scoping Phase 4 and not yet fixed:** §4.2b's argument
 reordering has a **second, unhandled end**. Phase 2 mapped it on the way *in*;
@@ -932,7 +941,11 @@ and where the empty-effects question gets answered.
       written out for inspection before the null row is returned.
 - [ ] **gate 7 — budget control**: one cell per domain at `epochs: 5000` outside
       the timeout (§1.2), so *"underperforms at 750"* and *"undertrained at 750"*
-      stay distinguishable. A **26-arm item only** — 5000 is the 26 code default
+      stay distinguishable. ← **RUNNING**, `--epochs 5000 --n-seeds 1
+      --ignore-budget`, blocksworld → hanoi → depot sequentially so the folds do
+      not distort each other's timing. **depot is the one that decides
+      something**: it is the only domain of the three whose delta goes against
+      the 26 arm, and 140 epochs buys least there. A **26-arm item only** — 5000 is the 26 code default
       and the value §1.2's pre-flight calibrates away from; the 24 arm runs the
       ICAPS-24 paper's own 70/100/300.
 - [x] run the §1.2 pre-flight budget check before committing to any epoch count
@@ -1100,7 +1113,10 @@ will assume:
 | seeds | `n_seeds`, lowest final training loss | same rule, and it multiplies the epoch budget (§1.3) |
 
 - [ ] report the delta **with this table attached**, or hold the movable ones
-      fixed in a dedicated ablation
+      fixed in a dedicated ablation. Two of the eight are now held equal by
+      construction (resize, pinned by a test; argument order, settled by the
+      emitter) and one cannot be (the epoch budget — hence gate 7). **Blocked on
+      gate 7 for depot**, whose sign is not yet attributable.
 
 Presenting it as "old architecture vs new architecture" would repeat the resize
 confound of analysis §5 — a real effect attributed to the wrong cause.
