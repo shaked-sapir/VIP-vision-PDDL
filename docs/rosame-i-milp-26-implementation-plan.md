@@ -671,6 +671,38 @@ predicate name alone is silently wrong on four of five domains, and `trans_full_
 different propositions. Same failure class as §4.2a's phantom columns, minus the width change that
 would make it detectable.
 
+**Phase-4 obligation — the same permutation on the way *out*.** Everything above is about the
+input side. The output side has the identical defect, and nothing Phase 2 built covers it.
+
+`extract_pddl` (`src/milp/vendor/dl/util/ROSAME/rosame.py:389`; `format_predicates` and
+`format_actions`, 433-484) writes the learned domain's `:predicates` and `:parameters` blocks by
+iterating `action.params_types` — the **sorted** list — naming the variables `a, b, c, …` in that
+order. `predicate.ground(var)` reads the same dict, so the emitted file is internally consistent;
+it is the *signature* that is permuted against GT. depot's
+`lift(?c - crane ?p - package ?pl - pile ?d - depot)` comes out as
+`(:action lift ?a - crane ?b - depot ?c - package ?d - pile)` — PDDL positions `[0, 3, 1, 2]`.
+
+That is fatal to the score, not cosmetic, because all three metrics behind
+`benchmark/experiment_running_helpers/evaluation.py:evaluate_model` bind arguments **by position**:
+
+- `AMLGym/amlgym/util/SimpleDomainReader.py:452-457` renames parameters to `?param_0, ?param_1, …`
+  **by index**, discarding whatever names `extract_pddl` chose;
+- `AMLGym/amlgym/metrics/_syntactic.py:183-202` scores precision and recall as a **set
+  intersection over the resulting strings** — no permutation search, no canonicalisation;
+- `AMLGym/amlgym/metrics/_solving.py:63,83-90` generates a plan from the learned domain and
+  validates it against the reference domain, so ground actions bind positionally too.
+
+A semantically perfect model with a permuted signature therefore scores **precision ≈ 0,
+recall ≈ 0, solving ratio 0**. The fix is to apply the inverse of `rosame_argument_permutation`
+on emission, so the written file carries PDDL signature order. The adapter and the emitter are the
+two ends of one bijection; Phase 2 built one end.
+
+**Phase 4 cannot detect this on its own.** Its sanity run is one *blocksworld* fold, and
+blocksworld is the single domain in the table above with **0** reordered schemas. The arm would
+look healthy, and the collapse would first surface in Phase 6 on the other four domains — where it
+is indistinguishable from the architecture simply underperforming. Settle the emission permutation
+before Phase 4 produces a number, and gate it on a domain with a non-zero row: depot or hanoi.
+
 ### 4.3 Other points that will bite
 
 1. **`inits` and `goals` are given, hard.** Maps cleanly onto our GT init (problem `:init`) and
@@ -1445,7 +1477,7 @@ In order, each cheap and each falsifiable:
 | **1½** | ~~PIN §4.2a — one grounding or per-problem groundings~~ — **DONE. One `Instance` over the `data_dir` union, as upstream.** Equivalence gate written, run and green (`src/milp/test_grounding_scope_equivalence.py`). Phases 2–6 unblocked | low — done |
 | 2 | ~~Data adapter (fold → their contract, §4.1–4.4) — must pass §9.1. Also inherits four items from Phase 1: the **head-argument permutation** (§4.2b), the two §9.3 obligations that need an adapter, the run-scoped **grounding assets** (§5), and the **phantom-inertness re-check** (§4.2a)~~ — **DONE, 2.1–2.5.** Fold walk shared (`image_fold_inputs.py`), head↔CP alignment (`head_alignment.py`), tensor contract (`trace_tensors.py`), fold adapter (`rosame26_data.py`); gate §9.1 repointed at the shared `interior_frame_count` instead of restating it. Inertness re-checked as a **sweep over the whole emittable range** rather than one head's outputs, which **corrected §4.2a** (§4.2a′): zero objective cost, not a constant offset. Two bugs only a real cell found (§8 7a, 11c). The two §9.3 obligations move on to Phase 5. Suite 757 passed / 1 skipped, from a 432 baseline | done |
 | 3 | ~~Harness replacement (§3) — must pass §9.2~~ — **DONE.** `src/milp/rosame26_model.py` (`ObservedActionMixin` + `LengthMaskedLossMixin` → `Rosame26Goal`; dropping a mixin *is* option A) and `src/milp/rosame26_training.py` (`Rosame26Trainer`, overriding `train` / `_run_training` only; §6 parameters pinned, augmentation absent rather than disabled, MILP injected as a `MipRepairer` collaborator that must be present *before* epoch 0 if the schedule solves). §9.2 passes, **extended by gate 2a** — bit-identity on homogeneous batches, difference on ragged ones. **Corrected §6.1a** (§6.1a′): `loss_app` needs no mask, and `loss_pred` needs two changes rather than one. 68 tests, 16/16 mutants killed; suite 825 passed / 1 skipped | done |
-| 4 | DL-only arm (`ROSAME-I_26`), one blocksworld fold | low |
+| 4 | DL-only arm (`ROSAME-I_26`), one blocksworld fold. Inherits the **emission permutation** from §4.2b: `extract_pddl` writes the sorted signature and AMLGym scores positionally, so four of five domains score ~0 until the inverse is applied — and Phase 4's own blocksworld fold cannot see it | medium — the emission permutation is invisible to Phase 4's own gate; settle it first, on depot or hanoi |
 | 5 | Turn the MILP on (`ROSAME-I_MILP_26`) with `src/milp/encoder.py` (§6.1), one fold, verify `mip_gt_dist` logs — must pass §9.3 | medium |
 | 6 | Full grid across 5 domains via backfill | compute only |
 | 7 | *(follow-up, out of scope here)* option A — predicted actions (§0, §7) | high |
@@ -1465,7 +1497,7 @@ has at least nine candidate causes, and only the first is the one people will as
 | images per trace | N + 1 | **N − 1** (§4.1) |
 | proposition space | `RepeatedArgsInstance` | upstream `Instance`, no repeated args (§4.2) |
 | grounding scope | one `Instance` **per problem**; surplus union columns dropped at the converter | one shared `Instance` over the `data_dir` union (§4.2a), which makes absent-object propositions live CP variables — measured inert |
-| argument order | PDDL signature order (the sort is commented out in AMLGym's fork) | **sorted by type name** — reordered on 4 of our 5 domains (§4.2b) |
+| argument order | PDDL signature order (the sort is commented out in AMLGym's fork) | **sorted by type name** — reordered on 4 of our 5 domains (§4.2b). Not a confound to report: unless the emitter inverts the permutation, the 26 arm scores ~0 on those four (§4.2b, Phase-4 obligation) |
 | epoch budget | per-domain 70/100/300 | one calibrated value (§1.2) |
 | batch size | 1 — pooled and reshuffled per epoch, but one trace per optimizer step (§9 item 8) | 128, per `train_common.py` (`vendor/UPSTREAM.md`) |
 

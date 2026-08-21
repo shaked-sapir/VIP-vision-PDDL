@@ -67,6 +67,14 @@ the objective correction above; and in Phase 3, that §6.1a understates the
 ragged `loss_pred` gap — upstream loses the γ anchor **and** charges step `L`
 against zero filler, so 4c is two halves of one fix, not one.
 
+**One more, found while scoping Phase 4 and not yet fixed:** §4.2b's argument
+reordering has a **second, unhandled end**. Phase 2 mapped it on the way *in*;
+`extract_pddl` still writes the sorted signature on the way *out*, and AMLGym
+scores positionally, so four of five domains would score ~0 with a semantically
+perfect model. Phase 4's own blocksworld fold cannot see it — blocksworld is the
+0-reordered domain. Written up in plan §4.2b ("Phase-4 obligation") and as the
+first item of §4's Phase 4 checklist; **do this before producing any number.**
+
 ---
 
 ## 1. Step 1 — the rename: what is DONE
@@ -887,6 +895,23 @@ catches.
 The first real milestone: the old-vs-new DL comparison *before* any MILP work,
 and where the empty-effects question gets answered.
 
+- [ ] **first, before any number: invert the argument permutation on emission.**
+      `extract_pddl` (`src/milp/vendor/dl/util/ROSAME/rosame.py:389`,
+      `format_actions` 433-484) writes `:parameters` from the **sorted**
+      `params_types` with generated names `a, b, c, …`, so the emitted signature
+      is a permutation of the GT one on 4 of our 5 domains (§4.2b). AMLGym scores
+      **positionally** at all three metrics — `SimpleDomainReader.py:452-457`
+      renames parameters to `?param_k` by index, `_syntactic.py:183-202`
+      compares by set intersection over the resulting strings, and
+      `_solving.py:63,83-90` validates the learned domain's plan against the
+      reference — so a semantically perfect model scores **precision ≈ 0,
+      recall ≈ 0, solving 0**. Apply the inverse of
+      `domain_assets.rosame_argument_permutation` when emitting. Phase 2 built
+      the input end of that bijection; this is the output end.
+- [ ] **gate this on depot or hanoi, not blocksworld.** blocksworld has **0**
+      reordered schemas (§4.2b), so the sanity fold below would pass with the bug
+      in place and the collapse would first appear in Phase 6 — where it is
+      indistinguishable from the architecture underperforming.
 - [ ] one blocksworld fold, `pre_mip_epoch ≥ epochs` (gate 5, sanity run)
 - [ ] **gate 4 — degenerate-model guard**: reject a learned model with zero
       add-and-delete effects across all schemas, loudly. This would have caught
@@ -909,7 +934,7 @@ will assume:
 | augmentation | h-flip on blocksworld | disabled |
 | images per trace | N + 1 | **N − 1** |
 | proposition space | `RepeatedArgsInstance` | upstream `Instance` |
-| argument order | PDDL signature order | **sorted by type name** (4 of 5 domains) |
+| argument order | PDDL signature order | **sorted by type name** (4 of 5 domains). **Not a confound to report** — a bug to fix on emission first, or those four score ~0 (see the first checklist item above) |
 | grounding scope | per problem, then surplus union columns dropped | one `Instance` over the `data_dir` union (**DECIDED**, Phase 1½) |
 | epoch budget | per-domain 70/100/300 | one calibrated value |
 | batch size | 1 | 128 |
