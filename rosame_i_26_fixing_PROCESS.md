@@ -1014,8 +1014,35 @@ row went through the same evaluation every other arm's does.
 | blocksworld | **ROSAME-I_26** | **0.94** | **0.44** | 0 | 185 |
 | hanoi | ROSAME-I_24 | 0.60 | 0.38 | 0 | 94 |
 | hanoi | **ROSAME-I_26** | **0.96** | 0.22 | 0 | 360 |
-| depot | ROSAME-I_24 | — (null row) | — | — | — |
-| depot | **ROSAME-I_26** | 0.33 | 0.20 | 0 | 231 |
+| depot | ROSAME-I_24 | 0.54 | 0.45 | 0 | 113 |
+| depot | ROSAME-I_MILP_24 | 0.64 | 0.62 | 0 | 103 |
+| depot | **ROSAME-I_26** | **0.31** | **0.19** | 0 | 423 |
+
+**Read the depot row against the other two, because it goes the other way.**
+blocksworld and hanoi both move sharply in the 26 arm's favour; depot moves
+against it, 0.31 against 0.54. depot is also the widest grounding of the three
+(49 propositions / 122 actions against blocksworld's 36/50) and the slowest per
+epoch, so 140 epochs buys least there. It is the single clearest case for gate 7
+in the whole phase — on this evidence "the 26 architecture is worse on depot"
+and "140 epochs is not enough for depot" are not yet distinguishable, and the
+5000-epoch control is what separates them. Do **not** report the depot delta
+before that control has run.
+
+Two depot-specific facts that are *not* about the arm and should not be read into
+it. The predictive-power columns are null for **every** arm on depot —
+`unified_planning`'s PDDL reader rejects its problem files
+(`Not able to handle: (at_truck t1 d1)`), which is pre-existing and unrelated to
+this phase. And depot is the one domain with the representational ceiling above,
+so no ROSAME arm reaches precision 1.0 there however well it trains.
+
+**A directory trap, worth not repeating.** The first depot run went into
+`TO=600__depot_data_from_PV`, which is abandoned: 30 folds, `ROSAME-I_24` rows
+all null, nothing else ever backfilled. The live directory is
+`TO=600__depot_data_from_PV__groundfix`, and the two are indistinguishable by
+name or by `run_params.json` — same `data_dir`, same timeout, only the timestamp
+differs by a month. `benchmark/evaluation/cfm/dashboard_config.yaml`'s
+`image.experiment_dir` is the only record of which is current, and it is what to
+read before passing `--experiment-dir`. The orphaned row has been removed.
 
 **The emission gate passes on real data, which is the point of running hanoi and
 depot at all.** hanoi's `move_peg_disc` emits `(?x0 - disc ?x1 - peg ?x2 - disc)`
