@@ -1,0 +1,16 @@
+{
+  "name": "n_puzzle_typed",
+  "types": [
+    {"name": "object","parent": null},
+    {"name": "position","parent": "object"},
+    {"name": "tile","parent": "object"}
+  ],
+  "predicates": [
+    {"name": "at","types": ["tile","position"]},
+    {"name": "neighbor","types": ["position","position"]},
+    {"name": "empty","types": ["position"]}
+  ],
+  "action_schemas": [
+    {"name": "move","types": ["tile","position","position"]}
+  ]
+}

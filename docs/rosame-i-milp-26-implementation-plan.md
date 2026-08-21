@@ -438,12 +438,19 @@ a test that `trans_full_state`'s zip of the state vector against `instance.propo
 mismatch there mislabels every proposition silently.
 
 That settles which grounding *function* is used. It does not settle **what object set is
-grounded**, which is a separate axis and is still open — §4.2a.
+grounded**, which is a separate axis — settled separately in §4.2a.
 
-### 4.2a OPEN AND BLOCKING: one grounding for the run, or one per problem?
+### 4.2a DECIDED: one grounding for the run, over the whole `data_dir`
 
-**Nothing in Phase 2 or Phase 4 may start until this is pinned.** It is not a Phase-5 detail; it
-fixes the shape of the DL head, so it is upstream of both `ROSAME-I_26` and `ROSAME-I_MILP_26`.
+**Decision: follow upstream — one `Instance` shared by every trace, grounded on the object union
+of the whole `data_dir`.** Head width equals CP width by construction, so there is no bridge and
+no §8 deviation entry: following upstream is not a deviation. The gate below has been run and
+confirms the prediction (see the end of this section).
+
+This was blocking — nothing in Phase 2 or Phase 4 could start until it was pinned, because it
+fixes the shape of the DL head and so sits upstream of both `ROSAME-I_26` and `ROSAME-I_MILP_26`.
+It is now unblocked. The rest of this section is the reasoning, kept because §8 and the thesis
+both need it.
 
 Upstream grounds **once**, and shares that one `Instance` across every trace in the bundle:
 
@@ -514,10 +521,83 @@ of the pixel statistic. Same fix, same cache key. It also makes a `backfill_base
 single cell vocabulary-identical to the row it replaces, which fold-level grounding does not
 guarantee.
 
-**Gate, required whichever option is chosen.** Solve one 4-block blocksworld trace under both
-groundings and assert the recovered action model is identical. If it is not, the phantom-variable
-analysis above is wrong, and the choice stops being a fidelity question and becomes a measurement
-one.
+**Gate — RUN, and green.** `src/milp/test_grounding_scope_equivalence.py`, 7 tests, 1.4 s. One
+clean 4-block blocksworld trace exercising all four schemas, grounded on `a b c d` and on
+`a b c d e`, solved through `CPSATObservedActions(domain, traces, {"state", "model"})`:
+
+| | per-problem | union |
+|---|---|---|
+| propositions | 25 | 36 (11 name `e`) |
+| `hol` variables | 125 | 180 (**+44%**, exactly as predicted above) |
+| lifted model variables | 78 | 78 |
+| lifted variables that differ | — | **0** |
+| phantom propositions true at any step | — | **0** |
+| repaired live states | identical | identical |
+
+The prediction of "no behavioural difference" holds on all three counts: the union solve stays
+feasible, the recovered action model is bit-identical, and no phantom floats true.
+
+The 78 is equal *by construction* — `predicate_arguments` is built from the `Domain`, so the 26
+(schema, predicate, binding) triples cannot see how many objects were grounded. That is the
+decoupling claim, and it needs no solver. What the gate adds is that the *solution* over those
+variables does not move, and neither does the state channel on the propositions the two groundings
+share.
+
+Two non-vacuity guards, since an equivalence result is only as good as the difference it was given
+a chance to detect. The `hol` row shows the two solves really are two problems. And the equality is
+not CP-SAT tie-breaking — `solve` pins `random_seed`, which would make the gate pass for free if
+the optimum were underdetermined; it is not, and seeds 7 and 1234 return the same 78 values.
+
+**One half of this gate must be re-run in Phase 2.** Here every phantom is handed to the solver at
+ε, so it is false *because the observation says so*; the frame argument is what should carry the
+result, and the gate cannot separate the two. In `rosame_i_*` the per-step values are the network's
+sigmoid outputs, and the head cannot know `e` is absent from *this* problem, so it will emit some
+value for `(clear e)` — possibly a confident one. A phantom pulled true by the observation channel
+and pushed false by the frame is a contradiction the solver pays for, in the state objective, which
+is a reported number. Re-run the inertness check on real head outputs once the adapter exists.
+
+### 4.2b The DL head grounds arguments in sorted-type order; the PDDL does not
+
+Found in Phase 1, and the plan did not have it. §4.2 concluded that the CP proposition list is in
+PDDL signature order and that "no ROSAME-style type-grouped canonicalization is needed anywhere in
+the encoder". True of the encoder. **Not true of the ICAPS-26 head**, which is the other side of
+the zip.
+
+`dl/util/ROSAME/rosame.py` stores a signature as a `{Type: count}` map, and `Predicate.__init__`
+does `sorted(params.keys(), key=lambda x: x.name)`. `Predicate.ground` then emits one
+`itertools.permutations` group per key **in that order**, so a PDDL signature that is not already
+grouped and name-sorted is grounded as a *permutation of itself*.
+
+Predicates plus schemas whose order differs, measured on our five domains:
+
+| domain | reordered |
+|---|---|
+| blocksworld | **0** |
+| depot | 10 |
+| gripper | 2 |
+| hanoi | 2 |
+| npuzzle | 2 |
+
+blocksworld being zero is a trap: it is the domain most gates in this plan use, so a head-alignment
+bug would pass every blocksworld check and appear only on the other four.
+
+This is a divergence *between the two upstreams*, which is why the 24 arm never hit it. AMLGym's
+ICAPS-24 fork carries the same line commented out (`self.params_types = list(params.keys())`) and
+so recovers PDDL order by accident of dict insertion order.
+`benchmark/algorithm_adapters/test_check_predicate.py` is green for that fork only and **must not
+be read as evidence** that the 26 arms need no permutation step.
+
+**The vendor file stays verbatim.** `domain_assets.rosame_argument_permutation` reproduces the
+mapping — a *stable* argsort by type name, so same-typed arguments keep their PDDL order. It is a
+bijection and lossless even for a signature repeating a type at non-adjacent positions (hanoi's
+`move_peg_disc(disc, peg, disc)` → `[0, 2, 1]`), because `ground` permutes rather than combines.
+Pinned by `src/milp/test_rosame_argument_order.py` (21 tests).
+
+**Phase-2 obligation.** The adapter must map CP index → head index through it. Aligning by
+predicate name alone is silently wrong on four of five domains, and `trans_full_state` zips
+**positionally** (§9.3), so a permuted vector of the right width raises nothing — it just means
+different propositions. Same failure class as §4.2a's phantom columns, minus the width change that
+would make it detectable.
 
 ### 4.3 Other points that will bite
 
@@ -789,8 +869,29 @@ bytes of `name` / `types` / `predicates` / `action_schemas` — so the generator
 it retires the entire "which domain variant is this" bug class. Depot then stops being special:
 it is the fifth output of the same generator, not a hand-written exception.
 
-Also extend the hardcoded alias `domain_name = "blocksworld" if domain_name == "blocks"` to our
-bench keys.
+**DONE** — `src/milp/domain_assets.py`, `python -m src.milp.domain_assets`, pinned by
+`src/milp/test_domain_assets.py` (21 tests). Regenerate after editing any domain PDDL.
+
+**There is a third asset family the paragraph above misses**, found while building the generator.
+`ROSAMEMixin._build_around` calls `get_domain_model(domain)` (`dl/util/ROSAME/rosame.py:375`),
+which reads a *second* pair from `dl/util/ROSAME/models/domains/<domain>/`:
+
+* `domain_model.json` — the DL head's own vocabulary
+* `objects.json` — its grounding universe
+
+Different lifetime from the two above, which is why they cannot be shipped together. Upstream's
+`objects.json` is a checked-in **constant**, because its corpora are object-homogeneous; ours is
+the per-run object union over the whole `data_dir` (§4.2a), so it has to be generated per run into
+a run-scoped directory. Hence two vendor modifications: `get_domain_model(domain, root=None)` and
+`domain_assets_root` threaded through `_build_around` (`dl/mixins/action_model.py:10`). Passing
+`root=None` preserves upstream's path exactly, and no code of ours takes that branch.
+`domain_assets.write_grounding_assets(domain_key, objects, root)` writes that pair. Recorded in
+`vendor/UPSTREAM.md` under "Domain assets".
+
+The hardcoded alias `domain_name = "blocksworld" if domain_name == "blocks"` (`convertor.py:41`)
+needs **no** extension after all: directories are keyed by benchmark domain key
+(`blocksworld`, `npuzzle`, …), which is what the runners already pass, so the alias is a no-op and
+that vendor file stays verbatim.
 
 ### 5.1 Does our ICAPS-24 arm have this problem? No — structurally
 
@@ -1154,9 +1255,9 @@ In order, each cheap and each falsifiable:
 | Phase | Deliverable | Risk |
 |---|---|---|
 | **0** | ~~`_IMAGE_TF` → `Resize(64)` in the 24 arm (§4.6.1) + the resize A/B (§9.6)~~ — **CLOSED.** Transform shipped and made per-domain configurable with row-name suffixing; A/B run on 4 domains × 30 paired cells; **hypothesis refuted** (§9.6, analysis §5.3). The ROSAME-I baseline the 26 arm is measured against is now upstream-faithful *and* known unmoved by the change | low — done |
-| 1 | Vendor `dl/` + `convertor/` + `util/model_perm.py`; **generate all five specs and `pddl/<domain>/domain.pddl` assets (§5, §2.1)**; import-only smoke test; **write parity tests §9.1–9.3 against the vendored code, before the adapter exists** | low |
-| **1½** | **PIN §4.2a — one grounding or per-problem groundings. A decision, not a deliverable, and it gates Phases 2–6.** Our problems differ in object count where upstream's do not, so upstream's single `Instance` is a choice for us rather than a default. It sizes the DL head, so it cannot be deferred to the MILP phase | **blocking** |
-| 2 | Data adapter (fold → their contract, §4.1–4.4) — must pass §9.1 | **medium — most of the work** |
+| 1 | ~~Vendor `dl/` + `convertor/` + `util/model_perm.py`; generate all five specs and `pddl/<domain>/domain.pddl` assets (§5, §2.1); import-only smoke test; write parity tests §9.1–9.3 against the vendored code, before the adapter exists~~ — **DONE**, 143 tests over six new files, plus a **third asset family** §5 did not anticipate (§5) and an **argument reordering** the plan did not have (§4.2b). Gate §9.3 is **two of its four obligations**: the other two need the Phase-2 adapter and move to Phase 2. Suite 581 passed / 1 skipped, from a 432 baseline | low — done |
+| **1½** | ~~PIN §4.2a — one grounding or per-problem groundings~~ — **DONE. One `Instance` over the `data_dir` union, as upstream.** Equivalence gate written, run and green (`src/milp/test_grounding_scope_equivalence.py`). Phases 2–6 unblocked | low — done |
+| 2 | Data adapter (fold → their contract, §4.1–4.4) — must pass §9.1. Also inherits four items from Phase 1: the **head-argument permutation** (§4.2b — the head is reordered relative to PDDL on four of five domains), the two §9.3 obligations that need an adapter, the run-scoped **grounding assets** (§5), and the **phantom-inertness re-check on real head outputs** (§4.2a) | **medium — most of the work** |
 | 3 | Harness replacement (§3) — must pass §9.2 | medium |
 | 4 | DL-only arm (`ROSAME-I_26`), one blocksworld fold | low |
 | 5 | Turn the MILP on (`ROSAME-I_MILP_26`) with `src/milp/encoder.py` (§6.1), one fold, verify `mip_gt_dist` logs — must pass §9.3 | medium |
@@ -1168,7 +1269,7 @@ it's where the empty-effects question gets answered — against a 24 baseline th
 already made upstream-faithful.
 
 **But Phase 4 is not an architecture comparison unless you say what else moved.** A 24→26 delta
-has at least eight candidate causes, and only the first is the one people will assume:
+has at least nine candidate causes, and only the first is the one people will assume:
 
 | | ICAPS-24 arm | ICAPS-26 arm |
 |---|---|---|
@@ -1177,7 +1278,8 @@ has at least eight candidate causes, and only the first is the one people will a
 | augmentation | horizontal flip on blocksworld (`_AUGMENT_DOMAINS`) | disabled (§1.3) |
 | images per trace | N + 1 | **N − 1** (§4.1) |
 | proposition space | `RepeatedArgsInstance` | upstream `Instance`, no repeated args (§4.2) |
-| grounding scope | one `Instance` **per problem**; surplus union columns dropped at the converter | **undecided — §4.2a.** One shared `Instance` if upstream is followed, which makes absent-object propositions live CP variables |
+| grounding scope | one `Instance` **per problem**; surplus union columns dropped at the converter | one shared `Instance` over the `data_dir` union (§4.2a), which makes absent-object propositions live CP variables — measured inert |
+| argument order | PDDL signature order (the sort is commented out in AMLGym's fork) | **sorted by type name** — reordered on 4 of our 5 domains (§4.2b) |
 | epoch budget | per-domain 70/100/300 | one calibrated value (§1.2) |
 | batch size | 1 — pooled and reshuffled per epoch, but one trace per optimizer step (§9 item 8) | 128, per `train_common.py` (`vendor/UPSTREAM.md`) |
 
@@ -1281,24 +1383,26 @@ Every decision below was checked against the clone at `95c733f` (branch `ROSAME+
     adapter exists (§9, §10). Three of the five errors an external review found in the first draft
     of this plan would have been caught mechanically by them.
 
-### Still open
-
-**19. BLOCKING — grounding scope: one `Instance` for the run, or one per problem? (§4.2a)**
+**19. RESOLVED — grounding scope: one `Instance` for the run, over the whole `data_dir` (§4.2a)**
 
 Upstream builds a single `Instance` from the ROSAME domain's object universe and shares it across
 every trace (`convertor/convertor.py:48-49`); our 24 arm builds one per problem and drops the
 surplus columns at the converter (`rosame_i_milp_runner.py:155`, `converter.py:473-486`). Upstream
 never had to choose because its corpora are object-homogeneous. Ours are not — blocksworld
-problems carry 4 or 5 blocks — so following upstream here is a **decision to make**, not a default
+problems carry 4 or 5 blocks — so following upstream here was a **decision to make**, not a default
 to inherit, and the two options give different `n_props`, different DL head widths, and different
 CP variable sets on any problem smaller than the union.
 
-**Implementation of `ROSAME-I_26` and `ROSAME-I_MILP_26` cannot start until this is pinned**
-(Phase 1½, §10). It sizes the symbol head, so it is not a MILP-phase concern and deferring it means
-rebuilding the adapter and discarding anything measured before it. Two sub-questions travel with
-it, both in §4.2a: the union must be taken over the whole `data_dir` rather than the fold either
-way, and the equivalence gate (same model under both groundings on a 4-block blocksworld trace)
-must be run before the choice is treated as cosmetic.
+**Decided: follow upstream.** Head width equals CP width by construction, so no bridge is needed
+and §8 gets no deviation entry. The union is taken over the whole `data_dir`, not the fold, on
+§4.4's argument. The equivalence gate is written, run and green
+(`src/milp/test_grounding_scope_equivalence.py`): identical action model, no phantom true at any
+step, +44% `hol` variables. One half of it — inertness under *network* outputs rather than ε
+observations — is a Phase-2 obligation; see the end of §4.2a.
 
-*The remaining unknowns are empirical and are answered by the §9 validation runs, not by a
+This was blocking on Phase 2 and Phase 4. It no longer is.
+
+### Still open
+
+*Nothing. The remaining unknowns are empirical and are answered by the §9 validation runs, not by a
 decision.*

@@ -1,0 +1,32 @@
+{
+  "name": "depot",
+  "types": [
+    {"name": "object","parent": null},
+    {"name": "crane","parent": "object"},
+    {"name": "depot","parent": "object"},
+    {"name": "package","parent": "object"},
+    {"name": "pile","parent": "object"},
+    {"name": "truck","parent": "object"}
+  ],
+  "predicates": [
+    {"name": "at-truck","types": ["truck","depot"]},
+    {"name": "at-crane","types": ["crane","depot"]},
+    {"name": "at-pile","types": ["pile","depot"]},
+    {"name": "at","types": ["package","depot"]},
+    {"name": "on","types": ["package","package"]},
+    {"name": "on-pile","types": ["package","pile"]},
+    {"name": "clear","types": ["object"]},
+    {"name": "holding","types": ["crane","package"]},
+    {"name": "empty-crane","types": ["crane"]},
+    {"name": "in-truck","types": ["package","truck"]}
+  ],
+  "action_schemas": [
+    {"name": "drive","types": ["truck","depot","depot"]},
+    {"name": "lift","types": ["crane","package","pile","depot"]},
+    {"name": "unstack","types": ["crane","package","package","depot"]},
+    {"name": "drop","types": ["crane","package","pile","depot"]},
+    {"name": "stack","types": ["crane","package","package","depot"]},
+    {"name": "load","types": ["crane","package","truck","depot"]},
+    {"name": "unload","types": ["crane","package","truck","depot"]}
+  ]
+}

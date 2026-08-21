@@ -1,0 +1,20 @@
+{
+  "name": "blocks",
+  "types": [
+    {"name": "object","parent": null},
+    {"name": "block","parent": "object"}
+  ],
+  "predicates": [
+    {"name": "on","types": ["block","block"]},
+    {"name": "ontable","types": ["block"]},
+    {"name": "clear","types": ["block"]},
+    {"name": "handempty","types": []},
+    {"name": "holding","types": ["block"]}
+  ],
+  "action_schemas": [
+    {"name": "pick_up","types": ["block"]},
+    {"name": "put_down","types": ["block"]},
+    {"name": "stack","types": ["block","block"]},
+    {"name": "unstack","types": ["block","block"]}
+  ]
+}

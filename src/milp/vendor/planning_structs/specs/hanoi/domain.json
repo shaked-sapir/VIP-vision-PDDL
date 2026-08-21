@@ -1,0 +1,22 @@
+{
+  "name": "hanoi",
+  "types": [
+    {"name": "object","parent": null},
+    {"name": "disc","parent": "object"},
+    {"name": "peg","parent": "object"}
+  ],
+  "predicates": [
+    {"name": "clear-peg","types": ["peg"]},
+    {"name": "clear-disc","types": ["disc"]},
+    {"name": "on-disc","types": ["disc","disc"]},
+    {"name": "on-peg","types": ["disc","peg"]},
+    {"name": "smaller-disc","types": ["disc","disc"]},
+    {"name": "smaller-peg","types": ["peg","disc"]}
+  ],
+  "action_schemas": [
+    {"name": "move_disc_disc","types": ["disc","disc","disc"]},
+    {"name": "move_disc_peg","types": ["disc","disc","peg"]},
+    {"name": "move_peg_disc","types": ["disc","peg","disc"]},
+    {"name": "move_peg_peg","types": ["disc","peg","peg"]}
+  ]
+}

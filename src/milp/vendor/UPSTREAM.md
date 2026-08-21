@@ -7,15 +7,77 @@ Commit: `95c733f1fecd9ddbe9634c8c54ebc85b27ebc076` (2026-06-20)
 Vendored packages (top-level names preserved; loaded via a sys.path insertion
 in `src/milp/__init__.py` so upstream's absolute imports keep working):
 
-- `planning_structs/` — `domain.py`, `instance.py`, `traces.py` (verbatim)
+- `planning_structs/` — `domain.py`, `instance.py`, `traces.py` (verbatim),
+  `util.py` (verbatim)
 - `constraint_opt/` — `factory.py`, `util.py`, `cp_sat.py`, `mip_gurobi.py`
   (verbatim), `__init__.py` (MODIFIED: gurobipy import guarded so the CP-SAT
   path needs no Gurobi license)
+- `dl/` — the ICAPS-26 network: `model.py`, `mixins/`, `util/dataset.py`,
+  `util/layers.py`, `util/plot.py`, `util/util.py`, `util/ROSAME/rosame.py`,
+  `main/normalization.py` (verbatim); `network.py`, `util/tuning.py`,
+  `__init__.py`, `main/__init__.py` (MODIFIED, see below)
+- `convertor/` — `convertor.py`, `translator.py`, `selector.py`,
+  `pseudo_label.py` (all verbatim)
+- `util/` — `model_perm.py`, `pddl_parsing.py` (MODIFIED, see below)
+
+Not vendored, deliberately:
+
+- `dl/main/common.py`, `dl/main/rosame_full.py` — upstream's argparse CLI layer.
+  Our adapter replaces it.
+- `dl/util/ROSAME/models/domains/` — upstream's checked-in grounding assets.
+  Ours are generated per run; see "Domain assets" below.
 
 Our observed-actions encoder variant lives OUTSIDE the vendor tree
 (`src/milp/encoder.py`) and is registered in
 the same factory under `"cp-sat-observed"`. It is shared by the
 `rosame_milp*` baselines and by our own `pisam_milp_*` learners.
+
+## Vendor modifications
+
+Every one is marked in-file with a `VENDOR MODIFICATION` comment naming this
+document. Nine in total.
+
+| file | what | why |
+|---|---|---|
+| `constraint_opt/__init__.py:7` | gurobipy import guarded | the CP-SAT path needs no Gurobi license |
+| `dl/network.py:8` | tensorboard import guarded | not a project dependency; upstream's `SummaryWriter` logging is inert for us |
+| `dl/util/tuning.py` | replaced by a stub exporting `parameters: Dict` | upstream is 655 lines of grid/genetic search that spawns subprocesses and re-runs whole experiments — none of which may happen inside a fold. `dl/main/normalization` imports the dict as an image mean/std cache and is the only reachable use. **Upstream's cache is unkeyed and carries the image shape**, so one process touching two domains reuses a wrong-shaped array; our adapter owns a keyed on-disk cache and writes through this dict. |
+| `dl/__init__.py:1` | drops `from . import main` | pulls in the un-vendored argparse CLI layer |
+| `dl/main/__init__.py:1` | drops the CLI re-exports | same; the package survives only to host `normalization.py` |
+| `util/pddl_parsing.py:6` | `lifted_pddl` import guarded | not a project dependency, and this module is on the import path of *every* consumer of `dl/network.py` (via `convertor.convertor`), so an unguarded import makes the whole vendored DL tree unimportable. `Parser` is reachable only from `parse_pddl_domain`, which raises. |
+| `util/pddl_parsing.py:76` | f-string quote rewrite | upstream reuses the outer double quotes inside the f-string, which only parses under PEP 701 (Python ≥ 3.12); we are on 3.11. Produced string is identical. |
+| `dl/util/ROSAME/rosame.py:375` | `get_domain_model(domain, root=None)` | see "Domain assets" |
+| `dl/mixins/action_model.py:10` | `domain_assets_root` threaded through `_build_around` | see "Domain assets" |
+
+## Domain assets
+
+Three files are resolved by domain name, in two families with different
+lifetimes. `src/milp/domain_assets.py` generates all of them from **our**
+`src/domains/*.pddl`, so every vocabulary derives from the file the rest of the
+pipeline parses rather than being maintained in parallel.
+
+**Static, checked in** — read by `Convertor.__init__` relative to the vendor root.
+Regenerate after editing any domain PDDL with `python -m src.milp.domain_assets`:
+
+    planning_structs/specs/<domain>/domain.json   the CP domain spec
+    pddl/<domain>/domain.pddl                     the `gt_am` reference
+
+**Run-scoped, generated** — read by `ROSAMEMixin._build_around` via
+`get_domain_model`, from a root the caller passes:
+
+    <domain_assets_root>/<domain>/domain_model.json   the DL head's vocabulary
+    <domain_assets_root>/<domain>/objects.json        its grounding universe
+
+The second family cannot be checked in. Upstream's `objects.json` is a constant
+because its corpora are object-homogeneous; ours is the per-run object union
+over the whole `data_dir`. Hence the two modifications above.
+`get_domain_model(root=None)` preserves upstream's path exactly, but no code of
+ours takes that branch.
+
+Directories are keyed by **benchmark domain key** (`blocksworld`, `npuzzle`, ...),
+which is what the runners already pass around, so `Convertor`'s hardcoded
+`"blocks" -> "blocksworld"` alias (`convertor.py:41`) stays a no-op and that file
+needs no edit.
 
 ## Reference hyperparameters (paper Sec. 7 "Training", confirmed in code)
 
@@ -84,3 +146,32 @@ From `train_common.py` on the vendored commit:
    `(on a a)` to both `(on ?x ?y)` and `(on ?y ?x)`, and our encoder returns
    bindings `[(1,2), (2,1)]`, which it ORs together (`encoder._bindings` +
    `cp.any`).
+5. **The DL head grounds arguments in sorted-type order, the PDDL does not.**
+   `dl/util/ROSAME/rosame.py` stores a signature as a `{Type: count}` map, and
+   `Predicate.__init__` does `sorted(params.keys(), key=lambda x: x.name)`.
+   `Predicate.ground` then emits one `itertools.permutations` group per key in
+   that order, so **a PDDL signature that is not already grouped and name-sorted
+   is grounded as a permutation of itself** and the head is not positionally
+   comparable to the CP proposition list.
+
+   Measured on our five domains — predicates plus schemas whose order differs:
+   blocksworld **0**, depot 10, gripper 2, hanoi 2, npuzzle 2. blocksworld being
+   zero is a trap, since it is the domain most gates here use.
+
+   This is a divergence between the two upstreams. AMLGym's ICAPS-24 fork
+   carries the same line commented out (`self.params_types = list(params.keys())`)
+   and so recovers PDDL order by accident of dict insertion order. The 24 arms
+   therefore never see the reordering and the 26 arms always do;
+   `benchmark/algorithm_adapters/test_check_predicate.py` is green for the 24
+   fork only and must not be read as evidence otherwise.
+
+   **The vendor file is left verbatim.** `domain_assets.rosame_argument_permutation`
+   reproduces the mapping — a *stable* argsort by type name, so same-typed
+   arguments keep their PDDL order. It is a bijection and lossless even for a
+   signature repeating a type at non-adjacent positions (hanoi's
+   `move_peg_disc(disc, peg, disc)` → `[0, 2, 1]`), because `ground` permutes
+   rather than combines. Any adapter must map CP index → head index through it;
+   aligning by predicate name alone is silently wrong on four of five domains,
+   and `translator.trans_full_state` zips **positionally**, so a permuted vector
+   of the right width raises nothing and simply means different propositions.
+   Pinned by `src/milp/test_rosame_argument_order.py`.
