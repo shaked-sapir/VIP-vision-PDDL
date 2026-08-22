@@ -57,10 +57,12 @@ lands in the disagreement count instead (plan §4.2a′). **Phase 2 is closed.**
 length-masked loss) and `src/milp/rosame26_training.py` (the §3 one-method
 override and the §1.3 pins), with gate 2 extended by gate 2a. 68 further tests;
 full suite **825 passed, 1 skipped** from a 432-passed baseline.
-**Phase 4 is closed but for gate 7**, which is compute and is running — the
+**Phase 4 is closed** — the
 emission permutation (three fixes, not one), gate 4, the §1.2 pre-flight plus a
-runtime timing probe, the `rosame_i_26` arm itself, and three real folds on the
-domains `dashboard_config.yaml` names. 143 further tests; full suite **968
+runtime timing probe, the `rosame_i_26` arm itself, three real folds on the
+domains `dashboard_config.yaml` names, and gate 7's three controls — one of
+which, hanoi at 5000 epochs, is the only DL-only model in the phase that solves
+anything. 143 further tests; full suite **968
 passed, 1 skipped**.
 Two Phase-1 findings amend the plan — see §6 — and six more found since: the
 padded loss while scoping Phase 2 (plan §6.1a, §8 4c); in 2.2, that the
@@ -939,13 +941,12 @@ and where the empty-effects question gets answered.
       so one collapsed seed loses its vote rather than the cell. A
       precondition-only model counts as degenerate, and the collapsed PDDL is
       written out for inspection before the null row is returned.
-- [ ] **gate 7 — budget control**: one cell per domain at `epochs: 5000` outside
+- [x] **gate 7 — budget control**: one cell per domain at `epochs: 5000` outside
       the timeout (§1.2), so *"underperforms at 750"* and *"undertrained at 750"*
-      stay distinguishable. ← **RUNNING**, `--epochs 5000 --n-seeds 1
-      --ignore-budget`, blocksworld → hanoi → depot sequentially so the folds do
-      not distort each other's timing. **depot is the one that decides
-      something**: it is the only domain of the three whose delta goes against
-      the 26 arm, and 140 epochs buys least there. A **26-arm item only** — 5000 is the 26 code default
+      stay distinguishable. ← **DONE**, `--epochs 5000 --n-seeds 1
+      --ignore-budget` on blocksworld, hanoi and depot. The answer differs by
+      domain and hanoi's is the finding of the phase — see the gate-7 table
+      above. A **26-arm item only** — 5000 is the 26 code default
       and the value §1.2's pre-flight calibrates away from; the 24 arm runs the
       ICAPS-24 paper's own 70/100/300.
 - [x] run the §1.2 pre-flight budget check before committing to any epoch count
@@ -1049,33 +1050,42 @@ row went through the same evaluation every other arm's does.
 | depot | ROSAME-I_MILP_24 | 0.64 | 0.62 | 0 | 103 |
 | depot | **ROSAME-I_26** | **0.31** | **0.19** | 0 | 423 |
 
-**Gate 7, blocksworld: answered, and it answers against the obvious reading.**
-The 5000-epoch control (`ROSAME-I_26__ep=5000`, 1 seed, 2871 s, outside the
-timeout) scores **0.67 / 0.47** against the budgeted run's **0.94 / 0.44**. The
-loss did fall — 9.73 to 6.62 — so it trained; 38x the epochs simply did not buy a
-better model. **blocksworld is not undertrained at the grid budget**, and more
-epochs is not the lever.
+**Gate 7: all three domains, and it is the most informative thing in the phase.**
+`ROSAME-I_26__ep=5000`, 1 seed, outside the timeout. The control does not answer
+one question ("is it undertrained?") — it answers a different one per domain.
 
-The schemas say why, and the scalar hides it. The two runs fail in *opposite*
-directions:
+| domain | budgeted | 5000 epochs | solving | verdict |
+|---|---|---|---|---|
+| blocksworld | 0.94 / 0.44 @131 | **0.67 / 0.47** | 0 → 0 | precision *falls*; **not undertrained** |
+| hanoi | 0.96 / 0.22 @131 | **0.84 / 1.00** | 0 → **1.00** | **badly undertrained** |
+| depot | 0.31 / 0.19 @140 | **0.26 / 0.32** | 0 → 0 | neither helps; **not a budget problem** |
 
-| | 131 epochs | 5000 epochs |
-|---|---|---|
-| `pick_up` | correct but for a missing `(holding)` add | collapsed to `(ontable)` alone |
-| `put_down` | **empty** | populated, roughly right |
-| `stack` | **empty** | populated, `(on ?x0 ?x1)` correct |
-| `unstack` | preconditions right, effects all deletes | populated, but asserts both `(holding ?x0)` *and* `(holding ?x1)` |
+**hanoi at 5000 epochs is the only DL-only model anywhere in this phase that
+solves anything**, and it solves everything — recall 1.00, solving 1.00, against
+`ROSAME-I_MILP_24`'s 0.81/0.50 and `ROSAME-I_24`'s 0.38/0. Reading the schemas,
+it is a genuinely correct hanoi: `move_disc_disc` requires `smaller-disc` both
+ways and swaps `clear-disc`/`on-disc` correctly, and all four schemas are
+populated (effect counts 4/4/4/4 against the budgeted run's 0/0/1/1).
 
-At 131 epochs half the model is **missing** — two schemas emit nothing at all —
-so precision is high because the model abstained, not because it was right. At
-5000 every schema is populated and the errors are *commissions* rather than
-omissions. That is a precision-for-coverage trade, not a failure to converge, and
-it means the headline 0.94 above should be read with the effect counts beside it
-(`put_down: 0, stack: 0`) rather than as a straight win over the 24 arm.
+**And that model is the emission fix earning its keep.** Its `move_peg_disc`
+emits `(?x0 - disc ?x1 - peg ?x2 - disc)` — the reordered signature. Under the
+vendored emitter this exact model would have scored ~0.82 syntactically and
+almost certainly 0 on solving, and would have been filed as "the 26 architecture
+cannot do hanoi". It is the concrete instance of the failure §4.2b predicted.
 
-Neither run solves anything, and that is now the more interesting fact: at 5000
-epochs the model is no longer obviously incomplete, and it still cannot produce a
-valid plan.
+**The common thread across all three is coverage, not accuracy.** At the budgeted
+count every domain leaves schemas *empty* — blocksworld 2 of 4, hanoi 2 of 4,
+depot 2 of 7 — so the high budgeted precisions are partly abstention. At 5000
+every schema is populated. Whether that trade pays depends on the domain:
+hanoi converts it into a solvable model, blocksworld converts it into
+commissions, depot into neither.
+
+**So the honest summary of the 24-vs-26 comparison is that the budget factor is
+not a nuisance to be held equal — it is the dominant factor.** The eight-factor
+table's "epoch budget" row cannot be equalised, and gate 7 shows the arm's
+behaviour changes *qualitatively* across it on 1 of 3 domains. Any 24-vs-26
+number reported at a single budget is reporting one point on a curve that is not
+monotone.
 
 **Read the depot row against the other two, because it goes the other way.**
 blocksworld and hanoi both move sharply in the 26 arm's favour; depot moves
@@ -1184,8 +1194,9 @@ will assume:
 - [ ] report the delta **with this table attached**, or hold the movable ones
       fixed in a dedicated ablation. Two of the eight are now held equal by
       construction (resize, pinned by a test; argument order, settled by the
-      emitter) and one cannot be (the epoch budget — hence gate 7). **Blocked on
-      gate 7 for depot**, whose sign is not yet attributable.
+      emitter) and one **cannot** be — the epoch budget, which gate 7 now shows
+      is the *dominant* factor rather than a nuisance parameter. Report a curve
+      over budgets, or report one budget and say so.
 
 Presenting it as "old architecture vs new architecture" would repeat the resize
 confound of analysis §5 — a real effect attributed to the wrong cause.
