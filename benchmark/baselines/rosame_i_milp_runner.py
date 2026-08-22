@@ -352,11 +352,22 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         }
 
     def _model_from(self, rosame, ps_domain, report: Dict) -> Tuple[str, bool]:
-        """``(PDDL string, milp_failed)`` — the MILP's model, or plain ROSAME-I."""
-        from benchmark.algorithm_adapters.rosame_milp.model_bridge import solution_to_pddl
+        """``(PDDL string, milp_failed)`` — the **learned model**, always.
 
-        solution = report["final_solution"]
-        if solution is not None:
-            return solution_to_pddl(rosame, ps_domain, solution), False
-        print(f"  [{self.name}] MILP produced no solution — falling back to ROSAME-I")
-        return rosame.to_pddl(), True
+        The MILP supervises the network through pseudo-labels; it is not the
+        reported model. Upstream ICAPS-26 is explicit about this — ``network.py``
+        calls ``dump_actions()``, which writes ``extract_pddl(self.domain_model)``,
+        and ``action_model_sol`` appears only inside ``convertor.py`` where it
+        builds those labels. AMLGym has no MILP variant at all, so there is no
+        ICAPS-24 upstream that says otherwise.
+
+        This arm previously emitted ``solution_to_pddl(...)`` — the CP-SAT
+        solution, which is logically consistent by construction and therefore
+        scores the *solver*, not the network. On one blocksworld fold that read
+        1.00/1.00 while the head agreed with its own MILP on 35% of bindings.
+
+        ``milp_failed`` is retained as a diagnostic: a cell where the solver
+        never succeeded is one where this arm degenerated into its DL-only
+        sibling, which is worth being able to see.
+        """
+        return rosame.to_pddl(), report["final_solution"] is None

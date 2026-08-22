@@ -1285,6 +1285,42 @@ confound of analysis §5 — a real effect attributed to the wrong cause.
       by construction (§1.2). Two consecutive runs of this same cell gave
       1.00/0.41 and 0.88/0.54, so single-fold variance is larger than the gap
       being read.
+
+      **…and then the comparison turned out to be measuring the wrong thing.**
+      The two MILP arms were emitting **different quantities**:
+
+      | arm | emitted | what its score measures |
+      |---|---|---|
+      | `ROSAME-I_MILP_24` | `solution_to_pddl(...)` — the **CP-SAT solution** | the solver |
+      | `ROSAME-I_MILP_26` | `emit_pddl(domain_model)` — the **network head** | the network |
+
+      A CP-SAT solution is logically consistent *by construction*, so the 24
+      arm's 1.00/1.00 was never the network's score. Three checks, not one: its
+      `final_agreement` is **0.346** — the head agrees with its own MILP on 35%
+      of bindings, yet the row reads 1.00; its emitted PDDL is a
+      textbook-perfect blocksworld, which a 100-epoch net on 3 traces does not
+      produce; and our own `mip_gt_dist` is **0.0**, so the 26 arm would score
+      ~1.00 too if it emitted its solver's model. The solver was never the
+      difference between them.
+
+      **Upstream settles which is right.** `dl/network.py:300` calls
+      `dump_actions()`, which writes `extract_pddl(self.domain_model)` — the
+      head. `action_model_sol` appears *only* inside `convertor.py`, where it
+      builds pseudo-labels. And AMLGym has **no MILP variant at all**, so no
+      ICAPS-24 upstream says otherwise: emitting the solution was a local
+      invention, the same class of thing as the `train_per_trajectory` flag.
+
+      **DECIDED with the user: all three MILP arms emit the learned head.**
+      `ROSAME-I_MILP_24`, `ROSAME_MILP_24` and `ROSAME_MILP_24_TAG` now match
+      `ROSAME-I_MILP_26` and upstream. The fallback-to-ROSAME branch is gone —
+      the head is always what is emitted, so there is nothing to fall back *to*
+      — while `milp_failed` is retained as a diagnostic, now meaning "the MILP
+      never solved here, so this cell is its DL-only sibling".
+
+      **This invalidates every MILP row currently on disk**: 180
+      `ROSAME-I_MILP_24`, 4320 `ROSAME_MILP_24`, 4050 `ROSAME_MILP_24_TAG` —
+      **8550 rows**, all scoring the solver rather than the learner. They must
+      be re-run before any of them is reported.
 - [ ] must pass gate 3 — **including its two deferred halves**: that the §0.1
       identity mappings reach `extract_sol_*`, and that `run_fixer` agrees with a
       direct translator call. Neither could be written in Phase 1; both are

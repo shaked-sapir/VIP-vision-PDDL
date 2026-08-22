@@ -50,7 +50,6 @@ from benchmark.algorithm_adapters.rosame_milp.model_bridge import (
     extract_model_labels,
     model_agreement,
     rosame_to_observation_m,
-    solution_to_pddl,
 )
 from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
 from benchmark.baselines.rosame_runner import RosameBaselineRunner, _setup_rosame_workspace
@@ -217,13 +216,13 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             encoder, ok = self._solve(ps_domain, obs_t, obs_m)
             extra["milp"] = encoder.solve_stats
 
-            if ok:
-                model = solution_to_pddl(rosame, ps_domain, encoder.action_model_sol())
-                extra["milp_failed"] = False
-            else:
-                print(f"  [{self.name}] MILP failed — falling back to plain ROSAME model")
-                model = rosame.rosame_to_pddl()
-                extra["milp_failed"] = True
+            # The learned model is what this arm reports; the MILP supervises it
+            # through pseudo-labels rather than replacing it. See
+            # ``RosameIMilpRunner._model_from`` for why, and what changed.
+            model = rosame.rosame_to_pddl()
+            extra["milp_failed"] = not ok
+            if not ok:
+                print(f"  [{self.name}] MILP failed — the model is DL-only for this cell")
 
             if model and ":action" in model:
                 return model, extra
@@ -347,13 +346,10 @@ class RosameMilpRunner(RosameMilpBaseRunner):
                     {"epoch": "final_fallback", **encoder.solve_stats})
                 solution = encoder.action_model_sol() if ok else None
 
-            if solution is not None:
-                model = solution_to_pddl(rosame, ps_domain, solution)
-                extra["milp_failed"] = False
-            else:
-                print(f"  [{self.name}] MILP failed — falling back to plain ROSAME model")
-                model = rosame.rosame_to_pddl()
-                extra["milp_failed"] = True
+            model = rosame.rosame_to_pddl()
+            extra["milp_failed"] = solution is None
+            if solution is None:
+                print(f"  [{self.name}] MILP failed — the model is DL-only for this cell")
 
             if model and ":action" in model:
                 return model, extra
