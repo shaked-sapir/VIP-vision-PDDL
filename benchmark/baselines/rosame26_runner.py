@@ -363,6 +363,27 @@ class Rosame26BaselineRunner(BaselineRunner):
         )
         return projection.max_epochs, probe
 
+    def pre_mip_epoch(self, epochs: int) -> int:
+        """The first epoch at which the MILP may run.
+
+        ``>= epochs`` is upstream's own way of asking for a DL-only run
+        (``network.py``'s gate never opens), which is what makes this arm and
+        ``rosame_i_milp_26`` the same code.
+        """
+        return epochs
+
+    def parameter_overrides(self) -> Dict:
+        """Extra ``default_parameters`` entries a subclass needs. Empty here."""
+        return {}
+
+    def make_repairer(self, trainer, fold, bench: str, traces):
+        """The solve collaborator, or ``None`` for a DL-only run.
+
+        Called once per seed, after the trainer exists and before it trains, so
+        an implementation may close over ``trainer.domain_model``.
+        """
+        return None
+
     def _stop_check(self, tracker: "_BestModelTracker", trainer_ref: Dict):
         """The per-epoch hook the trainer calls: track the best, then decide.
 
@@ -462,6 +483,7 @@ class Rosame26BaselineRunner(BaselineRunner):
         seed_counts: Dict[int, Dict[str, int]] = {}
         seed_histories: Dict[int, List[Dict[str, float]]] = {}
         seed_stops: Dict[int, Dict] = {}
+        seed_rounds: Dict[int, List[Dict]] = {}
         degenerate: Dict[int, str] = {}
 
         for index in range(self.n_seeds):
@@ -471,11 +493,11 @@ class Rosame26BaselineRunner(BaselineRunner):
                 domain_assets_root=fold.grounding.assets_root,
                 epoch=epochs,
                 batch_size=self.batch_size,
-                # DL-only: pre_mip_epoch >= epoch is upstream's own way to say so.
-                pre_mip_epoch=epochs,
+                pre_mip_epoch=self.pre_mip_epoch(epochs),
                 device=self.device,
                 seed=seed,
             )
+            parameters.update(self.parameter_overrides())
             tracker = _BestModelTracker(self.budget_mode is BudgetMode.CONVERGE)
             trainer_ref: Dict = {}
             trainer = Rosame26Trainer(
@@ -485,6 +507,9 @@ class Rosame26BaselineRunner(BaselineRunner):
                 stop_check=self._stop_check(tracker, trainer_ref),
             )
             trainer_ref["trainer"] = trainer
+            trainer.on_built = lambda built: setattr(
+                built, "mip_repairer", self.make_repairer(built, fold, bench, resolved)
+            )
             try:
                 history = trainer.train(fold.batch)
             except Exception as error:  # keep one bad seed from killing the cell
@@ -511,6 +536,9 @@ class Rosame26BaselineRunner(BaselineRunner):
             )
             seed_models[seed] = model
             seed_histories[seed] = history
+            rounds = getattr(trainer.mip_repairer, "rounds", None)
+            if rounds:
+                seed_rounds[seed] = rounds
             if trainer.stopped_early or tracker.best_epoch is not None:
                 seed_stops[seed] = {
                     "stopped_early": trainer.stopped_early,
@@ -549,5 +577,7 @@ class Rosame26BaselineRunner(BaselineRunner):
         )
         if seed_stops:
             report["early_stopping"] = seed_stops
+        if seed_rounds:
+            report["milp_rounds"] = seed_rounds
         (run_dir / "model.pddl").write_text(seed_models[chosen])
         return seed_models[chosen], report

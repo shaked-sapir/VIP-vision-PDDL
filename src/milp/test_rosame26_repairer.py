@@ -27,6 +27,7 @@ from src.milp.domain_assets import BENCH_DOMAINS, build_domain, write_grounding_
 from src.milp.rosame26_repairer import (
     EPS,
     OBJECTIVES,
+    reference_action_model,
     Rosame26MipRepairer,
     TraceContext,
     model_labels_in_head_order,
@@ -246,6 +247,70 @@ def _naive_rows(head_schema, ps_schema):
         for predicate in head_schema.predicates
         for proposition in predicate.ground(variables)
     ]
+
+
+@pytest.mark.parametrize("domain_key", BENCH_DOMAINS)
+class TestReferenceActionModel:
+    """The ``mip_gt_dist`` reference, read from the domain's own PDDL.
+
+    Built through the project's parser rather than the vendored
+    ``parse_pddl_domain``, which needs a package this project does not depend on.
+    """
+
+    def test_it_covers_every_cp_binding(self, domain_key) -> None:
+        model = reference_action_model(domain_key)
+        ps_domain = build_domain(domain_key)
+        expected = {
+            (schema, predicate, tuple(binding))
+            for schema in ps_domain.action_schemas
+            for predicate in ps_domain.predicates
+            for binding in ps_domain.predicate_arguments.get((schema, predicate), [])
+        }
+        assert set(model.pre) == expected
+        assert set(model.add) == expected
+        assert set(model.dele) == expected
+
+    def test_something_is_marked(self, domain_key) -> None:
+        """A reference of all zeros would make the diagnostic meaningless."""
+        model = reference_action_model(domain_key)
+        marked = sum(
+            1
+            for key in model.pre
+            if model.pre[key] or model.add[key] or model.dele[key]
+        )
+        assert marked > 0
+
+    def test_a_delete_implies_nothing_about_its_precondition(
+        self, domain_key
+    ) -> None:
+        """The reference records the PDDL as written, not ROSAME's 4 classes.
+
+        depot deletes two literals it does not require; encoding the reference
+        through the 4-way head would silently add those preconditions.
+        """
+        model = reference_action_model(domain_key)
+        assert any(model.dele[key] for key in model.dele)
+
+
+class TestReferenceMatchesKnownSemantics:
+    def test_blocksworld_stack(self) -> None:
+        """``stack(?x ?y)``: pre {clear ?y, holding ?x}, add {clear ?x, on ?x ?y,
+        handempty}, del {clear ?y, holding ?x}."""
+        model = reference_action_model("blocksworld")
+        ps_domain = build_domain("blocksworld")
+        schema = ps_domain.get_action_schema("stack")
+
+        def flags(name, args):
+            key = (schema, ps_domain.get_predicate(name), args)
+            return (
+                int(model.pre[key]), int(model.add[key]), int(model.dele[key])
+            )
+
+        assert flags("clear", (2,)) == (1, 0, 1)
+        assert flags("holding", (1,)) == (1, 0, 1)
+        assert flags("clear", (1,)) == (0, 1, 0)
+        assert flags("on", (1, 2)) == (0, 1, 0)
+        assert flags("handempty", ()) == (0, 1, 0)
 
 
 class TestTheRepairerContract:

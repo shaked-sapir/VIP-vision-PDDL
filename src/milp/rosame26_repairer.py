@@ -163,6 +163,79 @@ def state_labels_for(
     return label
 
 
+def reference_action_model(bench: str) -> ObservationM:
+    """The domain's own action model as an ``ObservationM``, for ``mip_gt_dist``.
+
+    Built from ``src/domains/<bench>.pddl`` through the project's own parser
+    rather than the vendored ``util.pddl_parsing.parse_pddl_domain``, which needs
+    the ``lifted_pddl`` package this project does not depend on and which is
+    reachable only from ``Convertor.__init__``.
+
+    Keys are ``(schema, predicate, 1-based PDDL argument positions)`` — the CP
+    domain's own scheme, which is what makes it comparable to a solved
+    ``action_model_sol`` without a permutation search (plan §0.1a).
+
+    Raises:
+        KeyError: if the domain PDDL names a predicate the CP domain does not.
+    """
+    from pddl_plus_parser.lisp_parsers import DomainParser
+
+    from src.milp.domain_assets import build_domain, source_pddl_path
+
+    ps_domain = build_domain(bench)
+    parsed = DomainParser(source_pddl_path(bench), partial_parsing=False).parse_domain()
+
+    pre: Dict[Any, float] = {}
+    add: Dict[Any, float] = {}
+    dele: Dict[Any, float] = {}
+    for schema in ps_domain.action_schemas:
+        for predicate in ps_domain.predicates:
+            for binding in ps_domain.predicate_arguments.get((schema, predicate), []):
+                key = (schema, predicate, tuple(binding))
+                pre[key] = 0.0
+                add[key] = 0.0
+                dele[key] = 0.0
+
+    for name, action in parsed.actions.items():
+        schema = ps_domain.get_action_schema(name)
+        if schema is None:
+            continue
+        positions = {
+            parameter: index + 1 for index, parameter in enumerate(action.signature)
+        }
+        for literal in action.preconditions.root.operands:
+            key = _literal_key(ps_domain, schema, str(literal), positions)
+            if key is not None:
+                pre[key] = 1.0
+        for effect in action.discrete_effects:
+            text = str(effect).strip()
+            negated = text.startswith("(not ")
+            if negated:
+                text = text[len("(not ") : -1].strip()
+            key = _literal_key(ps_domain, schema, text, positions)
+            if key is None:
+                continue
+            if negated:
+                dele[key] = 1.0
+            else:
+                add[key] = 1.0
+    return ObservationM(pre, add, dele)
+
+
+def _literal_key(ps_domain, schema, text: str, positions: Dict[str, int]):
+    """``"(on ?x - block ?y - block)"`` as a CP binding key, or ``None``."""
+    tokens = text.strip().strip("()").split()
+    if not tokens:
+        return None
+    predicate = ps_domain.get_predicate(tokens[0])
+    if predicate is None:
+        return None
+    args = tuple(
+        positions[token] for token in tokens[1:] if token.startswith("?")
+    )
+    return (schema, predicate, args)
+
+
 class Rosame26MipRepairer:
     """``src/milp/encoder.py`` in the shape ``_run_training`` drives it.
 

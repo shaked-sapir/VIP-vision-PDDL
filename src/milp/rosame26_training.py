@@ -255,6 +255,7 @@ class Rosame26Trainer(Rosame26Goal):
         parameters: Dict[str, Any],
         mip_repairer: Optional[MipRepairer] = None,
         stop_check: Optional[Callable[[List[Dict[str, float]]], bool]] = None,
+        on_built: Optional[Callable[["Rosame26Trainer"], None]] = None,
     ) -> None:
         """
         Args:
@@ -266,10 +267,15 @@ class Rosame26Trainer(Rosame26Goal):
                 ends the run early. ``None`` runs every configured epoch. The
                 *policy* lives in the caller — this only provides the hook, so
                 ``parameters["epoch"]`` stays a ceiling in every mode.
+            on_built: Called once with ``self`` after ``build`` and before the
+                first epoch. ``domain_model`` and ``net`` exist only from that
+                point, so a collaborator that needs either is constructed here
+                rather than at ``__init__``.
         """
         super().__init__(str(path), parameters)
         self.mip_repairer = mip_repairer
         self.stop_check = stop_check
+        self.on_built = on_built
         self.history: List[Dict[str, float]] = []
         self.stopped_early: bool = False
 
@@ -289,6 +295,8 @@ class Rosame26Trainer(Rosame26Goal):
         self.optimizer = getattr(optim, self.parameters["optimizer"])(
             self.net.parameters(), lr=self.parameters["lr"]
         )
+        if self.on_built is not None:
+            self.on_built(self)
         return self._run_training(train_data)
 
     def dump_actions(self, *args: Any, **kwargs: Any) -> None:
