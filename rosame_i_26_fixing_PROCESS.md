@@ -1320,6 +1320,21 @@ confound of analysis §5 — a real effect attributed to the wrong cause.
       **This invalidates every MILP row currently on disk**: 180
       `ROSAME-I_MILP_24`, 4320 `ROSAME_MILP_24`, 4050 `ROSAME_MILP_24_TAG` —
       **8550 rows**, all scoring the solver rather than the learner. They must
+
+      **Re-run on the same fold, with the fix in place** — and the picture
+      inverts:
+
+      | arm | precision | recall | solving |
+      |---|---|---|---|
+      | ROSAME-I_24 | 0.32 | 0.06 | 0 |
+      | ROSAME-I_MILP_24 | **0.50** (was 1.00) | **0.22** (was 1.00) | 0 |
+      | ROSAME-I_26 | 0.94 | 0.44 | 0 |
+      | ROSAME-I_MILP_26 | 0.88 | **0.54** | 0 |
+
+      The MILP now reads as a genuine improvement to *both* learners rather than
+      a substitution for them — 0.32 → 0.50 on the 24 arm, recall 0.44 → 0.54 on
+      the 26 — and the 26 arm leads on every metric. The earlier "the 26 MILP arm
+      is worse" was entirely the reporting difference.
       be re-run before any of them is reported.
 - [ ] must pass gate 3 — **including its two deferred halves**: that the §0.1
       identity mappings reach `extract_sol_*`, and that `run_fixer` agrees with a
