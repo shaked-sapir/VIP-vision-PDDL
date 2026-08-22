@@ -95,6 +95,60 @@ args_dl_cp = {name: tuple(range(1, arity + 1)) for name in schema_names}   # x_c
 Keep the *second*, GT-facing call for the `mip_gt_dist` diagnostic only. Under option A the search
 is genuinely required and comes back — one more reason A is a separate phase (§7), not a flag.
 
+#### 0.1a CORRECTION (Phase 5): identity is not merely unproven, it is wrong
+
+The reasoning above is right that `model_permutation` must not be called. It is **wrong that
+identity is the safe alternative.** Measured against the real vendored head, `args_dl_cp = identity`
+puts every model pseudo-label on the wrong row of `extract_sol_model`'s output:
+
+| domain | mis-mapped rows | reordered schemas | reordered predicates |
+|---|---|---|---|
+| blocksworld | 0 / 26 | 0 | 0 |
+| hanoi | **13 / 44** | 1 | 1 |
+| depot | **36 / 69** | 7 | 3 |
+| gripper | **8 / 10** | 2 | 0 |
+| npuzzle | **6 / 6** | 1 | 1 |
+
+It is silent: both sides emit the same number of rows, so nothing raises, the loss falls normally,
+and the head simply trains against relabelled targets.
+
+**Why upstream never hit it.** Every action schema *and* predicate in all five upstream domains is
+already written in sorted-type order — `pick(?ball - ball ?gripper - gripper ?room - room)`,
+`move(?from - position ?to - position ?t - tile)`, `move(?d - disc ?from - object ?to - object)`.
+`sorted(params.keys(), key=lambda x: x.name)` is a **no-op on their entire corpus**. The sorted
+signature is an unstated precondition of the architecture; our `src/domains/*.pddl` follow IPC
+convention and violate it on four of five domains.
+
+**Why `args_dl_cp` cannot express the fix, whatever value is passed.** Three orderings differ, and
+that hook renumbers slots only:
+
+1. the schema's argument slots — expressible via `args_dl_cp`;
+2. each *predicate's own* argument order (`at(tile, position)` grounds as `at(?position, ?tile)`) —
+   **not** expressible, it reorders within a binding tuple;
+3. row order, where a predicate matching several parameters (depot's `clear(?x - object)`, 4 rows)
+   is enumerated in each side's own slot order — **not** expressible.
+
+Residual mis-mapped rows after fixing only layer 1: hanoi 6, depot 35, npuzzle 2.
+
+**Why `model_permutation` cannot substitute either.** `type_match` (`util/model_perm.py:20-24`)
+admits only permutations between *same-typed* positions. That is deliberate and correct: the paper
+describes the symmetry it resolves as "permuting schema names with identical signatures, or
+permuting **parameters of the same type** within a schema" — a semantic symmetry, where both
+orderings genuinely denote the same model. Ours is a *representational* mismatch across types.
+Checked on all 11 affected schemas: **not one** of the permutations we need is in its search space.
+
+**REPLACES the decision above:** keep identity `name_dl_cp` and `args_dl_cp` (they are correct for
+what they express), and reorder `extract_sol_model`'s output through
+`src/milp/schema_row_alignment.py`, which keys both sides on `(predicate, PDDL argument positions)`.
+Verified bijective on all five domains at two object universes, with row counts matching each
+head's tensor width, and object-independent by construction. It is
+`benchmark/algorithm_adapters/rosame_milp/model_bridge.py:binding_table`'s rule plus layer 2 —
+which that arm does not need, since AMLGym's fork carries the sort commented out.
+
+**The ICAPS-24 arms are unaffected**, by three independent facts: their fork disables the sort;
+our 24 MILP path never imports the vendored translator at all; and `model_bridge` maps by key
+rather than by position. No fix is required there and none should be applied.
+
 ---
 
 ## 1. What "identical to upstream" can and cannot mean

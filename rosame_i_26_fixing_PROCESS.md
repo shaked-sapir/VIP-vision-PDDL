@@ -1203,8 +1203,44 @@ confound of analysis §5 — a real effect attributed to the wrong cause.
 
 ### Phase 5 — `rosame_i_milp_26`
 
+- [x] **first: the argument permutation has a THIRD end — the MILP's model
+      channel.** Phase 2 fixed the way in, Phase 4 the way out; the pseudo-label
+      channel was still unmapped. Plan §0.1 said pass identity `args_dl_cp`;
+      measured, identity is wrong on 4 of 5 domains (hanoi 13/44 rows, depot
+      36/69, gripper 8/10, npuzzle 6/6, blocksworld 0) and **silent**, since both
+      sides emit the same row count. ← **DONE**,
+      `src/milp/schema_row_alignment.py`, 45 tests. Plan §0.1a written as the
+      correction.
+
+      Three things the upstream project and the ICAPS-26 paper settled, all
+      checked rather than inferred:
+      - **Upstream's own domains are written pre-sorted** — every schema and
+        predicate in all five of them. `sorted(params.keys(), ...)` is a no-op on
+        their whole corpus, so the bug cannot arise there. It is an unstated
+        precondition; our IPC-convention domains violate it.
+      - **`model_permutation` cannot fix it, by design.** `type_match` admits
+        only same-typed permutations, because the paper's symmetry is
+        "permuting **parameters of the same type**" — semantic, not
+        representational. None of our 11 affected schemas is in its search space.
+      - **The 24 arms are unaffected**, three ways over: AMLGym's fork disables
+        the sort; our 24 MILP path never imports the vendored translator; and
+        `model_bridge.binding_table` maps by key, not position. **No fix there,
+        and none should be applied.**
 - [ ] turn the MILP on, using **`src/milp/encoder.py`**, not the vendored solvers
       (§6.1, DECIDED)
+- [ ] **pad + mask for the MILP half** (§6.1, DECIDED; confirmed with the user).
+      `extract_sol_label` sizes labels from one shared `problem.max_t`; reuse
+      Phase 3's `lengths` masking rather than a per-trace horizon.
+- [ ] **three budget modes**, decided with the user, replacing the implicit
+      `epochs` + `respect_budget` encoding with one explicit `budget_mode`:
+      `preflight` (§1.2, today's behaviour), `fixed` (a set count, gate 7's
+      control), and `converge` (early-stop on a **relative-improvement plateau**
+      in training loss, with a minimum-epoch floor). `converge` exists for the
+      larger-data runs, where 5000 epochs is neither affordable nor necessary.
+      All three keep a **best-training-loss checkpoint** and emit that rather
+      than the final epoch — gate 7 showed loss and model quality can move in
+      opposite directions (blocksworld 0.94@131 → 0.67@5000 on a falling loss).
+      Each mode carries its own row-name suffix so two modes cannot be averaged.
 - [ ] MILP cadence per §6.2
 - [ ] one fold; verify the `mip_gt_dist` logs
 - [ ] must pass gate 3 — **including its two deferred halves**: that the §0.1
