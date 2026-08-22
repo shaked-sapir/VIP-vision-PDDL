@@ -1336,10 +1336,21 @@ confound of analysis §5 — a real effect attributed to the wrong cause.
       the 26 — and the 26 arm leads on every metric. The earlier "the 26 MILP arm
       is worse" was entirely the reporting difference.
       be re-run before any of them is reported.
-- [ ] must pass gate 3 — **including its two deferred halves**: that the §0.1
-      identity mappings reach `extract_sol_*`, and that `run_fixer` agrees with a
-      direct translator call. Neither could be written in Phase 1; both are
-      write-once-the-adapter-exists, so they belong to whoever does Phase 2.
+- [x] must pass gate 3 — **including its two deferred halves** ← **DONE**,
+      `src/milp/test_gate3_milp_parity.py`, 14 tests on a real ragged fold,
+      mutation-checked 3/3.
+
+      **Two of gate 3's five obligations were written before §0.1a and assert
+      things now known to be wrong.** Both are restated to their intent rather
+      than dropped, with the reason recorded in the file:
+
+      | plan's wording | what is asserted now |
+      |---|---|
+      | labels match a direct **vendored-translator** call | that translator sizes every trace from one shared `max_t` (§6.1) and leaves the model channel unpermuted (§0.1a) — matching it would pin the defect. Asserted instead against an independent recomputation from the **same solved encoder**. |
+      | the §0.1 **identity mappings** reach `extract_sol_*` | identity is wrong on 4 of 5 domains and those functions are never called. Asserted instead: every row's label describes **that row's own binding**, through the alignment. |
+      | `trans_full_state`'s zip is index-aligned | vendored, and reached only by `test_vendor_translator_contract`. Asserted instead for the head column map we do use. |
+      | shapes match on a **ragged** bundle | held directly, and the fold is asserted ragged first so the check cannot be vacuous. |
+      | the `chosen = 0` fallback never fires | N/A by construction, asserted as the *reason*: `action` is not a solver objective and is excluded from `MIP_to_DL`. |
 
 ### Phase 6 — full grid
 

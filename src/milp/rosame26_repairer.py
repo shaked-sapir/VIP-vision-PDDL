@@ -279,6 +279,10 @@ class Rosame26MipRepairer:
         self._labels = PseudoLabels()
         self._collected: List[_Collected] = []
         self.rounds: List[Dict[str, Any]] = []
+        #: The most recent solved encoder. Kept so a caller can recompute a
+        #: label, read ``repaired_states`` or render the solution without
+        #: re-solving; gate 3's parity check is the reason it exists.
+        self._last_encoder: Optional[CPSATObservedActions] = None
 
     @property
     def pseudo_labels(self) -> PseudoLabels:
@@ -359,6 +363,7 @@ class Rosame26MipRepairer:
             self.rounds.append(dict(encoder.solve_stats, status="NO_SOLUTION"))
             return None
 
+        self._last_encoder = encoder
         solution = encoder.action_model_sol()
         self._labels.model = model_labels_in_head_order(
             solution, self.domain_model, self.ps_domain
