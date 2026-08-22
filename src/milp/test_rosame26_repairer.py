@@ -374,6 +374,40 @@ class TestTheRepairerContract:
                 torch.rand(1, 4), torch.rand(1, 4),
             )
 
+    def test_the_gt_distance_moves_when_the_reference_moves(self, tmp_path) -> None:
+        """``mip_gt_dist`` reads 0.0 on real folds; this is why that is a result.
+
+        The measured blocksworld run reports 0.0 on all 338 solves of all three
+        seeds — the MILP recovers that domain exactly. A metric that never moves
+        is indistinguishable from a broken one, so this pins that it does:
+        flipping ``k`` of ``n`` bindings must read exactly ``k / n``.
+        """
+        model = _head("blocksworld", tmp_path)
+        ps_domain = build_domain("blocksworld")
+        reference = reference_action_model("blocksworld")
+        repairer = Rosame26MipRepairer(
+            model, ps_domain, {}, {}, gt_action_model=reference
+        )
+
+        assert repairer._gt_distance(reference) == 0.0
+
+        import copy
+
+        perturbed = copy.deepcopy(reference)
+        flipped = list(perturbed.pre)[:3]
+        for key in flipped:
+            perturbed.add[key] = 1.0 - perturbed.add[key]
+
+        assert repairer._gt_distance(perturbed) == pytest.approx(
+            len(flipped) / len(reference.pre)
+        )
+
+    def test_no_reference_reports_no_distance(self, tmp_path) -> None:
+        repairer = Rosame26MipRepairer(
+            _head("blocksworld", tmp_path), build_domain("blocksworld"), {}, {}
+        )
+        assert repairer._gt_distance(reference_action_model("blocksworld")) is None
+
     def test_a_solve_with_no_traces_reports_rather_than_raises(self, tmp_path) -> None:
         repairer = Rosame26MipRepairer(
             _head("blocksworld", tmp_path), build_domain("blocksworld"), {}, {}

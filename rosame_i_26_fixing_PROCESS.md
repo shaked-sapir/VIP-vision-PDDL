@@ -1226,11 +1226,21 @@ confound of analysis §5 — a real effect attributed to the wrong cause.
         the sort; our 24 MILP path never imports the vendored translator; and
         `model_bridge.binding_table` maps by key, not position. **No fix there,
         and none should be applied.**
-- [ ] turn the MILP on, using **`src/milp/encoder.py`**, not the vendored solvers
-      (§6.1, DECIDED)
-- [ ] **pad + mask for the MILP half** (§6.1, DECIDED; confirmed with the user).
-      `extract_sol_label` sizes labels from one shared `problem.max_t`; reuse
-      Phase 3's `lengths` masking rather than a per-trace horizon.
+- [x] turn the MILP on, using **`src/milp/encoder.py`**, not the vendored solvers
+      (§6.1, DECIDED) ← **DONE**, `src/milp/rosame26_repairer.py` +
+      `benchmark/baselines/rosame26_milp_runner.py`. All six arms of §0's 2×2×2
+      are now registered.
+- [x] **pad + mask for the MILP half** — and **the problem dissolved on
+      inspection.** §6.1 is right that `extract_sol_label` sizes every trace from
+      one shared `problem.max_t`. But that is the *vendored translator*, which
+      neither the 24 arm nor this one calls: both read
+      `encoder.repaired_states(i)`, sized from `_steps(i)` per trace. The
+      arithmetic then lands exactly — `repaired_states` returns one frame per
+      image, dropping both endpoints leaves `N − 2 = T`, and `z` is `[T, S]`.
+      Phase 3's `lengths` mask already covers the batch dimension, so **no second
+      padding layer was needed**. Verified on a real ragged blocksworld fold
+      (lengths 4/7/1): CP-SAT returns OPTIMAL and every state label is `[T_i, S]`
+      for its own trace.
 - [ ] **three budget modes**, decided with the user, replacing the implicit
       `epochs` + `respect_budget` encoding with one explicit `budget_mode`:
       `preflight` (§1.2, today's behaviour), `fixed` (a set count, gate 7's
@@ -1242,7 +1252,39 @@ confound of analysis §5 — a real effect attributed to the wrong cause.
       opposite directions (blocksworld 0.94@131 → 0.67@5000 on a falling loss).
       Each mode carries its own row-name suffix so two modes cannot be averaged.
 - [ ] MILP cadence per §6.2
-- [ ] one fold; verify the `mip_gt_dist` logs
+- [x] one fold; verify the `mip_gt_dist` logs ← **DONE**, and the answer is a
+      result rather than a formality.
+
+      Upstream reads its reference model through
+      `util.pddl_parsing.parse_pddl_domain`, which needs the `lifted_pddl`
+      package this project does not depend on. `reference_action_model` builds
+      the same `ObservationM` from `src/domains/<bench>.pddl` through our own
+      parser, keyed in the CP domain's argument scheme so it needs no permutation
+      search (§0.1a). Checked literal by literal against blocksworld's `stack`.
+
+      **`mip_gt_dist` reads exactly 0.0 on all 338 solves of all three seeds** —
+      the MILP recovers blocksworld's action model *exactly*, every time. A
+      metric that never moves is indistinguishable from a broken one, so that is
+      pinned: flipping `k` of `n` bindings must read exactly `k/n`, and it does
+      (3/26 = 0.1154).
+
+      First blocksworld fold, `fold0_numtrajs3_gtrate0`, 388 epochs after the
+      probe raised the budget, 3 seeds:
+
+      | arm | precision | recall | solving |
+      |---|---|---|---|
+      | ROSAME-I_24 | 0.32 | 0.06 | 0 |
+      | ROSAME-I_MILP_24 | 1.00 | 1.00 | **1.00** |
+      | ROSAME-I_26 | 0.94 | 0.44 | 0 |
+      | ROSAME-I_26 @5000 | 0.67 | 0.47 | 0 |
+      | **ROSAME-I_MILP_26** | **0.88** | **0.54** | 0 |
+
+      The MILP lifts recall over the DL-only 26 arm (0.44 → 0.54) and still does
+      not solve, while the 24 arm's MILP solves everything. **Do not read that as
+      an architecture comparison yet** — one fold, and the epoch budgets differ
+      by construction (§1.2). Two consecutive runs of this same cell gave
+      1.00/0.41 and 0.88/0.54, so single-fold variance is larger than the gap
+      being read.
 - [ ] must pass gate 3 — **including its two deferred halves**: that the §0.1
       identity mappings reach `extract_sol_*`, and that `run_fixer` agrees with a
       direct translator call. Neither could be written in Phase 1; both are
