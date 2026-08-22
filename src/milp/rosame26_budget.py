@@ -86,12 +86,19 @@ class BudgetMode(str, Enum):
 #: Epochs per convergence window. The per-epoch loss on a 3-9 trace fold is
 #: noisy — the median epoch-to-epoch change is ~0.065 against a final-vs-best
 #: gap of ~0.16 — so the signal is the best over a window, not a single epoch.
-CONVERGE_WINDOW: int = 20
+#: 40 rather than 20: measured on a 1200-epoch blocksworld run, a 20-epoch
+#: window is short enough that a transient excursion fills the whole patience
+#: buffer, and no threshold recovers it (every setting stopped at 460-540).
+CONVERGE_WINDOW: int = 40
 
 #: Relative improvement below which a window counts as a plateau. Relative
 #: rather than absolute because loss scales differ ~1.4x across our domains
 #: (hanoi ~13.7, blocksworld ~9.7), so one absolute delta cannot serve all.
-CONVERGE_MIN_IMPROVEMENT: float = 0.01
+#: 0.002 rather than 0.01: the same run's tail improves ~0.34% per 40-epoch
+#: window and never goes flat, so 1% fires while the curve is still descending
+#: and lands ~6% above the reachable loss. At 0.2% it stops at epoch 1160 of
+#: 1200 having reached 100.0% of the full run's best.
+CONVERGE_MIN_IMPROVEMENT: float = 0.002
 
 #: Consecutive plateau windows required to stop. More than one, because a single
 #: flat window happens regularly mid-descent on a noisy fold.
@@ -295,16 +302,30 @@ def window_best(losses: Sequence[float], window: int) -> List[float]:
 
 
 def relative_improvements(bests: Sequence[float]) -> List[float]:
-    """Fractional improvement of each window over the previous one.
+    """Fractional improvement of each window over the **best window before it**.
 
-    Positive means the loss fell. Normalised by the previous window's magnitude,
-    so the figure is comparable across domains whose losses differ in scale.
-    A previous window at exactly zero yields ``0.0`` rather than dividing.
+    Positive means a new best; zero or negative means the window did not beat
+    what the run had already achieved.
+
+    Measured against the running best rather than the immediately previous
+    window because the quantity of interest is "is this run still getting
+    better", and a window that fails to beat an earlier one has not made
+    progress however it compares to its neighbour. Note what this does **not**
+    buy: at the tuned defaults below the two rules stop the measured 1200-epoch
+    run at the same epoch, so this is a correctness argument, not a measured
+    improvement — the window width and the threshold are what move that number.
+
+    Normalised by the running best's magnitude, so the figure is comparable
+    across domains whose losses differ in scale. A running best of exactly zero
+    yields ``0.0`` rather than dividing.
     """
     out: List[float] = []
-    for previous, current in zip(bests, bests[1:]):
-        scale = abs(previous)
-        out.append(0.0 if scale == 0.0 else (previous - current) / scale)
+    for index in range(1, len(bests)):
+        best_before = min(bests[:index])
+        scale = abs(best_before)
+        out.append(
+            0.0 if scale == 0.0 else (best_before - bests[index]) / scale
+        )
     return out
 
 
@@ -318,9 +339,9 @@ def has_converged(
 ) -> bool:
     """Whether the training loss has plateaued (mode ``converge``).
 
-    A relative-improvement plateau: the best loss per ``window`` must have
-    improved by less than ``min_improvement`` for ``patience`` consecutive
-    windows. Reads training loss only, never test data.
+    A relative-improvement plateau: for ``patience`` consecutive windows, the
+    window's best loss must have improved the *running best* by less than
+    ``min_improvement``. Reads training loss only, never test data.
 
     Args:
         losses: Per-epoch training loss so far, in order.
