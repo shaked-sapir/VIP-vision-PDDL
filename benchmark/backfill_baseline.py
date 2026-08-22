@@ -303,8 +303,11 @@ def _runner_kwargs(args: argparse.Namespace) -> dict:
         kwargs["epochs"] = args.epochs
     if args.n_seeds is not None:
         kwargs["n_seeds"] = args.n_seeds
-    if args.ignore_budget:
-        kwargs["respect_budget"] = False
+    if args.budget_mode is not None:
+        kwargs["budget_mode"] = args.budget_mode
+    elif args.ignore_budget:
+        # Retained spelling of --budget-mode fixed.
+        kwargs["budget_mode"] = "fixed"
     return kwargs
 
 
@@ -352,13 +355,26 @@ def main() -> None:
                          "per fold (the lowest-final-training-loss one is "
                          "kept). It multiplies the pre-flight projection. "
                          "Ignored by baselines that don't accept it.")
+    ap.add_argument("--budget-mode", choices=["preflight", "fixed", "converge"],
+                    default=None,
+                    help="How the ICAPS-26 arm decides when to stop. "
+                         "'preflight' (default) lets the budget check lower "
+                         "--epochs to fit the cell timeout, which is what the "
+                         "grid runs. 'fixed' runs --epochs whatever the "
+                         "projection says (gate 7's control; run it outside the "
+                         "timeout). 'converge' early-stops on a training-loss "
+                         "plateau with --epochs as a ceiling, and is the only "
+                         "mode that emits the best-loss model rather than the "
+                         "final epoch's. Non-default modes suffix the row name "
+                         "so two modes are never averaged together.")
     ap.add_argument("--ignore-budget", action="store_true",
                     help="Let the ICAPS-26 arm run its configured epoch count "
                          "whatever the pre-flight projects. This is gate 7's "
                          "budget-control setting: one cell per domain at "
                          "--epochs 5000 outside the timeout, so 'underperforms "
                          "at the grid budget' and 'undertrained at it' stay "
-                         "distinguishable. Not for grid cells.")
+                         "distinguishable. Not for grid cells. Superseded by "
+                         "--budget-mode fixed, which it is now an alias for.")
     ap.add_argument("--resize", type=_parse_resize, default=RESIZE_FROM_TABLE,
                     metavar="N|H,W|native",
                     help="Override the per-domain image resize for the pixel "

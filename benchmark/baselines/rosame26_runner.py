@@ -39,7 +39,7 @@ from benchmark.baselines.rosame_i_runner import (
     _RESIZE_FROM_TABLE,
     _resize_tag,
 )
-from src.milp.rosame26_budget import PER_EPOCH_DL_SECONDS
+from src.milp.rosame26_budget import PER_EPOCH_DL_SECONDS, BudgetMode
 
 #: Epochs per domain, before the §1.2 pre-flight is allowed to lower it. 5000 is
 #: the ICAPS-26 code default and is what gate 7 measures against *outside* the
@@ -75,6 +75,49 @@ _RESIZE: Dict[str, ResizeSpec] = {
 }
 
 
+class _BestModelTracker:
+    """Keeps the lowest-training-loss snapshot of the schema heads.
+
+    The emitted PDDL is a function of ``domain_model.action_schemas`` alone, so
+    their ``state_dict`` is the whole checkpoint. Selection reads training loss
+    only and never touches test data.
+
+    Inactive outside ``converge`` mode: :meth:`observe` and :meth:`restore`
+    become no-ops, so the other two modes keep emitting the final epoch.
+    """
+
+    def __init__(self, active: bool) -> None:
+        self.active = active
+        self.best_loss: Optional[float] = None
+        self.best_epoch: Optional[int] = None
+        self._state = None
+        self._model = None
+
+    def bind(self, domain_model) -> None:
+        """Attach the model whose schema heads are snapshotted."""
+        self._model = domain_model
+
+    def observe(self, loss: float, epoch: int) -> None:
+        """Snapshot if ``loss`` is the best seen so far."""
+        if not self.active or self._model is None:
+            return
+        if self.best_loss is None or loss < self.best_loss:
+            import copy
+
+            self.best_loss = loss
+            self.best_epoch = epoch
+            self._state = copy.deepcopy(
+                [schema.state_dict() for schema in self._model.action_schemas]
+            )
+
+    def restore(self, domain_model) -> None:
+        """Load the best snapshot back, if one was taken."""
+        if not self.active or self._state is None:
+            return
+        for schema, state in zip(domain_model.action_schemas, self._state):
+            schema.load_state_dict(state)
+
+
 class Rosame26BaselineRunner(BaselineRunner):
     """ROSAME-I (26): the ICAPS-26 network on images, without the MILP."""
 
@@ -89,7 +132,7 @@ class Rosame26BaselineRunner(BaselineRunner):
         resize: ResizeSpec = _RESIZE_FROM_TABLE,
         epochs: Optional[int] = None,
         batch_size: int = 128,
-        respect_budget: bool = True,
+        budget_mode: str = BudgetMode.PREFLIGHT.value,
     ) -> None:
         """
         Args:
@@ -103,17 +146,30 @@ class Rosame26BaselineRunner(BaselineRunner):
             epochs: Explicit override, else the per-domain table. Gate 7 runs
                 this at 5000, with ``respect_budget=False``.
             batch_size: Capped at the fold size by the trainer.
-            respect_budget: Whether the §1.2 pre-flight may lower the epoch
-                count to fit the cell timeout. ``False`` is the control-cell
-                setting and is what the ``__ep=`` row suffix labels.
+            budget_mode: One of :class:`~src.milp.rosame26_budget.BudgetMode`.
+                ``preflight`` lets the §1.2 check lower ``epochs`` to fit the
+                cell timeout (the grid's mode); ``fixed`` runs ``epochs``
+                whatever the projection says (gate 7's control, outside the
+                timeout); ``converge`` early-stops on a training-loss plateau
+                with ``epochs`` as a ceiling, and is the only mode that emits
+                the best-loss model rather than the final epoch's.
+
+        Raises:
+            ValueError: on an unknown ``budget_mode``.
         """
+        try:
+            self.budget_mode = BudgetMode(budget_mode)
+        except ValueError:
+            raise ValueError(
+                f"unknown budget_mode {budget_mode!r}; expected one of "
+                f"{[m.value for m in BudgetMode]}"
+            ) from None
         self.n_seeds = n_seeds
         self.device = device
         self.base_seed = base_seed
         self.resize = resize
         self.epochs = epochs
         self.batch_size = batch_size
-        self.respect_budget = respect_budget
         self._bench_cache: Dict[Path, Tuple[str, Domain]] = {}
 
     # ------------------------------------------------------------- identity
@@ -153,6 +209,8 @@ class Rosame26BaselineRunner(BaselineRunner):
             parts.append(f"__res={_resize_tag(self._resolve_resize(bench))}")
         if self._resolve_epochs(bench) != _EPOCH_DEFAULT:
             parts.append(f"__ep={self._resolve_epochs(bench)}")
+        if self.budget_mode is not BudgetMode.PREFLIGHT:
+            parts.append(f"__mode={self.budget_mode.value}")
         return "".join(parts)
 
     # ------------------------------------------------------------- settings
@@ -205,13 +263,13 @@ class Rosame26BaselineRunner(BaselineRunner):
             n_seeds=self.n_seeds,
         )
         report = {
+            "mode": self.budget_mode.value,
             "requested_epochs": requested,
             "projected_seconds": projection.seconds,
             "budget_seconds": projection.budget,
             "fits": projection.fits,
-            "respected": self.respect_budget,
         }
-        if projection.fits or not self.respect_budget:
+        if projection.fits or self.budget_mode is not BudgetMode.PREFLIGHT:
             return requested, report
 
         print(
@@ -252,7 +310,10 @@ class Rosame26BaselineRunner(BaselineRunner):
         from src.milp.rosame26_budget import reproject
         from src.milp.rosame26_training import Rosame26Trainer, default_parameters
 
-        if not self.respect_budget or epochs >= self._resolve_epochs(bench):
+        if (
+            self.budget_mode is not BudgetMode.PREFLIGHT
+            or epochs >= self._resolve_epochs(bench)
+        ):
             return epochs, {"ran": False, "reason": "budget not binding"}
 
         start = time.perf_counter()
@@ -301,6 +362,28 @@ class Rosame26BaselineRunner(BaselineRunner):
             f"{epochs} epochs to {projection.max_epochs}"
         )
         return projection.max_epochs, probe
+
+    def _stop_check(self, tracker: "_BestModelTracker", trainer_ref: Dict):
+        """The per-epoch hook the trainer calls: track the best, then decide.
+
+        Returns ``None`` outside ``converge`` mode, so ``preflight`` and
+        ``fixed`` run their full epoch count and keep emitting the final model —
+        which is what their already-recorded numbers mean.
+        """
+        if self.budget_mode is not BudgetMode.CONVERGE:
+            return None
+
+        from src.milp.rosame26_budget import has_converged
+
+        def check(history: List[Dict[str, float]]) -> bool:
+            # Bound here rather than before `train`: `domain_model` is created by
+            # `build()` inside it, and this hook first fires after epoch 0.
+            tracker.bind(trainer_ref["trainer"].domain_model)
+            losses = [float(record["total_loss"]) for record in history]
+            tracker.observe(losses[-1], len(losses) - 1)
+            return has_converged(losses)
+
+        return check
 
     # ---------------------------------------------------------------- learn
 
@@ -377,6 +460,8 @@ class Rosame26BaselineRunner(BaselineRunner):
         seed_losses: Dict[int, float] = {}
         seed_models: Dict[int, str] = {}
         seed_counts: Dict[int, Dict[str, int]] = {}
+        seed_histories: Dict[int, List[Dict[str, float]]] = {}
+        seed_stops: Dict[int, Dict] = {}
         degenerate: Dict[int, str] = {}
 
         for index in range(self.n_seeds):
@@ -391,15 +476,24 @@ class Rosame26BaselineRunner(BaselineRunner):
                 device=self.device,
                 seed=seed,
             )
+            tracker = _BestModelTracker(self.budget_mode is BudgetMode.CONVERGE)
+            trainer_ref: Dict = {}
             trainer = Rosame26Trainer(
-                run_dir / f"seed_{seed}", parameters, mip_repairer=None
+                run_dir / f"seed_{seed}",
+                parameters,
+                mip_repairer=None,
+                stop_check=self._stop_check(tracker, trainer_ref),
             )
+            trainer_ref["trainer"] = trainer
             try:
                 history = trainer.train(fold.batch)
             except Exception as error:  # keep one bad seed from killing the cell
                 print(f"  [ROSAME-I 26] seed {seed} failed: {error}")
                 continue
 
+            # Only "converge" restores a checkpoint; the other two modes emit the
+            # final epoch, which is what their recorded numbers already mean.
+            tracker.restore(trainer.domain_model)
             model = emit_pddl(trainer.domain_model, bench)
             (run_dir / f"seed_{seed}" / "model.pddl").write_text(model)
             try:
@@ -410,8 +504,21 @@ class Rosame26BaselineRunner(BaselineRunner):
                 degenerate[seed] = str(error)
                 continue
 
-            seed_losses[seed] = float(history[-1]["total_loss"])
+            seed_losses[seed] = (
+                tracker.best_loss
+                if tracker.best_loss is not None
+                else float(history[-1]["total_loss"])
+            )
             seed_models[seed] = model
+            seed_histories[seed] = history
+            if trainer.stopped_early or tracker.best_epoch is not None:
+                seed_stops[seed] = {
+                    "stopped_early": trainer.stopped_early,
+                    "ran_epochs": len(history),
+                    "emitted_epoch": tracker.best_epoch
+                    if tracker.best_epoch is not None
+                    else len(history) - 1,
+                }
 
         report["training_seconds"] = time.perf_counter() - start
         report["device"] = default_parameters(
@@ -428,11 +535,19 @@ class Rosame26BaselineRunner(BaselineRunner):
             return None, report
 
         chosen = min(seed_losses, key=seed_losses.get)
+        history = seed_histories[chosen]
+        losses = [float(record["total_loss"]) for record in history]
+        best = min(losses)
         report.update(
             seeds=seed_losses,
             chosen_seed=chosen,
             chosen_final_loss=seed_losses[chosen],
             effect_counts=seed_counts[chosen],
+            loss_history=history,
+            best_loss=best,
+            best_loss_epoch=losses.index(best),
         )
+        if seed_stops:
+            report["early_stopping"] = seed_stops
         (run_dir / "model.pddl").write_text(seed_models[chosen])
         return seed_models[chosen], report

@@ -43,7 +43,8 @@ owned here instead.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional
+from enum import Enum
+from typing import Any, List, Mapping, Optional, Sequence
 
 #: Median CP-SAT solve, seconds, over 630 samples of the real encoder (§1.2).
 #: The nominal ``mip_time_limit`` of 60 s is a cap the measurements never reach.
@@ -61,6 +62,43 @@ PER_EPOCH_DL_SECONDS: float = 1.216
 #: Fraction of the cell timeout the projection may claim. The remainder covers
 #: what the projection does not model: adapter, grounding, decode and eval.
 BUDGET_HEADROOM: float = 0.8
+
+
+class BudgetMode(str, Enum):
+    """How a run decides when to stop.
+
+    Attributes:
+        PREFLIGHT: The configured epoch count, lowered by :func:`check_budget` to
+            whatever fits the cell timeout. The grid's mode.
+        FIXED: The configured epoch count, whatever the projection says. Gate 7's
+            budget-control mode; must be run outside the timeout.
+        CONVERGE: Stop when the training loss plateaus
+            (:func:`has_converged`), with the configured count as a ceiling.
+            For larger corpora, where 5000 epochs is neither affordable nor
+            necessary and a fixed count is a guess in both directions.
+    """
+
+    PREFLIGHT = "preflight"
+    FIXED = "fixed"
+    CONVERGE = "converge"
+
+
+#: Epochs per convergence window. The per-epoch loss on a 3-9 trace fold is
+#: noisy — the median epoch-to-epoch change is ~0.065 against a final-vs-best
+#: gap of ~0.16 — so the signal is the best over a window, not a single epoch.
+CONVERGE_WINDOW: int = 20
+
+#: Relative improvement below which a window counts as a plateau. Relative
+#: rather than absolute because loss scales differ ~1.4x across our domains
+#: (hanoi ~13.7, blocksworld ~9.7), so one absolute delta cannot serve all.
+CONVERGE_MIN_IMPROVEMENT: float = 0.01
+
+#: Consecutive plateau windows required to stop. More than one, because a single
+#: flat window happens regularly mid-descent on a noisy fold.
+CONVERGE_PATIENCE: int = 3
+
+#: Epochs that must run before convergence may trigger at all.
+CONVERGE_MIN_EPOCHS: int = 60
 
 
 class BudgetExceededError(RuntimeError):
@@ -241,6 +279,68 @@ def projection_for(
         n_seeds=n_seeds,
         **overrides,
     )
+
+
+def window_best(losses: Sequence[float], window: int) -> List[float]:
+    """The best loss within each consecutive ``window``-epoch block.
+
+    A trailing partial block is dropped: comparing a 20-epoch window against a
+    3-epoch one would read as improvement whenever the short block happens to
+    contain a good epoch.
+    """
+    if window < 1:
+        raise ValueError(f"window must be at least 1, got {window}")
+    complete = len(losses) // window
+    return [min(losses[i * window : (i + 1) * window]) for i in range(complete)]
+
+
+def relative_improvements(bests: Sequence[float]) -> List[float]:
+    """Fractional improvement of each window over the previous one.
+
+    Positive means the loss fell. Normalised by the previous window's magnitude,
+    so the figure is comparable across domains whose losses differ in scale.
+    A previous window at exactly zero yields ``0.0`` rather than dividing.
+    """
+    out: List[float] = []
+    for previous, current in zip(bests, bests[1:]):
+        scale = abs(previous)
+        out.append(0.0 if scale == 0.0 else (previous - current) / scale)
+    return out
+
+
+def has_converged(
+    losses: Sequence[float],
+    *,
+    window: int = CONVERGE_WINDOW,
+    min_improvement: float = CONVERGE_MIN_IMPROVEMENT,
+    patience: int = CONVERGE_PATIENCE,
+    min_epochs: int = CONVERGE_MIN_EPOCHS,
+) -> bool:
+    """Whether the training loss has plateaued (mode ``converge``).
+
+    A relative-improvement plateau: the best loss per ``window`` must have
+    improved by less than ``min_improvement`` for ``patience`` consecutive
+    windows. Reads training loss only, never test data.
+
+    Args:
+        losses: Per-epoch training loss so far, in order.
+        window: Epochs per window.
+        min_improvement: Fractional improvement below which a window is a
+            plateau. ``0.01`` is 1%.
+        patience: Consecutive plateau windows required.
+        min_epochs: Floor before convergence may trigger, so a flat start
+            cannot stop the run.
+
+    Returns:
+        ``True`` when training should stop.
+    """
+    if len(losses) < min_epochs:
+        return False
+    bests = window_best(losses, window)
+    improvements = relative_improvements(bests)
+    if len(improvements) < patience:
+        return False
+    return all(value < min_improvement for value in improvements[-patience:])
 
 
 def _max_epochs(

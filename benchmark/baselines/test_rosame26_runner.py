@@ -17,7 +17,9 @@ import pytest
 
 from benchmark.baselines import BASELINE_REGISTRY, get_baselines
 from benchmark.baselines.base_runner import BaselineRunner
+from src.milp.rosame26_budget import BudgetMode
 from benchmark.baselines.rosame26_runner import (
+    _BestModelTracker,
     _EPOCH_DEFAULT,
     _PROBE_EPOCHS,
     _EPOCHS,
@@ -144,14 +146,21 @@ class TestTheBudgetPreflight:
 
         assert three < one
 
-    def test_opting_out_keeps_the_configured_count(self) -> None:
+    def test_fixed_mode_keeps_the_configured_count(self) -> None:
         """Gate 7's control cell runs 5000 whatever the projection says."""
-        runner = Rosame26BaselineRunner(epochs=5000, respect_budget=False)
+        runner = Rosame26BaselineRunner(epochs=5000, budget_mode="fixed")
         epochs, report = runner._budgeted_epochs("blocksworld", 600)
 
         assert epochs == 5000
         assert not report["fits"]
-        assert report["respected"] is False
+        assert report["mode"] == "fixed"
+
+    def test_converge_mode_also_keeps_the_configured_ceiling(self) -> None:
+        """The plateau ends the run, not the projection."""
+        runner = Rosame26BaselineRunner(epochs=5000, budget_mode="converge")
+        epochs, _ = runner._budgeted_epochs("blocksworld", 600)
+
+        assert epochs == 5000
 
     def test_the_report_carries_what_was_asked_for(self) -> None:
         runner = Rosame26BaselineRunner(n_seeds=1)
@@ -195,7 +204,7 @@ class TestTheTimingProbe:
     def test_it_does_not_run_for_a_control_cell(self) -> None:
         """Gate 7 opts out of the budget; there is nothing to re-project."""
         runner = Rosame26BaselineRunner(
-            n_seeds=1, epochs=5000, respect_budget=False
+            n_seeds=1, epochs=5000, budget_mode="fixed"
         )
         epochs, probe = runner._reprojected_epochs(
             "blocksworld", object(), 5000, 600, Path("/nowhere")
@@ -217,6 +226,71 @@ class TestTheTimingProbe:
 
     def test_the_probe_is_short_against_any_budget_it_would_inform(self) -> None:
         assert _PROBE_EPOCHS < _EPOCH_DEFAULT // 10
+
+
+class TestBudgetModes:
+    """Three explicit modes, replacing the implicit epochs+respect_budget pair."""
+
+    def test_the_default_is_preflight(self) -> None:
+        assert Rosame26BaselineRunner().budget_mode is BudgetMode.PREFLIGHT
+
+    @pytest.mark.parametrize("mode", ["preflight", "fixed", "converge"])
+    def test_each_mode_is_accepted(self, mode) -> None:
+        assert Rosame26BaselineRunner(budget_mode=mode).budget_mode.value == mode
+
+    def test_an_unknown_mode_raises(self) -> None:
+        with pytest.raises(ValueError, match="unknown budget_mode"):
+            Rosame26BaselineRunner(budget_mode="whenever")
+
+    def test_preflight_gets_no_mode_suffix(self, tmp_path: Path) -> None:
+        """The grid's mode is the default, so its rows stay unlabelled."""
+        runner = Rosame26BaselineRunner(budget_mode="preflight")
+        assert runner.row_name(_domain_file(tmp_path, "blocks")) == "ROSAME-I_26"
+
+    @pytest.mark.parametrize("mode", ["fixed", "converge"])
+    def test_the_other_modes_are_suffixed(self, tmp_path: Path, mode) -> None:
+        """Two modes measure different things and must never share a row."""
+        runner = Rosame26BaselineRunner(budget_mode=mode)
+        assert runner.row_name(_domain_file(tmp_path, "blocks")).endswith(
+            f"__mode={mode}"
+        )
+
+    def test_gate_sevens_row_name_carries_both(self, tmp_path: Path) -> None:
+        runner = Rosame26BaselineRunner(epochs=5000, budget_mode="fixed")
+        assert (
+            runner.row_name(_domain_file(tmp_path, "blocks"))
+            == "ROSAME-I_26__ep=5000__mode=fixed"
+        )
+
+    def test_only_converge_installs_a_stop_check(self) -> None:
+        """preflight and fixed run their full count and emit the final epoch."""
+        for mode in ("preflight", "fixed"):
+            runner = Rosame26BaselineRunner(budget_mode=mode)
+            assert runner._stop_check(_BestModelTracker(False), {}) is None
+        assert (
+            Rosame26BaselineRunner(budget_mode="converge")._stop_check(
+                _BestModelTracker(True), {}
+            )
+            is not None
+        )
+
+
+class TestBestModelTracker:
+    """Active only in converge mode, per the decision to leave (a) and (b) alone."""
+
+    def test_it_is_inert_when_inactive(self) -> None:
+        tracker = _BestModelTracker(False)
+        tracker.observe(1.0, 0)
+        assert tracker.best_loss is None
+        assert tracker.best_epoch is None
+
+    def test_it_records_nothing_before_a_model_is_bound(self) -> None:
+        tracker = _BestModelTracker(True)
+        tracker.observe(1.0, 0)
+        assert tracker.best_loss is None
+
+    def test_restoring_without_a_snapshot_is_a_no_op(self) -> None:
+        _BestModelTracker(True).restore(object())
 
 
 class TestSeedSelection:

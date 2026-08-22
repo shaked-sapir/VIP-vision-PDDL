@@ -67,7 +67,7 @@ padding; and under option B ``a`` *is* the observed action, so ``action_acc`` is
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Protocol
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
 
 import torch
 import torch.optim as optim
@@ -254,6 +254,7 @@ class Rosame26Trainer(Rosame26Goal):
         path: str | Path,
         parameters: Dict[str, Any],
         mip_repairer: Optional[MipRepairer] = None,
+        stop_check: Optional[Callable[[List[Dict[str, float]]], bool]] = None,
     ) -> None:
         """
         Args:
@@ -261,10 +262,16 @@ class Rosame26Trainer(Rosame26Goal):
             parameters: :func:`default_parameters`, or a superset of it.
             mip_repairer: The solve collaborator. ``None`` is a DL-only run and
                 requires ``pre_mip_epoch >= epoch``.
+            stop_check: Called with the history after each epoch; a truthy result
+                ends the run early. ``None`` runs every configured epoch. The
+                *policy* lives in the caller — this only provides the hook, so
+                ``parameters["epoch"]`` stays a ceiling in every mode.
         """
         super().__init__(str(path), parameters)
         self.mip_repairer = mip_repairer
+        self.stop_check = stop_check
         self.history: List[Dict[str, float]] = []
+        self.stopped_early: bool = False
 
     def train(self, train_data: PaddedTraces) -> List[Dict[str, float]]:
         """Build, then run the loop. Returns the per-epoch record.
@@ -349,6 +356,7 @@ class Rosame26Trainer(Rosame26Goal):
         )
 
         self.history = []
+        self.stopped_early = False
         for epoch in range(parameters["epoch"]):
             self.net.train()
             solving = is_mip_epoch(epoch, parameters)
@@ -395,5 +403,9 @@ class Rosame26Trainer(Rosame26Goal):
                     record["mip_gt_dist"] = distance
             self.history.append(record)
             self.epoch = epoch + 1
+
+            if self.stop_check is not None and self.stop_check(self.history):
+                self.stopped_early = True
+                break
 
         return self.history

@@ -21,7 +21,13 @@ from benchmark.baselines.rosame26_runner import _EPOCH_DEFAULT
 def _args(**overrides) -> argparse.Namespace:
     """A namespace with the three flags at their argparse defaults."""
     return argparse.Namespace(
-        **{"epochs": None, "n_seeds": None, "ignore_budget": False, **overrides}
+        **{
+            "epochs": None,
+            "n_seeds": None,
+            "ignore_budget": False,
+            "budget_mode": None,
+            **overrides,
+        }
     )
 
 
@@ -35,14 +41,24 @@ class TestOnlyWhatWasPassedIsForwarded:
     def test_a_seed_override_is_forwarded(self) -> None:
         assert _runner_kwargs(_args(n_seeds=1)) == {"n_seeds": 1}
 
-    def test_the_budget_flag_maps_to_respect_budget_false(self) -> None:
-        assert _runner_kwargs(_args(ignore_budget=True)) == {"respect_budget": False}
+    def test_an_explicit_mode_is_forwarded(self) -> None:
+        assert _runner_kwargs(_args(budget_mode="converge")) == {
+            "budget_mode": "converge"
+        }
+
+    def test_the_retained_flag_is_an_alias_for_fixed(self) -> None:
+        assert _runner_kwargs(_args(ignore_budget=True)) == {"budget_mode": "fixed"}
+
+    def test_an_explicit_mode_wins_over_the_alias(self) -> None:
+        assert _runner_kwargs(
+            _args(ignore_budget=True, budget_mode="converge")
+        ) == {"budget_mode": "converge"}
 
     def test_gate_sevens_full_setting(self) -> None:
         assert _runner_kwargs(_args(epochs=5000, n_seeds=1, ignore_budget=True)) == {
             "epochs": 5000,
             "n_seeds": 1,
-            "respect_budget": False,
+            "budget_mode": "fixed",
         }
 
 
@@ -61,7 +77,7 @@ class TestTheOptionsReachOnlyTheArmsThatTakeThem:
 
         assert runner.epochs == 5000
         assert runner.n_seeds == 1
-        assert runner.respect_budget is False
+        assert runner.budget_mode.value == "fixed"
 
     @pytest.mark.parametrize(
         "key", ["rosame_24", "rosame_i_24", "rosame_i_milp_24", "rosame_milp_24"]
@@ -82,4 +98,4 @@ class TestTheOptionsReachOnlyTheArmsThatTakeThem:
 
         assert runner.epochs is None
         assert runner._resolve_epochs("blocksworld") == _EPOCH_DEFAULT
-        assert runner.respect_budget is True
+        assert runner.budget_mode.value == "preflight"
