@@ -1354,9 +1354,66 @@ confound of analysis §5 — a real effect attributed to the wrong cause.
 
 ### Phase 6 — full grid
 
-- [ ] backfill across all 5 domains. Compute only; no new risk.
-- [ ] rebuild the dashboard; register the two new keys in
-      `dashboard_config.yaml` `algorithms:` with `modes: [image]`
+- [x] register the new keys in `dashboard_config.yaml` — `ROSAME-I_26`,
+      `ROSAME-I_MILP_26`, `ROSAME-I_26__ep=5000`, all `modes: [image]`
+- [x] backfill across all 5 domains ← **DONE**, 300/300 rows, `0 skipped,
+      0 errors`, 0 degenerate models. 21.8 h at `--workers 6`, 3 seeds.
+      **"Compute only; no new risk" was wrong** — it surfaced a real bug, below.
+- [ ] rebuild the dashboard — **blocked on the decision below**
+
+**Measured, 150 cells per arm:**
+
+| arm | precision | recall | solving |
+|---|---|---|---|
+| ROSAME-I_24 | 0.524 | 0.360 | 0.000 |
+| ROSAME-I_MILP_24 | 0.581 | 0.447 | 0.010 |
+| ROSAME-I_26 | 0.605 | 0.305 | **0.107** |
+| ROSAME-I_MILP_26 | 0.604 | 0.301 | **0.107** |
+
+The 26 arm is **bimodal, not uniformly better**: it wins on blocksworld
+(0.84 vs 0.49), hanoi (0.79 vs 0.61) and npuzzle (0.82 vs 0.43), and loses on
+gripper (0.26 vs 0.61) and depot (0.32 vs 0.48). Higher precision, lower recall
+— it asserts less and is righter about what it asserts. **npuzzle is the
+headline**: the 26 arm solves **53%** of test problems where every 24 arm solves
+0–5%, and it is the whole of the pooled solving difference.
+
+**THE BUG PHASE 6 SURFACED: the MILP is silently dead on two domains.**
+
+`ROSAME-I_26` and `ROSAME-I_MILP_26` came out *byte-identical on all 30 cells* of
+gripper and hanoi. Not a null result — the solver never contributed:
+
+| domain | OPTIMAL | UNSAT | usable |
+|---|---|---|---|
+| blocksworld | 7605 | 0 | 100% |
+| npuzzle | 7290 | 0 | 100% |
+| depot | 768 | 6522 | **11%** |
+| gripper | 0 | 7209 | **0%** |
+| hanoi | 0 | 6642 | **0%** |
+
+`UNSATISFIABLE`, not a timeout: CP-SAT *proves* no model exists, in 0.2–1.1 s.
+
+**Isolated to one constraint**, by disabling each upstream rule in turn on a real
+gripper and hanoi fold:
+
+```
+upstream (all on)                   UNSATISFIABLE
+schema_nonempty=NONE                OPTIMAL          <- this one
+forbid_redundant_adds=False         UNSATISFIABLE
+delete_implies_precondition=False   UNSATISFIABLE
+```
+
+`schema_nonempty=PRE_AND_ADD` requires every schema to have ≥1 precondition
+**and** ≥1 add effect. `encoding_config.py` already warned this could happen —
+"Each can make the GT model infeasible, so the CDPS dialect drops all three".
+But note **no GT model violates the rule on its own** (checked, all five
+domains): the infeasibility comes from the rule *combined with the observed
+traces*, not from the rule alone.
+
+**Consequence for reporting:** `ROSAME-I_MILP_26` on gripper and hanoi is a
+DL-only run wearing a MILP label, and depot's is 89% so. Those three domains'
+MILP rows must not be reported as MILP results until this is settled. The choice
+— upstream fidelity (`upstream()`) versus a solver that runs (`cdps_dialect()`,
+or a preset between them) — is open.
 
 ### Phase 7 — out of scope here
 
