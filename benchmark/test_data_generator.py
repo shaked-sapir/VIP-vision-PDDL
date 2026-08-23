@@ -5,6 +5,7 @@ import pytest
 from pathlib import Path
 
 from benchmark.data_generator import (
+    _collect_problem_dirs,
     _describe_cut,
     _describe_problem_count,
     _resolve_trace_domain_file,
@@ -49,6 +50,37 @@ class TestDescribeCut:
         described = _describe_cut("none", 10, 2, None)
         assert "10" not in described
         assert "skip" not in described
+
+
+class TestCollectProblemDirs:
+    """`_collect_problem_dirs` — predefined mode needs real problem folders."""
+
+    def test_missing_directory_names_the_path_it_wanted(self, tmp_path):
+        missing = tmp_path / "domains" / "hanoi" / "problems"
+        with pytest.raises(FileNotFoundError) as excinfo:
+            _collect_problem_dirs(missing)
+        assert str(missing.resolve()) in str(excinfo.value)
+
+    def test_empty_directory_is_an_error_not_an_empty_run(self, tmp_path):
+        empty = tmp_path / "problems"
+        empty.mkdir()
+        with pytest.raises(FileNotFoundError) as excinfo:
+            _collect_problem_dirs(empty)
+        assert str(empty.resolve()) in str(excinfo.value)
+
+    def test_problem_folders_come_back_in_natural_order(self, tmp_path):
+        problems = tmp_path / "problems"
+        for name in ("problem10", "problem2", "problem1"):
+            (problems / name).mkdir(parents=True)
+        assert [d.name for d in _collect_problem_dirs(problems)] == [
+            "problem1", "problem2", "problem10"
+        ]
+
+    def test_dot_and_underscore_folders_are_skipped(self, tmp_path):
+        problems = tmp_path / "problems"
+        for name in ("problem0", "_scratch", ".hidden"):
+            (problems / name).mkdir(parents=True)
+        assert [d.name for d in _collect_problem_dirs(problems)] == ["problem0"]
 
 
 class TestTraceDirName:

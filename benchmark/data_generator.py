@@ -240,11 +240,29 @@ def _collect_problem_dirs(problems_dir: Path) -> List[Path]:
 
     Each problem is a subdirectory of problems_dir containing at minimum
     a .pddl file (and for external domains, images + GT trajectory).
+
+    Raises:
+        FileNotFoundError: ``problems_dir`` does not exist, or holds no problem
+            subdirectory.
     """
-    return sorted(
+    if not problems_dir.is_dir():
+        raise FileNotFoundError(
+            f"--gen-mode predefined needs a problems directory at "
+            f"{problems_dir.resolve()}, which does not exist. Create it with one "
+            f"subdirectory per problem (problem0/problem0.pddl, ...), point "
+            f"domains.<domain>.problems_dir in config.yaml at an existing "
+            f"directory, or use --gen-mode generate/trace instead.")
+
+    found = sorted(
         [d for d in problems_dir.iterdir() if d.is_dir() and not d.name.startswith(('.', '_'))],
         key=_natural_sort_key,
     )
+    if not found:
+        raise FileNotFoundError(
+            f"--gen-mode predefined found no problem subdirectory in "
+            f"{problems_dir.resolve()}. Each problem is its own subdirectory "
+            f"holding at least a .pddl file (problem0/problem0.pddl, ...).")
+    return found
 
 
 # ── Generation-mode entry point (generate problems + images, then infer) ──
