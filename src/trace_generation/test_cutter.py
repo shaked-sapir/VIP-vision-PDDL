@@ -12,8 +12,8 @@ import pytest
 from src.trace_generation.cutter import (
     CutMode,
     Window,
+    _should_reject,
     cut,
-    is_closed_loop,
     window_signature,
 )
 from src.trace_generation.trace_step import TraceState, TraceStep
@@ -177,9 +177,15 @@ def test_closed_loop_steps_are_consumed_and_the_walk_continues():
     assert list(windows[0].steps) == steps[4:8]
 
 
-def test_is_closed_loop_compares_the_two_halves_of_a_signature():
-    assert is_closed_loop((frozenset({"p(x:t)"}), frozenset({"p(x:t)"})))
-    assert not is_closed_loop((frozenset({"p(x:t)"}), frozenset({"q(x:t)"})))
+def test_should_reject_a_window_that_ends_where_it_began():
+    assert _should_reject((frozenset({"p(x:t)"}), frozenset({"p(x:t)"})), set())
+    assert not _should_reject((frozenset({"p(x:t)"}), frozenset({"q(x:t)"})), set())
+
+
+def test_should_reject_a_signature_already_accepted():
+    signature = (frozenset({"p(x:t)"}), frozenset({"q(x:t)"}))
+    assert not _should_reject(signature, set())
+    assert _should_reject(signature, {signature})
 
 
 def test_signature_is_init_and_final_fluents_only():

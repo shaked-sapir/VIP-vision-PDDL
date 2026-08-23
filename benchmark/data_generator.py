@@ -226,6 +226,8 @@ _DOMAIN_REGISTRY = {
     },
 }
 
+_REGISTERED_DOMAINS = sorted(_DOMAIN_REGISTRY)
+
 
 def _natural_sort_key(path: Path):
     """Sort key that orders problem1, problem2, ..., problem10 numerically."""
@@ -397,12 +399,12 @@ def _resolve_trace_domain_file(domain: Optional[str],
         if domain is None:
             raise ValueError(
                 "Trace mode needs a domain: pass --domain-file for any PDDL domain, "
-                f"or --domain to use one of {sorted(_DOMAIN_REGISTRY)}.")
+                f"or --domain to use one of {_REGISTERED_DOMAINS}.")
         if domain not in _DOMAIN_REGISTRY:
             raise ValueError(
                 f"Domain {domain!r} is not registered, so its domain file cannot be "
                 f"looked up. Pass --domain-file to point at the PDDL directly, or "
-                f"use one of {sorted(_DOMAIN_REGISTRY)}.")
+                f"use one of {_REGISTERED_DOMAINS}.")
         domain_file = (load_config()["domains"]
                        [_DOMAIN_REGISTRY[domain]["config_key"]]["domain_file"])
 
@@ -745,7 +747,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--domain", type=str, default=None,
         help="Domain to generate data for. Required, and one of "
-             f"{sorted(_DOMAIN_REGISTRY)}, for --gen-mode predefined/generate. "
+             f"{_REGISTERED_DOMAINS}, for --gen-mode predefined/generate. "
              "In trace mode it is optional and only names the output "
              "subdirectory; pass --domain-file to trace a domain this repo does "
              "not know about.",
@@ -910,7 +912,7 @@ if __name__ == "__main__":
 
     if args.gen_mode != "trace" and args.domain not in _DOMAIN_REGISTRY:
         parser.error(f"--gen-mode {args.gen_mode} requires --domain, one of "
-                     f"{sorted(_DOMAIN_REGISTRY)}.")
+                     f"{_REGISTERED_DOMAINS}.")
 
     if args.gen_mode == "trace":
         if args.source_kind is None:

@@ -262,7 +262,7 @@ TRAP_PROBLEM = """
 )
 """
 
-# The same domain with the adjacency dropped: smash is then the only action
+# The same problem with the adjacency dropped: smash is then the only action
 # that changes anything, and once taken nothing applicable changes the state.
 TRAP_DEAD_END = """
 (define (problem trap_dead_end)
@@ -278,19 +278,20 @@ TRAP_SEEDS = range(1, 7)
 
 @pytest.fixture(scope="module")
 def trap(tmp_path_factory):
-    """The (domain, problem) file pair of the trap domain."""
+    """The (domain, problem, dead-end problem) files of the trap domain."""
     directory = tmp_path_factory.mktemp("trap")
     domain = directory / "trap.pddl"
     problem = directory / "trap0.pddl"
+    dead_end = directory / "trap_dead_end.pddl"
     domain.write_text(TRAP_DOMAIN)
     problem.write_text(TRAP_PROBLEM)
-    (directory / "trap_dead_end.pddl").write_text(TRAP_DEAD_END)
-    return domain, problem
+    dead_end.write_text(TRAP_DEAD_END)
+    return domain, problem, dead_end
 
 
 def _trap_walk(trap, *, seed: int, **kwargs):
     """A mostly-random guided walk over the trap domain, stopping at the goal."""
-    domain, problem = trap
+    domain, problem, _ = trap
     defaults = dict(p_rnd=0.99, seed=seed, max_steps=12, stop_at_goal=True)
     defaults.update(kwargs)
     return list(ProblemWalkSource(problem, domain,
@@ -352,8 +353,8 @@ def test_zero_random_trials_falls_back_to_the_plan(trap):
 # ── truncation is reported, not swallowed ────────────────────────────────
 
 def test_a_dead_end_truncates_the_random_walk_with_a_warning(trap, caplog):
-    domain, problem = trap
-    source = ProblemWalkSource(problem.with_name("trap_dead_end.pddl"), domain,
+    domain, _, dead_end = trap
+    source = ProblemWalkSource(dead_end, domain,
                                walk=WalkConfig(p_rnd=1.0, seed=1, max_steps=9))
     with caplog.at_level(logging.WARNING, logger="src.trace_generation.sources"):
         steps = list(source.steps())

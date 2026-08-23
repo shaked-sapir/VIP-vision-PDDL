@@ -59,10 +59,11 @@ def window_signature(steps: Sequence[TraceStep]) -> WindowSignature:
     )
 
 
-def is_closed_loop(signature: WindowSignature) -> bool:
-    """True when the window ends in the state it started from."""
+def _should_reject(signature: WindowSignature,
+                   seen: Set[WindowSignature]) -> bool:
+    """True when a window repeats an accepted signature or ends where it began."""
     initial, final = signature
-    return initial == final
+    return signature in seen or initial == final
 
 
 def cut(
@@ -122,7 +123,7 @@ def cut(
             break  # the trace ran out mid-window
 
         signature = window_signature(slice_)
-        if signature in seen or is_closed_loop(signature):
+        if _should_reject(signature, seen):
             continue
         seen.add(signature)
         windows.append(Window(steps=slice_, signature=signature))
@@ -137,7 +138,7 @@ def _accept_whole_trace(stream: Iterator[TraceStep],
     if not slice_:
         return []
     signature = window_signature(slice_)
-    if signature in seen or is_closed_loop(signature):
+    if _should_reject(signature, seen):
         return []
     return [Window(steps=slice_, signature=signature)]
 
