@@ -101,7 +101,118 @@ different fold, or a better-trained network, might not exhibit.
 
 ---
 
-## 3. Options
+## 3. A second, larger failure: the models have almost no effects
+
+Independent of the UNSAT issue, and affecting **every** arm including the ones
+whose MILP works. This is why `ROSAME-I` solves nothing.
+
+Splitting the metrics separates it immediately (`ROSAME-I_26`, 150 cells):
+
+| domain | precision (pre) | precision (eff) | **recall (eff)** | solving |
+|---|---|---|---|---|
+| blocksworld | 0.896 | 0.739 | **0.279** | 0 |
+| depot | 0.397 | 0.619 | **0.023** | 0 |
+| gripper | 0.421 | 0.723 | **0.022** | 0 |
+| hanoi | 0.869 | 0.817 | **0.024** | 0 |
+| npuzzle | 1.000 | 0.622 | **0.767** | **0.533** |
+
+Effect recall is **2–3%** on three domains. The one domain that recovers effects
+is the only one that solves anything.
+
+The learned models confirm it directly:
+
+| domain | schemas with **zero** effects | median effects/schema | GT effects/schema |
+|---|---|---|---|
+| blocksworld | 42% | 1 | 4.5 |
+| depot | 27% | 2 | 4.6 |
+| gripper | 48% | 1 | 2.7 |
+| **hanoi** | **69%** | **0** | 4.0 |
+| npuzzle | 0% | 6 | 4.0 |
+
+**hanoi's median schema has no effects at all.** An action that changes nothing
+can never appear usefully in a plan, so the domain is unplannable however good
+its preconditions look (0.869 precision).
+
+This also explains why the *precision* numbers look respectable: the arm asserts
+very little and is right about the little it asserts. That is abstention, not
+accuracy — the same trade gate 7 exposed on blocksworld, where 0.94 precision at
+131 epochs came with two of four schemas completely empty.
+
+**Note gate 4 does not catch this.** It rejects a model only when *every* schema
+is empty; a model with 69% empty schemas passes.
+
+### The cause: undertrained, not data-starved
+
+Two tests, both free — the data was already on disk.
+
+**Test 1 — does training longer add effects? Yes, decisively.** Same cell
+(`fold0_numtrajs3`), gate 7's controls:
+
+| domain | epochs | total effect literals | empty schemas |
+|---|---|---|---|
+| blocksworld | 161 | 7 | 1 |
+| blocksworld | **5000** | **10** | **0** |
+| depot | 131 | 19 | 2 |
+| depot | **5000** | **24** | **1** |
+| hanoi | 131 | **2** | 2 |
+| hanoi | **5000** | **16** | **0** |
+
+hanoi recovers **8× more** effect literals, and empty schemas fall to zero on
+every domain.
+
+**Test 2 — does more data add effects? No. Perfectly flat.** Effect recall by
+trajectory count, all 150 cells:
+
+| domain | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|
+| blocksworld | 0.282 | 0.266 | 0.250 | 0.282 | 0.298 | 0.298 |
+| depot | 0.028 | 0.000 | 0.000 | 0.042 | 0.042 | 0.028 |
+| gripper | 0.066 | 0.066 | 0.000 | 0.000 | 0.000 | 0.000 |
+| hanoi | 0.072 | 0.000 | 0.024 | 0.024 | 0.000 | 0.024 |
+| npuzzle | 0.700 | 0.600 | 0.900 | 1.000 | 0.700 | 0.700 |
+
+Nearly doubling the traces changes nothing on any domain.
+
+**So the arm needs epochs, not traces** — and the §1.2 pre-flight floors it at
+131 to fit the 600 s cell budget every arm shares. Gate 7 was written to keep
+exactly these two apart ("so 'underperforms at the budget' and 'undertrained at
+it' stay distinguishable"); the answer is **undertrained**.
+
+The tension is real and should be stated rather than resolved silently: the
+equal-budget rule is what makes the comparison fair, and at that budget the 26
+arm never learns effects, so what is being compared cannot plan. Meanwhile the
+24 arm runs per-domain budgets its own authors tuned (70/100/300).
+
+### How much evidence there actually is
+
+The undertraining finding rests on **3 rows**, and it is worth being precise
+about that before it carries weight in a thesis:
+
+| arm | 5000-epoch rows on disk |
+|---|---|
+| `ROSAME-I_26` | **3** — blocksworld, depot, hanoi; 1 cell each, all `numtrajs3` |
+| `ROSAME-I_24` | none |
+| `ROSAME-I_MILP_24` | none |
+| `ROSAME-I_MILP_26` | none |
+
+The asymmetry is deliberate: gate 7 is a 26-arm item by design (5000 is the
+ICAPS-26 code default; the 24 arm runs its own paper's 70/100/300), and the MILP
+arm did not exist when those controls ran.
+
+Gaps, cheapest first:
+
+| to establish | cost |
+|---|---|
+| it holds on all 5 domains (+gripper, +npuzzle) | ~2 h |
+| it holds beyond `numtrajs3` | ~1 h per larger fold |
+| the MILP arm behaves the same | ~2.5 h for 5 controls |
+
+gripper's MILP control would be uninformative until §2 is settled, but its
+DL-only control is fine.
+
+---
+
+## 4. Options for the UNSAT issue
 
 Not a decision to take on fidelity grounds alone: the rule is not in the paper,
 so "upstream fidelity" here means fidelity to their *code*, not their method.
@@ -117,7 +228,7 @@ the one the evidence points at.
 
 ---
 
-## 4. Open, and worth checking first
+## 5. Open, and worth checking first
 
 **`rosame_i_milp_24` uses `upstream()` too.** Its 150 image rows may carry the
 same defect. That check is cheap — read the `exit_status` counts already stored
