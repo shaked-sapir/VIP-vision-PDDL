@@ -430,6 +430,14 @@ def _describe_problem_count(produced: int, asked: Optional[int]) -> str:
     return f"{produced}  *** SHORT: asked for {asked} ***"
 
 
+def _trace_dir_name(timestamp: str, source_kind: str, source_file: Path,
+                    mode_name: str, asked: Optional[int]) -> str:
+    """The corpus directory name, carrying only the settings the mode reads."""
+    count_tag = f"__n={asked}" if asked is not None else ""
+    return (f"trace_{timestamp}__{source_kind}={Path(source_file).stem}"
+            f"__cut={mode_name}{count_tag}")
+
+
 def _print_trace_header(label: str, corpus_root: Path, source_kind: str,
                         source_file: Path, cut_description: str) -> None:
     """Announce what is about to be generated and where it will land."""
@@ -533,8 +541,8 @@ def generate_trajectories_via_trace(
 
     source_file = trajectory_file if kind is SourceKind.TRAJECTORY else problem_file
     timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-    auto_name = (f"trace_{timestamp}__{kind.value}={Path(source_file).stem}"
-                 f"__cut={mode.value}__n={num_problems}")
+    auto_name = _trace_dir_name(timestamp, kind.value, Path(source_file),
+                                mode.value, asked)
     corpus_root = output_base_dir / label / (output_dir_name or auto_name)
 
     _print_trace_header(label, corpus_root, kind.value, source_file,

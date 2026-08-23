@@ -2,10 +2,13 @@
 
 import pytest
 
+from pathlib import Path
+
 from benchmark.data_generator import (
     _describe_cut,
     _describe_problem_count,
     _resolve_trace_domain_file,
+    _trace_dir_name,
 )
 
 
@@ -46,6 +49,27 @@ class TestDescribeCut:
         described = _describe_cut("none", 10, 2, None)
         assert "10" not in described
         assert "skip" not in described
+
+
+class TestTraceDirName:
+    """`_trace_dir_name` — the directory name states what the mode read."""
+
+    def test_uniform_carries_the_requested_count(self):
+        assert _trace_dir_name("T", "problem", Path("/x/p0.pddl"), "uniform", 10) == (
+            "trace_T__problem=p0__cut=uniform__n=10"
+        )
+
+    def test_none_omits_the_count_it_ignores(self):
+        """NONE yields one window, so an n= segment would misname the corpus."""
+        assert _trace_dir_name("T", "problem", Path("/x/p0.pddl"), "none", None) == (
+            "trace_T__problem=p0__cut=none"
+        )
+
+    def test_trajectory_kind_names_the_trajectory_stem(self):
+        assert _trace_dir_name("T", "trajectory", Path("/x/run.trajectory"),
+                               "uniform", 3) == (
+            "trace_T__trajectory=run__cut=uniform__n=3"
+        )
 
 
 class TestResolveTraceDomainFile:
