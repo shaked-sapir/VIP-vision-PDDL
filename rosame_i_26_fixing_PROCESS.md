@@ -1190,9 +1190,15 @@ will assume:
 | epoch budget | per-domain 70/100/300 | 600 configured, lowered per cell by the §1.2 pre-flight to what the shared 600 s budget buys — **131 at 3 seeds on CPU**. The one factor the two arms cannot be held equal on, and the reason gate 7's control cell exists |
 | batch size | 1 | 128 (capped at the fold size, so in practice the whole fold) |
 | seeds | `n_seeds`, lowest final training loss | same rule, and it multiplies the epoch budget (§1.3) |
+| **GT state supervision** | **final state only** — `train.py:86` is the sole supervised use of `label`, and there is no init anchor anywhere in ICAPS-24 `main` | **both endpoints** — `loss_pred` anchors the goal at γ (`model.py:184`), `loss_app` anchors the init at γ (`:195`). Faithful to the ICAPS-26 code, but it means **the 26 arm receives a supervision signal the 24 arm does not** |
 
 - [ ] report the delta **with this table attached**, or hold the movable ones
-      fixed in a dedicated ablation. Two of the eight are now held equal by
+      fixed in a dedicated ablation. **The table gained a ninth row after the
+      Phase 6 grid**: the 26 network anchors *both* trace endpoints while the 24
+      network anchors only the final state. That is an architecture difference
+      between the two papers, not a porting defect — but it is extra supervision
+      the 26 arm gets for free, and it cannot be held equal without deviating
+      from one upstream or the other. Two of the nine are now held equal by
       construction (resize, pinned by a test; argument order, settled by the
       emitter) and one **cannot** be — the epoch budget, which gate 7 now shows
       is the *dominant* factor rather than a nuisance parameter. Report a curve

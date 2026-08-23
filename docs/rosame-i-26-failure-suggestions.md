@@ -212,6 +212,52 @@ DL-only control is fine.
 
 ---
 
+## 3a. A confound the plan's table did not have: the 26 arm gets more supervision
+
+Not a failure, but it belongs beside the numbers above, because it inflates the
+26 arm relative to the 24 arm on every metric.
+
+**ICAPS-24 (`main`) supervises on the final state only.** `train.py:86` is the
+sole supervised use of the GT label:
+
+```python
+loss += gamma * F.mse_loss(domain_preds[:, -1], label[:, -1], reduction="sum")
+```
+
+The only other reference to `label` is `compute_correctness` at line 109 — an
+accuracy *metric*, not a loss term. There is no initial-state anchor anywhere.
+
+**ICAPS-26 anchors both endpoints**, each at γ:
+
+| term | anchor | site |
+|---|---|---|
+| `loss_pred` | **goal** state | `dl/model.py:184` |
+| `loss_app` | **init** state | `dl/model.py:195` |
+
+Both are verified faithful to their respective upstreams — our `rosame_i_24`
+drops the GT init deliberately (`rosame_i_runner.py`), and `rosame_i_26` passes
+both. So this is an **architecture difference between the two papers**, not a
+porting defect.
+
+**But it is extra supervision the 26 arm receives for free**, and it cannot be
+held equal without deviating from one upstream or the other. It is now a ninth
+row in the eight-factor confound table in `rosame_i_26_fixing_PROCESS.md` §4,
+and any 24-vs-26 comparison should carry it.
+
+For completeness, since the four arms differ here:
+
+| arm | init anchor | final anchor |
+|---|---|---|
+| `rosame_i_24` | no | yes (γ) |
+| `rosame_i_26` | **yes** (γ) | yes (γ) |
+| `rosame_i_milp_24` | yes (hard row in the MILP) | yes (hard row) |
+| `rosame_i_milp_26` | yes (hard row) | yes (hard row) |
+
+Note the MILP arms both receive both endpoints as *hard* constraints regardless
+of their network, so this confound applies to the DL-only pair.
+
+---
+
 ## 4. Options for the UNSAT issue
 
 Not a decision to take on fidelity grounds alone: the rule is not in the paper,
