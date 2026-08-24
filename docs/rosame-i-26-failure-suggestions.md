@@ -210,6 +210,30 @@ Gaps, cheapest first:
 gripper's MILP control would be uninformative until §2 is settled, but its
 DL-only control is fine.
 
+### Tested: more training does NOT fix the UNSAT (§2)
+
+The obvious hypothesis — that §2's infeasibility is really §3 in disguise, since
+UNSAT arises from the *network's* predicted states — is **refuted**. Retraining
+one hanoi cell at four budgets and solving five times at each, with a fresh
+trace subset per attempt:
+
+| epochs | final loss | solves OPTIMAL |
+|---|---|---|
+| 131 | 14.028 | **0/5** |
+| 500 | 11.021 | **0/5** |
+| 1500 | 9.866 | **0/5** |
+| 5000 | 9.775 | **0/5** |
+
+38x the training, loss down 30%, 20 attempts across different subsets, not one
+satisfiable. **The two failures are independent and need separate fixes.**
+Training longer improves the learned model (§3) but will never make the MILP
+contribute on gripper, hanoi or most of depot.
+
+This also strengthens §2's diagnosis: it is the *constraint*, not the quality of
+the data feeding it. Even a well-trained network cannot predict states in which
+those schemas add anything, which is consistent with the observations genuinely
+showing nothing become true across those transitions.
+
 ---
 
 ## 3a. A confound the plan's table did not have: the 26 arm gets more supervision
