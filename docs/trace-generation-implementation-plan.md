@@ -15,9 +15,30 @@
 > match what exists; where a statement was superseded it is struck through and
 > the replacement given, rather than deleted, so the reasoning stays auditable.
 >
+> **Revision (2026-08-20, branch `revising-trace-generation`)**: a review of the
+> built code against this document produced a list of corrections, all applied.
+> The three that change the *contract*, rather than only the code, are §0.2
+> items 20–22 below and are the reason §4, §5 and §7 have been rewritten:
+> `buckets` is **deleted**, trace mode reads **nothing** from `config.yaml`, and
+> a domain no longer has to be registered at all. The rest — a closed-loop
+> window rejection, an fd leak in `_plan_from`, an untested
+> `preserve_solvability`, silent truncation, an uncached `domain_name` — were
+> code-only and left this document's claims standing.
+>
 > ```
-> python benchmark/data_generator.py --domain blocksworld --gen-mode trace \
+> python benchmark/data_generator.py --gen-mode trace \
+>     --domain blocksworld --source-kind problem \
+>     --problem-file src/domains/blocks/problems/problem1/problem1.pddl \
 >     --num-problems 10 --seed 17 --cut-seed 5
+> ```
+>
+> and, for a domain this repo has never heard of:
+>
+> ```
+> python benchmark/data_generator.py --gen-mode trace \
+>     --domain-file /elsewhere/elevator.pddl --source-kind problem \
+>     --problem-file /elsewhere/elevator-p1.pddl \
+>     --num-problems 10 --p-rnd 0.4 --seed 17
 > ```
 
 ---
@@ -33,9 +54,10 @@
    *renderer-only* backend, used solely when images are wanted.
 3. **Symbolic output only for the new paths.** No rendering, no LLM inference.
    Imaged generation stays exactly as it is today.
-4. **Length modes**: `none` | `uniform(min, max)` | `buckets([...])`.
+4. ~~**Length modes**: `none` | `uniform(min, max)` | `buckets([...])`.
    Buckets emit into a **single mixed pool**, with each window's length recorded
-   in metadata — *not* one directory per length.
+   in metadata — *not* one directory per length.~~
+   **Superseded by item 20 — the modes are `none` | `uniform(min, max)`.**
 5. **Input trajectories are ground truth.** Windows land in `gt_trajectories/`;
    degradation stays the experiment's job (`SimulatedDataSource` injects masking
    and noise per fold). `TrajectorySource` **trusts its caller** on this: it does
@@ -77,15 +99,25 @@ plan left open. Where these conflict with the sections below, these win.
     be generated for a domain absent from `config.yaml`; running an experiment on
     it still needs a `domains.<key>` entry, because `_resolve_domain_config`
     raises without one (`experiment_runner.py:92`).
-11. **A planner walk stops at the goal.** The plan never says what happens when
+11. ~~**A planner walk stops at the goal.** The plan never says what happens when
     the walk terminates before the step budget is spent. It stops — no forced
     continuation, no re-reset. The consequence is explicit: at `p_rnd=0` corpus
     size is bounded by plan length, and `p_rnd` is therefore both a
-    randomness dial *and* a corpus-size dial. Producing fewer windows than
-    requested **warns and continues**; it is not an error.
+    randomness dial *and* a corpus-size dial.~~
+    **Superseded by the code, which is right and was left alone.** Reaching the
+    goal is a *choice*, `stop_at_goal`, and it defaults **off**
+    (`sources.py:_guided_walk`). Off, the walk continues from the goal state as a
+    random walk for the rest of its budget, because replanning from a goal state
+    returns the empty plan forever and the walk would otherwise spin. So
+    `p_rnd=0` does **not** bound corpus size at plan length by default; it means
+    "planner until the goal, then random". `stop_at_goal=True` restores the
+    behaviour this item described, and only then is `p_rnd` also a corpus-size
+    dial. Producing fewer windows than requested **warns and continues**; it is
+    not an error — see item 24 for where the warning surfaces.
 12. **Planner use follows `p_rnd`.** `p_rnd=1` never invokes the planner, so a
-    pure random walk needs no planner engine installed. `solvability_preserving`
-    (the AMLGym replan-after-random-action step, §10.2) defaults **off**.
+    pure random walk needs no planner engine installed. `preserve_solvability`
+    (the AMLGym replan-after-random-action step, §10.2 — named
+    `solvability_preserving` in this document's first draft) defaults **off**.
 13. ~~**`benchmark/evaluation/test_states_generator.py` is not touched.**~~
     **Superseded — it was rewired onto the shared walk** (§3.1 and §9 win over
     §11). Leaving it alone would have meant two copies of the AMLGym
@@ -110,9 +142,13 @@ plan left open. Where these conflict with the sections below, these win.
     `experiment_runner.py:301` rejects (it needs ≥ 2 problem dirs) — so `none` is
     for multi-input corpora, or for corpora consumed by something other than a
     fold.
-17. **The entry point is keyed by the `config.yaml` domain key**, not by raw
+17. ~~**The entry point is keyed by the `config.yaml` domain key**, not by raw
     domain/problem paths — consistent with every other `data_generator` mode.
-    Generation settings live under `domains.<key>.generation`, CLI-overridable.
+    Generation settings live under `domains.<key>.generation`, CLI-overridable.~~
+    **Superseded by items 21 and 22.** Consistency with the other modes was the
+    only argument for it, and it cost the headline goal: keying on a registry
+    entry means a domain must be in the registry, which contradicts "for **any**
+    PDDL domain" at the top of this document.
 18. **Semantics kept verbatim from the gym generator**: goal = the window's full
     final state; a source problem's own goal is discarded; closed-world positive
     fluents only; window lengths count *actions*; and two independent
@@ -128,6 +164,66 @@ plan left open. Where these conflict with the sections below, these win.
     Substituted check, to be run when step 5 is: two fresh `--no-inference` runs
     at one fixed seed, one before and one after the retrofit, must produce
     byte-identical trees.
+
+### 0.2 Settled at revision time (2026-08-20)
+
+Items 20–22 change the contract and supersede §0 item 4, §0.1 item 17, §4, §5
+and §7. Items 23–25 record behaviour the plan never specified. Where these
+conflict with anything above, these win.
+
+20. **`buckets` is deleted, not deferred.** It was built, tested and never used:
+    no caller ever passed it, and the reporting layer it was for (§5, "grouped
+    by length at report time") does not exist and is not planned. The intended
+    workflow is one corpus at a time at one length range, split by hand
+    afterwards if a length comparison is ever wanted, which `uniform` already
+    serves. `CutMode` is now `NONE | UNIFORM`, `cut()` has no `buckets`
+    parameter, and `generation_info.json` has no `buckets` key. Reinstating it
+    is a `CutMode` member and a length stream, not a redesign.
+21. **Trace mode reads nothing from `config.yaml` except a domain file path.**
+    Every setting is a `generate_trajectories_via_trace` argument with a real
+    default; the CLI flag is the only way to change it. `config.yaml` is
+    consulted for exactly one thing — looking up a registered `--domain`'s
+    `domain_file` — and not at all when `--domain-file` is passed. This replaces
+    §7.1's table of config keys with a table of flags, and removes the
+    override-precedence rules that table needed. The reason is that a corpus is
+    a *run*, not a property of a domain: two corpora from the same domain
+    normally differ in every one of these settings, so a per-domain config block
+    is the wrong shape, and a tri-state `--render` exists only to override a
+    config value that no longer exists.
+22. **A domain does not have to be registered.** `--domain-file <path>` takes any
+    PDDL domain, and `--domain` becomes optional in trace mode, where it now only
+    names the output subdirectory. With neither, generation raises and names both
+    flags. This is what item 10's "'any PDDL domain' holds for generation" was
+    always supposed to mean; before this it did not, since the domain file could
+    only be reached through `_DOMAIN_REGISTRY`. Item 10's second half still
+    stands unchanged: *running* an experiment on the corpus still needs a
+    `domains.<key>` entry.
+23. **A window that ends where it began is dropped.** Deduplication was on
+    `(init fluents, final fluents)`, which is exactly the signature that makes a
+    closed loop indistinguishable from a no-op: emitted, it becomes a problem
+    whose goal is its own initial state, solvable by the empty plan, teaching a
+    learner nothing while counting against `num_problems`. `cutter.is_closed_loop`
+    rejects it on the same path as a duplicate — steps consumed, window dropped.
+    Separately, `cut()` now rejects `length_range` in `NONE` mode rather than
+    ignoring it, so a caller who thinks they are cutting by length finds out.
+24. **A short corpus says so where it will be read.** Item 11 settled that a
+    shortfall warns and continues. The warning was a `logger` call, which lands
+    on stderr while the banners go to stdout; in a real run it surfaces
+    thousands of lines from the summary it qualifies, and the summary printed a
+    bare `Problems: 2` with no mention of the 10 that were asked for. It is now
+    reported three times over: the log line, `short_of_requested` plus the
+    existing `num_problems` vs `num_windows` pair in `generation_info.json`, and
+    `*** SHORT: asked for N ***` in the completion banner. The walk's own early
+    exits — no applicable action, no plan found, a planned action that would not
+    apply — are `WARNING`, not `DEBUG`, for the same reason.
+25. **The manifest must be readable without knowing the run's cwd.** It exists
+    only to be read later (it has no programmatic consumer by design), so a
+    relative `"domain_file": "src/domains/blocks/blocks.pddl"` copied verbatim
+    from the command line defeats its one purpose. Both sources `.resolve()`
+    every path they record. `describe()` also gained `max_planning_time`,
+    `max_replanning_time` and `max_random_trials`: all three can change the trace
+    and none were recorded, so a `preserve_solvability` corpus was not
+    reproducible from its own record.
 
 ---
 
@@ -266,8 +362,18 @@ Lift the walk loop out of `test_states_generator._generate_trajectory` into
 `test_states_generator` then calls the shared walk and keeps its own S_test
 post-processing. Do not merge their *purposes*; share only the walk.
 
-Requires a planner engine — already a hard dependency (`problem_solving` in every
-experiment's evaluation uses one).
+Requires a planner engine ~~— already a hard dependency (`problem_solving` in every
+experiment's evaluation uses one)~~ **whenever `p_rnd < 1`**, per item 12. At
+`p_rnd=1` the planner is never invoked and the walk runs without one.
+
+Two details the walk gets right and this section did not state. Its early exits
+— no applicable action, no plan within `max_planning_time`, a planned action
+that turns out inapplicable — log at `WARNING` with the step count reached, so a
+truncated walk is visible rather than merely short (item 24). And a random
+action that leaves the state unchanged is rejected on **both** random paths, the
+plain one and the solvability-preserving one, so a no-op never becomes a trace
+step; the gym generator's `_sample_state_changing_action` had that property and
+losing it would have silently changed what a window's `length` means.
 
 ### 3.2 `ProblemWalkSource(backend="pddlgym")` — renderer only
 
@@ -297,24 +403,35 @@ unless a caller asks otherwise.
 ## 4. Cutter
 
 ```python
-def cut(steps: Iterable[TraceStep], *, mode, length_range=None, buckets=None,
+def cut(steps: Iterable[TraceStep], *, mode, length_range=None,
         skip=1, num_problems=None, seed=None,
         exclude_signatures=()) -> List[Window]
 ```
 
 `steps` is an `Iterable`, pulled lazily, never a materialized list: a walk with
-`max_steps=1000` cut into 5 windows must not walk 1000 steps first. All modes but
-`NONE` stop pulling once `num_problems` windows are accepted.
+`max_steps=1000` cut into 5 windows must not walk 1000 steps first. `UNIFORM`
+stops pulling once `num_problems` windows are accepted; `NONE` drains the stream
+by definition.
 
 - `mode="none"` — one window spanning every step.
 - `mode="uniform"` — today's behaviour: `length ~ U(*length_range)`.
-- `mode="buckets"` — cycle the `buckets` list (or sample it) for each window's
-  length. All windows go into **one pool**; the length is metadata.
+- ~~`mode="buckets"` — cycle the `buckets` list (or sample it) for each window's
+  length. All windows go into **one pool**; the length is metadata.~~
+  **Deleted, per item 20.**
 - `skip` states discarded between consecutive windows.
 - Dedupe on `(frozenset(init fluents), frozenset(final fluents))` — port
   `_window_signature` verbatim. Duplicates are dropped, their steps consumed.
+- **Reject closed loops**, per item 23: a window whose signature has
+  `init == final` is dropped on the same path as a duplicate. It is a problem
+  the empty plan solves.
 - Stop at `num_problems` windows or when the step stream is exhausted. When the
   stream runs dry early, warn with the count, as `_walk_and_write` does today.
+  Reporting the shortfall is the *caller's* job, not the cutter's — `cut()`
+  returns a short list and `generate_corpus` decides what to say about it
+  (item 24).
+- **Reject contradictory arguments** rather than silently ignoring them:
+  `length_range` is required by `UNIFORM` and refused by `NONE`; `skip` and
+  `num_problems` must be non-negative; `mode` must be a `CutMode`.
 
 The cutter must be **pure** — a list of `TraceStep` in, a list of `Window` out.
 No I/O, no env. That is what makes it testable and what stops it drifting.
@@ -344,31 +461,46 @@ source actually ran rather than a union with nulls in it:
 ```json
 {
   "source_kind": "problem",
-  "source_file": ".../problem1.pddl",
-  "domain_file": ".../blocks.pddl",
+  "source_file": "/abs/path/problem1.pddl",
+  "domain_file": "/abs/path/blocks.pddl",
   "backend": "native", "p_rnd": 1.0, "seed": 7, "max_steps": 60,
-  "preserve_solvability": false, "stop_at_goal": true,
+  "preserve_solvability": false, "stop_at_goal": false,
+  "max_planning_time": 120, "max_replanning_time": 60, "max_random_trials": 3,
 
-  "cut_mode": "uniform", "length_range": [4, 7], "buckets": null,
+  "cut_mode": "uniform", "length_range": [4, 7],
   "skip": 1, "num_problems": 5, "cut_seed": 3, "render": false,
+  "domain": "blocksworld",
 
   "uniform_object_universe": true,
   "object_signature": ["a:block", "b:block", "c:block", "d:block"],
 
   "num_windows": 5,
+  "short_of_requested": false,
   "windows": [{"name": "problem0", "index": 0, "length": 6, "source": "..."}]
 }
 ```
 
-This is what lets a mixed-bucket pool be grouped by length at report time, and
-it is what the experiment-reporting work will read to describe a corpus.
+~~This is what lets a mixed-bucket pool be grouped by length at report time, and
+it is what the experiment-reporting work will read to describe a corpus.~~
+**Neither survived.** Buckets are gone (item 20), and the reporting consumer was
+never written — the manifest is a **write-only provenance record**, read by a
+human asking "what produced this corpus?" and by nothing else. That is a
+decision, not an omission, and it is what item 25 follows from: a record nothing
+parses has to be self-sufficient on its face, hence absolute paths and every
+knob that can move the trace, including the three planner timeouts that were
+initially left out.
 
-Three fields carry more than they look like. `num_problems` is what was *asked
-for* and `num_windows` what was *produced*, so item 11's warned shortfall stays
-legible after the fact instead of a short corpus looking like the intended one.
+Four fields carry more than they look like. `num_problems` is what was *asked
+for* and `num_windows` what was *produced*, with `short_of_requested` stating
+the comparison outright so item 11's warned shortfall stays legible after the
+fact instead of a short corpus looking like the intended one.
 `object_signature` is gotcha §10.5's uniform-universe claim written down, so it
 can be checked rather than assumed once item 14 lands. And `seed` / `cut_seed`
 are separate because the RNGs are (§10.4).
+
+`domain` arrives via `extra_info` from the `data_generator` shell, not from the
+source: it is the output subdirectory's name, which is either `--domain` or,
+absent that, the domain name parsed out of the PDDL (item 22).
 
 ---
 
@@ -395,48 +527,74 @@ fold confirms the replay path against a real learner.
 The composition itself is `src/trace_generation/corpus.py:generate_corpus`, not a
 `data_generator` function: it needs no config, so keeping it in the library lets
 it be unit-tested directly. `data_generator.generate_trajectories_via_trace` is
-the shell around it — config resolution, output-dir naming, banners — reached by
-`--gen-mode trace`.
+the shell around it — ~~config resolution~~ **domain-file resolution** (item 21),
+output-dir naming, banners — reached by `--gen-mode trace`.
 
 `generate_trajectories_via_generation` was **not** made a preset over it; that
 is §8 step 5, excluded (item 19). The two entry points are still independent.
 
-### 7.1 `config.yaml` keys
+### 7.1 ~~`config.yaml` keys~~ CLI flags
 
-All under `domains.<key>.generation`. The existing `default_problem_index` moves
-down into a `from_pddlgym:` sub-block, so which mode reads a key is visible from
-its position rather than needing to be remembered:
+**Rewritten per item 21: trace mode has no config keys.** Every setting below is
+a flag with a default declared once, in
+`generate_trajectories_via_trace`'s signature. There is no config fallback and
+therefore no override-precedence rule to remember, and nothing is "required in
+config or on the CLI" — a required setting is a required *flag*.
 
-| Key | Values | Default | CLI |
-|---|---|---|---|
-| `num_problems` | int | 10 | `--num-problems` |
-| `length_min` / `length_max` | int | 9 / 20 | `--length-min` / `--length-max` |
-| `skip` | int | 1 | `--skip` |
-| `cut_mode` | `none` \| `uniform` \| `buckets` | **required** | `--cut-mode` |
-| `buckets` | list of ints | none | `--buckets` |
-| `source_kind` | `problem` \| `trajectory` | **required** | `--source-kind` |
-| `problem_file` | path | **required** | `--problem-file` |
-| `trajectory_file` | path | required iff `source_kind: trajectory` | `--trajectory-file` |
-| `backend` | `native` \| `pddlgym` | `native` | `--backend` |
-| `p_rnd` | float in `[0, 1]` | 1.0 | `--p-rnd` |
-| `max_steps` | int | 1000 | `--max-steps` |
-| `render` | bool | false | `--render` / `--no-render` |
-| `from_pddlgym.default_problem_index` | int | **required** for `--gen-mode generate` | `--problem-index` |
+| Flag | Values | Default |
+|---|---|---|
+| `--source-kind` | `problem` \| `trajectory` | **required** |
+| `--problem-file` | path | **required** |
+| `--trajectory-file` | path | required iff `--source-kind trajectory` |
+| `--domain-file` | path | from `--domain` via the registry; one of the two is **required** |
+| `--domain` | a `_DOMAIN_REGISTRY` key | none — names the output subdir only |
+| `--cut-mode` | `none` \| `uniform` | `uniform` |
+| `--num-problems` | int | 10 |
+| `--length-min` / `--length-max` | int | 9 / 20 |
+| `--skip` | int | 1 |
+| `--problem-prefix` | str | `problem` |
+| `--backend` | `native` \| `pddlgym` | `native` |
+| `--p-rnd` | float in `[0, 1]` | 1.0 |
+| `--max-steps` | int | 1000 |
+| `--preserve-solvability` | flag | off |
+| `--stop-at-goal` | flag | off |
+| `--max-planning-time` | int (seconds) | 120 |
+| `--max-replanning-time` | int (seconds) | 60 |
+| `--max-random-trials` | int | 3 |
+| `--render` / `--no-render` | bool | false |
+| `--seed` / `--cut-seed` | int | none / `--seed` |
+
+`--render` is no longer tri-state: with no config value to override, `default=None`
+bought nothing, so it is a plain `False`.
+
+Four of these flags — `--num-problems`, `--length-min`, `--length-max`, `--skip`
+— are shared with `--gen-mode generate`, which *does* read config and needs
+`None` to mean "fall back to it". They therefore keep `default=None` at the
+argparse layer, and trace mode drops the `None`s before the call so the
+signature's defaults apply. The defaults are still written down exactly once.
+
+Trace mode consults `config.yaml` for one thing only: resolving a registered
+`--domain` to its `domains.<key>.domain_file`. With `--domain-file` it does not
+read config at all.
+
+**What remains under `domains.<key>.generation` belongs to `--gen-mode generate`**,
+which is unchanged: `num_problems`, `length_min`, `length_max`, `skip`, and
+`from_pddlgym.default_problem_index`. That last one *does* move into the
+`from_pddlgym:` sub-block as this section always said — `_resolve_problem_index`
+has read that path since it lost its silent default (§9), but the shipped
+`config.yaml` still had it flat under `generation:` for `blocksworld`, `hanoi`
+and `npuzzle`, so `--gen-mode generate` without an explicit `--problem-index`
+raised a `KeyError` for all three. Fixed in both files.
 
 Two seeds, never one, per gotcha §10.4: `--seed` drives the walk and `--cut-seed`
 the window lengths. `--cut-seed` defaults to `--seed`, so one flag still
 reproduces a corpus, and `generation_info.json` records both as `seed` and
-`cut_seed` so the manifest always shows which was used. Neither has a config
-key — a recorded seed belongs to a run, not to a domain.
+`cut_seed` so the manifest always shows which was used.
 
-Every key is CLI-overridable and the flag wins. A **required** key that is set
-in neither place raises, naming both the config path and the flag; nothing here
-falls back to a plausible-looking default. `--render` is a tri-state
-(`BooleanOptionalAction`, `default=None`) so `--no-render` can override a config
-`true` rather than only the other way round.
-
-`config.yaml` is gitignored, so `config.example.yaml` is the tracked copy of this
-contract; it carries the block for `blocksworld` and `hanoi`.
+`config.yaml` is gitignored, so `config.example.yaml` is the tracked copy of the
+generate-mode block; it carries it for `blocksworld` and `hanoi`. **A fix applied
+only to `config.yaml` does not propagate through a branch** — the `KeyError`
+above has to be reapplied by hand in every checkout.
 
 ---
 
@@ -497,8 +655,8 @@ Two things the gate exposed, neither a defect in this work:
 | `src/utils/pddl_trajectory.py` | gains `export_gt_trajectory`, moved out of `gt_builder` (which re-exports it) so `src/` no longer needs `benchmark/` to write GT |
 | `benchmark/experiment_running_helpers/gt_builder.py` | re-exports the moved function; no behaviour change |
 | `benchmark/evaluation/test_states_generator.py` | walk loop moves to the native source; keeps S_test post-processing |
-| `benchmark/data_generator.py` | `generate_trajectories_via_trace` + `--gen-mode trace` CLI; `_resolve_problem_index` loses its silent default |
-| `config.yaml` / `config.example.yaml` | generation keys above |
+| `benchmark/data_generator.py` | `generate_trajectories_via_trace` + `--gen-mode trace` CLI; `_resolve_problem_index` loses its silent default. **Revision:** `_REQUIRED` and `_generation_setting` deleted, replaced by `_resolve_trace_domain_file`; `--domain` relaxed to optional in trace mode; `--domain-file` and the five walk knobs added |
+| `config.yaml` / `config.example.yaml` | ~~generation keys above~~ **only the generate-mode block survives** (item 21); `default_problem_index` nested under `from_pddlgym` in both, which is a bug fix, not a tidy-up (§7.1) |
 
 **Not touched:** `src/trajectory_handlers/pddlgym_problem_generator.py` (§8
 step 5, excluded), anything under `src/milp/` or `src/plan_denoising/`.
@@ -520,6 +678,14 @@ depends on is altered.
 2. **Solvability.** The AMLGym procedure replans to keep problems solvable after
    a random action. A pure random walk does not need that, and forcing it makes
    generation much slower. Make it a flag, defaulting off for corpus generation.
+   **Built as `preserve_solvability`, and now reachable and tested.** It was
+   plumbed through `walk_problem` but not through `build_source`, so no caller
+   could switch it on and no test covered the branch it guards: on, a random
+   action is kept only if the planner still finds a plan from the state it
+   produces, retrying up to `max_random_trials` times. It is now a
+   `build_source` argument and a `--preserve-solvability` flag, with the
+   replanned plan reused rather than discarded. Still off by default, for the
+   cost reason above.
 3. **GT export ordering** in the imaged path: GT is exported *before* the
    classifier rebuild overwrites `_trajectory.json`. Any refactor of
    `_run_generation_inference` must preserve that ordering or `gt_trajectories/`
@@ -543,3 +709,7 @@ depends on is altered.
   *walk* moved (item 13); everything downstream of the walk stayed.
 - §8 steps 5 and 6, per item 19.
 - Multi-input corpora, per item 14.
+- Bucketed length modes, per item 20.
+- Any programmatic consumer of `generation_info.json`. It is a provenance
+  record for a human to read, and §5's "the experiment-reporting work will read
+  it" is withdrawn.

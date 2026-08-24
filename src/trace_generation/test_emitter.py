@@ -244,9 +244,9 @@ def _problem(name: str, index: int, length: int, objects) -> EmittedProblem:
 def test_generation_info_records_every_window_with_its_length(tmp_path):
     info = build_generation_info(
         [_problem("problem0", 0, 4, OBJECTS), _problem("problem1", 1, 9, OBJECTS)],
-        {"cut_mode": "buckets", "buckets": [4, 9]},
+        {"cut_mode": "uniform", "length_range": [4, 9]},
     )
-    assert info["cut_mode"] == "buckets"
+    assert info["cut_mode"] == "uniform"
     assert info["num_windows"] == 2
     assert [w["length"] for w in info["windows"]] == [4, 9]
     assert [w["name"] for w in info["windows"]] == ["problem0", "problem1"]

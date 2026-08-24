@@ -27,7 +27,6 @@ class CutMode(str, Enum):
 
     NONE = "none"
     UNIFORM = "uniform"
-    BUCKETS = "buckets"
 
 
 @dataclass(frozen=True)
@@ -60,12 +59,18 @@ def window_signature(steps: Sequence[TraceStep]) -> WindowSignature:
     )
 
 
+def _should_reject(signature: WindowSignature,
+                   seen: Set[WindowSignature]) -> bool:
+    """True when a window repeats an accepted signature or ends where it began."""
+    initial, final = signature
+    return signature in seen or initial == final
+
+
 def cut(
     steps: Iterable[TraceStep],
     *,
     mode: CutMode,
     length_range: Optional[Tuple[int, int]] = None,
-    buckets: Optional[Sequence[int]] = None,
     skip: int = 1,
     num_problems: Optional[int] = None,
     seed: Optional[int] = None,
@@ -73,16 +78,17 @@ def cut(
 ) -> List[Window]:
     """Split ``steps`` into up to ``num_problems`` deduplicated windows.
 
+    A window is dropped, its steps consumed, when its signature was already
+    claimed or when it ends in the state it started from.
+
     Args:
         steps: The trace, in order. Pulled left to right, lazily, and never
-            reordered. ``NONE`` drains it; the other modes stop pulling once
+            reordered. ``NONE`` drains it; ``UNIFORM`` stops pulling once
             ``num_problems`` windows are accepted.
         mode: ``NONE`` takes the whole trace as one window. ``UNIFORM`` samples
-            each window's length from ``length_range``. ``BUCKETS`` cycles
-            ``buckets`` so the resulting pool is length-balanced.
+            each window's length from ``length_range``.
         length_range: Inclusive ``(min, max)`` window length. Required for
-            ``UNIFORM``.
-        buckets: Window lengths to cycle. Required for ``BUCKETS``.
+            ``UNIFORM``, rejected for ``NONE``.
         skip: Steps discarded between consecutive windows.
         num_problems: Cap on the number of windows. ``None`` means take as many
             as the trace allows.
@@ -94,7 +100,7 @@ def cut(
         The accepted windows, in trace order. Shorter than ``num_problems`` when
         the trace runs out; the caller decides whether that is worth reporting.
     """
-    _validate(mode, length_range, buckets, skip, num_problems)
+    _validate(mode, length_range, skip, num_problems)
 
     if num_problems is not None and num_problems <= 0:
         return []
@@ -106,7 +112,7 @@ def cut(
         return _accept_whole_trace(stream, seen)
 
     windows: List[Window] = []
-    for i, length in enumerate(_length_stream(mode, length_range, buckets, seed)):
+    for i, length in enumerate(_length_stream(length_range, seed)):
         if num_problems is not None and len(windows) >= num_problems:
             break
         if i > 0:
@@ -117,7 +123,7 @@ def cut(
             break  # the trace ran out mid-window
 
         signature = window_signature(slice_)
-        if signature in seen:
+        if _should_reject(signature, seen):
             continue
         seen.add(signature)
         windows.append(Window(steps=slice_, signature=signature))
@@ -132,7 +138,7 @@ def _accept_whole_trace(stream: Iterator[TraceStep],
     if not slice_:
         return []
     signature = window_signature(slice_)
-    if signature in seen:
+    if _should_reject(signature, seen):
         return []
     return [Window(steps=slice_, signature=signature)]
 
@@ -143,22 +149,17 @@ def _discard(stream: Iterator[TraceStep], count: int) -> None:
         pass
 
 
-def _length_stream(mode: CutMode, length_range: Optional[Tuple[int, int]],
-                   buckets: Optional[Sequence[int]], seed: Optional[int]) -> Iterator[int]:
+def _length_stream(length_range: Tuple[int, int],
+                   seed: Optional[int]) -> Iterator[int]:
     """Yield window lengths forever; the caller stops on the step budget."""
-    if mode is CutMode.UNIFORM:
-        rng = random.Random(seed)
-        low, high = length_range  # type: ignore[misc]
-        while True:
-            yield rng.randint(low, high)
-    else:
-        while True:
-            yield from buckets  # type: ignore[misc]
+    rng = random.Random(seed)
+    low, high = length_range
+    while True:
+        yield rng.randint(low, high)
 
 
 def _validate(mode: CutMode, length_range: Optional[Tuple[int, int]],
-              buckets: Optional[Sequence[int]], skip: int,
-              num_problems: Optional[int]) -> None:
+              skip: int, num_problems: Optional[int]) -> None:
     """Reject argument combinations that cannot produce a sane corpus."""
     if not isinstance(mode, CutMode):
         raise TypeError(f"mode must be a CutMode, got {mode!r}.")
@@ -174,8 +175,8 @@ def _validate(mode: CutMode, length_range: Optional[Tuple[int, int]],
         if low < 1 or high < low:
             raise ValueError(
                 f"length_range must satisfy 1 <= min <= max, got {length_range}.")
-    elif mode is CutMode.BUCKETS:
-        if not buckets:
-            raise ValueError("mode=buckets requires a non-empty buckets list.")
-        if any(b < 1 for b in buckets):
-            raise ValueError(f"every bucket must be >= 1, got {list(buckets)}.")
+    elif length_range is not None:
+        raise ValueError(
+            f"mode={mode.value} takes the whole trace as one window and has no "
+            f"use for length_range={length_range}. Pass mode=uniform to cut by "
+            "length, or drop length_range.")

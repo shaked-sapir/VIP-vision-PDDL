@@ -12,6 +12,7 @@ import pytest
 from src.trace_generation.cutter import (
     CutMode,
     Window,
+    _should_reject,
     cut,
     window_signature,
 )
@@ -99,28 +100,6 @@ def test_uniform_lengths_differ_across_seeds():
     assert a != b
 
 
-# ── mode=buckets ─────────────────────────────────────────────────────────
-
-def test_buckets_cycle_in_order():
-    windows = cut(_trace(200), mode=CutMode.BUCKETS, buckets=[2, 5, 9],
-                  skip=1, num_problems=7)
-    assert [w.length for w in windows] == [2, 5, 9, 2, 5, 9, 2]
-
-
-def test_buckets_emit_into_one_pool_not_per_length_groups():
-    windows = cut(_trace(200), mode=CutMode.BUCKETS, buckets=[3, 8],
-                  skip=0, num_problems=4)
-    lengths = [w.length for w in windows]
-    assert lengths == [3, 8, 3, 8], "windows must stay in trace order"
-
-
-def test_buckets_stop_when_the_next_bucket_does_not_fit():
-    # 3 fits at [0:3]; the next bucket (40) does not fit in a 10-step trace.
-    windows = cut(_trace(10), mode=CutMode.BUCKETS, buckets=[3, 40],
-                  skip=0, num_problems=5)
-    assert [w.length for w in windows] == [3]
-
-
 # ── deduplication ────────────────────────────────────────────────────────
 
 def _repeating_trace(cycle: int, total: int) -> List[TraceStep]:
@@ -134,11 +113,12 @@ def _repeating_trace(cycle: int, total: int) -> List[TraceStep]:
 
 def test_duplicate_windows_are_dropped_but_their_steps_are_consumed():
     steps = _repeating_trace(cycle=4, total=40)
-    windows = cut(steps, mode=CutMode.UNIFORM, length_range=(4, 4),
-                  skip=0, num_problems=5, seed=1)
-    # Every 4-step window on a 4-cycle has the same (init, final) signature.
+    # Length 2 with a 2-step gap on a 4-cycle puts every window at
+    # (state0, state2): the same signature each time, and never a closed loop.
+    windows = cut(steps, mode=CutMode.UNIFORM, length_range=(2, 2),
+                  skip=2, num_problems=5, seed=1)
     assert len(windows) == 1
-    assert list(windows[0].steps) == steps[0:4]
+    assert list(windows[0].steps) == steps[0:2]
 
 
 def test_exclude_signatures_makes_dedup_global_across_traces():
@@ -171,6 +151,41 @@ def test_exclude_signatures_is_not_mutated():
     cut(steps, mode=CutMode.UNIFORM, length_range=(3, 3), skip=0,
         num_problems=2, seed=1, exclude_signatures=excluded)
     assert excluded == []
+
+
+# ── closed loops ─────────────────────────────────────────────────────────
+
+def test_closed_loop_window_is_dropped():
+    # A 4-cycle cut into 4-step windows returns to its starting state every time.
+    steps = _repeating_trace(cycle=4, total=40)
+    windows = cut(steps, mode=CutMode.UNIFORM, length_range=(4, 4),
+                  skip=0, num_problems=5, seed=1)
+    assert windows == [], "init == final leaves nothing to learn from"
+
+
+def test_closed_loop_whole_trace_is_dropped():
+    steps = _repeating_trace(cycle=4, total=8)
+    assert cut(steps, mode=CutMode.NONE) == []
+
+
+def test_closed_loop_steps_are_consumed_and_the_walk_continues():
+    # Steps 0..3 close a loop; 4..7 do not, so the first accepted window is [4:8].
+    steps = _repeating_trace(cycle=4, total=4) + _trace(8)[4:]
+    windows = cut(steps, mode=CutMode.UNIFORM, length_range=(4, 4), skip=0,
+                  num_problems=1, seed=1)
+    assert len(windows) == 1
+    assert list(windows[0].steps) == steps[4:8]
+
+
+def test_should_reject_a_window_that_ends_where_it_began():
+    assert _should_reject((frozenset({"p(x:t)"}), frozenset({"p(x:t)"})), set())
+    assert not _should_reject((frozenset({"p(x:t)"}), frozenset({"q(x:t)"})), set())
+
+
+def test_should_reject_a_signature_already_accepted():
+    signature = (frozenset({"p(x:t)"}), frozenset({"q(x:t)"}))
+    assert not _should_reject(signature, set())
+    assert _should_reject(signature, {signature})
 
 
 def test_signature_is_init_and_final_fluents_only():
@@ -208,7 +223,6 @@ def test_empty_trace_yields_no_windows():
     for mode, kwargs in [
         (CutMode.NONE, {}),
         (CutMode.UNIFORM, {"length_range": (1, 2)}),
-        (CutMode.BUCKETS, {"buckets": [2]}),
     ]:
         assert cut([], mode=mode, **kwargs) == []
 
@@ -284,19 +298,14 @@ def test_uniform_without_length_range_raises():
         cut(_trace(5), mode=CutMode.UNIFORM)
 
 
-def test_buckets_without_buckets_raises():
-    with pytest.raises(ValueError, match="non-empty buckets"):
-        cut(_trace(5), mode=CutMode.BUCKETS)
-
-
 def test_inverted_length_range_raises():
     with pytest.raises(ValueError, match="1 <= min <= max"):
         cut(_trace(5), mode=CutMode.UNIFORM, length_range=(7, 3))
 
 
-def test_zero_length_bucket_raises():
-    with pytest.raises(ValueError, match="every bucket must be >= 1"):
-        cut(_trace(5), mode=CutMode.BUCKETS, buckets=[3, 0])
+def test_none_with_length_range_raises():
+    with pytest.raises(ValueError, match="no use for length_range"):
+        cut(_trace(5), mode=CutMode.NONE, length_range=(2, 3))
 
 
 def test_negative_skip_raises():

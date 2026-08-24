@@ -1,45 +1,19 @@
-(define (problem hanoi-4disks-3pegs-p03)
+(define (problem hanoi2)
   (:domain hanoi)
-
   (:objects
-    d1 d2 d3 d4 - disk
-    a b c - peg
+    peg1 - peg
+    peg2 - peg
+    peg3 - peg
+    d1 - disc
+    d2 - disc
   )
-
   (:init
-    ;; mark places
-    (is-disk d1)
-    (is-disk d2)
-    (is-disk d3)
-    (is-disk d4)
-    (is-peg a)
-    (is-peg b)
-    (is-peg c)
-
-    ;; size ordering: d1 < d2 < ... < dN
-    (smaller d1 d2)
-    (smaller d1 d3)
-    (smaller d1 d4)
-    (smaller d2 d3)
-    (smaller d2 d4)
-    (smaller d3 d4)
-
-    ;; initial stacks
-    (on d4 a)
-    (on d3 d4)
-    (on d2 d3)
-    (clear d2)
-    (on d1 b)
-    (clear d1)
-    (clear c)
+   (smaller-peg peg1 d1) (smaller-peg peg1 d2)
+   (smaller-peg peg2 d1) (smaller-peg peg2 d2)
+   (smaller-peg peg3 d1) (smaller-peg peg3 d2)
+   (smaller-disc d2 d1)
+   (clear-peg peg2) (clear-peg peg3) (clear-disc d1)
+   (on-disc d1 d2) (on-peg d2 peg1)
   )
-
-  (:goal
-    (and
-      (on d4 c)
-      (on d3 d4)
-      (on d2 d3)
-      (on d1 d2)
-    )
+  (:goal (and (on-peg d2 peg3) (on-disc d1 d2)))
   )
-)

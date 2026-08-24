@@ -22,7 +22,11 @@ from src.trace_generation.corpus import (
     generate_corpus,
 )
 from src.trace_generation.cutter import CutMode
-from src.trace_generation.sources import ProblemWalkSource, TrajectorySource
+from src.trace_generation.sources import (
+    ProblemWalkSource,
+    TrajectorySource,
+    WalkConfig,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BLOCKS_DOMAIN = PROJECT_ROOT / "src" / "domains" / "blocks" / "blocks.pddl"
@@ -37,10 +41,10 @@ GRIPPER_DIR = (PROJECT_ROOT / "src" / "domains" / "gripper" / "problems"
 
 def _walk_source(**kwargs) -> ProblemWalkSource:
     """A random-only blocksworld walk, so no test here invokes the planner."""
-    defaults = dict(domain_file=BLOCKS_DOMAIN, problem_file=BLOCKS_PROBLEM,
-                    p_rnd=1.0, seed=7, max_steps=60)
-    defaults.update(kwargs)
-    return build_source(SourceKind.PROBLEM, **defaults)
+    walk = dict(p_rnd=1.0, seed=7, max_steps=60)
+    walk.update(kwargs)
+    return build_source(SourceKind.PROBLEM, domain_file=BLOCKS_DOMAIN,
+                        problem_file=BLOCKS_PROBLEM, walk=WalkConfig(**walk))
 
 
 def _gripper_source(**kwargs) -> TrajectorySource:
@@ -77,7 +81,8 @@ def test_the_kind_may_be_given_as_its_string_value():
 
 def test_walk_knobs_reach_the_source():
     source = _walk_source(p_rnd=0.25, seed=11, max_steps=5, stop_at_goal=True)
-    assert (source.p_rnd, source.seed, source.max_steps, source.stop_at_goal) \
+    walk = source.walk
+    assert (walk.p_rnd, walk.seed, walk.max_steps, walk.stop_at_goal) \
         == (0.25, 11, 5, True)
 
 
@@ -150,12 +155,6 @@ def test_window_lengths_stay_inside_the_requested_range(tmp_path):
     assert all(4 <= p.length <= 7 for p in _corpus(tmp_path).problems)
 
 
-def test_buckets_mode_cycles_the_requested_lengths(tmp_path):
-    corpus = _corpus(tmp_path, cut_mode=CutMode.BUCKETS, length_range=None,
-                     buckets=[3, 6], num_problems=4)
-    assert [p.length for p in corpus.problems] == [3, 6, 3, 6]
-
-
 def test_the_whole_trace_becomes_one_problem_under_cut_mode_none(tmp_path):
     corpus = generate_corpus(_walk_source(max_steps=9), corpus_root=tmp_path,
                              cut_mode=CutMode.NONE)
@@ -181,6 +180,12 @@ def test_the_manifest_carries_the_cut_parameters(tmp_path):
     assert info["render"] is False
 
 
+def test_the_manifest_records_absolute_paths(tmp_path):
+    info = _corpus(tmp_path).info
+    assert Path(info["source_file"]).is_absolute()
+    assert Path(info["domain_file"]).is_absolute()
+
+
 def test_the_walk_seed_and_the_cut_seed_are_recorded_separately(tmp_path):
     info = _corpus(tmp_path, source=_walk_source(seed=11), seed=3).info
     assert (info["seed"], info["cut_seed"]) == (11, 3)
@@ -199,6 +204,27 @@ def test_a_shortfall_is_warned_about(tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="src.trace_generation.corpus"):
         _corpus(tmp_path, source=_walk_source(max_steps=12), num_problems=5)
     assert "only yielded" in caplog.text
+
+
+def test_a_short_corpus_flags_itself(tmp_path):
+    corpus = _corpus(tmp_path, source=_walk_source(max_steps=12), num_problems=5)
+    assert corpus.problems_requested == 5
+    assert corpus.num_problems < 5
+    assert corpus.info["short_of_requested"] is True
+
+
+def test_a_complete_corpus_does_not_flag_itself(tmp_path):
+    corpus = _corpus(tmp_path, num_problems=5)
+    assert corpus.problems_requested == 5
+    assert corpus.num_problems == 5
+    assert corpus.info["short_of_requested"] is False
+
+
+def test_asking_for_nothing_in_particular_is_never_short(tmp_path):
+    corpus = generate_corpus(_walk_source(max_steps=9), corpus_root=tmp_path,
+                             cut_mode=CutMode.NONE)
+    assert corpus.problems_requested is None
+    assert corpus.info["short_of_requested"] is False
 
 
 def test_a_corpus_from_one_problem_has_a_uniform_object_universe(tmp_path):

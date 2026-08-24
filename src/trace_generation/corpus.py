@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from src.trace_generation.cutter import CutMode, cut
 from src.trace_generation.emitter import (
@@ -25,10 +25,10 @@ from src.trace_generation.emitter import (
     write_generation_info,
 )
 from src.trace_generation.sources import (
-    DEFAULT_MAX_STEPS,
     ProblemWalkSource,
     TraceSource,
     TrajectorySource,
+    WalkConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,11 +52,17 @@ class Corpus:
     problems: Tuple[EmittedProblem, ...]
     info: Dict[str, Any]
     info_file: Path
+    problems_requested: Optional[int] = None
 
     @property
     def num_problems(self) -> int:
         """How many problem folders were written."""
         return len(self.problems)
+
+
+def _is_short(produced: int, requested: Optional[int]) -> bool:
+    """Whether a run fell short of its request. ``None`` requests never do."""
+    return requested is not None and produced < requested
 
 
 def build_source(
@@ -65,11 +71,7 @@ def build_source(
     domain_file: Path,
     problem_file: Optional[Path] = None,
     trajectory_file: Optional[Path] = None,
-    backend: str = "native",
-    p_rnd: float = 1.0,
-    seed: Optional[int] = None,
-    max_steps: int = DEFAULT_MAX_STEPS,
-    stop_at_goal: bool = False,
+    walk: Optional[WalkConfig] = None,
     attach_frames: bool = False,
     frames_dir: Optional[Path] = None,
 ) -> TraceSource:
@@ -81,11 +83,7 @@ def build_source(
         domain_file: The PDDL domain, required by both kinds.
         problem_file: The problem to walk, or the trajectory's problem.
         trajectory_file: The trajectory to replay. ``TRAJECTORY`` only.
-        backend: Walk backend. ``PROBLEM`` only.
-        p_rnd: Probability of a random action. ``PROBLEM`` only.
-        seed: Walk RNG seed, independent of the cutter's. ``PROBLEM`` only.
-        max_steps: Cap on walked transitions. ``PROBLEM`` only.
-        stop_at_goal: Stop when the plan completes. ``PROBLEM`` only.
+        walk: The walk's settings. ``PROBLEM`` only.
         attach_frames: Pair each step with its images. ``TRAJECTORY`` only.
         frames_dir: Where those images live. ``TRAJECTORY`` only.
 
@@ -106,9 +104,7 @@ def build_source(
                 "source_kind=problem walks the problem file; it has no use for "
                 f"trajectory_file={str(trajectory_file)!r}. Use "
                 "source_kind=trajectory to replay it.")
-        return ProblemWalkSource(
-            problem_file, domain_file, backend=backend, p_rnd=p_rnd, seed=seed,
-            max_steps=max_steps, stop_at_goal=stop_at_goal)
+        return ProblemWalkSource(problem_file, domain_file, walk=walk)
 
     if trajectory_file is None:
         raise ValueError("source_kind=trajectory requires a trajectory file.")
@@ -123,7 +119,6 @@ def generate_corpus(
     corpus_root: Path,
     cut_mode: CutMode,
     length_range: Optional[Tuple[int, int]] = None,
-    buckets: Optional[Sequence[int]] = None,
     skip: int = 1,
     num_problems: Optional[int] = None,
     seed: Optional[int] = None,
@@ -138,7 +133,6 @@ def generate_corpus(
         corpus_root: Directory to write the corpus into; created if absent.
         cut_mode: How to split the trace. See :func:`~src.trace_generation.cutter.cut`.
         length_range: Inclusive ``(min, max)`` window length, for ``UNIFORM``.
-        buckets: Window lengths to cycle, for ``BUCKETS``.
         skip: Steps discarded between consecutive windows.
         num_problems: Cap on the number of problem folders.
         seed: Seed for the cutter's window-length RNG, independent of the walk's.
@@ -147,7 +141,9 @@ def generate_corpus(
         extra_info: Extra keys merged into ``generation_info.json``.
 
     Returns:
-        A :class:`Corpus` describing what was written.
+        A :class:`Corpus` describing what was written. Its manifest carries a
+        ``short_of_requested`` flag when the trace yielded fewer windows than
+        ``num_problems``.
 
     Raises:
         ValueError: The trace yielded no window, so there is no corpus to write.
@@ -156,33 +152,35 @@ def generate_corpus(
     cut_mode = CutMode(cut_mode)
 
     windows = cut(source.steps(), mode=cut_mode, length_range=length_range,
-                  buckets=buckets, skip=skip, num_problems=num_problems, seed=seed)
+                  skip=skip, num_problems=num_problems, seed=seed)
     if not windows:
         raise ValueError(
             f"{source.describe()['source_file']} yielded no window under "
             f"cut_mode={cut_mode.value}; there is no corpus to write. Check the "
-            "trace length against length_range/buckets and skip.")
-    if num_problems is not None and len(windows) < num_problems:
+            "trace length against length_range and skip.")
+    if _is_short(len(windows), num_problems):
         logger.warning("Asked for %d problems but the trace only yielded %d.",
                        num_problems, len(windows))
 
     described = source.describe()
+    domain_name = source.domain_name
     problems = tuple(
         emit_window(window, problem_name=f"{problem_prefix}{index}", index=index,
-                    domain_name=source.domain_name, corpus_root=corpus_root,
+                    domain_name=domain_name, corpus_root=corpus_root,
                     render=render, source=described["source_file"])
         for index, window in enumerate(windows)
     )
 
     info = build_generation_info(problems, _manifest_params(
-        described, cut_mode, length_range, buckets, skip, num_problems, seed,
-        render, extra_info))
+        described, cut_mode, length_range, skip, num_problems, seed,
+        render, len(problems), extra_info))
     return Corpus(
         root=corpus_root,
         trajectories_dir=corpus_root / POOL_SUBPATH,
         problems=problems,
         info=info,
         info_file=write_generation_info(corpus_root, info),
+        problems_requested=num_problems,
     )
 
 
@@ -190,11 +188,11 @@ def _manifest_params(
     described: Dict[str, Any],
     cut_mode: CutMode,
     length_range: Optional[Tuple[int, int]],
-    buckets: Optional[Sequence[int]],
     skip: int,
     num_problems: Optional[int],
     seed: Optional[int],
     render: bool,
+    produced: int,
     extra_info: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """Merge the source's own description with the cut parameters."""
@@ -202,11 +200,11 @@ def _manifest_params(
     params.update({
         "cut_mode": cut_mode.value,
         "length_range": list(length_range) if length_range is not None else None,
-        "buckets": list(buckets) if buckets is not None else None,
         "skip": skip,
         "num_problems": num_problems,
         "cut_seed": seed,
         "render": render,
+        "short_of_requested": _is_short(produced, num_problems),
     })
     if extra_info:
         params.update(extra_info)
