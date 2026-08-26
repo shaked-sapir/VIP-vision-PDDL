@@ -11,6 +11,7 @@ Used by both:
 
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -25,7 +26,18 @@ NULL_PREDICTIVE_RESULT: Dict[str, Optional[float]] = {
     "pred_app_recall": None,
     "pred_eff_precision": None,
     "pred_eff_recall": None,
+    "pred_undefined_reason": None,
 }
+
+#: ``pred_undefined_reason`` when the learned model is applicable in no test
+#: state, so AMLGym averages over an empty operator set and returns NaN.
+NO_APPLICABLE_OPERATOR = "no_applicable_operator"
+
+#: ``pred_undefined_reason`` when no simulator could be built at all.
+NO_SIMULATOR = "no_simulator"
+
+#: ``pred_undefined_reason`` when ``predictive_power`` itself raised.
+PREDICTIVE_POWER_FAILED = "predictive_power_failed"
 
 
 def evaluate_predictive_power(
@@ -84,8 +96,15 @@ def evaluate_predictive_power(
             traceback.print_exc()
 
     if not sim_learned_list:
-        print(f"  [PRED] No simulators could be created — returning null predictive metrics.")
-        return dict(NULL_PREDICTIVE_RESULT)
+        logger.error(
+            "No simulator could be built for '%s' against '%s' over %d test "
+            "problem(s), so its predictive metrics are null. A learned domain "
+            "that will not parse beside its own reference usually means the two "
+            "spell a symbol differently.",
+            learned_model_path, ref_domain_path, len(test_problem_paths),
+        )
+        print(f"  [PRED] ERROR: no simulators could be created — null predictive metrics.")
+        return {**NULL_PREDICTIVE_RESULT, "pred_undefined_reason": NO_SIMULATOR}
 
     try:
         print(f"  [PRED] Running predictive_power() with {len(sim_learned_list)} simulators...")
@@ -96,14 +115,27 @@ def evaluate_predictive_power(
             show_progress=False,
         )
         print(f"  [PRED] predictive_power() succeeded.")
-        return {
+        metrics = {
             "pred_app_precision": result["applicability"]["mean_precision"],
             "pred_app_recall": result["applicability"]["mean_recall"],
             "pred_eff_precision": result["predicted_effects"]["mean_precision"],
             "pred_eff_recall": result["predicted_effects"]["mean_recall"],
         }
+        if any(v is None or math.isnan(v) for v in metrics.values()):
+            logger.error(
+                "'%s' is applicable in no test state, so AMLGym averaged over an "
+                "empty operator set; its predictive metrics are undefined.",
+                learned_model_path,
+            )
+            print("  [PRED] ERROR: model applicable nowhere — undefined predictive metrics.")
+            return {
+                **NULL_PREDICTIVE_RESULT,
+                "pred_undefined_reason": NO_APPLICABLE_OPERATOR,
+            }
+        metrics["pred_undefined_reason"] = None
+        return metrics
     except Exception as e:
         logger.error(f"predictive_power() failed: {e}")
         import traceback
         traceback.print_exc()
-        return dict(NULL_PREDICTIVE_RESULT)
+        return {**NULL_PREDICTIVE_RESULT, "pred_undefined_reason": PREDICTIVE_POWER_FAILED}

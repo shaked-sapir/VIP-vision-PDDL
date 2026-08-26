@@ -18,6 +18,8 @@ one domain the collapse spares.
 
 from __future__ import annotations
 
+import re
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
@@ -596,3 +598,49 @@ def _types_of(body: str) -> List[str]:
     """The type names of a ``?a - crane ?b - depot`` parameter body."""
     tokens = body.split()
     return [tokens[i] for i in range(2, len(tokens), 3)]
+
+
+class TestReferenceSpelling:
+    """``emit_pddl`` writes the names the scoring domain declares (dialect fix)."""
+
+    @staticmethod
+    def _normalized(domain_key: str) -> Domain:
+        """``domain_key``'s reference with its identifiers underscored."""
+        source = source_pddl_path(domain_key).read_text()
+        underscored = re.sub(r"(?<=\S)-(?=\S)", "_", re.sub(
+            r"(:[a-zA-Z][a-zA-Z0-9-]*)",
+            lambda m: m.group(0).replace("-", "\x00"), source,
+        )).replace("\x00", "-")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / f"{domain_key}.pddl"
+            path.write_text(underscored)
+            return DomainParser(path, partial_parsing=False).parse_domain()
+
+    @pytest.mark.parametrize("domain_key", ["depot", "gripper"])
+    def test_adopts_the_references_underscored_names(self, domain_key, tmp_path):
+        model = _head(domain_key, tmp_path)
+        reference = self._normalized(domain_key)
+        text = emit_pddl(model, domain_key, reference)
+        emitted = set(re.findall(r"\(\s*([A-Za-z][A-Za-z0-9_-]*)", text))
+        declared = set(reference.predicates) | set(reference.actions)
+        assert emitted & declared
+        assert not {n for n in emitted if "-" in n} & {
+            n for n in emitted if n not in declared
+        } or all("-" not in n for n in emitted if n in declared)
+        assert set(reference.predicates) <= emitted
+
+    def test_keeps_hyphens_when_the_reference_has_them(self, tmp_path):
+        model = _head("hanoi", tmp_path)
+        reference = _reference_domain("hanoi")
+        text = emit_pddl(model, "hanoi", reference)
+        assert "clear-disc" in text and "clear_disc" not in text
+
+    def test_omitting_the_reference_is_unchanged(self, tmp_path):
+        model = _head("depot", tmp_path)
+        assert emit_pddl(model, "depot") == emit_pddl(model, "depot", None)
+
+    def test_an_unknown_symbol_is_an_error(self, tmp_path):
+        model = _head("depot", tmp_path)
+        reference = _reference_domain("gripper")
+        with pytest.raises(ValueError, match="no counterpart"):
+            emit_pddl(model, "depot", reference)

@@ -531,7 +531,7 @@ class Rosame26BaselineRunner(BaselineRunner):
             # Only "converge" restores a checkpoint; the other two modes emit the
             # final epoch, which is what their recorded numbers already mean.
             tracker.restore(trainer.domain_model)
-            model = emit_pddl(trainer.domain_model, bench)
+            model = emit_pddl(trainer.domain_model, bench, partial_domain)
             (run_dir / f"seed_{seed}" / "model.pddl").write_text(model)
             try:
                 seed_counts[seed] = check_not_degenerate(model)

@@ -40,6 +40,7 @@ import torch
 import src.milp  # noqa: F401  (vendor sys.path bootstrap)
 from src.milp.domain_assets import build_domain
 from src.milp.head_alignment import pddl_argument_order
+from src.utils.pddl_naming import canonical, rewrite_symbols, spelling_map
 
 from planning_structs.domain import Domain as PSDomain
 from planning_structs.domain import Type as PSType
@@ -277,16 +278,44 @@ def check_not_degenerate(text: str) -> Dict[str, int]:
     return counts
 
 
-def emit_pddl(domain_model: object, bench: str) -> str:
+def _in_reference_spelling(text: str, domain: PSDomain, reference: object) -> str:
+    """``text`` with every predicate and action named as ``reference`` names it.
+
+    Raises:
+        ValueError: if ``reference`` declares no counterpart for a symbol the
+            emitted domain carries.
+    """
+    declared = dict(reference.predicates)
+    declared.update(reference.actions)
+    spellings = spelling_map(declared)
+
+    emitted = [predicate.name for predicate in domain.predicates]
+    emitted += [schema.name for schema in domain.action_schemas]
+    unknown = sorted({n for n in emitted if canonical(n) not in spellings})
+    if unknown:
+        raise ValueError(
+            f"the reference domain declares no counterpart for {unknown}; "
+            f"it knows {sorted(spellings.values())}"
+        )
+    return rewrite_symbols(text, spellings)
+
+
+def emit_pddl(
+    domain_model: object, bench: str, reference: object = None
+) -> str:
     """The trained ``domain_model`` as a PDDL domain in ``bench``'s own order.
 
     Args:
         domain_model: A grounded, trained vendored ``Domain_Model``.
         bench: The domain key whose ``src/domains`` PDDL supplies the signatures.
+        reference: The domain the emitted model will be scored against, whose
+            spelling of every predicate and action name is adopted. ``None``
+            keeps ``src/domains``' own spelling.
 
     Raises:
         ValueError: if the head and the domain PDDL do not carry the same
-            action schemas, which means the grounding assets are stale.
+            action schemas, which means the grounding assets are stale, or if
+            ``reference`` does not declare a symbol the model carries.
     """
     domain = build_domain(bench)
     signatures = {schema.name: schema.types for schema in domain.action_schemas}
@@ -305,10 +334,13 @@ def emit_pddl(domain_model: object, bench: str) -> str:
         format_action(schema, signatures[schema.name], predicate_types)
         for schema in domain_model.action_schemas
     )
-    return (
+    text = (
         f"(define (domain {bench})\n"
         f"    (:requirements :strips :typing)\n"
         f"    (:types\n        {format_types(domain)})\n"
         f"    (:predicates\n        {format_predicates(domain)})\n\n"
         f"{actions}\n)"
     )
+    if reference is None:
+        return text
+    return _in_reference_spelling(text, domain, reference)

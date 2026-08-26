@@ -121,6 +121,7 @@ def evaluate_model(
             "pred_app_recall": None,
             "pred_eff_precision": None,
             "pred_eff_recall": None,
+            "pred_undefined_reason": None,
         }
 
     return {

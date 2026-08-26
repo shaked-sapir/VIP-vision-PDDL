@@ -194,6 +194,27 @@ def _cfm_last_and_best(instance_dir: Path, metric_keys: List[str]) -> Dict[str, 
     return out
 
 
+#: Predictive metrics that a recorded ``pred_undefined_reason`` scores as 0.
+#: The model was applicable in no test state (or could not be simulated at
+#: all), which is a floor, not a missing measurement; the raw ``null`` and its
+#: reason stay on disk.
+_UNDEFINED_AS_ZERO_METRICS = frozenset({
+    "pred_app_precision", "pred_app_recall",
+    "pred_eff_precision", "pred_eff_recall",
+})
+
+
+def _undefined_as_zero(row: dict, metric_keys: List[str]) -> Dict[str, float]:
+    """``{metric: 0.0}`` for the predictive metrics this row leaves undefined."""
+    if not row.get("pred_undefined_reason"):
+        return {}
+    return {
+        k: 0.0
+        for k in metric_keys
+        if k in _UNDEFINED_AS_ZERO_METRICS and row.get(k) is None
+    }
+
+
 def _baseline_rows(instance_dir: Path, metric_keys: List[str]) -> Dict[str, Dict[str, float]]:
     """Per baseline algorithm: its metric values from fold_result.json."""
     marker = instance_dir / "fold_result.json"
@@ -213,6 +234,7 @@ def _baseline_rows(instance_dir: Path, metric_keys: List[str]) -> Dict[str, Dict
             # found no CFM, which would mix failures into the series.
             continue
         vals = {k: row[k] for k in metric_keys if _finite(row.get(k))}
+        vals.update(_undefined_as_zero(row, metric_keys))
         if vals:
             out[alg] = vals
     return out
