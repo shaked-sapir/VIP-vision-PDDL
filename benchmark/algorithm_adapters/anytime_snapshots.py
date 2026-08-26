@@ -34,6 +34,7 @@ class SnapshotRecord:
     epoch: int
     elapsed_seconds: float
     path: str
+    loss: Optional[float] = None
 
 
 class SnapshotWriter:
@@ -89,6 +90,7 @@ class SnapshotWriter:
         trajectory: int,
         epoch: int,
         render: Callable[[], str],
+        loss: Optional[float] = None,
     ) -> None:
         """Capture a snapshot if ``step`` falls on the interval.
 
@@ -97,10 +99,16 @@ class SnapshotWriter:
             trajectory: Index of the trace being trained, or -1 when pooled.
             epoch: Epoch within that trace.
             render: Produces the model text. Called only when capturing.
+            loss: Training loss at this step, recorded in the index. ``None``
+                leaves the field absent, which is what a caller that does not
+                track a loss gets.
         """
         if step % self.interval != 0:
             return
-        self.capture(step=step, trajectory=trajectory, epoch=epoch, render=render)
+        self.capture(
+            step=step, trajectory=trajectory, epoch=epoch, render=render,
+            loss=loss,
+        )
 
     def capture(
         self,
@@ -109,6 +117,7 @@ class SnapshotWriter:
         trajectory: int,
         epoch: int,
         render: Callable[[], str],
+        loss: Optional[float] = None,
     ) -> SnapshotRecord:
         """Unconditionally capture a snapshot and return its record."""
         elapsed = self.elapsed_seconds()
@@ -128,6 +137,7 @@ class SnapshotWriter:
             epoch=epoch,
             elapsed_seconds=elapsed,
             path=path.name,
+            loss=loss,
         )
         self._records.append(record)
         return record

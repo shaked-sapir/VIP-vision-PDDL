@@ -99,6 +99,18 @@ class RosameBaselineRunner(BaselineRunner):
         return "ROSAME (24)"
 
     @property
+    def input_kind(self) -> str:
+        return "symbolic"
+
+    @property
+    def paper(self) -> str:
+        return "24"
+
+    @property
+    def uses_milp(self) -> bool:
+        return False
+
+    @property
     def color(self) -> str:
         return "#e8710a"
 

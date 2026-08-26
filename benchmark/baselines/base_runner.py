@@ -43,6 +43,36 @@ class BaselineRunner(ABC):
         return "#888888"
 
     # ------------------------------------------------------------------ #
+    # Factors
+    # ------------------------------------------------------------------ #
+
+    @property
+    @abstractmethod
+    def input_kind(self) -> str:
+        """``'symbolic'`` or ``'imaged'`` — what the arm learns from."""
+        ...
+
+    @property
+    @abstractmethod
+    def paper(self) -> str:
+        """Source paper of the network: ``'24'`` or ``'26'``."""
+        ...
+
+    @property
+    @abstractmethod
+    def uses_milp(self) -> bool:
+        """Whether a MILP solve is part of this arm."""
+        ...
+
+    def factors(self) -> Dict[str, object]:
+        """The arm's factors, for the result row."""
+        return {
+            "input_kind": self.input_kind,
+            "paper": self.paper,
+            "uses_milp": self.uses_milp,
+        }
+
+    # ------------------------------------------------------------------ #
     # Learning
     # ------------------------------------------------------------------ #
 

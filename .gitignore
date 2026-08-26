@@ -18,6 +18,9 @@ benchmark/data/**/planner/**/training/trajectories/**
 benchmark/data/**/planner/**/trajectories/**
 benchmark/data/new_experiments/**
 benchmark/data/**/symbolic_traces_*/**
+# Same reasoning as symbolic_traces_*: a generated corpus is reproducible
+# from its generation_info.json, and one L=500 corpus is ~102MB.
+benchmark/data/**/large_corpus_*/**
 benchmark/running_results/**
 **/*.masking_info
 **/.rosame26_norm__*.pt

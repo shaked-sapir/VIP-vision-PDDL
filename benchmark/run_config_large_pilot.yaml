@@ -1,0 +1,107 @@
+# Large-corpora run config — Task 3 (docs/large-corpora-experiments-plan.md).
+#
+# Separate from run_config.yaml so the small-data settings that produced the
+# results already on disk stay reproducible from that file. Two knobs differ
+# and both matter: `subset_size` (4, not half) and `stop.no_improvement_rounds`
+# (set, not blank).
+#
+# Run with:
+#   python -m benchmark.benchmark_runner --config benchmark/run_config_large.yaml
+#   python -m benchmark.benchmark_runner --config benchmark/run_config_large.yaml --dry-run
+#
+# ONE L PER RUN. `num_trajectories` and `stop.no_improvement_rounds` must be
+# changed together — the patience schedule is a function of L:
+#
+#   L      C(L,4)          patience = ceil(7 * ln C(L,4))
+#   10     210             38
+#   50     2.3e5           87
+#   100    3.9e6           107
+#   500    2.6e9           152
+#   2000   6.6e11          191
+#
+# Derivation in the plan doc, section 3. The coefficient 7 sits above every
+# required value fitted from the small-data logs (5.5-6.8, drifting up with N).
+# The fit rests on four points at N <= 8; the pilot gate (plan section 6) is
+# where it gets tested at scale.
+
+run_name: large-corpora__L=500__pilot     # SINGLE-CELL pilot — plan section 6 gate.
+                                          # Generated from run_config_large.yaml by narrowing the grid to one
+                                          # mask/noise point. Do not widen it here; widen the parent config once
+                                          # the gate passes.
+source: simulated                         # symbolic only — the imaged arms are out of scope for this task
+
+shared:
+  n_folds: 5
+  cv_scheme: kfold                        # kfold | montecarlo. `kfold` stripes the pool into 5 DISJOINT test sets,
+                                          # so every problem is tested exactly once. `montecarlo` (the default, and what
+                                          # every result under simulation-final-run* used) draws an independent 80/20
+                                          # split per fold, so test sets overlap ~100/500 pairwise and the across-fold
+                                          # std understates the true variance. Rows from the two schemes are NOT comparable.
+  num_trajectories: [500]                 # training-set size drawn from the 2000-problem train pool (nested: each size
+                                          # is a prefix of the next). ONE L per run — keep in sync with the patience below.
+  gt_rates: [0]
+  learning_timeout_seconds: 3600          # 1 h ceiling per cell. Also caps the loop: stop.budget_seconds inherits it.
+                                          # With patience set, this should become the RARE stop reason, not the usual one.
+  planning_timeout_seconds: 60
+  search_mode: dfs
+  node_choosing_strategy: model_patch_first
+  model_constraint_weight: 0.0
+  conflict_group_strategy: largest
+  fluent_branch_mode: single
+  events_tracing: false                   # HEAVY — leave off at this scale
+  normalize: false
+  resume: true                            # long runs; skip folds already complete
+  algorithms: [pisam_milp_loop, rosame_milp_24, rosame_24]
+  snapshot_interval: 1                    # capture a ROSAME snapshot every N epochs, with that epoch's training
+                                          # loss, into <fold>/anytime_snapshots/<arm>/snapshots.json. Only
+                                          # rosame_24 accepts it today — rosame_milp_24 does not (its MILP loop
+                                          # has no snapshot hook). Omit the key to disable.
+
+  pisam_milp:
+    eq16: off
+    lambda_pre: 0.4
+    gt_anchoring: init_only               # crossed with `none` in the ablations block below
+    solver: cpsat
+    time_limit_seconds:                   # blank = inherit learning_timeout_seconds
+
+    # ---- loop-only -------------------------------------------------------
+    sampler: random
+    subset_size: 4                        # NOT `half`. Solve cost tracks SUBSET size, not fold size, so a fixed
+                                          # subset keeps per-round cost flat in L. `half` would hand CP-SAT
+                                          # 1000-trace MILPs at L=2000. Measured: 0.21 s median at m=2, 0.49 s at m=4.
+    learner_input: subset_only
+    pool_policy: frozen                   # keeps stop_on_fixpoint sound and V scored against the original observations
+    co_sample_conflicts: off
+    w_prior: tiebreak
+    seed: 42
+    stop:
+      budget_seconds:                     # blank = inherit learning_timeout_seconds (1 h)
+      no_improvement_rounds: 152          # L=500. See the schedule at the top of this file.
+                                          # At large L, C(L,4) makes `fixpoint` unreachable, so this is the only
+                                          # convergence rule left — budget_seconds is a timeout, not convergence.
+      stop_on_perfect_fit: true
+      max_rounds:                         # blank = unlimited; patience is what terminates the loop here
+      stop_on_fixpoint: true              # harmless: unreachable at this L, but sound (pool is frozen)
+    eval:
+      effect_mismatch_weight: 1.0
+      inapplicability_weight: 1.0
+
+    # Both GT variants of the loop, per the plan's arm list.
+    ablations:
+      gt_anchoring: [init_only, none]
+
+simulation:
+  masking_strategy: percentage
+  noising_strategy: percentage
+  seed: 42
+  grid:
+    masking_ps: [0.1]                     # single pilot point: middle of the grid, degraded enough that
+    noising_ps: [0.1]                     # the loop has real repair work to do
+
+# One domain for the pilot. Uncomment the rest after the plan's section 6 gate.
+domains:
+  - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/large_corpus_L500_n2500"}
+  # - {domain_key: hanoi,       data_dir: "TODO"}
+  # - {domain_key: npuzzle,     data_dir: "TODO"}
+  # - {domain_key: depot,       data_dir: "TODO"}
+  # - {domain_key: gripper,     data_dir: "TODO"}

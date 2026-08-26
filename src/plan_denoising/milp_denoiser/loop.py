@@ -97,6 +97,10 @@ NO_MODEL_HASH = "none"
 # this directory holds the model it scored, so a round can be re-evaluated
 # offline against metrics the loop itself never computed.
 ROUND_MODELS_DIR = "milp_loop_round_models"
+#: Streamed one JSON row per round, flushed as the round ends. The
+#: end-of-run ``milp_loop_rounds.json`` stays the artifact readers parse;
+#: this is what makes V visible while the loop is still running.
+ROUND_STREAM_NAME = "milp_loop_rounds.jsonl"
 
 
 # ---------------------------------------------------------------- round record
@@ -593,6 +597,14 @@ def run_loop(
     subset_size = config.subset_size.resolve(len(pool))
     total_subsets = math.comb(len(pool), subset_size)
 
+    # A rerun into the same fold dir must not append onto the previous run's
+    # rows: the stream is a record of THIS loop, not of every loop that ever
+    # wrote here.
+    if fold_work_dir is not None:
+        stale_stream = Path(fold_work_dir) / ROUND_STREAM_NAME
+        if stale_stream.exists():
+            stale_stream.unlink()
+
     state = _LoopState(
         pool_observations={i: observations[i] for i in pool},
         repaired={},
@@ -649,6 +661,10 @@ def run_loop(
             solve_limit=_remaining_budget(loop_budget, solve_limit, elapsed),
             started_at=start,
         )
+        # Every exit path of _run_round has appended its row by now, including
+        # the early ones, so the stream sees the round whatever happened in it.
+        if result.rounds:
+            append_round_stream(result.rounds[-1], fold_work_dir)
 
     result.stats["total_time_seconds"] = round(time.perf_counter() - start, 3)
     result.stats["rounds"] = [r.as_dict() for r in result.rounds]
@@ -930,6 +946,23 @@ def save_round_model(
     path = target / "model.pddl"
     path.write_text(domain.to_pddl())
     return path
+
+
+def append_round_stream(log: "RoundLog", fold_work_dir: Optional[Path]) -> None:
+    """Append one finished round to the JSONL stream.
+
+    A best-effort tap: a failure here must not abort a round that already did
+    its work, so OS errors are reported and swallowed.
+    """
+    if fold_work_dir is None:
+        return
+    path = Path(fold_work_dir) / ROUND_STREAM_NAME
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as handle:
+            handle.write(json.dumps(log.as_dict()) + "\n")
+    except OSError as error:
+        print(f"  [pisam_milp_loop] could not append {path}: {error}")
 
 
 def save_round_log(result: LoopResult, fold_work_dir: Path) -> None:

@@ -129,7 +129,7 @@ def _run_baselines(
             total_transitions=total_transitions,
             total_gt_transitions=total_gt_transitions,
             learning_time_seconds=learn_time,
-            algorithm_specific=extra_info or {},
+            algorithm_specific={**(extra_info or {}), **runner.factors()},
             planning_timeout=planning_timeout,
             test_states_path=test_states_path_str,
         )
@@ -357,6 +357,53 @@ def run_cdps_phase(
         )
 
 
+def cv_split(
+    n_problems: int,
+    fold: int,
+    n_folds: int = 5,
+    scheme: str = "montecarlo",
+) -> Tuple[List[int], List[int]]:
+    """Train/test problem indices for one fold.
+
+    Args:
+        n_problems: Size of the problem pool.
+        fold: 0-based fold number.
+        n_folds: Total folds; only read under ``kfold``.
+        scheme: ``"montecarlo"`` — an independent 80/20 split per fold, seeded
+            ``42 + fold``. Test sets overlap across folds. ``"kfold"`` — one
+            shuffle seeded ``42`` for every fold, then disjoint stripes, so each
+            problem is tested exactly once across the run.
+
+    Returns:
+        ``(train_idx, test_idx)``.
+
+    Raises:
+        ValueError: on an unknown scheme, or a fold outside ``0..n_folds-1``
+            under ``kfold``.
+    """
+    indices = list(range(n_problems))
+    if scheme == "montecarlo":
+        random.seed(42 + fold)
+        random.shuffle(indices)
+        n_train = max(1, min(int(0.8 * n_problems), n_problems - 1))
+        return indices[:n_train], indices[n_train:]
+    if scheme == "kfold":
+        if not 0 <= fold < n_folds:
+            raise ValueError(
+                f"fold {fold} out of range for n_folds={n_folds}"
+            )
+        # One seed for every fold: the folds must stripe the SAME order, or the
+        # test sets do not partition.
+        random.seed(42)
+        random.shuffle(indices)
+        test_idx = indices[fold::n_folds]
+        held_out = set(test_idx)
+        return [i for i in indices if i not in held_out], test_idx
+    raise ValueError(
+        f"unknown cv_scheme {scheme!r}; expected 'montecarlo' or 'kfold'"
+    )
+
+
 def run_single_fold(
     fold: int,
     problem_dirs: List[Path],
@@ -378,6 +425,8 @@ def run_single_fold(
     node_choosing_strategy: str = "model_patch_first",
     conflict_group_strategy: str = "most_observations",
     fluent_branch_mode: str = "group",
+    n_folds: int = 5,
+    cv_scheme: str = "montecarlo",
     trajectory_seed: Optional[int] = None,
     output_subdir: Optional[str] = None,
     baselines: Optional[list] = None,
@@ -413,6 +462,9 @@ def run_single_fold(
         node_choosing_strategy: Conflict-search branch insertion ordering strategy.
         conflict_group_strategy: Which conflict group to resolve first at each node.
         fluent_branch_mode: How many fluent patches per data-fix branch.
+        n_folds: Total folds in the run; read only under ``cv_scheme='kfold'``.
+        cv_scheme: ``'montecarlo'`` (default, an independent 80/20 split per
+            fold) or ``'kfold'`` (disjoint test stripes). See :func:`cv_split`.
         trajectory_seed: Optional override for trajectory-pool sampling seed.
         output_subdir: Optional subdirectory under the fold work dir.
         baselines: Optional list of BaselineRunner instances to run alongside
@@ -479,11 +531,10 @@ def run_single_fold(
         # ==================================================
         # Setup: CV split and trajectory preparation
         # ==================================================
-        indices = list(range(n_problems))
-        random.seed(42 + fold)
-        random.shuffle(indices)
-        n_train = max(1, min(int(0.8 * n_problems), n_problems - 1))
-        train_idx, test_idx = indices[:n_train], indices[n_train:]
+        train_idx, test_idx = cv_split(
+            n_problems, fold, n_folds=n_folds, scheme=cv_scheme
+        )
+        n_train = len(train_idx)
 
         train_problem_dirs = [problem_dirs[i] for i in train_idx]
         test_problem_dirs = [problem_dirs[i] for i in test_idx]

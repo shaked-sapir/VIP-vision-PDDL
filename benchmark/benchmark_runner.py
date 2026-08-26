@@ -266,7 +266,7 @@ def _build_data_source(source: str, sim_cfg: dict, data_dir: Path, cell: dict):
 
 # Shared-config keys that map onto experiment_runner.main() parameters as-is.
 _PASSTHROUGH_KEYS = {
-    "n_folds", "frame_axiom_mode",
+    "n_folds", "cv_scheme", "frame_axiom_mode",
     "learning_timeout_seconds", "planning_timeout_seconds",
     "fluent_patch_cost", "fluent_patch_weight",
     "model_patch_cost", "model_constraint_weight",
@@ -274,6 +274,11 @@ _PASSTHROUGH_KEYS = {
     "conflict_group_strategy", "fluent_branch_mode",
     "normalize", "force_normalize", "events_tracing", "resume",
 }
+
+# Shared-config keys forwarded to the BASELINE RUNNERS rather than to main().
+# `_instantiate` drops any a runner's __init__ does not accept, so listing one
+# here does not force every runner to take it.
+_RUNNER_KWARG_KEYS = {"snapshot_interval", "train_per_trajectory"}
 
 
 def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
@@ -286,7 +291,7 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     """
     known_keys = _PASSTHROUGH_KEYS | MILP_CONFIG_KEYS | {
         "num_trajectories", "gt_rates", "algorithms", "baselines",
-    }
+    } | _RUNNER_KWARG_KEYS
     unknown = set(shared) - known_keys
     if unknown:
         raise ValueError(
@@ -314,9 +319,10 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
         algorithm_names = ["cdps"] + [b for b in shared["baselines"] if b != "none"]
     else:
         algorithm_names = ["cdps", "rosame_24"]
+    runner_kwargs = {k: shared[k] for k in _RUNNER_KWARG_KEYS if k in shared}
     (kwargs["run_cdps"], kwargs["run_cdps_anchored"], kwargs["run_pisam_milp"],
      kwargs["run_pisam_milp_loop"], kwargs["baselines"]) = resolve_algorithms(
-        algorithm_names
+        algorithm_names, **runner_kwargs
     )
 
     # The block both MILP arms share; each arm pins its own variant from the

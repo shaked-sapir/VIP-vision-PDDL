@@ -94,6 +94,7 @@ class MilpPORosame(PORosame_Runner):
         pre_mip_epochs: int = 50,
         mip_interval: int = 1,
         agreement_stop: float = 1.0,
+        snapshot=None,
     ) -> Dict:
         """Pooled training with interleaved MILP rounds.
 
@@ -105,6 +106,9 @@ class MilpPORosame(PORosame_Runner):
             pre_mip_epochs: warmup epochs without MILP (upstream: 50).
             mip_interval: solve every this many epochs after warmup (upstream: 1).
             agreement_stop: stop once ROSAME/MILP agreement reaches this level.
+            snapshot: Optional ``SnapshotWriter``; captures the model and that
+                epoch's training loss every Nth epoch. The DL phase only — a
+                MILP round does not train.
 
         Returns:
             Report dict: per-round history, final solution + labels, stop reason.
@@ -125,6 +129,8 @@ class MilpPORosame(PORosame_Runner):
 
         optimizer = self._build_optimizer()
         order = list(range(len(cached)))
+        if snapshot is not None:
+            snapshot.start()
 
         for epoch in range(epochs):
             random.shuffle(order)
@@ -136,6 +142,13 @@ class MilpPORosame(PORosame_Runner):
                 loss_final += self._train_step(s1, a, s2, optimizer) / _BATCH_SZ
             if epoch % 10 == 0:
                 print(f"Epoch {epoch} RESULTS: Pooled average loss: {loss_final:.10f}")
+
+            if snapshot is not None:
+                # No single trace owns a pooled epoch, hence -1.
+                snapshot.maybe_capture(
+                    step=epoch + 1, trajectory=-1, epoch=epoch,
+                    render=self.rosame_to_pddl, loss=loss_final,
+                )
 
             past_warmup = epoch + 1 >= pre_mip_epochs
             if past_warmup and (epoch + 1 - pre_mip_epochs) % mip_interval == 0:

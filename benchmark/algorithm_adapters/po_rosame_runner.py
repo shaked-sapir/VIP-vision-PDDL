@@ -256,6 +256,7 @@ class PORosame_Runner(Rosame_Runner):
                         trajectory=traj_index,
                         epoch=epoch,
                         render=self._render_pddl,
+                        loss=loss_final,
                     )
         return step
 
@@ -315,7 +316,8 @@ class PORosame_Runner(Rosame_Runner):
             if snapshot is not None:
                 # No single trace owns a pooled epoch, hence -1.
                 snapshot.maybe_capture(
-                    step=step, trajectory=-1, epoch=epoch, render=self._render_pddl
+                    step=step, trajectory=-1, epoch=epoch,
+                    render=self._render_pddl, loss=loss_final,
                 )
         return step
 

@@ -91,6 +91,10 @@ class Rosame26MilpRunner(Rosame26BaselineRunner):
         return "ROSAME-I+MILP (26)"
 
     @property
+    def uses_milp(self) -> bool:
+        return True
+
+    @property
     def color(self) -> str:
         return "#2f8f6f"
 

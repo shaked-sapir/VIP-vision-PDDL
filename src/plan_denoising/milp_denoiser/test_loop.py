@@ -59,6 +59,8 @@ from src.plan_denoising.milp_denoiser.loop import (
     _stop_reason,
     _subset_gt,
     model_hash,
+    ROUND_STREAM_NAME,
+    append_round_stream,
     save_round_log,
     save_round_model,
 )
@@ -504,6 +506,30 @@ class TestReporting(unittest.TestCase):
     def test_round_rows_are_json_serialisable(self) -> None:
         rows = [r.as_dict() for r in self._result().rounds]
         self.assertEqual(json.loads(json.dumps(rows))[0]["subset"], [0, 1])
+
+    def test_round_stream_appends_one_row_per_round(self) -> None:
+        """The live stream carries the same rows the end-of-run file does."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            result = self._result()
+            for log in result.rounds:
+                append_round_stream(log, target)
+            lines = (target / ROUND_STREAM_NAME).read_text().splitlines()
+            self.assertEqual(len(lines), 4)
+            streamed = [json.loads(line) for line in lines]
+            self.assertEqual([r["round"] for r in streamed], [1, 2, 3, 4])
+            self.assertEqual([r["v_raw"] for r in streamed], [9.0, 9.0, None, 7.0])
+            save_round_log(result, target)
+            final = json.loads((target / "milp_loop_rounds.json").read_text())
+            self.assertEqual(streamed, final["rounds"],
+                             "stream and end-of-run file must not diverge")
+
+    def test_round_stream_tolerates_an_unwritable_dir(self) -> None:
+        """A failed tap must not abort a round that already did its work."""
+        append_round_stream(self._result().rounds[0], Path("/proc/nonexistent/x"))
+
+    def test_round_stream_is_skipped_without_a_work_dir(self) -> None:
+        append_round_stream(self._result().rounds[0], None)
 
     def test_save_round_log_writes_the_history(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

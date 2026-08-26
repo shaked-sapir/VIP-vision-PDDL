@@ -183,6 +183,18 @@ class Rosame26BaselineRunner(BaselineRunner):
         return "ROSAME-I (26)"
 
     @property
+    def input_kind(self) -> str:
+        return "imaged"
+
+    @property
+    def paper(self) -> str:
+        return "26"
+
+    @property
+    def uses_milp(self) -> bool:
+        return False
+
+    @property
     def color(self) -> str:
         return "#7b4fb5"
 

@@ -27,6 +27,7 @@ report) when no feasible MILP solution is found.
 
 from __future__ import annotations
 
+import inspect
 import random
 import time
 from abc import abstractmethod
@@ -45,6 +46,7 @@ from src.milp.converter import (
     observation_to_trace,
 )
 from src.milp.encoding_config import MilpEncodingConfig
+from benchmark.algorithm_adapters.anytime_snapshots import SnapshotWriter
 from benchmark.algorithm_adapters.rosame_milp.milp_loop import MilpPORosame
 from benchmark.algorithm_adapters.rosame_milp.model_bridge import (
     extract_model_labels,
@@ -120,8 +122,12 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         encoding_config: Optional[MilpEncodingConfig] = None,
         goal_mode: str = "gt",
         milp_solver: str = "cp-sat-observed",
+        snapshot_interval: Optional[int] = None,
     ) -> None:
-        super().__init__(train_per_trajectory=train_per_trajectory)
+        super().__init__(
+            train_per_trajectory=train_per_trajectory,
+            snapshot_interval=snapshot_interval,
+        )
         self.epochs = epochs
         self.mip_time_limit = mip_time_limit
         self.encoding_config = encoding_config or MilpEncodingConfig.upstream()
@@ -195,13 +201,25 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             "milp_solver": self.milp_solver,
             "encoding_config": self.encoding_config.as_stats(),
         }
+        snapshot = None
+        if self.snapshot_interval is not None:
+            snapshot = SnapshotWriter(
+                work_dir / "anytime_snapshots" / self.name,
+                interval=self.snapshot_interval,
+            )
+            extra["snapshot_interval"] = self.snapshot_interval
+
         try:
             partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
             rosame = PORosame_Runner(str(domain_path))
             prepared = self._build_prepared(traj_paths, partial_domain)
 
+            # The DL phase is the same loop the DL-only arm runs, so the loss
+            # curve is captured the same way. The MILP phase below is not
+            # snapshotted; it does not train.
             rosame.learn_full(
-                prepared, train_per_trajectory=self.train_per_trajectory, epochs=self.epochs
+                prepared, train_per_trajectory=self.train_per_trajectory,
+                epochs=self.epochs, snapshot=snapshot,
             )
 
             ps_domain, obs_t, n_gt_goals = self._build_milp_traces(
@@ -251,6 +269,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         encoding_config: Optional[MilpEncodingConfig] = None,
         goal_mode: str = "gt",
         milp_solver: str = "cp-sat-observed",
+        snapshot_interval: Optional[int] = None,
     ) -> None:
         super().__init__(
             train_per_trajectory=False,
@@ -259,6 +278,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             encoding_config=encoding_config,
             goal_mode=goal_mode,
             milp_solver=milp_solver,
+            snapshot_interval=snapshot_interval,
         )
         self.pre_mip_epochs = pre_mip_epochs
         self.mip_interval = mip_interval
@@ -272,6 +292,10 @@ class RosameMilpRunner(RosameMilpBaseRunner):
     @property
     def display_name(self) -> str:
         return "ROSAME+MILP (24)"
+
+    @property
+    def uses_milp(self) -> bool:
+        return True
 
     @property
     def color(self) -> str:
@@ -323,15 +347,28 @@ class RosameMilpRunner(RosameMilpBaseRunner):
                 agreement = model_agreement(rosame, labels)
                 return labels, agreement, encoder.solve_stats, solution
 
+            snapshot = None
+            if self.snapshot_interval is not None:
+                snapshot = SnapshotWriter(
+                    work_dir / "anytime_snapshots" / self.name,
+                    interval=self.snapshot_interval,
+                )
+                extra["snapshot_interval"] = self.snapshot_interval
+
             start = time.perf_counter()
-            report = rosame.learn_pooled_with_milp(
-                prepared,
-                milp_round,
-                epochs=self.epochs,
-                pre_mip_epochs=self.pre_mip_epochs,
-                mip_interval=self.mip_interval,
-                agreement_stop=self.agreement_stop,
-            )
+            try:
+                report = rosame.learn_pooled_with_milp(
+                    prepared,
+                    milp_round,
+                    epochs=self.epochs,
+                    pre_mip_epochs=self.pre_mip_epochs,
+                    mip_interval=self.mip_interval,
+                    agreement_stop=self.agreement_stop,
+                    snapshot=snapshot,
+                )
+            finally:
+                if snapshot is not None:
+                    snapshot.close()
             extra["loop_seconds"] = round(time.perf_counter() - start, 2)
             extra["milp_rounds"] = report["rounds"]
             extra["stop_reason"] = report["stop_reason"]
@@ -371,6 +408,11 @@ class RosameMilpTagRunner(RosameMilpRunner):
     def __init__(self, **kwargs) -> None:
         kwargs.setdefault("encoding_config", MilpEncodingConfig.tag())
         super().__init__(**kwargs)
+
+    # ``_instantiate`` filters kwargs against the visible signature, and
+    # ``**kwargs`` is not visible, so the options this arm forwards are declared
+    # here rather than inferred.
+    __init__.__signature__ = inspect.signature(RosameMilpRunner.__init__)
 
     @property
     def name(self) -> str:

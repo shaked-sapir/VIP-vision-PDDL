@@ -118,6 +118,7 @@ def main(
     data_dir: Path,
     data_source: DataSource,
     n_folds: int = 5,
+    cv_scheme: str = "montecarlo",
     folds: Optional[List[int]] = None,
     num_trajectories_list: List[int] = None,
     gt_rate_percentages: List[int] = None,
@@ -154,6 +155,10 @@ def main(
             Use ImageDataSource() for real image-pipeline data (pre-generated files)
             or SimulatedDataSource(...) for synthetic in-memory noise injection.
         n_folds: Number of cross-validation folds (defines the CV split).
+        cv_scheme: How each fold's train/test split is drawn —
+            'montecarlo' (an independent 80/20 split per fold, test sets
+            overlap) or 'kfold' (disjoint test stripes, each problem
+            tested exactly once). See run_fold.cv_split.
         folds: Optional subset of fold indices to run (e.g. [2]). None runs
             all folds 0..n_folds-1. The CV split itself is still defined by
             n_folds, so results are identical to a full run restricted to
@@ -241,6 +246,7 @@ def main(
         "data_dir": str(data_dir),
         "experiment_name": experiment_name,
         "n_folds": n_folds,
+        "cv_scheme": cv_scheme,
         "folds": fold_list,
         "num_trajectories_list": num_trajectories_list,
         "gt_rate_percentages": gt_rate_percentages,
@@ -390,6 +396,8 @@ def main(
                         node_choosing_strategy=node_choosing_strategy,
                         conflict_group_strategy=conflict_group_strategy,
                         fluent_branch_mode=fluent_branch_mode,
+                        n_folds=n_folds,
+                        cv_scheme=cv_scheme,
                         frame_axiom_mode=frame_axiom_mode,
                         baselines=baselines,
                         run_cdps=run_cdps,
