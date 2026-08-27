@@ -17,7 +17,7 @@ import math
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from itertools import product
-from typing import Any, List, Mapping, Optional, Type, TypeVar
+from typing import Any, List, Mapping, Optional, Type, TypeVar, Union
 
 from src.milp.converter import GtAnchoring
 from src.milp.encoding_config import (
@@ -169,7 +169,9 @@ class StopRules:
             the fold's CDPS search budget, which is what makes the anytime
             comparison against CDPS fair (Q7a).
         no_improvement_rounds: Stop after this many consecutive rounds without
-            V improving. ``None`` = off.
+            V improving. ``None`` = off. ``"auto"`` derives it from the pool and
+            subset size at run time -- see :func:`resolve_no_improvement_rounds`
+            -- which is what lets one config serve a whole L sweep.
         stop_on_perfect_fit: Stop when V(M_best) == 0.
         max_rounds: Hard cap on rounds. ``None`` = off.
         stop_on_fixpoint: Stop when every admissible ``(subset, M_best)`` pair
@@ -180,7 +182,7 @@ class StopRules:
     """
 
     budget_seconds: Optional[int] = None
-    no_improvement_rounds: Optional[int] = 5
+    no_improvement_rounds: Optional[Union[int, str]] = 5
     stop_on_perfect_fit: bool = True
     max_rounds: Optional[int] = None
     stop_on_fixpoint: bool = True
@@ -203,8 +205,8 @@ class StopRules:
             )
         return cls(
             budget_seconds=_parse_optional_int(raw.get("budget_seconds"), "stop.budget_seconds"),
-            no_improvement_rounds=_parse_optional_int(
-                raw.get("no_improvement_rounds", 5), "stop.no_improvement_rounds"
+            no_improvement_rounds=_parse_patience(
+                raw.get("no_improvement_rounds", 5)
             ),
             stop_on_perfect_fit=_parse_bool(
                 raw.get("stop_on_perfect_fit", True), "stop.stop_on_perfect_fit"
@@ -261,6 +263,18 @@ class EvalWeights:
             "eval_effect_mismatch_weight": self.effect_mismatch_weight,
             "eval_inapplicability_weight": self.inapplicability_weight,
         }
+
+
+def _parse_patience(value: Any) -> Optional[Union[int, str]]:
+    """Patience: a non-negative int, ``None`` (off), or the string ``"auto"``.
+
+    ``"auto"`` is resolved per cell from the pool and subset size by
+    :func:`~src.plan_denoising.milp_denoiser.loop.resolve_no_improvement_rounds`,
+    which is what lets one config serve a whole L sweep.
+    """
+    if isinstance(value, str) and value.strip().lower() == "auto":
+        return "auto"
+    return _parse_optional_int(value, "stop.no_improvement_rounds")
 
 
 def _parse_optional_int(value: Any, key: str) -> Optional[int]:

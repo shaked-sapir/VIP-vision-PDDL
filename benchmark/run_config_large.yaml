@@ -9,8 +9,9 @@
 #   python -m benchmark.benchmark_runner --config benchmark/run_config_large.yaml
 #   python -m benchmark.benchmark_runner --config benchmark/run_config_large.yaml --dry-run
 #
-# ONE L PER RUN. `num_trajectories` and `stop.no_improvement_rounds` must be
-# changed together — the patience schedule is a function of L:
+# ONE CONFIG, WHOLE SWEEP. `stop.no_improvement_rounds: auto` derives the
+# patience per cell from that cell's pool and subset size, so `num_trajectories`
+# can be a list. The schedule it produces:
 #
 #   L      C(L,4)          patience = ceil(7 * ln C(L,4))
 #   10     210             38
@@ -24,7 +25,7 @@
 # The fit rests on four points at N <= 8; the pilot gate (plan section 6) is
 # where it gets tested at scale.
 
-run_name: large-corpora__L=500__pilot     # names the output experiments + the manifest dir
+run_name: large-corpora__blocksworld__L-sweep   # names the output experiments + the manifest dir
 source: simulated                         # symbolic only — the imaged arms are out of scope for this task
 
 shared:
@@ -34,8 +35,10 @@ shared:
                                           # every result under simulation-final-run* used) draws an independent 80/20
                                           # split per fold, so test sets overlap ~100/500 pairwise and the across-fold
                                           # std understates the true variance. Rows from the two schemes are NOT comparable.
-  num_trajectories: [500]                 # training-set size drawn from the 2000-problem train pool (nested: each size
-                                          # is a prefix of the next). ONE L per run — keep in sync with the patience below.
+  num_trajectories: [10, 50, 100, 500, 2000]   # the L sweep. Training-set size drawn from the fold's
+                                          # 2000-problem train pool; each size is a prefix of the next
+                                          # (nested sampling). 2000 is the whole pool -- the guard in
+                                          # run_fold rejects anything larger.
   gt_rates: [0]
   learning_timeout_seconds: 3600          # 1 h ceiling per cell. Also caps the loop: stop.budget_seconds inherits it.
                                           # With patience set, this should become the RARE stop reason, not the usual one.
@@ -69,7 +72,10 @@ shared:
     seed: 42
     stop:
       budget_seconds:                     # blank = inherit learning_timeout_seconds (1 h)
-      no_improvement_rounds: 152          # L=500. See the schedule at the top of this file.
+      no_improvement_rounds: auto         # auto | <int> | blank(off). `auto` = ceil(7*ln C(L,4)),
+                                          # resolved per cell from the actual pool size, so the L sweep
+                                          # needs no per-L config. Yields 38/87/107/152/191 for
+                                          # L=10/50/100/500/2000.
                                           # At large L, C(L,4) makes `fixpoint` unreachable, so this is the only
                                           # convergence rule left — budget_seconds is a timeout, not convergence.
       stop_on_perfect_fit: true

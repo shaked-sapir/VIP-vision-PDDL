@@ -43,7 +43,7 @@ import json
 import math
 import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
@@ -435,6 +435,44 @@ def _per_trace_scores(
 # ---------------------------------------------------------------- stop rules
 
 
+#: Coefficient of the patience schedule. Fitted against the p99 improvement gap
+#: measured on the small-data folds (N=5..8), where the required value was
+#: 5.5-6.8 and drifting up with N; 7 sits above every observed requirement.
+#: The fit rests on four points at N<=8 -- see
+#: docs/large-corpora-experiments-plan.md section 3.
+PATIENCE_COEFFICIENT = 7
+
+
+def resolve_no_improvement_rounds(
+    setting, n_traces: int, subset_size: int
+) -> Optional[int]:
+    """Patience in rounds: ``ceil(7 * ln C(n_traces, subset_size))`` for ``"auto"``.
+
+    The subset space grows with the pool, so a patience that is right at 8
+    traces is far too short at 2000. ``"auto"`` scales it with the space instead
+    of pinning a constant per L, which is what lets one config serve a sweep.
+
+    Args:
+        setting: ``None`` (off), an int (used as-is), or ``"auto"``.
+        n_traces: Size of the sampling pool.
+        subset_size: Traces per subset.
+
+    Returns:
+        Rounds without improvement before stopping, or ``None`` when off.
+
+    Raises:
+        ValueError: on a string other than ``"auto"``.
+    """
+    if setting is None or isinstance(setting, int):
+        return setting
+    if str(setting).strip().lower() != "auto":
+        raise ValueError(
+            f"no_improvement_rounds must be an int, None or 'auto'; got {setting!r}"
+        )
+    total = math.comb(max(n_traces, subset_size), subset_size)
+    return max(1, math.ceil(PATIENCE_COEFFICIENT * math.log(max(total, 2))))
+
+
 def _stop_reason(
     stop_rules,
     rounds: Sequence[RoundLog],
@@ -596,6 +634,12 @@ def run_loop(
 
     subset_size = config.subset_size.resolve(len(pool))
     total_subsets = math.comb(len(pool), subset_size)
+    stop_rules = replace(
+        stop_rules,
+        no_improvement_rounds=resolve_no_improvement_rounds(
+            stop_rules.no_improvement_rounds, len(pool), subset_size
+        ),
+    )
 
     # A rerun into the same fold dir must not append onto the previous run's
     # rows: the stream is a record of THIS loop, not of every loop that ever
@@ -623,6 +667,7 @@ def run_loop(
         "subset_size": subset_size,
         "n_possible_subsets": total_subsets,
         "loop_budget_seconds": loop_budget,
+        "no_improvement_rounds": stop_rules.no_improvement_rounds,
         "solve_time_limit_seconds": solve_limit,
     })
 

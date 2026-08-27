@@ -60,6 +60,7 @@ from src.plan_denoising.milp_denoiser.loop import (
     _subset_gt,
     model_hash,
     ROUND_STREAM_NAME,
+    resolve_no_improvement_rounds,
     append_round_stream,
     save_round_log,
     save_round_model,
@@ -506,6 +507,22 @@ class TestReporting(unittest.TestCase):
     def test_round_rows_are_json_serialisable(self) -> None:
         rows = [r.as_dict() for r in self._result().rounds]
         self.assertEqual(json.loads(json.dumps(rows))[0]["subset"], [0, 1])
+
+    def test_auto_patience_scales_with_the_subset_space(self) -> None:
+        """One config must serve the whole L sweep."""
+        expected = {10: 38, 50: 87, 100: 107, 500: 152, 2000: 191}
+        for n_traces, rounds in expected.items():
+            self.assertEqual(
+                resolve_no_improvement_rounds("auto", n_traces, 4), rounds
+            )
+
+    def test_auto_patience_passes_explicit_settings_through(self) -> None:
+        self.assertEqual(resolve_no_improvement_rounds(152, 500, 4), 152)
+        self.assertIsNone(resolve_no_improvement_rounds(None, 500, 4))
+
+    def test_auto_patience_rejects_other_strings(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_no_improvement_rounds("sometimes", 500, 4)
 
     def test_round_stream_appends_one_row_per_round(self) -> None:
         """The live stream carries the same rows the end-of-run file does."""

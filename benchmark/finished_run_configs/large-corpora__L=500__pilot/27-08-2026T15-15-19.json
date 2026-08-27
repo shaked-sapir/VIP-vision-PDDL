@@ -1,0 +1,94 @@
+{
+  "run_name": "large-corpora__L=500__pilot",
+  "source": "simulated",
+  "generated_at": "27-08-2026T15-15-19",
+  "run_status": "ok",
+  "selected_domains": "all",
+  "shared": {
+    "n_folds": 5,
+    "cv_scheme": "kfold",
+    "num_trajectories": [
+      500
+    ],
+    "gt_rates": [
+      0
+    ],
+    "learning_timeout_seconds": 3600,
+    "planning_timeout_seconds": 60,
+    "search_mode": "dfs",
+    "node_choosing_strategy": "model_patch_first",
+    "model_constraint_weight": 0.0,
+    "conflict_group_strategy": "largest",
+    "fluent_branch_mode": "single",
+    "events_tracing": false,
+    "normalize": false,
+    "resume": true,
+    "algorithms": [
+      "pisam_milp_loop",
+      "rosame_milp_24",
+      "rosame_24"
+    ],
+    "snapshot_interval": 1,
+    "pisam_milp": {
+      "eq16": false,
+      "lambda_pre": 0.4,
+      "gt_anchoring": "init_only",
+      "solver": "cpsat",
+      "time_limit_seconds": null,
+      "sampler": "random",
+      "subset_size": 4,
+      "learner_input": "subset_only",
+      "pool_policy": "frozen",
+      "co_sample_conflicts": false,
+      "w_prior": "tiebreak",
+      "seed": 42,
+      "stop": {
+        "budget_seconds": null,
+        "no_improvement_rounds": 152,
+        "stop_on_perfect_fit": true,
+        "max_rounds": null,
+        "stop_on_fixpoint": true
+      },
+      "eval": {
+        "effect_mismatch_weight": 1.0,
+        "inapplicability_weight": 1.0
+      },
+      "ablations": {
+        "gt_anchoring": [
+          "init_only",
+          "none"
+        ]
+      }
+    }
+  },
+  "simulation": {
+    "masking_strategy": "percentage",
+    "noising_strategy": "percentage",
+    "seed": 42,
+    "grid": {
+      "masking_ps": [
+        0.1
+      ],
+      "noising_ps": [
+        0.1
+      ]
+    }
+  },
+  "num_cells": 1,
+  "by_domain": {
+    "blocksworld": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/large-corpora__L=500__pilot__mask=0.1__noise=0.1"
+    ]
+  },
+  "cells": [
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "large-corpora__L=500__pilot__mask=0.1__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/large-corpora__L=500__pilot__mask=0.1__noise=0.1",
+      "masking_p": 0.1,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    }
+  ]
+}
