@@ -53,6 +53,16 @@ class TestMonteCarlo:
         assert any(tests[i] & tests[j] for i in range(K) for j in range(i + 1, K))
 
 
+class TestTrainingPoolGuard:
+    """A training size larger than the pool must fail, not silently shrink."""
+
+    def test_the_pool_size_follows_the_corpus(self):
+        """What the guard compares against, for the sizes we run."""
+        for corpus, expected_train in ((1000, 800), (2500, 2000), (743, 594)):
+            train, _ = cv_split(corpus, 0, n_folds=5, scheme="kfold")
+            assert len(train) == expected_train
+
+
 def test_rejects_unknown_scheme():
     with pytest.raises(ValueError, match="unknown cv_scheme"):
         cv_split(N, 0, n_folds=K, scheme="stratified")

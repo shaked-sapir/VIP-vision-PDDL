@@ -27,10 +27,12 @@ Usage:
 """
 
 import json
+import math
+import os
 import logging
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Optional
 
 from src.trace_generation.sources import (
     ground_actions_of,
@@ -45,6 +47,15 @@ _DEFAULT_TRAJ_LEN_MIN = 5
 _DEFAULT_TRAJ_LEN_MAX = 30
 _DEFAULT_P_RND = 0.2
 _DEFAULT_NUM_TRAJECTORIES_PER_PROBLEM = 50
+#: Walks per FOLD, split across its test problems -- upstream AMLGym's
+#: ``TRAJ_PER_DOMAIN``. A per-problem rate multiplies with the test-split size;
+#: at 500 test problems the old 50-per-problem rate meant 25,000 walks.
+_DEFAULT_TRAJECTORIES_PER_FOLD = 100
+#: Consecutive same-length rejected walks after which a problem is abandoned.
+#: The planner is deterministic on a fixed problem and only ``p_rnd`` of steps
+#: are random, so a problem whose walk repeats its length is plan-bound: more
+#: attempts cannot lengthen it.
+_ABANDON_AFTER_REPEATS = 2
 _DEFAULT_MAX_PLANNING_TIME = 120       # seconds
 _DEFAULT_MAX_REPLANNING_TIME = 60      # seconds, for the post-random-action check
 _DEFAULT_MAX_RANDOM_TRIALS = 3         # re-samples when a random action blocks the goal
@@ -125,6 +136,8 @@ def _collect_problem_states(
     trajectories_generated = 0
     attempts = 0
     max_attempts = num_trajectories * 3  # allow retries for short trajectories
+    last_rejected_length = None
+    repeats = 0
 
     while trajectories_generated < num_trajectories and attempts < max_attempts:
         attempts += 1
@@ -142,11 +155,22 @@ def _collect_problem_states(
             continue
 
         if len(states) < traj_len_min:
+            repeats = repeats + 1 if len(states) == last_rejected_length else 0
+            last_rejected_length = len(states)
+            if repeats >= _ABANDON_AFTER_REPEATS:
+                logger.debug(
+                    f"Trajectory length {len(states)} repeated "
+                    f"{repeats + 1}x and stays under {traj_len_min}; the walk is "
+                    f"plan-bound, abandoning this problem."
+                )
+                break
             logger.debug(
                 f"Trajectory too short ({len(states)} < {traj_len_min}), retrying."
             )
             continue
 
+        last_rejected_length = None
+        repeats = 0
         trajectories_generated += 1
 
         for state in states:
@@ -167,7 +191,8 @@ def generate_predictive_power_test_states(
     domain_ref_path: Path,
     test_problem_paths: List[str],
     output_dir: Path,
-    num_trajectories_per_problem: int = _DEFAULT_NUM_TRAJECTORIES_PER_PROBLEM,
+    num_trajectories_per_problem: Optional[int] = None,
+    trajectories_per_fold: int = _DEFAULT_TRAJECTORIES_PER_FOLD,
     p_rnd: float = _DEFAULT_P_RND,
     traj_len_min: int = _DEFAULT_TRAJ_LEN_MIN,
     traj_len_max: int = _DEFAULT_TRAJ_LEN_MAX,
@@ -185,7 +210,12 @@ def generate_predictive_power_test_states(
         domain_ref_path: Path to the reference (ground truth) domain PDDL file.
         test_problem_paths: List of paths to PDDL test problem files.
         output_dir: Directory to save the generated test_states.json.
-        num_trajectories_per_problem: Number of trajectories to generate per test problem.
+        num_trajectories_per_problem: Walks per test problem. ``None`` (the
+            default) derives it from ``trajectories_per_fold``; pass an int to
+            pin the per-problem rate instead.
+        trajectories_per_fold: Walk budget for the whole fold, split evenly
+            across its test problems. Ignored when
+            ``num_trajectories_per_problem`` is given.
         p_rnd: Probability of executing a random action instead of the planned one.
         traj_len_min: Minimum trajectory length (retries if shorter).
         traj_len_max: Maximum trajectory length.
@@ -203,6 +233,16 @@ def generate_predictive_power_test_states(
     if output_path.exists():
         logger.info(f"S_test already exists at {output_path}, skipping generation.")
         return output_path
+
+    if num_trajectories_per_problem is None:
+        num_trajectories_per_problem = max(
+            1, math.ceil(trajectories_per_fold / max(1, len(test_problem_paths)))
+        )
+        logger.info(
+            f"S_test budget: {trajectories_per_fold} walks over "
+            f"{len(test_problem_paths)} problems -> "
+            f"{num_trajectories_per_problem} per problem"
+        )
 
     rng = random.Random(seed)
     domain_str = str(domain_ref_path)
@@ -226,9 +266,13 @@ def generate_predictive_power_test_states(
             f"from up to {num_trajectories_per_problem} trajectories"
         )
 
-    # Save
-    with open(output_path, "w") as f:
+    # Written via a temp file and renamed: the cache guard above is a
+    # check-then-write, and this dir is now shared by every training size of the
+    # fold, so a reader must never observe a half-written file.
+    tmp_path = output_path.with_suffix(f".tmp{os.getpid()}")
+    with open(tmp_path, "w") as f:
         json.dump(all_test_states, f, indent=2)
+    os.replace(tmp_path, output_path)
 
     total_states = sum(len(v) for v in all_test_states.values())
     logger.info(f"S_test saved to {output_path} ({total_states} total states)")

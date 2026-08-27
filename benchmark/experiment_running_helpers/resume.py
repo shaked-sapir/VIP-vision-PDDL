@@ -40,6 +40,18 @@ def fold_instance_dir(testing_dir: Path, fold: int, num_trajs: int, gt_rate: int
     return testing_dir / f"fold{fold}_numtrajs{num_trajs}_gtrate{gt_rate}"
 
 
+def fold_shared_dir(testing_dir: Path, fold: int, gt_rate: int) -> Path:
+    """Directory for artifacts a fold shares across every ``num_trajectories``.
+
+    S_test lives here rather than under a ``numtrajs`` instance: the test split
+    is drawn by ``cv_split(n_problems, fold, ...)``, which never sees
+    ``num_trajectories``, so every training size in one fold is scored on the
+    identical held-out problems. Writing it per instance recomputed the same
+    states once per training size.
+    """
+    return testing_dir / f"fold{fold}_gtrate{gt_rate}_shared"
+
+
 def save_fold_result(fold_dir: Path, rows: List[dict]) -> None:
     """Persist a completed fold's result rows as its completion marker."""
     with open(fold_dir / FOLD_RESULT_FILENAME, "w") as f:

@@ -32,7 +32,11 @@ from benchmark.experiment_running_helpers.learning_helpers import (
     learn_pisam_milp_single_round,
 )
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
-from benchmark.experiment_running_helpers.resume import fold_instance_dir, save_fold_result
+from benchmark.experiment_running_helpers.resume import (
+    fold_instance_dir,
+    fold_shared_dir,
+    save_fold_result,
+)
 from benchmark.experiment_running_helpers.evaluation import save_learning_metrics
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt
 from benchmark.experiment_running_helpers.trajectory_utils import (
@@ -539,6 +543,17 @@ def run_single_fold(
         train_problem_dirs = [problem_dirs[i] for i in train_idx]
         test_problem_dirs = [problem_dirs[i] for i in test_idx]
 
+        # Both the sampler and prepare_fold_trajectories cap silently -- a
+        # prefix longer than the pool is the whole pool -- so without this the
+        # row is labelled with a training size it never had.
+        if num_trajectories > len(train_problem_dirs):
+            raise ValueError(
+                f"num_trajectories={num_trajectories} exceeds fold {fold}'s "
+                f"training pool of {len(train_problem_dirs)} problems "
+                f"(corpus={n_problems}, n_folds={n_folds}). Lower "
+                f"num_trajectories or generate a larger corpus."
+            )
+
         random.seed(trajectory_seed if trajectory_seed is not None else 42 + fold)
         if trajectory_seed is not None:
             selected_pool = random.sample(
@@ -584,12 +599,15 @@ def run_single_fold(
         # Generate S_test (predictive power test states)
         # ==================================================
         print(f"  [S_TEST] Generating predictive power test states...")
-        test_states_dir = fold_work_dir / "predictive_power_test_states"
+        # Shared across this fold's training sizes -- see fold_shared_dir.
+        test_states_dir = (
+            fold_shared_dir(testing_dir, fold, gt_rate)
+            / "predictive_power_test_states"
+        )
         test_states_path = generate_predictive_power_test_states(
             domain_ref_path=domain_ref_path,
             test_problem_paths=test_problem_paths,
             output_dir=test_states_dir,
-            num_trajectories_per_problem=50,
             seed=42 + fold,
         )
         test_states_path_str = str(test_states_path)
