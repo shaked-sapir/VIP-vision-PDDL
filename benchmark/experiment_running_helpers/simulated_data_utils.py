@@ -9,7 +9,11 @@ is identical for both data sources.
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
+from pddl_plus_parser.lisp_parsers import (
+    DomainParser,
+    ProblemParser,
+    TrajectoryParser,
+)
 from pddl_plus_parser.models import Observation
 
 from benchmark.simulated_version.noise_injection import create_bounded_noisy_observation
@@ -40,9 +44,35 @@ def _noising_kwargs(strategy: NoisingType, p: float) -> dict:
 # GT observation loading
 # ---------------------------------------------------------------------------
 
-def load_gt_observation(trajectory_path: Path, domain) -> Observation:
-    """Parse a trajectory file and ground it completely — no masking applied."""
-    observation = TrajectoryParser(partial_domain=domain).parse_trajectory(trajectory_path)
+def load_gt_observation(
+    trajectory_path: Path, domain, problem_path: Optional[Path] = None
+) -> Observation:
+    """Parse a trajectory file and ground it completely — no masking applied.
+
+    Args:
+        trajectory_path: The ``.trajectory`` to parse.
+        domain: Parsed (partial) domain.
+        problem_path: The window's problem file. Without it the parser can only
+            infer objects from the trajectory text, which lists positive fluents
+            only — so an object that goes unmentioned for a whole window is
+            absent from the object table, and grounding then raises ``KeyError``
+            on it. Measured on gripper: 44 of 800 windows never mention one of
+            the two rooms, because the robot stayed in the other one.
+
+    Returns:
+        The fully grounded observation.
+    """
+    if problem_path is not None and Path(problem_path).exists():
+        problem = ProblemParser(
+            problem_path=Path(problem_path), domain=domain
+        ).parse_problem()
+        observation = TrajectoryParser(
+            partial_domain=domain, problem=problem
+        ).parse_trajectory(trajectory_path)
+    else:
+        observation = TrajectoryParser(partial_domain=domain).parse_trajectory(
+            trajectory_path
+        )
     return ground_observation_completely(domain, observation)
 
 
@@ -89,6 +119,7 @@ def prepare_simulated_observations(
     noising_strategy: NoisingType = NoisingType.PERCENTAGE,
     noising_p: float = 0.15,
     seed: int = 42,
+    problem_paths: Optional[List[Path]] = None,
 ) -> Tuple[List[Observation], Dict[int, Set[int]]]:
     """Load GT trajectories and inject synthetic masking + noise.
 
@@ -104,6 +135,10 @@ def prepare_simulated_observations(
         noising_strategy: Which noising strategy to use.
         noising_p: The probability / ratio parameter for the noising strategy.
         seed: Random seed passed to both masker and noiser.
+        problem_paths: The problem file for each trajectory, positionally
+            aligned with ``gt_trajectory_paths``. Supplies the declared object
+            table; see :func:`load_gt_observation` for what goes wrong without
+            it. ``None`` falls back to inferring objects from the trajectory.
 
     Returns:
         A two-tuple:
@@ -134,7 +169,10 @@ def prepare_simulated_observations(
           f"noising={noising_strategy.value}, p={noising_p:.0%}) ===")
 
     for obs_idx, traj_path in enumerate(gt_trajectory_paths):
-        gt_obs = load_gt_observation(traj_path, domain)
+        gt_obs = load_gt_observation(
+            traj_path, domain,
+            problem_paths[obs_idx] if problem_paths else None,
+        )
         noisy_obs, _masking_info, flips = create_bounded_noisy_observation(
             gt_obs, masker, noiser, obs_idx=obs_idx,
         )

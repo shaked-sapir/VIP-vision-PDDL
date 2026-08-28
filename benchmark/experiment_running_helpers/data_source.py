@@ -206,9 +206,12 @@ class SimulatedDataSource(DataSource):
             f"  [SIMULATED] Loading {len(selected_gt)} GT trajectories "
             f"({', '.join(p.parent.name for p in selected_gt)}) + injecting noise..."
         )
+        # selected_dirs is positionally aligned with selected_gt, so each
+        # trajectory is paired with the problem that declares its objects.
         observations, gt_source_indices = prepare_simulated_observations(
             domain_path=self._domain_ref_path,
             gt_trajectory_paths=selected_gt,
+            problem_paths=[d / f"{d.name}.pddl" for d in selected_dirs],
             masking_strategy=self._masking_strategy,
             masking_p=self._masking_p,
             noising_strategy=self._noising_strategy,
