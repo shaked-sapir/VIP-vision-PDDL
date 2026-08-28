@@ -25,11 +25,12 @@
 #     L=10/50/100). The two ROSAME arms scale linearly at ~0.72 s/trajectory, so
 #     L=2000 projects to ~24 min/arm; a 5th arm and the 5-L total put a fold near
 #     2.5 h. Folds run in parallel, so the cell is bounded by its slowest fold.
-#   --mem 32G  the five L=2000 fold workers held ~1 GB combined when measured, so
-#     this is ~30x headroom rather than a fitted number -- exhausting RAM is what
-#     killed the local run, and a cell that swaps makes its own timing worthless.
-#     Not more: a couple of cpu256 nodes sit near 65 GB free, so a larger ask
-#     pends on memory while cores stand idle.
+#   --mem 64G  32G was tried and three cells died OUT_OF_MEMORY: one L=2000 worker
+#     measured 11.24 GB against siblings at 1.66 GB, because the rosame_milp_*
+#     arms encoded the whole fold. mip_traces=4 caps that now, so the peak should
+#     fall far below either figure -- but an OOM costs hours of work and a
+#     too-large ask only costs queue time, so this stays generous until the
+#     per-L monitoring says what the capped arms actually need.
 #   --cpus-per-task 12  SLURM counts logical CPUs and ThreadsPerCore=2 here, so
 #     12 => 6 physical cores for the 5 fold processes plus the parent.
 #   --constraint cpu256  pins the AMD EPYC 7763 nodes: the unconstrained pool
@@ -42,7 +43,7 @@
 #SBATCH --cpus-per-task 12
 #SBATCH --constraint cpu256
 #SBATCH --gpus=0
-#SBATCH --mem 32G
+#SBATCH --mem 64G
 
 set -euo pipefail
 shopt -s failglob   # an empty GT glob must fail loudly, not fall back to images
@@ -76,6 +77,32 @@ if [ ! -d "$DATA_DIR/gt_trajectories" ]; then
 fi
 echo "corpus_problems=$(ls "$DATA_DIR/gt_trajectories" | wc -l)"
 
+# ---------------------------------------------------------------- monitoring
+# Per-L memory is the number that decided this sweep's --mem twice, so it is
+# recorded rather than reconstructed. Two views, because they answer different
+# questions: the cgroup total is what the OOM killer acts on, and the per-worker
+# RSS is what shows ONE fold ballooning while its siblings stay flat -- which is
+# how the uncapped rosame_milp_* arm was found (11.24 GB against 1.66 GB).
+CGROUP_REL="$(awk -F: '{print $3}' /proc/self/cgroup | head -1)"
+CGROUP="/sys/fs/cgroup${CGROUP_REL%/step_*}"
+MEMLOG="logs/mem-${SLURM_JOB_NAME:-vip}-${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID:-0}.tsv"
+printf 'iso_time\telapsed_s\tcgroup_current_mb\tcgroup_peak_mb\tn_workers\tworker_rss_mb_csv\n' > "$MEMLOG"
+MON_START=$(date +%s)
+( while true; do
+    cur=$(cat "$CGROUP/memory.current" 2>/dev/null || echo 0)
+    pk=$(cat "$CGROUP/memory.peak" 2>/dev/null || echo 0)
+    # every python process in this job's cgroup, largest first
+    rss=$(ps -eo pid,rss,args --no-headers 2>/dev/null \
+          | awk '$3 ~ /python/ {print $2}' | sort -rn | head -8 | paste -sd, -)
+    n=$(printf '%s' "$rss" | awk -F, '{print NF}')
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -Iseconds)" "$(( $(date +%s) - MON_START ))" \
+        "$(( cur / 1048576 ))" "$(( pk / 1048576 ))" "${n:-0}" "${rss:-}" >> "$MEMLOG"
+    sleep 20
+  done ) &
+MONITOR_PID=$!
+trap 'kill $MONITOR_PID 2>/dev/null || true' EXIT
+echo "memory log: $MEMLOG (20s interval)"
+
 module load anaconda
 source activate "${VIP_ENV:-vip_venv11}"
 
@@ -92,3 +119,12 @@ python -m benchmark.benchmark_runner \
     --domains "$DOMAIN" \
     --only-mask "$P_MASK" \
     --only-noise "$P_NOISE"
+
+kill $MONITOR_PID 2>/dev/null || true
+echo "==================== MEMORY SUMMARY ===================="
+echo "cell: domain=$DOMAIN mask=$P_MASK noise=$P_NOISE"
+echo "cgroup_peak_mb=$(( $(cat "$CGROUP/memory.peak" 2>/dev/null || echo 0) / 1048576 )) of ${SLURM_MEM_PER_NODE:-?}MB"
+awk -F'\t' 'NR>1 && $4+0>m {m=$4+0} END {printf "  sampled peak: %d MB\n", m}' "$MEMLOG"
+awk -F'\t' 'NR>1 {n++; s+=$3} END {if(n) printf "  mean current: %d MB over %d samples\n", s/n, n}' "$MEMLOG"
+echo "  per-L timings are in the run log above; per-sample detail in $MEMLOG"
+echo "========================================================"
