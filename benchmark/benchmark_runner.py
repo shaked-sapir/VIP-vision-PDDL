@@ -307,7 +307,7 @@ _PASSTHROUGH_KEYS = {
 # Shared-config keys forwarded to the BASELINE RUNNERS rather than to main().
 # `_instantiate` drops any a runner's __init__ does not accept, so listing one
 # here does not force every runner to take it.
-_RUNNER_KWARG_KEYS = {"snapshot_interval", "train_per_trajectory"}
+_RUNNER_KWARG_KEYS = {"snapshot_interval", "train_per_trajectory", "mip_traces"}
 
 
 def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
