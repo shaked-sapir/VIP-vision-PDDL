@@ -25,7 +25,7 @@
 # The fit rests on four points at N <= 8; the pilot gate (plan section 6) is
 # where it gets tested at scale.
 
-run_name: large-corpora__blocksworld__L-sweep   # names the output experiments + the manifest dir
+run_name: large-corpora__L-sweep          # names the output experiments + the manifest dir
 source: simulated                         # symbolic only — the imaged arms are out of scope for this task
 
 shared:
@@ -102,10 +102,7 @@ simulation:
 # One domain for the pilot. Uncomment the rest after the plan's section 6 gate.
 domains:
   - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/large_corpus_L500_n2500"}
-  # Uncomment each domain once its corpus exists locally (generated with
-  # data_generator --gen-mode trace). The sbatch fails fast if gt_trajectories/
-  # is missing, so an unfilled path cannot silently run on nothing.
-  # - {domain_key: hanoi,   data_dir: "benchmark/data/hanoi/large_corpus_n2500"}
-  # - {domain_key: npuzzle, data_dir: "benchmark/data/npuzzle/large_corpus_n2500"}
-  # - {domain_key: depot,   data_dir: "benchmark/data/depot/large_corpus_n2500"}
-  # - {domain_key: gripper, data_dir: "benchmark/data/gripper/large_corpus_n2500"}
+  - {domain_key: hanoi,       data_dir: "benchmark/data/hanoi/large_corpus_n2500"}
+  - {domain_key: npuzzle,     data_dir: "benchmark/data/npuzzle/large_corpus_n2500"}
+  - {domain_key: depot,       data_dir: "benchmark/data/depot/large_corpus_n2500"}
+  - {domain_key: gripper,     data_dir: "benchmark/data/gripper/large_corpus_n2500"}
