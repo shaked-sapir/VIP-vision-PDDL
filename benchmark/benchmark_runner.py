@@ -178,7 +178,34 @@ def _filter_domains(domains: List[dict], selected: Optional[List[str]]) -> List[
     return [d for d in domains if d["domain_key"] in selected_set]
 
 
-def _expand_cells(config: dict, selected_domains: Optional[List[str]] = None) -> List[dict]:
+def _filter_grid_points(
+    values: List[float], selected: Optional[List[float]], axis: str
+) -> List[float]:
+    """``values`` narrowed to ``selected``, comparing numerically.
+
+    The CSV a job scheduler hands back carries "0.01", the config holds 0.01;
+    comparing as floats is what lets one manifest row name one grid point.
+
+    Raises:
+        ValueError: if a requested value is not in the config's grid, so a typo
+            fails at submit time rather than silently running the whole sweep.
+    """
+    if selected is None:
+        return values
+    missing = [s for s in selected if not any(abs(s - v) < 1e-9 for v in values)]
+    if missing:
+        raise ValueError(
+            f"--only-{axis} {missing} not in the config's {axis}ing_ps {values}"
+        )
+    return [v for v in values if any(abs(s - v) < 1e-9 for s in selected)]
+
+
+def _expand_cells(
+    config: dict,
+    selected_domains: Optional[List[str]] = None,
+    selected_masks: Optional[List[float]] = None,
+    selected_noises: Optional[List[float]] = None,
+) -> List[dict]:
     """Build the list of (domain × config) cells from the run config.
 
     Each cell is a dict with keys: domain_key, data_dir, masking_p, noising_p.
@@ -207,6 +234,8 @@ def _expand_cells(config: dict, selected_domains: Optional[List[str]] = None) ->
     noising_ps = grid.get("noising_ps")
     if not masking_ps or not noising_ps:
         raise ValueError("simulation.grid must define non-empty masking_ps and noising_ps.")
+    masking_ps = _filter_grid_points(masking_ps, selected_masks, "mask")
+    noising_ps = _filter_grid_points(noising_ps, selected_noises, "nois")
 
     cells = []
     for d, mp, np_ in product(domains, masking_ps, noising_ps):
@@ -491,6 +520,8 @@ def _generate_cell_reports(result_dir: Path) -> None:
 
 def execute_run(
     run_config: dict, dry_run: bool = False, selected_domains: Optional[List[str]] = None,
+    selected_masks: Optional[List[float]] = None,
+    selected_noises: Optional[List[float]] = None,
 ) -> List[CellResult]:
     """Run a benchmark configuration as a batch of experiments — one per cell.
 
@@ -506,6 +537,10 @@ def execute_run(
             without executing anything.
         selected_domains: Optional subset of domain_keys to run. None → all
             domains defined in the config.
+        selected_masks: Optional subset of ``simulation.grid.masking_ps``. None
+            → the whole axis. Narrowing all three selectors to one value each is
+            how a scheduler runs a single cell per job off one shared config.
+        selected_noises: Optional subset of ``simulation.grid.noising_ps``.
 
     Returns:
         One CellResult per executed cell (empty on a dry run).
@@ -517,7 +552,9 @@ def execute_run(
     shared = run_config.get("shared") or {}
     simulation_config = run_config.get("simulation") or {}
 
-    experiment_cells = _expand_cells(run_config, selected_domains)
+    experiment_cells = _expand_cells(
+        run_config, selected_domains, selected_masks, selected_noises
+    )
     domains_label = "all domains" if not selected_domains else f"domains={selected_domains}"
     print(f"Run '{run_name}' (source={source}, {domains_label}): {len(experiment_cells)} cell(s)")
 
@@ -600,6 +637,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true",
                         help="Print all configurations (domain × params) that would run, "
                              "without executing them.")
+    parser.add_argument("--only-mask", nargs="*", type=float, default=None,
+                        metavar="P", help="Run only these masking_ps values "
+                        "(default: the whole axis). One value per job is how a "
+                        "SLURM array runs a single cell off a shared config.")
+    parser.add_argument("--only-noise", nargs="*", type=float, default=None,
+                        metavar="P", help="Run only these noising_ps values "
+                        "(default: the whole axis).")
     parser.add_argument("--domains", nargs="*", default=None, metavar="DOMAIN_KEY",
                         help="Subset of domain_keys to run (space-separated). "
                              "Omit to run all domains in the config.")
@@ -609,7 +653,10 @@ def _parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = _parse_args()
     config = _load_config(args.config)
-    results = execute_run(config, dry_run=args.dry_run, selected_domains=args.domains)
+    results = execute_run(
+        config, dry_run=args.dry_run, selected_domains=args.domains,
+        selected_masks=args.only_mask, selected_noises=args.only_noise,
+    )
 
     if results and any(r.status != "ok" for r in results):
         sys.exit(1)

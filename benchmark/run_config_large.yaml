@@ -51,7 +51,9 @@ shared:
   events_tracing: false                   # HEAVY — leave off at this scale
   normalize: false
   resume: true                            # long runs; skip folds already complete
-  algorithms: [pisam_milp_loop, rosame_milp_24, rosame_24]
+  algorithms: [pisam_milp_loop, rosame_24, rosame_milp_24, rosame_milp_24_tag]
+                                          # 5 arms in total: pisam_milp_loop expands to two via the
+                                          # gt_anchoring ablation below (init_only + none).
 
   pisam_milp:
     eq16: off
@@ -100,7 +102,10 @@ simulation:
 # One domain for the pilot. Uncomment the rest after the plan's section 6 gate.
 domains:
   - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/large_corpus_L500_n2500"}
-  # - {domain_key: hanoi,       data_dir: "TODO"}
-  # - {domain_key: npuzzle,     data_dir: "TODO"}
-  # - {domain_key: depot,       data_dir: "TODO"}
-  # - {domain_key: gripper,     data_dir: "TODO"}
+  # Uncomment each domain once its corpus exists locally (generated with
+  # data_generator --gen-mode trace). The sbatch fails fast if gt_trajectories/
+  # is missing, so an unfilled path cannot silently run on nothing.
+  # - {domain_key: hanoi,   data_dir: "benchmark/data/hanoi/large_corpus_n2500"}
+  # - {domain_key: npuzzle, data_dir: "benchmark/data/npuzzle/large_corpus_n2500"}
+  # - {domain_key: depot,   data_dir: "benchmark/data/depot/large_corpus_n2500"}
+  # - {domain_key: gripper, data_dir: "benchmark/data/gripper/large_corpus_n2500"}
