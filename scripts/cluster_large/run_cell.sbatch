@@ -25,9 +25,11 @@
 #     L=10/50/100). The two ROSAME arms scale linearly at ~0.72 s/trajectory, so
 #     L=2000 projects to ~24 min/arm; a 5th arm and the 5-L total put a fold near
 #     2.5 h. Folds run in parallel, so the cell is bounded by its slowest fold.
-#   --mem 64G  the five L=2000 fold workers held ~1 GB combined when measured, so
-#     this is deliberate headroom, not a fitted number: exhausting RAM is what
+#   --mem 32G  the five L=2000 fold workers held ~1 GB combined when measured, so
+#     this is ~30x headroom rather than a fitted number -- exhausting RAM is what
 #     killed the local run, and a cell that swaps makes its own timing worthless.
+#     Not more: a couple of cpu256 nodes sit near 65 GB free, so a larger ask
+#     pends on memory while cores stand idle.
 #   --cpus-per-task 12  SLURM counts logical CPUs and ThreadsPerCore=2 here, so
 #     12 => 6 physical cores for the 5 fold processes plus the parent.
 #   --constraint cpu256  pins the AMD EPYC 7763 nodes: the unconstrained pool
@@ -40,7 +42,7 @@
 #SBATCH --cpus-per-task 12
 #SBATCH --constraint cpu256
 #SBATCH --gpus=0
-#SBATCH --mem 64G
+#SBATCH --mem 32G
 
 set -euo pipefail
 shopt -s failglob   # an empty GT glob must fail loudly, not fall back to images

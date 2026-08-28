@@ -77,10 +77,11 @@ arm and all five L values, a fold lands near 2.5 h; folds run in parallel, so a
 cell is bounded by its slowest fold.
 
 - `--time 1-00:00:00` — 24 h, roughly 10× the projection.
-- `--mem 64G` — the five L=2000 fold workers held ~1 GB combined when measured.
-  This is deliberate headroom, not a fitted number: the local run died because
-  the machine ran out of RAM, and a cell that swaps produces timings that mean
-  nothing.
+- `--mem 32G` — the five L=2000 fold workers held ~1 GB combined when measured,
+  so this is ~30× headroom rather than a fitted number: the local run died
+  because the machine ran out of RAM, and a cell that swaps produces timings that
+  mean nothing. Not larger, because a couple of `cpu256` nodes sit near 65 GB
+  free and a bigger ask pends on memory while cores stand idle.
 - `--cpus-per-task 12` — SLURM counts logical CPUs and `ThreadsPerCore=2` here,
   so 12 gives 6 physical cores to 5 fold processes plus the parent.
 - `--constraint cpu256` — the AMD EPYC 7763 nodes. The unconstrained pool spans a
