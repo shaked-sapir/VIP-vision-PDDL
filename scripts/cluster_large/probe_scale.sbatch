@@ -37,7 +37,17 @@ CGROUP_REL="$(awk -F: '{print $3}' /proc/self/cgroup | head -1)"
 CGROUP="/sys/fs/cgroup${CGROUP_REL%/step_*}"
 ( while true; do
     p=$(cat "$CGROUP/memory.peak" 2>/dev/null || echo 0)
-    echo "  [mem] peak=$(( p / 1048576 ))MB  t=$(date +%H:%M:%S)"
+    c=$(cat "$CGROUP/memory.current" 2>/dev/null || echo 0)
+    # Per-worker RSS, this job's cgroup only: the total alone hides one worker
+    # ballooning while its siblings stay flat, which is how the uncapped
+    # rosame_milp_* arm was found. PIDs from the whole subtree -- the fold
+    # workers live at step_batch/user/task_0, four levels down.
+    rss=$(find "$CGROUP" -name cgroup.procs -exec cat {} + 2>/dev/null \
+          | sort -un | while read -r pid; do
+              [ -r "/proc/$pid/statm" ] || continue
+              awk '{printf "%d\n", $2 * 4 / 1024}' "/proc/$pid/statm" 2>/dev/null
+            done | sort -rn | head -8 | paste -sd, -)
+    echo "  [mem] peak=$(( p / 1048576 ))MB current=$(( c / 1048576 ))MB workers=[${rss}] t=$(date +%H:%M:%S)"
     sleep 15
   done ) &
 SAMPLER=$!
