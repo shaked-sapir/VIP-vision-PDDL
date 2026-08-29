@@ -91,9 +91,19 @@ MON_START=$(date +%s)
 ( while true; do
     cur=$(cat "$CGROUP/memory.current" 2>/dev/null || echo 0)
     pk=$(cat "$CGROUP/memory.peak" 2>/dev/null || echo 0)
-    # every python process in this job's cgroup, largest first
-    rss=$(ps -eo pid,rss,args --no-headers 2>/dev/null \
-          | awk '$3 ~ /python/ {print $2}' | sort -rn | head -8 | paste -sd, -)
+    # This job's OWN processes, largest RSS first, read from every cgroup.procs
+    # in the job's subtree -- the fold workers live at step_batch/user/task_0,
+    # four levels down, so a fixed-depth glob finds only the stepd itself.
+    # Not `ps -eo` over the node: these are shared nodes, so a node-wide scan
+    # reports other users' jobs and produced a nonsense 13 TB column.
+    rss=$(
+      find "$CGROUP" -name cgroup.procs -exec cat {} + 2>/dev/null \
+      | sort -un | while read -r pid; do
+        [ -r "/proc/$pid/statm" ] || continue
+        # statm field 2 is resident pages; page size is 4096 on this cluster
+        awk '{printf "%d\n", $2 * 4 / 1024}' "/proc/$pid/statm" 2>/dev/null
+      done | sort -rn | head -8 | paste -sd, -
+    )
     n=$(printf '%s' "$rss" | awk -F, '{print NF}')
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -Iseconds)" "$(( $(date +%s) - MON_START ))" \
         "$(( cur / 1048576 ))" "$(( pk / 1048576 ))" "${n:-0}" "${rss:-}" >> "$MEMLOG"
