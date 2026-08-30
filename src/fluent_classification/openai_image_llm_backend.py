@@ -1,3 +1,4 @@
+import threading
 from abc import ABC
 from pathlib import Path
 
@@ -17,6 +18,10 @@ class OpenAIImageLLMBackend(ImageLLMBackend, ABC):
         self.temperature = temperature
         self.prompt_tokens_total = 0
         self.prompt_tokens_cached = 0
+        # One backend serves every worker of a window under concurrent
+        # inference, and `+=` is not atomic: without this the ratio reads low,
+        # which is the one number that says whether the caching works.
+        self._usage_lock = threading.Lock()
 
     def generate_text(
         self,
@@ -118,8 +123,10 @@ class OpenAIImageLLMBackend(ImageLLMBackend, ABC):
             return
         details = getattr(usage, "prompt_tokens_details", None)
         cached = getattr(details, "cached_tokens", 0) or 0
-        self.prompt_tokens_total += getattr(usage, "prompt_tokens", 0) or 0
-        self.prompt_tokens_cached += cached
+        total = getattr(usage, "prompt_tokens", 0) or 0
+        with self._usage_lock:
+            self.prompt_tokens_total += total
+            self.prompt_tokens_cached += cached
 
     @property
     def cache_hit_ratio(self) -> float:

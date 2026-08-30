@@ -18,6 +18,10 @@ from src.action_model.pddl2gym_parser import (
 )
 from src.fluent_classification.base_fluent_classifier import FluentClassifier
 from src.object_detection.base_object_detector import ObjectDetector
+from src.trajectory_handlers.frame_classification import (
+    FrameClassifier,
+    SequentialFrameClassifier,
+)
 from src.utils.masking import save_masking_info
 from src.utils.pddl_gym import multi_replace_predicate
 from src.utils.pddl_trajectory import build_trajectory_file
@@ -49,11 +53,19 @@ class ImageTrajectoryHandler(ABC):
     fluent_classifier: FluentClassifier
     domain: Domain
 
-    def __init__(self, domain_name: str):
+    def __init__(self, domain_name: str, frame_classifier: FrameClassifier = None):
+        """Args:
+            domain_name: The domain this handler serves.
+            frame_classifier: How a window's frames are turned into predicate
+                dicts. Defaults to one call at a time; pass a
+                :class:`ConcurrentFrameClassifier` to issue them together.
+                Either way the result is one dict per frame, in frame order.
+        """
         self.domain_name = domain_name
         self.object_detector = None
         self.fluent_classifier = None
         self.seq_idx_format = '04d'
+        self.frame_classifier = frame_classifier or SequentialFrameClassifier()
 
     @abstractmethod
     def init_visual_components(self, *args, **kwargs) -> None:
@@ -120,12 +132,22 @@ class ImageTrajectoryHandler(ABC):
 
         First state uses few-shot GT examples; subsequent states are LLM-classified.
         """
+        # Phase 1: every frame's predicates, in frame order. classify(frame_i)
+        # reads only frame i, so this is where the strategy applies.
+        frame_paths = [
+            self.get_image_path_by_index(images_path, i + 1)
+            for i in range(len(ground_actions))
+        ]
+        frame_predicates = self.frame_classifier.classify_frames(
+            self.fluent_classifier, frame_paths)
+
+        # Phase 2: assembly. Indexed, so completion order cannot reach the
+        # trajectory even when phase 1 ran concurrently.
         imaged_trajectory = []
         current_state_predicates = {}
 
         for i, action in enumerate(ground_actions):
-            next_image_path = self.get_image_path_by_index(images_path, i + 1)
-            next_state_predicates = self.fluent_classifier.classify(next_image_path)
+            next_state_predicates = frame_predicates[i]
 
             if i == 0:
                 current_literals = [

@@ -167,7 +167,6 @@ class LLMFluentClassifier(FluentClassifier, ABC):
 
     def classify(self, image_path: Path | str,
                  examples: list[tuple[Path | str, list[str]]] = None) -> Dict[str, PredicateTruthValue]:
-        print(f"Classifying image: {str(image_path).split('/')[-1]} with temperature = {self.temperature}")
         examples = examples if examples is not None else self.fewshot_examples
         predicates_with_rel_judgement = (
             {

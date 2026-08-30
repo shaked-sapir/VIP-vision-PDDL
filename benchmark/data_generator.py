@@ -34,6 +34,10 @@ from typing import TYPE_CHECKING, Callable, List, Optional
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.trajectory_handlers.frame_classification import (
+    ConcurrentFrameClassifier,
+    SequentialFrameClassifier,
+)
 from src.trajectory_handlers.llm_blocks_trajectory_handler import LLMBlocksImageTrajectoryHandler
 from src.trajectory_handlers.llm_npuzzle_trajectory_handler import LLMNpuzzleImageTrajectoryHandler
 from src.trajectory_handlers.llm_hanoi_trajectory_handler import LLMHanoiImageTrajectoryHandler
@@ -171,6 +175,22 @@ def _resolve_problem_index(domain_config: dict, problem_index: Optional[int]) ->
 
 # ── Domain registry ──────────────────────────────────────────────────────
 
+def build_frame_classifier(inference_workers: int):
+    """The frame-classification strategy for a run.
+
+    Args:
+        inference_workers: ``1`` keeps one VLM call in flight at a time, which
+            is the original behaviour and the default. Higher issues a window's
+            frames together.
+
+    Returns:
+        A :class:`FrameClassifier`.
+    """
+    if inference_workers <= 1:
+        return SequentialFrameClassifier()
+    return ConcurrentFrameClassifier(max_workers=inference_workers)
+
+
 _DOMAIN_REGISTRY = {
     "blocksworld": {
         "display_name": "BLOCKSWORLD",
@@ -279,6 +299,7 @@ def generate_trajectories_via_generation(
     seed: Optional[int] = None,
     run_inference: bool = True,
     output_dir_name: Optional[str] = None,
+    inference_workers: int = 1,
 ) -> Path:
     """Generate brand-new PDDLGym problems (init/goal/images/plan), then infer.
 
@@ -374,6 +395,7 @@ def generate_trajectories_via_generation(
                 domain_name=gym_domain_name,
                 pddl_domain_file=domain_file,
                 vendor=vendor,
+                frame_classifier=build_frame_classifier(inference_workers),
             )
             _run_generation_inference(handler, problem_name, problem_dir, gt_root)
             _apply_transform(registry["transform_fn"], problem_dir)
@@ -595,6 +617,7 @@ def generate_trajectories(
     problem_start: Optional[int] = None,
     problem_end: Optional[int] = None,
     output_dir_name: Optional[str] = None,
+    inference_workers: int = 1,
 ) -> Path:
     """Generate trajectories for all problems in a domain.
 
@@ -699,6 +722,7 @@ def generate_trajectories(
                 domain_name=domain_name,
                 pddl_domain_file=domain_file,
                 vendor=vendor,
+                frame_classifier=build_frame_classifier(inference_workers),
             )
 
             if is_external:
@@ -842,6 +866,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--seed", type=int, default=None,
         help="Walk RNG seed for reproducibility (generate/trace modes)",
+    )
+    parser.add_argument(
+        "--inference-workers", type=int, default=1, metavar="N",
+        help="VLM calls in flight per window. 1 (the default) is one at a time, "
+             "the original behaviour. Higher issues a window's frames together; "
+             "measured ~7x faster at 12, with results still assembled in frame "
+             "order. A frame that fails every attempt abandons its window.",
     )
     parser.add_argument(
         "--no-inference", action="store_true",
@@ -995,6 +1026,7 @@ if __name__ == "__main__":
             seed=args.seed,
             run_inference=not args.no_inference,
             output_dir_name=args.output_dir_name,
+            inference_workers=args.inference_workers,
         )
     else:
         generate_trajectories(
@@ -1007,4 +1039,5 @@ if __name__ == "__main__":
             problem_start=args.problem_start,
             problem_end=args.problem_end,
             output_dir_name=args.output_dir_name,
+            inference_workers=args.inference_workers,
         )
