@@ -637,6 +637,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true",
                         help="Print all configurations (domain × params) that would run, "
                              "without executing them.")
+    parser.add_argument("--only-fold", nargs="*", type=int, default=None,
+                        metavar="N", help="Run only these fold indices (default: "
+                        "all 0..n_folds-1). The CV split is still defined by "
+                        "n_folds, so this selects which folds to run, it does not "
+                        "change the split. One fold per job is how a repair run "
+                        "recovers a cell without re-entering its finished folds.")
     parser.add_argument("--only-mask", nargs="*", type=float, default=None,
                         metavar="P", help="Run only these masking_ps values "
                         "(default: the whole axis). One value per job is how a "
@@ -653,6 +659,8 @@ def _parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = _parse_args()
     config = _load_config(args.config)
+    if args.only_fold is not None:
+        config.setdefault("shared", {})["folds"] = args.only_fold
     results = execute_run(
         config, dry_run=args.dry_run, selected_domains=args.domains,
         selected_masks=args.only_mask, selected_noises=args.only_noise,
