@@ -36,6 +36,7 @@ class GeminiImageLLMBackend(ImageLLMBackend):
         image_path: Path | str,
         temperature: float = None,
         examples: List[tuple[Path | str, List[str]]] | None = None,
+        cache_key: str | None = None,
     ) -> str:
         """
         Build a single multimodal prompt:

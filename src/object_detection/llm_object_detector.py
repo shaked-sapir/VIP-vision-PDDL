@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Union, Set
 
 from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
+from src.utils.prompt_cache import prompt_cache_key
 from src.object_detection.base_object_detector import ObjectDetector
 from src.utils.pddl import extract_objects_from_pddlgym_state
 
@@ -100,6 +101,9 @@ class LLMObjectDetector(ObjectDetector, ABC):
                 image_path=image_path,
                 temperature=temperature,
                 examples=examples,
+                cache_key=prompt_cache_key(
+                    "object_detection", self.system_prompt
+                ),
             )
 
             matches = re.findall(self.result_regex, text)

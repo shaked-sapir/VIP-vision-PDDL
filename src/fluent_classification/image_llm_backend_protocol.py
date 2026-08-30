@@ -19,5 +19,11 @@ class ImageLLMBackend(Protocol):
         image_path: Path | str,
         temperature: float,
         examples: List[tuple[Path | str, List[str]]] | None = None,
+        cache_key: str | None = None,
     ) -> str:
+        """Args:
+            cache_key: Routing hint so requests sharing a prompt prefix land on
+                the same backend and hit its cache. Vendors that do not support
+                one ignore it.
+        """
         ...

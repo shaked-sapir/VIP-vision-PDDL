@@ -6,6 +6,7 @@ from typing import Dict, Callable
 
 from src.fluent_classification.base_fluent_classifier import FluentClassifier, PredicateTruthValue
 from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
+from src.utils.prompt_cache import prompt_cache_key
 from src.utils.pddl import multi_replace_predicate, translate_pddlgym_state_to_image_predicates
 
 
@@ -112,6 +113,9 @@ class LLMFluentClassifier(FluentClassifier, ABC):
                 image_path=image_path,
                 temperature=self.temperature,
                 examples=examples,
+                cache_key=prompt_cache_key(
+                    "fluent_classification", self.system_prompt
+                ),
             )
 
             facts = re.findall(self.result_regex, text)
