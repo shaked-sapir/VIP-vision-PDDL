@@ -57,6 +57,10 @@ shared:
   algorithms: [pisam_milp_loop, rosame_24, rosame_milp_24, rosame_milp_24_tag]
                                           # 5 arms in total: pisam_milp_loop expands to two via the
                                           # gt_anchoring ablation below (init_only + none).
+  snapshot_interval: 1                    # capture a ROSAME snapshot every N epochs, with that epoch's
+                                          # training loss, into <fold>/anytime_snapshots/<arm>/snapshots.json.
+                                          # Needed for the convergence panel: without it no per-epoch loss is
+                                          # recorded anywhere, for either ROSAME arm.
   mip_traces: 4                           # traces per MILP solve, for the rosame_milp_* arms.
                                           # Upstream caps this with a TraceSelector (vendor default 3,
                                           # see src/milp/vendor/UPSTREAM.md:95). Our runner left it None

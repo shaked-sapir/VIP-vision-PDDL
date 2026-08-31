@@ -129,6 +129,10 @@ class MilpPORosame(PORosame_Runner):
 
         optimizer = self._build_optimizer()
         order = list(range(len(cached)))
+        # The snapshot for an epoch is taken before that epoch's MILP round, so
+        # the agreement it carries is the previous round's -- the most recent
+        # value known at capture time. None until the first round has run.
+        last_agreement = None
         if snapshot is not None:
             snapshot.start()
 
@@ -148,6 +152,7 @@ class MilpPORosame(PORosame_Runner):
                 snapshot.maybe_capture(
                     step=epoch + 1, trajectory=-1, epoch=epoch,
                     render=self.rosame_to_pddl, loss=loss_final,
+                    agreement=last_agreement,
                 )
 
             past_warmup = epoch + 1 >= pre_mip_epochs
@@ -159,6 +164,7 @@ class MilpPORosame(PORosame_Runner):
                     **{k: stats[k] for k in ("exit_status", "solve_time_seconds",
                                              "objective_value") if k in stats},
                 })
+                last_agreement = agreement
                 if solution is not None:
                     report["final_solution"] = solution
                     report["final_agreement"] = agreement
