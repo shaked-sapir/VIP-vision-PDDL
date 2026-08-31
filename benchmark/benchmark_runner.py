@@ -307,7 +307,12 @@ _PASSTHROUGH_KEYS = {
 # Shared-config keys forwarded to the BASELINE RUNNERS rather than to main().
 # `_instantiate` drops any a runner's __init__ does not accept, so listing one
 # here does not force every runner to take it.
-_RUNNER_KWARG_KEYS = {"snapshot_interval", "train_per_trajectory", "mip_traces"}
+_RUNNER_KWARG_KEYS = {
+    "snapshot_interval", "train_per_trajectory", "mip_traces",
+    # The ROSAME train/solve loop's budget: `epochs` total, the first
+    # `pre_mip_epochs` of them warmup before any MILP round fires.
+    "epochs", "pre_mip_epochs",
+}
 
 
 def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
