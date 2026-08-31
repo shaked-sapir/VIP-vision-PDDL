@@ -100,8 +100,15 @@ def _experiment_params(experiment_root: Path) -> Dict[str, Optional[float]]:
 
 
 def _load_solution_entries(instance_dir: Path) -> List[Dict]:
-    """Load raw all_solutions_metrics.json entries (both numbered and selected)."""
-    with open(instance_dir / "all_solutions_metrics.json") as f:
+    """Load raw all_solutions_metrics.json entries (both numbered and selected).
+
+    Empty when absent: the file is CDPS's numbered-CFM set, which a sweep with
+    no CDPS arm never writes.
+    """
+    path = instance_dir / "all_solutions_metrics.json"
+    if not path.is_file():
+        return []
+    with open(path) as f:
         return json.load(f)
 
 

@@ -457,9 +457,52 @@ def img_src(png: Path, out_dir: Path, embed: bool) -> str:
     return _rel(png, out_dir)
 
 
+DATA_SIZES = ("small", "large")
+
+
+def _algorithms_in(part: dict) -> set:
+    """Algorithm names that actually have rows in one built payload.
+
+    Arm names live under ``curves["algs"]`` -- ``stats`` is keyed by metric, not
+    by algorithm. Walks both payload shapes: simulation nests
+    ``cells[domain][cell]``, image nests ``domains_data[domain]``. Used to build
+    each selector pair's legend from data rather than from the config's mode
+    list, since the two data sizes ran different arm sets.
+    """
+    found: set = set()
+
+    def _harvest(node) -> None:
+        algs = ((node or {}).get("curves") or {}).get("algs")
+        if isinstance(algs, dict):
+            found.update(str(k) for k in algs)
+        elif isinstance(algs, list):
+            found.update(str(a) for a in algs)
+
+    for domain_cells in (part.get("cells") or {}).values():
+        for cell in (domain_cells or {}).values():
+            _harvest(cell)
+    for domain in (part.get("domains_data") or {}).values():
+        _harvest(domain)
+    return found
+
+
+def mode_block(cfg: dict, mode: str, data_size: str) -> dict:
+    """The ``mode``/``data_size`` config block, or ``{}`` when unconfigured.
+
+    A config written before the data-size split has ``simulation.prefix``
+    directly; that shape is read as the ``small`` block so an old config keeps
+    working and its runs stay where they were.
+    """
+    block = cfg.get(mode) or {}
+    if any(k in block for k in DATA_SIZES):
+        return block.get(data_size) or {}
+    return block if data_size == "small" else {}
+
+
 def build_sim_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
-                   regen: bool, refresh: bool, embed: bool) -> dict:
-    prefixes = cfg["simulation"].get("prefix", {})
+                   regen: bool, refresh: bool, embed: bool,
+                   data_size: str = "small") -> dict:
+    prefixes = mode_block(cfg, "simulation", data_size).get("prefix", {})
     masks, noises = set(), set()
     cells_out: Dict[str, dict] = {}
 
@@ -484,7 +527,15 @@ def build_sim_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
             instance_dirs = find_instance_dirs(cell / "testing")
             stats = all_metric_stats(instance_dirs, metrics)
             max_id = get_max_solution_index(cell)
-            status = "missing" if max_id is None else ("single" if max_id == 0 else "ok")
+            if max_id is not None:
+                status = "single" if max_id == 0 else "ok"
+            elif instance_dirs:
+                # Instances exist but no numbered-CFM set: an arms-only sweep,
+                # where CDPS never ran. Not "missing" -- the cell has every
+                # arm's metrics, it just has no CFM index to plot against.
+                status = "no_cfm"
+            else:
+                status = "missing"
             shared = cell / "evaluation_results" / SHARED_SUBDIR
             pngs = {mk["key"]: img_src(shared / f'{mk["key"]}_trend.png', out_dir, embed)
                     for mk in metrics if (shared / f'{mk["key"]}_trend.png').exists()}
@@ -520,8 +571,8 @@ def regenerate_image_thumbs(exp: Path, metrics: List[dict],
 
 
 def build_image_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
-                     regen: bool, embed: bool) -> dict:
-    dirs = cfg.get("image", {}).get("experiment_dir", {})
+                     regen: bool, embed: bool, data_size: str = "small") -> dict:
+    dirs = mode_block(cfg, "image", data_size).get("experiment_dir", {})
     out: Dict[str, dict] = {}
     for domain in cfg["domains"]:
         rel = dirs.get(domain)
@@ -565,15 +616,31 @@ def build(config_path: Path, regen: bool, refresh: bool,
         out_html = out_html.with_name(out_html.stem + "_standalone" + out_html.suffix)
     metrics = cfg["metrics"]
 
-    print("Assembling simulation data...")
-    sim = build_sim_data(cfg, root, out_dir, metrics, regen, refresh, embed)
-    print("Assembling image data...")
-    img = build_image_data(cfg, root, out_dir, metrics, regen, embed)
+    # Every (mode, data_size) pair is built independently. A pair with no
+    # configured runs yields an empty dict and the page renders a note for it.
+    sim, img = {}, {}
+    for size in DATA_SIZES:
+        print(f"Assembling simulation data ({size})...")
+        sim[size] = build_sim_data(
+            cfg, root, out_dir, metrics, regen, refresh, embed, data_size=size)
+        print(f"Assembling image data ({size})...")
+        img[size] = build_image_data(
+            cfg, root, out_dir, metrics, regen, embed, data_size=size)
 
     # Baseline registry → {algorithm: [modes]}. Unlisted baselines default to
     # both modes (they still only render where they actually have data).
     alg_modes = {a["key"]: [str(x).lower() for x in a.get("modes", ["simulation", "image"])]
                  for a in cfg.get("algorithms", [])}
+    # Which arms actually have rows in each (mode, size) pair. The legend is
+    # built from this rather than from `alg_modes` alone: the two data sizes ran
+    # different arm sets, so a mode-only filter would list CDPS under a sweep
+    # that never ran it.
+    alg_present = {
+        f"{mode}:{size}": sorted(_algorithms_in(payload_part))
+        for mode, per_size in (("simulation", sim), ("image", img))
+        for size, payload_part in per_size.items()
+    }
+    selectors = cfg.get("selectors") or {}
     exclude_algs = [str(a) for a in cfg.get("exclude_algorithms", [])]
 
     payload = {
@@ -588,6 +655,8 @@ def build(config_path: Path, regen: bool, refresh: bool,
         "oracle_series": ORACLE_SERIES,
         "anchored_series": ANCHORED_SERIES,
         "alg_modes": alg_modes,
+        "alg_present": alg_present,
+        "selectors": selectors,
         "exclude_algs": exclude_algs,
     }
     out_html.write_text(_HTML.replace("__DATA__", json.dumps(payload)))
@@ -621,9 +690,19 @@ _HTML = r"""<!DOCTYPE html>
   body{background:#16181d;color:#e8e8e8;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0;padding:18px 22px;}
   h1{font-size:18px;font-weight:500;margin:0;}
   button{font-family:inherit;}
-  #metricnav button,.et,.seg{background:#1f232b;border:1px solid #333842;color:#cfd3da;padding:6px 11px;border-radius:6px;cursor:pointer;font-size:13px;}
+  #metricnav button,.et,.ds,.seg{background:#1f232b;border:1px solid #333842;color:#cfd3da;padding:6px 11px;border-radius:6px;cursor:pointer;font-size:13px;}
   #metricnav button.on{background:#1d4ed8;border-color:#3b6fe0;color:#fff;}
-  .et.on{background:#33384a;border-color:#4a5a86;color:#dce6ff;} .seg.on{background:#243049;border-color:#3b6fe0;color:#dce6ff;}
+  .et.on,.ds.on{background:#33384a;border-color:#4a5a86;color:#dce6ff;}
+  /* Header: centred title, and the two selectors as visibly separate groups --
+     one shared strip read as a single control. */
+  .hdr{display:flex;align-items:flex-end;gap:16px;margin-bottom:12px;}
+  .hdrtitle{flex:1 1 auto;text-align:center;padding-bottom:2px;}
+  .hdrtitle h1{display:inline-block;vertical-align:middle;}
+  .hdrtitle #modelabel{display:inline-block;vertical-align:middle;font-size:12px;color:#9aa0a8;margin-left:10px;}
+  .selgroups{flex:0 0 auto;display:flex;gap:18px;align-items:flex-end;}
+  .selgroup{display:flex;flex-direction:column;gap:4px;}
+  .selbtns{display:flex;gap:4px;background:#1f232b;border:1px solid #333842;border-radius:8px;padding:3px;}
+  .sellab{color:#8b94a3;font-size:10px;text-transform:uppercase;letter-spacing:.08em;text-align:center;} .seg.on{background:#243049;border-color:#3b6fe0;color:#dce6ff;}
   .card{background:#1f232b;border:1px solid #333842;border-radius:10px;padding:12px;margin-bottom:14px;}
   .card h4{margin:0 0 10px;font-size:13px;font-weight:500;color:#c3c8d0;display:flex;align-items:center;gap:10px;}
   .twrap{overflow-x:auto;}
@@ -691,10 +770,25 @@ _HTML = r"""<!DOCTYPE html>
   #lb{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;z-index:50;cursor:zoom-out;}
   #lb img{max-width:96vw;max-height:96vh;background:#fff;border-radius:4px;}
 </style></head><body>
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-  <h1>VIP — results</h1><span id="modelabel" style="font-size:12px;color:#9aa0a8;"></span>
-  <div style="margin-left:auto;display:flex;gap:6px;background:#1f232b;border:1px solid #333842;border-radius:8px;padding:3px;">
-    <button class="et on" data-et="sim">Simulation</button><button class="et" data-et="img">Image</button></div>
+<div class="hdr">
+  <div class="hdrtitle">
+    <h1>VIP — results</h1>
+    <span id="modelabel"></span>
+  </div>
+  <div class="selgroups">
+    <div class="selgroup">
+      <div class="sellab">Mode</div>
+      <div class="selbtns">
+        <button class="et on" data-et="sim">Simulation</button><button class="et" data-et="img">Image</button>
+      </div>
+    </div>
+    <div class="selgroup">
+      <div class="sellab">Data size</div>
+      <div class="selbtns">
+        <button class="ds on" data-ds="small">Small data</button><button class="ds" data-ds="large">Large data</button>
+      </div>
+    </div>
+  </div>
 </div>
 <div id="metricnav" style="display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid #333842;padding-bottom:10px;margin-bottom:8px;"></div>
 <div id="ctrlbar"></div>
@@ -702,16 +796,30 @@ _HTML = r"""<!DOCTYPE html>
 <div id="lb" onclick="this.style.display='none'"><div style="text-align:center;"><div id="lbcap" style="color:#cbd2dc;font-size:13px;margin-bottom:8px;"></div><img id="lbimg" src="" alt=""></div></div>
 <script>
 const DATA=__DATA__;
-const MASKS=DATA.sim.masks, NOISES=DATA.sim.noises, DOMAINS=DATA.domains, METRICS=DATA.metrics;
+const DOMAINS=DATA.domains, METRICS=DATA.metrics;
+// Both data sizes are in the payload; these read whichever is selected.
+function simData(){return (DATA.sim||{})[S.ds]||{};}
+function imgData(){return (DATA.image||{})[S.ds]||{};}
+function masksOf(){return simData().masks||[];}
+function noisesOf(){return simData().noises||[];}
 const CDPS=DATA.cdps_series, ORACLE=DATA.oracle_series, ANCHORED=DATA.anchored_series;
 const ALG_MODES=DATA.alg_modes||{};
 const EXCLUDE=new Set(DATA.exclude_algs||[]);
 function etMode(){return S.et==="sim"?"simulation":"image";}
-function algAllowed(a){if(EXCLUDE.has(a))return false;const m=ALG_MODES[a];return !m||m.indexOf(etMode())>=0;}
-const S={et:"sim",metric:METRICS[0].key,stat:"last",tab:"all",ltab:"all",cmp:false,band:DATA.error_band||"ci95",off:{},base:null};
+const ALG_PRESENT=DATA.alg_present||{};
+function algAllowed(a){
+  if(EXCLUDE.has(a))return false;
+  const m=ALG_MODES[a]; if(m&&m.indexOf(etMode())<0)return false;
+  // The two data sizes ran different arm sets, so a mode-only filter would
+  // list arms that never ran in the selected pair.
+  const present=ALG_PRESENT[etMode()+":"+S.ds];
+  return !present||!present.length||present.indexOf(a)>=0;
+}
+const SEL=DATA.selectors||{};
+const S={et:(((SEL.default||{}).mode==="image")?"img":"sim"),ds:((SEL.default||{}).data_size||"small"),metric:METRICS[0].key,stat:"last",tab:"all",ltab:"all",cmp:false,band:DATA.error_band||"ci95",off:{},base:null};
 const $=id=>document.getElementById(id);
 const meta=k=>METRICS.find(m=>m.key===k)||{};
-const CONFIGS=[]; for(const m of MASKS)for(const n of NOISES)CONFIGS.push([m,n]);
+const CONFIGS=[]; for(const m of masksOf())for(const n of noisesOf())CONFIGS.push([m,n]);
 
 /* ── learning-curve helpers ─────────────────────────────────────────── */
 const TCRIT={1:12.706,2:4.303,3:3.182,4:2.776,5:2.571,6:2.447,7:2.365,8:2.306,9:2.262,10:2.228,
@@ -732,7 +840,7 @@ function bases(){
   for(const d of DOMAINS)for(const[m,n]of CONFIGS){const c=cellOf(d,m,n);
    if(c&&c.curves)for(const a of Object.keys(c.curves.algs))if(a!==CDPS&&a!==ORACLE)set.add(a);}
  }else{
-  const dd=DATA.image.domains_data||{};
+  const dd=imgData().domains_data||{};
   for(const d of Object.keys(dd))if(dd[d].curves)for(const a of Object.keys(dd[d].curves.algs))if(a!==CDPS&&a!==ORACLE)set.add(a);
  }
  return[...set].filter(algAllowed).sort();}
@@ -754,11 +862,27 @@ function curveSVG(cv){
  if(!meta(mk).bounded){ymax=0;for(const a of algs)for(const q of per[a])if(q)ymax=Math.max(ymax,q[2]);ymax=ymax>0?ymax*1.08:1;}
  const W=210,H=150,L=31,B=17,T=6,R=7,pw=W-L-R,ph=H-B-T;
  const t0=NT[0],t1=NT[NT.length-1]>t0?NT[NT.length-1]:t0+1;
- const X=t=>L+pw*(t-t0)/(t1-t0), Y=v=>T+ph*(1-Math.max(0,Math.min(1,v/ymax)));
+ // Log x whenever the sweep spans a wide range: the large-data sizes are
+ // 10/50/100/500/2000, and on a linear axis the first three collide against the
+ // left edge while 2000 sits alone at the right. Small data (3..8) stays linear.
+ const LOGX=(t0>0 && t1/t0>=20);
+ const lx=v=>Math.log(v), l0=LOGX?lx(t0):0, l1=LOGX?lx(t1):1;
+ const X=t=>LOGX?(L+pw*(lx(t)-l0)/(l1-l0)):(L+pw*(t-t0)/(t1-t0)),
+       Y=v=>T+ph*(1-Math.max(0,Math.min(1,v/ymax)));
  let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;background:#12151b;border:1px solid #2b303a;border-radius:6px;">`;
  for(const g of [0,ymax/2,ymax]){s+=`<line x1="${L}" y1="${Y(g)}" x2="${W-R}" y2="${Y(g)}" stroke="#2b303a"/>`
   +`<text x="${L-3}" y="${Y(g)+3}" font-size="8.5" text-anchor="end" fill="#9aa0a8">${meta(mk).bounded?g.toFixed(1):Math.round(g)}</text>`;}
- for(const t of NT)s+=`<text x="${X(t)}" y="${H-4}" font-size="8.5" text-anchor="middle" fill="#9aa0a8">${t}</text>`;
+ // Anchor the end labels inward so they are not clipped by the plot edges, and
+ // drop any label that would collide with the one before it.
+ let lastX=-1e9;
+ NT.forEach((t,i)=>{
+  const x=X(t);
+  if(x-lastX<15 && i>0 && i<NT.length-1)return;   // keep the endpoints, thin the middle
+  lastX=x;
+  const anchor=i===0?"start":(i===NT.length-1?"end":"middle");
+  const dx=i===0?-2:(i===NT.length-1?2:0);
+  s+=`<text x="${x+dx}" y="${H-4}" font-size="8.5" text-anchor="${anchor}" fill="#9aa0a8">${t}</text>`;
+ });
  algs.forEach((a,ai)=>{const st=algStyle(a);
   const pts=NT.map((t,i)=>per[a][i]?{t:t,q:per[a][i]}:null).filter(p=>p);
   if(!pts.length)return;
@@ -829,24 +953,24 @@ function dheat(v){const t=Math.max(-0.5,Math.min(0.5,v))/0.5;
  return `rgb(${c})`;}
 function heat(v){const t=Math.max(0,Math.min(1,v));const lo=[124,52,52],mid=[132,110,52],hi=[46,110,64];const c=t<.5?lo.map((x,i)=>Math.round(x+(mid[i]-x)*t*2)):mid.map((x,i)=>Math.round(x+(hi[i]-x)*(t-.5)*2));return `rgb(${c})`;}
 function amber(t){t=Math.max(0,Math.min(1,t));const lo=[38,41,48],hi=[205,124,38];return `rgb(${lo.map((x,i)=>Math.round(x+(hi[i]-x)*t))})`;}
-function cellOf(d,m,n){return ((DATA.sim.cells[d]||{})[`${m}_${n}`])||null;}
+function cellOf(d,m,n){return (((simData().cells||{})[d]||{})[`${m}_${n}`])||null;}
 let BASES=[];  // baselines for the current mode; recomputed in render()
 
 function simHeat(){
   const ml=meta(S.metric).label;
-  let h1=`<tr><th></th>`+MASKS.map((m,gi)=>`<th colspan="${NOISES.length}"${gi>0?' class="msep"':''}>p_mask = ${m}</th>`).join("")+`</tr>`;
-  let h2=`<tr><th></th>`+MASKS.map((m,gi)=>NOISES.map((n,ni)=>`<th${(gi>0&&ni===0)?' class="msep"':''}>p_n = ${n}</th>`).join("")).join("")+`</tr>`;
+  let h1=`<tr><th></th>`+masksOf().map((m,gi)=>`<th colspan="${noisesOf().length}"${gi>0?' class="msep"':''}>p_mask = ${m}</th>`).join("")+`</tr>`;
+  let h2=`<tr><th></th>`+masksOf().map((m,gi)=>noisesOf().map((n,ni)=>`<th${(gi>0&&ni===0)?' class="msep"':''}>p_n = ${n}</th>`).join("")).join("")+`</tr>`;
   let body="";
-  for(const d of DOMAINS){body+=`<tr><td class="dom">${d}</td>`;for(const[m,n]of CONFIGS){const sep=(n===NOISES[0]&&m!==MASKS[0])?' msep':'';const c=cellOf(d,m,n),s=c&&c.stats[S.metric];if(!s){body+=`<td class="na${sep}">–</td>`;continue;}body+=`<td class="hc${sep}" style="background:${heat(s[S.stat])}">${s[S.stat].toFixed(2)}</td>`;}body+=`</tr>`;}
+  for(const d of DOMAINS){body+=`<tr><td class="dom">${d}</td>`;for(const[m,n]of CONFIGS){const sep=(n===noisesOf()[0]&&m!==masksOf()[0])?' msep':'';const c=cellOf(d,m,n),s=c&&c.stats[S.metric];if(!s){body+=`<td class="na${sep}">–</td>`;continue;}body+=`<td class="hc${sep}" style="background:${heat(s[S.stat])}">${s[S.stat].toFixed(2)}</td>`;}body+=`</tr>`;}
   return `<div class="card gflex"><h4>${ml} — summary heatmap<span style="margin-left:auto;display:flex;gap:6px;"><button class="seg ${S.stat==='best'?'on':''}" onclick="setStat('best')">Best CFM</button><button class="seg ${S.stat==='last'?'on':''}" onclick="setStat('last')">Last CFM</button></span></h4><div class="twrap"><table class="heat"><thead>${h1}${h2}</thead><tbody>${body}</tbody></table></div><div class="note">fixed colour scale · 0.0 red · 0.5 amber · 1.0 green (same for all metrics; fluent patch count is a raw count, so its colours are only indicative) · “–” = no data</div></div>`;
 }
 function simDeltaCard(){
   const ml=meta(S.metric).label;
-  let h1=`<tr><th></th>`+MASKS.map((m,gi)=>`<th colspan="${NOISES.length}"${gi>0?' class="msep"':''}>p_mask = ${m}</th>`).join("")+`</tr>`;
-  let h2=`<tr><th></th>`+MASKS.map((m,gi)=>NOISES.map((n,ni)=>`<th${(gi>0&&ni===0)?' class="msep"':''}>p_n = ${n}</th>`).join("")).join("")+`</tr>`;
+  let h1=`<tr><th></th>`+masksOf().map((m,gi)=>`<th colspan="${noisesOf().length}"${gi>0?' class="msep"':''}>p_mask = ${m}</th>`).join("")+`</tr>`;
+  let h2=`<tr><th></th>`+masksOf().map((m,gi)=>noisesOf().map((n,ni)=>`<th${(gi>0&&ni===0)?' class="msep"':''}>p_n = ${n}</th>`).join("")).join("")+`</tr>`;
   let body="";
   for(const d of DOMAINS){body+=`<tr><td class="dom">${d}</td>`;
-    for(const[m,n]of CONFIGS){const sep=(n===NOISES[0]&&m!==MASKS[0])?' msep':'';
+    for(const[m,n]of CONFIGS){const sep=(n===noisesOf()[0]&&m!==masksOf()[0])?' msep':'';
       const dv=deltaOf(d,m,n);
       if(dv==null){body+=`<td class="na${sep}">–</td>`;continue;}
       body+=`<td class="hc${sep}" style="background:${dheat(meta(S.metric).invert?-dv:dv)}">${dv>=0?"+":""}${dv.toFixed(2)}</td>`;}
@@ -859,11 +983,11 @@ function heatRow(){
 }
 /* ── learning-curve views ───────────────────────────────────────────── */
 function lcDomainGrid(d){
-  let grid=`<div class="lcgrid" style="min-width:0;display:grid;grid-template-columns:70px repeat(${MASKS.length},1fr);gap:7px;">`;
-  grid+=`<div></div>`+MASKS.map(m=>`<div class="colhead">p_mask = ${m}</div>`).join("");
+  let grid=`<div class="lcgrid" style="min-width:0;display:grid;grid-template-columns:70px repeat(${masksOf().length},1fr);gap:7px;">`;
+  grid+=`<div></div>`+masksOf().map(m=>`<div class="colhead">p_mask = ${m}</div>`).join("");
   const entries=[];
-  for(const n of NOISES){grid+=`<div class="rowlab">p_n = ${n}</div>`;
-    for(const m of MASKS){const c=cellOf(d,m,n);
+  for(const n of noisesOf()){grid+=`<div class="rowlab">p_n = ${n}</div>`;
+    for(const m of masksOf()){const c=cellOf(d,m,n);
       grid+=`<div onmouseenter="hlCorr('${d}|${m}|${n}',true)" onmouseleave="hlCorr('${d}|${m}|${n}',false)">${curveSVG(c&&c.curves)}${ncap(c)}</div>`;
       entries.push({label:`m=${m} n=${n}`,cv:c&&c.curves,key:`${m}|${n}`});}}
   grid+=`</div>`;
@@ -894,7 +1018,7 @@ function simCurvesCard(){
     +lcTableCard(g.entries)+`</div>`;
 }
 function imgCurvesCard(){
-  const dd=DATA.image.domains_data||{};
+  const dd=imgData().domains_data||{};
   const have=DOMAINS.filter(d=>dd[d]&&dd[d].curves&&dd[d].curves.ntrajs&&dd[d].curves.ntrajs.length);
   if(!have.length)return "";
   let grid=`<div class="lcgrid" style="min-width:0;display:grid;grid-template-columns:repeat(${have.length},1fr);gap:7px;">`;
@@ -908,13 +1032,13 @@ function imgCurvesCard(){
 }
 function corruption(){
   const fmax=Math.max(1,...DOMAINS.flatMap(d=>CONFIGS.map(([m,n])=>{const c=cellOf(d,m,n);return c&&c.flipped!=null?c.flipped:0;})));
-  let h1=`<tr><th></th>`+MASKS.map((m,gi)=>`<th colspan="${NOISES.length+1}"${gi>0?' class="msep"':''}>p_mask = ${m}</th>`).join("")+`</tr>`;
-  let h2=`<tr><th></th>`+MASKS.map((m,gi)=>`<th class="mk${gi>0?' msep':''}">masked</th>`+NOISES.map(n=>`<th>p_n = ${n}</th>`).join("")).join("")+`</tr>`;
+  let h1=`<tr><th></th>`+masksOf().map((m,gi)=>`<th colspan="${noisesOf().length+1}"${gi>0?' class="msep"':''}>p_mask = ${m}</th>`).join("")+`</tr>`;
+  let h2=`<tr><th></th>`+masksOf().map((m,gi)=>`<th class="mk${gi>0?' msep':''}">masked</th>`+noisesOf().map(n=>`<th>p_n = ${n}</th>`).join("")).join("")+`</tr>`;
   let body="";
   for(const d of DOMAINS){body+=`<tr><td class="dom">${d}</td>`;
-    for(let gi=0;gi<MASKS.length;gi++){const m=MASKS[gi];const cm=cellOf(d,m,NOISES[0])||cellOf(d,m,NOISES[1]);const mv=cm&&cm.masked!=null?cm.masked:"–";
+    for(let gi=0;gi<masksOf().length;gi++){const m=masksOf()[gi];const cm=cellOf(d,m,noisesOf()[0])||cellOf(d,m,noisesOf()[1]);const mv=cm&&cm.masked!=null?cm.masked:"–";
       body+=`<td class="mkv${gi>0?' msep':''}" data-mk="${d}|${m}">${mv}</td>`;
-      for(const n of NOISES){const c=cellOf(d,m,n);const fv=c&&c.flipped!=null?c.flipped:null;if(fv==null){body+=`<td class="na" data-fc="${d}|${m}|${n}">–</td>`;continue;}body+=`<td class="hc" data-fc="${d}|${m}|${n}" style="background:${amber(fv/fmax)}">${fv}</td>`;}}
+      for(const n of noisesOf()){const c=cellOf(d,m,n);const fv=c&&c.flipped!=null?c.flipped:null;if(fv==null){body+=`<td class="na" data-fc="${d}|${m}|${n}">–</td>`;continue;}body+=`<td class="hc" data-fc="${d}|${m}|${n}" style="background:${amber(fv/fmax)}">${fv}</td>`;}}
     body+=`</tr>`;}
   return `<div class="card gcorr"><h4>Data corruption — avg fluents / state <span style="color:#7d828b;font-weight:400;font-size:11px;">(masked = leading column per p_mask block; flipped coloured per p_n)</span></h4><div class="twrap"><table class="heat"><thead>${h1}${h2}</thead><tbody>${body}</tbody></table></div></div>`;
 }
@@ -991,6 +1115,9 @@ function chartCell(c,cap,hk){
   const hov=hk?` onmouseenter="hlCorr('${hk}',true)" onmouseleave="hlCorr('${hk}',false)"`:"";
   if(c&&c.pngs[S.metric]) return `<div${hov}><div class="cell"><img loading="lazy" src="${c.pngs[S.metric]}" onclick="zoom('${c.pngs[S.metric]}','${cap}')"></div>${ncap(c)}</div>`;
   if(c&&c.status==="single") return `<div${hov}><div class="empty">single model<br>(no conflicts)</div>${ncap(c)}</div>`;
+  // An arms-only sweep has no CFM index to plot against; its results live in the
+  // learning curves and the tables below, not in this per-CFM grid.
+  if(c&&c.status==="no_cfm") return `<div${hov}><div class="empty">no CFM set<br>(arms-only run)</div>${ncap(c)}</div>`;
   return `<div><div class="empty">no data</div>${ncap(c)}</div>`;
 }
 function hlCorr(key,on){const p=key.split("|");
@@ -1012,10 +1139,10 @@ function allView(){
   return `<div class="allscroll">${head}${body}</div>`;
 }
 function domainView(d){
-  let h=`<div class="dgrid" style="display:grid;grid-template-columns:70px repeat(${MASKS.length},1fr);gap:7px;">`;
-  h+=`<div></div>`+MASKS.map(m=>`<div class="colhead">p_mask = ${m}</div>`).join("");
-  for(const n of NOISES){h+=`<div class="rowlab">p_n = ${n}</div>`;
-    for(const m of MASKS)h+=chartCell(cellOf(d,m,n),`${d} · p_mask=${m} p_n=${n} · ${meta(S.metric).label}`,`${d}|${m}|${n}`);}
+  let h=`<div class="dgrid" style="display:grid;grid-template-columns:70px repeat(${masksOf().length},1fr);gap:7px;">`;
+  h+=`<div></div>`+masksOf().map(m=>`<div class="colhead">p_mask = ${m}</div>`).join("");
+  for(const n of noisesOf()){h+=`<div class="rowlab">p_n = ${n}</div>`;
+    for(const m of masksOf())h+=chartCell(cellOf(d,m,n),`${d} · p_mask=${m} p_n=${n} · ${meta(S.metric).label}`,`${d}|${m}|${n}`);}
   return h+"</div>";
 }
 function chartsBody(){return S.tab==="all"?allView():domainView(S.tab);}
@@ -1026,9 +1153,9 @@ function simCharts(){
   return `<div class="card"><div class="chdr">${tabbar}${legend}</div><div id="chgrid">${chartsBody()}</div></div>`;
 }
 function imgView(){
-  const dd=DATA.image.domains_data||{},ml=meta(S.metric).label;
+  const dd=imgData().domains_data||{},ml=meta(S.metric).label;
   const have=DOMAINS.filter(d=>dd[d]);
-  if(!have.length)return `<div class="card"><h4>Image</h4><div class="note">No image experiments found. Fill in image.experiment_dir paths in dashboard_config.yaml.</div></div>`;
+  if(!have.length)return `<div class="card"><h4>Image · ${S.ds==="small"?"Small":"Large"} data</h4><div class="note">No experiments configured for this combination. Add paths under <code>image.${S.ds}.experiment_dir</code> in dashboard_config.yaml.</div></div>`;
   const head=`<tr><th></th>`+have.map(d=>`<th>${d}</th>`).join("")+`</tr>`;
   const row=(label,key)=>`<tr><td class="dom">${label}</td>`+have.map(d=>{const s=dd[d].stats[S.metric];return s?`<td class="hc" style="min-width:80px;background:${heat(s[key])}">${s[key].toFixed(2)}</td>`:`<td class="na">–</td>`;}).join("")+`</tr>`;
   const table=`<div class="card"><h4>${ml} — image experiments</h4><div class="twrap"><table class="heat"><thead>${head}</thead><tbody>${row("best CFM","best")}${row("last CFM","last")}</tbody></table></div></div>`;
@@ -1053,10 +1180,14 @@ function render(){
   BASES=bases();                                   // mode-gated baselines
   if(S.base&&BASES.indexOf(S.base)<0)S.base=null;  // drop a baseline not in this mode
   if(!S.base&&BASES.length)S.base=BASES[0];
-  $("modelabel").textContent=S.et==="sim"?"mask × noise grid per domain":"single config per domain";
+  $("modelabel").textContent=(S.et==="sim"?"mask × noise grid per domain":"single config per domain")
+    +" · "+(S.ds==="small"?"small data":"large data");
   $("metricnav").innerHTML=METRICS.map(m=>`<button class="${m.key===S.metric?'on':''}" onclick="setMetric('${m.key}')">${m.label}</button>`).join("");
   document.querySelectorAll(".et[data-et]").forEach(b=>b.classList.toggle("on",b.dataset.et===S.et));
+  document.querySelectorAll(".ds[data-ds]").forEach(b=>b.classList.toggle("on",b.dataset.ds===S.ds));
   ctrlBar();
+  const simEmpty=(S.et==="sim" && !Object.keys(simData().cells||{}).length);
+  if(simEmpty){$("view").innerHTML=`<div class="card"><h4>Simulation · ${S.ds==="small"?"Small":"Large"} data</h4><div class="note">No experiments configured for this combination. Add prefixes under <code>simulation.${S.ds}.prefix</code> in dashboard_config.yaml.</div></div>`;return;}
   $("view").innerHTML=S.et==="sim"
     ? heatRow()+guideRow()+(S.cmp?simCurvesCard():simCharts())
     : imgView();
@@ -1077,6 +1208,7 @@ function renderCharts(){
 function setTab(t){S.tab=t;renderCharts();}
 function zoom(src,cap){$("lbimg").src=src;$("lbcap").textContent=cap||"";$("lb").style.display="flex";}
 document.querySelectorAll(".et[data-et]").forEach(b=>b.onclick=()=>{S.et=b.dataset.et;render();});
+document.querySelectorAll(".ds[data-ds]").forEach(b=>b.onclick=()=>{S.ds=b.dataset.ds;render();});
 document.addEventListener("keydown",e=>{if(e.key==="Escape")$("lb").style.display="none";});
 render();
 </script></body></html>

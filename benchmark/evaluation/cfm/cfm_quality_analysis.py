@@ -96,11 +96,19 @@ _INSTANCE_DIR_RE = re.compile(r"^fold\d+_numtrajs\d+_gtrate\d+$")
 
 
 def find_instance_dirs(testing_dir: Path) -> List[Path]:
-    """Return all fold-instance directories containing all_solutions_metrics.json."""
-    instances = []
-    for metrics_file in testing_dir.rglob("all_solutions_metrics.json"):
-        if _INSTANCE_DIR_RE.match(metrics_file.parent.name):
-            instances.append(metrics_file.parent)
+    """Return all fold-instance directories holding results.
+
+    ``all_solutions_metrics.json`` is CDPS's own artifact -- the numbered CFM
+    set. A sweep with no CDPS arm never writes it, so a marker-only search would
+    report such a run as empty. ``fold_result.json`` is written by every arm and
+    is the fallback, which is what lets an arms-only sweep (no CFM index axis)
+    reach the learning curves and the heat tables.
+    """
+    instances = set()
+    for marker in ("all_solutions_metrics.json", "fold_result.json"):
+        for metrics_file in testing_dir.rglob(marker):
+            if _INSTANCE_DIR_RE.match(metrics_file.parent.name):
+                instances.add(metrics_file.parent)
     return sorted(instances)
 
 
@@ -108,8 +116,15 @@ def load_cfm_metrics(instance_dir: Path) -> List[Dict]:
     """Load all_solutions_metrics.json and return entries sorted by solution_index.
 
     Filters out solution_index == -1 (the "selected" model, not a numbered CFM).
+
+    Returns an empty list when the file is absent: that artifact is CDPS's own
+    numbered-CFM set, and a sweep with no CDPS arm never writes it. Such an
+    instance still has ``fold_result.json`` and so still carries every arm's
+    metrics -- it simply has no CFM index axis.
     """
     metrics_path = instance_dir / "all_solutions_metrics.json"
+    if not metrics_path.is_file():
+        return []
     with open(metrics_path) as f:
         data = json.load(f)
 

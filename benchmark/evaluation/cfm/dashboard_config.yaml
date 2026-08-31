@@ -89,34 +89,64 @@ results_dashboard:
     # so without this it plots as a competitor rather than as spent ablation.
     - ROSAME-I_24__res=64x64
 
+  # ── Selector labels ──────────────────────────────────────────────────
+  # The dashboard exposes two independent selectors. `mode` is what used to be
+  # the only toggle; `data_size` chooses which experiment set that mode reads.
+  # Every (mode, data_size) pair is configured separately below; a pair with no
+  # entries renders a note instead of an empty grid.
+  selectors:
+    mode:
+      label: Mode
+      options: {simulation: Simulation, image: Image}
+    data_size:
+      label: Data size
+      options: {small: Small data, large: Large data}
+    default: {mode: simulation, data_size: small}
+
   # ── Simulation section (mask x noise grid-search per domain) ──
+  # Keyed by data size. Each block keeps the shape it always had, so a prefix
+  # still globs "<results_root>/<domain>/<prefix>*mask=*noise=*".
   simulation:
-    # Per-domain experiment-name prefix of the grid-search runs. The generator
-    # globs "<results_root>/<domain>/<prefix>*mask=*noise=*" for the 9 cells.
-    prefix:
-      # blocksworld: sim_run
-      # depot: simulation-after-pred-fix 
-      # gripper: sim_run
-      # hanoi: simulation-checkup-after-gtfixed
-      # npuzzle: simulation-checkup-after-gtfixed
-      # blocksworld: simulation-cluster-run-cpu256-10min
-      # depot: simulation-cluster-run-cpu256-10min
-      # gripper: simulation-cluster-run-cpu256-10min
-      # hanoi: simulation-cluster-run-cpu256-10min
-      # npuzzle: simulation-cluster-run-cpu256-10min
-      blocksworld: simulation-final-run
-      depot: simulation-final-run
-      gripper: simulation-final-run
-      hanoi: simulation-final-run
-      npuzzle: simulation-final-run
+    small:
+      # Per-domain experiment-name prefix of the grid-search runs.
+      prefix:
+        # blocksworld: sim_run
+        # depot: simulation-after-pred-fix 
+        # gripper: sim_run
+        # hanoi: simulation-checkup-after-gtfixed
+        # npuzzle: simulation-checkup-after-gtfixed
+        # blocksworld: simulation-cluster-run-cpu256-10min
+        # depot: simulation-cluster-run-cpu256-10min
+        # gripper: simulation-cluster-run-cpu256-10min
+        # hanoi: simulation-cluster-run-cpu256-10min
+        # npuzzle: simulation-cluster-run-cpu256-10min
+        blocksworld: simulation-final-run
+        depot: simulation-final-run
+        gripper: simulation-final-run
+        hanoi: simulation-final-run
+        npuzzle: simulation-final-run
+    large:
+      # The L sweep: training sizes 10/50/100/500/2000 inside each mask x noise
+      # cell. Same globbing, a different run_name.
+      prefix:
+        blocksworld: large-corpora__L-sweep__v2
+        depot: large-corpora__L-sweep__v2
+        gripper: large-corpora__L-sweep__v2
+        hanoi: large-corpora__L-sweep__v2
+        npuzzle: large-corpora__L-sweep__v2
 
   # ── Image section (single experiment per domain) ──
   image:
-    # Per-domain path to the single image-experiment result directory
-    # (each contains testing/ and evaluation_results/).
-    experiment_dir:
-      blocksworld: benchmark/running_results/blocksworld/TO=600__blocks_predefined_problems1-10_final-version
-      depot: benchmark/running_results/depot/TO=600__depot_data_from_PV__groundfix
-      gripper: benchmark/running_results/gripper/TO=600__gripper_data_from_PV
-      hanoi: benchmark/running_results/hanoi/TO=600__hanoi_generated_problem1__final-version_fixed
-      npuzzle: benchmark/running_results/npuzzle/TO=600__npuzzle_prob0_6-10steps_generate  
+    small:
+      # Per-domain path to the single image-experiment result directory
+      # (each contains testing/ and evaluation_results/).
+      experiment_dir:
+        blocksworld: benchmark/running_results/blocksworld/TO=600__blocks_predefined_problems1-10_final-version
+        depot: benchmark/running_results/depot/TO=600__depot_data_from_PV__groundfix
+        gripper: benchmark/running_results/gripper/TO=600__gripper_data_from_PV
+        hanoi: benchmark/running_results/hanoi/TO=600__hanoi_generated_problem1__final-version_fixed
+        npuzzle: benchmark/running_results/npuzzle/TO=600__npuzzle_prob0_6-10steps_generate  
+    large:
+      # The imaged large-corpora runs, once they exist. Until then this pair
+      # renders a note rather than an empty grid.
+      experiment_dir: {}
