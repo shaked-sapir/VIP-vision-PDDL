@@ -5,12 +5,20 @@
 #   scripts/cluster_large/submit.sh manifest.csv 8     # custom manifest / throttle
 #   DRY_RUN=1 scripts/cluster_large/submit.sh          # print the sbatch, submit nothing
 #
+# The template follows the manifest: a fold manifest carries a `fold` column and
+# needs sweep_fold.sbatch, whose read order differs from run_cell.sbatch's. Set
+# TEMPLATE to override.
+#
 # Run from the project root, on the login node, after make_manifest.py.
 set -euo pipefail
 
 MANIFEST="${1:-scripts/cluster_large/manifest.csv}"
 THROTTLE="${2:-15}"
-TEMPLATE="scripts/cluster_large/run_cell.sbatch"
+if head -1 "${MANIFEST:-}" 2>/dev/null | grep -q ',fold,'; then
+    TEMPLATE="${TEMPLATE:-scripts/cluster_large/sweep_fold.sbatch}"
+else
+    TEMPLATE="${TEMPLATE:-scripts/cluster_large/run_cell.sbatch}"
+fi
 
 [ -f "$MANIFEST" ] || { echo "No manifest at $MANIFEST — run make_manifest.py first." >&2; exit 1; }
 [ -f "$TEMPLATE" ] || { echo "No template at $TEMPLATE" >&2; exit 1; }
