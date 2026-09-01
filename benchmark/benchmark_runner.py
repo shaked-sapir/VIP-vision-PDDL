@@ -312,6 +312,9 @@ _RUNNER_KWARG_KEYS = {
     # The ROSAME train/solve loop's budget: `epochs` total, the first
     # `pre_mip_epochs` of them warmup before any MILP round fires.
     "epochs", "pre_mip_epochs",
+    # Transitions per optimizer step. ICAPS-24 pools traces into one
+    # DataLoader and defaults to 128 (train.py:150).
+    "batch_size",
 }
 
 

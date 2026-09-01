@@ -28,6 +28,48 @@ if TYPE_CHECKING:  # import-cycle-free: only needed for the annotation
 # loss logs are printed on the same (per-1000) scale.
 _BATCH_SZ = 1000
 
+#: Transitions per optimizer step. ICAPS-24 pools its traces into one
+#: ``DataLoader(trainset, args.batch_size, shuffle=True)`` and defaults to 128
+#: (``train.py:150``); we stepped once per trace, which is 10-20 transitions on
+#: these corpora -- so both smaller and far more frequent than upstream.
+DEFAULT_BATCH_SIZE = 128
+
+
+def batched_steps(cached, batch_size, rng):
+    """Yield ``(problem, s1, a, s2)`` batches of about ``batch_size`` transitions.
+
+    Traces are grouped by proposition width first. ``build()`` produces a row per
+    proposition of the *currently grounded* problem, so only traces that ground
+    to the same width can share one step -- pooling across widths would trip the
+    shape assert. Within a group the transitions are concatenated and shuffled,
+    which is what upstream's DataLoader does; groups are stepped separately.
+
+    A ``batch_size`` of ``None`` or below 1 restores one step per trace.
+    """
+    import torch
+
+    if not batch_size or batch_size < 1:
+        order = list(range(len(cached)))
+        rng.shuffle(order)
+        for i in order:
+            yield cached[i]
+        return
+
+    groups = {}
+    for problem, s1, a, s2 in cached:
+        groups.setdefault(int(s2.shape[1]), []).append((problem, s1, a, s2))
+
+    for _width, members in sorted(groups.items()):
+        problem = members[0][0]           # same grounding within a group
+        s1 = torch.cat([m[1] for m in members], dim=0)
+        a = torch.cat([m[2] for m in members], dim=0)
+        s2 = torch.cat([m[3] for m in members], dim=0)
+        perm = torch.randperm(s1.shape[0], generator=None)
+        s1, a, s2 = s1[perm], a[perm], s2[perm]
+        for start in range(0, s1.shape[0], batch_size):
+            stop = start + batch_size
+            yield problem, s1[start:stop], a[start:stop], s2[start:stop]
+
 
 class PORosame_Runner(Rosame_Runner):
 
@@ -222,6 +264,9 @@ class PORosame_Runner(Rosame_Runner):
             epochs: Epochs per trajectory.
             snapshot: Optional writer for anytime curves.
             step_offset: Starting value for the global step counter.
+            batch_size: Transitions per optimizer step, pooled across the traces
+                that share a grounding. ``None`` steps once per trace, which is
+                what this loop did before.
 
         Returns:
             The global step counter after the last epoch.
@@ -266,6 +311,7 @@ class PORosame_Runner(Rosame_Runner):
         epochs: int = 100,
         snapshot: Optional["SnapshotWriter"] = None,
         step_offset: int = 0,
+        batch_size: Optional[int] = DEFAULT_BATCH_SIZE,
     ) -> int:
         """Interleaved schedule: one persistent optimizer, all traces per epoch.
 
@@ -297,13 +343,10 @@ class PORosame_Runner(Rosame_Runner):
 
         step = step_offset
         optimizer = self._build_optimizer()
-        order = list(range(len(cached)))
         for epoch in range(epochs):
-            random.shuffle(order)
             loss_final = 0.0
-            for i in order:
-                problem, s1, a, s2 = cached[i]
-                # Re-ground to this trace's objects so build() dims match s2.
+            for problem, s1, a, s2 in batched_steps(cached, batch_size, random):
+                # Re-ground to this batch's objects so build() dims match s2.
                 self.problem = problem
                 self.ground_new_trajectory()
                 # Normalized by batch size to match the vendored learn_rosame
@@ -341,6 +384,7 @@ class PORosame_Runner(Rosame_Runner):
         train_per_trajectory: bool = True,
         epochs: int = 100,
         snapshot: Optional["SnapshotWriter"] = None,
+        batch_size: Optional[int] = DEFAULT_BATCH_SIZE,
     ) -> str:
         """Run the selected schedule and return the learned PDDL domain string.
 
@@ -354,7 +398,8 @@ class PORosame_Runner(Rosame_Runner):
             if train_per_trajectory:
                 self.learn_per_trajectory(prepared, epochs, snapshot=snapshot)
             else:
-                self.learn_pooled(prepared, epochs, snapshot=snapshot)
+                self.learn_pooled(prepared, epochs, snapshot=snapshot,
+                                  batch_size=batch_size)
         finally:
             if snapshot is not None:
                 snapshot.close()

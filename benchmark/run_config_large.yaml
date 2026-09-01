@@ -57,6 +57,11 @@ shared:
   algorithms: [pisam_milp_loop, rosame_24, rosame_milp_24, rosame_milp_24_tag]
                                           # 5 arms in total: pisam_milp_loop expands to two via the
                                           # gt_anchoring ablation below (init_only + none).
+  batch_size: 128                         # transitions per optimizer step for the symbolic ROSAME arms.
+                                          # ICAPS-24 pools its traces into one DataLoader at this default
+                                          # (train.py:150); we stepped once per trace, i.e. 10-20 transitions.
+                                          # Traces are pooled only within a shared grounding, so a corpus with
+                                          # mixed object universes still steps per group.
   snapshot_interval: 1                    # capture a ROSAME snapshot every N epochs, with that epoch's
                                           # training loss, into <fold>/anytime_snapshots/<arm>/snapshots.json.
                                           # Needed for the convergence panel: without it no per-epoch loss is

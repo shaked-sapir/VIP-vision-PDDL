@@ -123,10 +123,12 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         goal_mode: str = "gt",
         milp_solver: str = "cp-sat-observed",
         snapshot_interval: Optional[int] = None,
+        batch_size: Optional[int] = None,
     ) -> None:
         super().__init__(
             train_per_trajectory=train_per_trajectory,
             snapshot_interval=snapshot_interval,
+            batch_size=batch_size,
         )
         self.epochs = epochs
         self.mip_time_limit = mip_time_limit
@@ -270,6 +272,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         goal_mode: str = "gt",
         milp_solver: str = "cp-sat-observed",
         snapshot_interval: Optional[int] = None,
+        batch_size: Optional[int] = None,
     ) -> None:
         super().__init__(
             train_per_trajectory=False,
@@ -279,6 +282,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             goal_mode=goal_mode,
             milp_solver=milp_solver,
             snapshot_interval=snapshot_interval,
+            batch_size=batch_size,
         )
         self.pre_mip_epochs = pre_mip_epochs
         self.mip_interval = mip_interval
@@ -365,6 +369,8 @@ class RosameMilpRunner(RosameMilpBaseRunner):
                     mip_interval=self.mip_interval,
                     agreement_stop=self.agreement_stop,
                     snapshot=snapshot,
+                    **({"batch_size": self.batch_size}
+                       if self.batch_size is not None else {}),
                 )
             finally:
                 if snapshot is not None:

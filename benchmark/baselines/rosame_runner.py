@@ -86,9 +86,11 @@ class RosameBaselineRunner(BaselineRunner):
         self,
         train_per_trajectory: bool = True,
         snapshot_interval: Optional[int] = None,
+        batch_size: Optional[int] = None,
     ) -> None:
         self.train_per_trajectory = train_per_trajectory
         self.snapshot_interval = snapshot_interval
+        self.batch_size = batch_size
 
     @property
     def name(self) -> str:
@@ -169,10 +171,14 @@ class RosameBaselineRunner(BaselineRunner):
             rosame = PORosame_Runner(str(domain_path))
 
             prepared = self._build_prepared(traj_paths, partial_domain)
+            learn_kwargs = {}
+            if self.batch_size is not None:
+                learn_kwargs["batch_size"] = self.batch_size
             model = rosame.learn_full(
                 prepared,
                 train_per_trajectory=self.train_per_trajectory,
                 snapshot=snapshot,
+                **learn_kwargs,
             )
             if model and ":action" in model:
                 return model, extra_info

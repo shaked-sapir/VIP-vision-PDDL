@@ -23,7 +23,12 @@ from typing import Callable, Dict, List, Optional, Tuple
 import torch
 import torch.optim as optim
 
-from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner, _BATCH_SZ
+from benchmark.algorithm_adapters.po_rosame_runner import (
+    DEFAULT_BATCH_SIZE,
+    PORosame_Runner,
+    _BATCH_SZ,
+    batched_steps,
+)
 from benchmark.algorithm_adapters.rosame_milp.model_bridge import model_cross_entropy
 
 # One MILP round: called with the current model, returns
@@ -109,6 +114,7 @@ class MilpPORosame(PORosame_Runner):
         mip_interval: int = 1,
         agreement_stop: float = 1.0,
         snapshot=None,
+        batch_size: Optional[int] = DEFAULT_BATCH_SIZE,
     ) -> Dict:
         """Pooled training with interleaved MILP rounds.
 
@@ -120,6 +126,8 @@ class MilpPORosame(PORosame_Runner):
             pre_mip_epochs: warmup epochs without MILP (upstream: 50).
             mip_interval: solve every this many epochs after warmup (upstream: 1).
             agreement_stop: stop once ROSAME/MILP agreement reaches this level.
+            batch_size: Transitions per optimizer step, pooled across the
+                traces that share a grounding. ``None`` steps once per trace.
             snapshot: Optional ``SnapshotWriter``; captures the model and that
                 epoch's training loss every Nth epoch. The DL phase only — a
                 MILP round does not train.
@@ -151,10 +159,8 @@ class MilpPORosame(PORosame_Runner):
             snapshot.start()
 
         for epoch in range(epochs):
-            random.shuffle(order)
             loss_final = 0.0
-            for i in order:
-                problem, s1, a, s2 = cached[i]
+            for problem, s1, a, s2 in batched_steps(cached, batch_size, random):
                 self.problem = problem
                 self.ground_new_trajectory()
                 loss_final += self._train_step(s1, a, s2, optimizer) / _BATCH_SZ
