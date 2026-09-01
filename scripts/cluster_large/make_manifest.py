@@ -29,6 +29,8 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = PROJECT_ROOT / "benchmark" / "run_config_large.yaml"
 HEADER = ["domain_key", "data_dir", "p_mask", "p_noise", "run_name"]
+#: --per-fold adds the fold column the fold-level template reads.
+FOLD_HEADER = ["domain_key", "data_dir", "p_mask", "p_noise", "fold", "run_name"]
 
 
 def load_config(path: Path) -> dict:
@@ -38,8 +40,14 @@ def load_config(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
 
 
-def build_rows(config: dict, only_domains: List[str] | None) -> List[Dict[str, str]]:
-    """One row per (domain, mask, noise). L is not expanded — it stays in the config.
+def build_rows(config: dict, only_domains: List[str] | None,
+               per_fold: bool = False) -> List[Dict[str, str]]:
+    """One row per (domain, mask, noise), or per (domain, mask, noise, fold).
+
+    L is never expanded -- it stays in the config, so a job always runs the
+    whole L sweep. The learning budget is wall-clock, so splitting L across
+    jobs would put L=10 and L=2000 on different hardware. Folds carry no such
+    tie: cv_split is deterministic per fold and folds never interact.
 
     Raises:
         ValueError: on a non-simulated config, an empty grid, or a ``--domains``
@@ -66,10 +74,18 @@ def build_rows(config: dict, only_domains: List[str] | None) -> List[Dict[str, s
     if not run_name:
         raise ValueError("run config must define run_name")
 
-    return [
+    cells = [
         {"domain_key": d["domain_key"], "data_dir": d["data_dir"],
          "p_mask": mp, "p_noise": np_, "run_name": run_name}
         for d, mp, np_ in product(domains, masking_ps, noising_ps)
+    ]
+    if not per_fold:
+        return cells
+
+    n_folds = int((config.get("shared") or {}).get("n_folds", 5))
+    return [
+        {**cell, "fold": fold, "run_name": cell["run_name"]}
+        for cell in cells for fold in range(n_folds)
     ]
 
 
@@ -79,13 +95,17 @@ def main() -> None:
     parser.add_argument("--domains", nargs="*", default=None, metavar="DOMAIN_KEY",
                         help="Subset of domain_keys (default: every one in the config)")
     parser.add_argument("--out-dir", type=Path, default=Path(__file__).resolve().parent)
+    parser.add_argument("--per-fold", action="store_true",
+                        help="One row per (domain, mask, noise, FOLD) for "
+                             "sweep_fold.sbatch, instead of one per cell. Each "
+                             "job still runs that fold's whole L sweep.")
     args = parser.parse_args()
 
-    rows = build_rows(load_config(args.config), args.domains)
+    rows = build_rows(load_config(args.config), args.domains, per_fold=args.per_fold)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    out = args.out_dir / "manifest.csv"
+    out = args.out_dir / ("fold_manifest.csv" if args.per_fold else "manifest.csv")
     with out.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=HEADER)
+        writer = csv.DictWriter(handle, fieldnames=FOLD_HEADER if args.per_fold else HEADER)
         writer.writeheader()
         writer.writerows(rows)
 
