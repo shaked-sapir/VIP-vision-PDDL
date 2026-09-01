@@ -6,8 +6,12 @@ Two arm families converge in different units and record it in different places:
   ``<fold>/<arm_dir>/milp_loop_rounds.jsonl`` (streamed live) with ``v_raw`` --
   the ground-truth-free reconstruction score it minimises.
 * ``rosame*`` writes one row per training epoch to
-  ``<fold>/anytime_snapshots/<arm>/snapshots.json``, with ``loss`` and, for the
-  MILP arms, the ``agreement`` known at that epoch.
+  ``<fold>/anytime_snapshots/<arm>/snapshots.json``, with ``loss``.
+  Agreement is read from ``fold_result.json``'s ``milp_rounds`` instead: a
+  snapshot is captured before its epoch's MILP round, so its ``agreement`` field
+  lags by one round and the converged value is never captured at all -- the loop
+  returns on the stop check before the next capture. ``milp_rounds`` carries the
+  epoch each round actually belongs to, so the two join on epoch.
 
 Both are exposed on one x axis (round / epoch) so the dashboard can show a
 family per panel and toggle which quantity is plotted.
@@ -76,6 +80,7 @@ def rosame_series(instance_dir: Path) -> Dict[str, dict]:
     root = instance_dir / "anytime_snapshots"
     if not root.is_dir():
         return out
+    rounds_by_arm = milp_rounds(instance_dir)
     for arm_dir in sorted(root.iterdir()):
         index = arm_dir / SNAPSHOT_INDEX
         if not index.is_file():
@@ -89,11 +94,41 @@ def rosame_series(instance_dir: Path) -> Dict[str, dict]:
         rows = [r for r in records if r.get("loss") is not None]
         if not rows:
             continue
+        epochs = [r["epoch"] for r in rows]
+        loss = [r["loss"] for r in rows]
+        by_epoch = rounds_by_arm.get(arm_dir.name, {})
+        # A round can fall past the last snapshot: the loop returns on the stop
+        # check before capturing again. Extend the axis so it is not dropped.
+        for extra in sorted(e for e in by_epoch if e > (epochs[-1] if epochs else -1)):
+            epochs.append(extra)
+            loss.append(None)
         out[arm_dir.name] = {
-            "x": [r["epoch"] for r in rows],
-            "loss": [r["loss"] for r in rows],
-            "agreement": [r.get("agreement") for r in rows],
+            "x": epochs,
+            "loss": loss,
+            "agreement": [by_epoch.get(e) for e in epochs],
         }
+    return out
+
+
+def milp_rounds(instance_dir: Path) -> Dict[str, Dict[int, float]]:
+    """``{arm: {epoch: agreement}}`` from ``fold_result.json``'s round records."""
+    marker = instance_dir / "fold_result.json"
+    if not marker.is_file():
+        return {}
+    try:
+        rows = json.loads(marker.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    out: Dict[str, Dict[int, float]] = {}
+    for row in rows:
+        arm = row.get("algorithm")
+        rounds = (row.get("algorithm_specific") or {}).get("milp_rounds")
+        if not arm or not rounds:
+            continue
+        by_epoch = {int(r["epoch"]): r["agreement"] for r in rounds
+                    if r.get("epoch") is not None and r.get("agreement") is not None}
+        if by_epoch:
+            out[arm] = by_epoch
     return out
 
 
