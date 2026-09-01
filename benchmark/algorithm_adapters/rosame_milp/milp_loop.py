@@ -55,8 +55,20 @@ class MilpPORosame(PORosame_Runner):
         """One optimizer step: base ROSAME loss + (optional) model pseudo-CE.
 
         Reimplements ``PORosame_Runner._train_step`` (backward/step are inside
-        it, so the CE term cannot be appended externally) and keeps the base
-        loss byte-identical.
+        it, so the CE term cannot be appended externally).
+
+        The three base terms are divided by the transition count, which the
+        DL-only arm does not do. ICAPS-24 has no MILP and sums them raw
+        (``train.py:84-101``); ICAPS-26 normalises every term by ``B * (T+1)``
+        before adding its pseudo-label CE (``dl/model.py:260-261``). Summing
+        24's raw base with 26's CE -- which is a mean over schema rows, so O(1)
+        -- leaves the CE two to three orders of magnitude smaller than what it
+        competes with, and the MILP cannot move the network: measured over 251
+        rounds, agreement stayed at a single distinct value in two domains and
+        drifted back to its starting value in two more.
+
+        Divides by transitions rather than by cells because that is what
+        ``B * (T+1)`` counts upstream; ``symbol_dim`` never enters its divisor.
         """
         import torch.nn.functional as F
 
@@ -66,17 +78,19 @@ class MilpPORosame(PORosame_Runner):
             f"grounding/proposition mismatch: build={precon.shape[1]} "
             f"vs encoded={state_2.shape[1]} (re-ground the matching problem first)"
         )
+        # Upstream 26's B * (T+1): the transitions this step covers.
+        n_transitions = max(int(state_2.shape[0]), 1)
         preds = state_1 * (1 - deleff) + (1 - state_1) * addeff
-        loss = F.mse_loss(preds, state_2, reduction="sum")
+        loss = F.mse_loss(preds, state_2, reduction="sum") / n_transitions
         validity_constraint = (1 - state_1) * precon
         loss += F.mse_loss(
             validity_constraint,
             torch.zeros(validity_constraint.shape, dtype=validity_constraint.dtype),
             reduction="sum",
-        )
+        ) / n_transitions
         loss += 0.2 * F.mse_loss(
             precon, torch.ones(precon.shape, dtype=precon.dtype), reduction="sum"
-        )
+        ) / n_transitions
         ce = self._model_ce()
         if ce is not None:
             loss = loss + ce
