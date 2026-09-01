@@ -42,6 +42,7 @@ from benchmark.experiment_running_helpers.resume import (
 from src.observation_degradation.masking import MaskingType
 from src.observation_degradation.noising import NoisingType
 from src.plan_denoising.milp_denoiser.config import PisamMilpConfig
+from src.utils.atomic_json import read_json_or_none, write_json_atomic
 from src.utils.config import load_config
 
 
@@ -73,11 +74,9 @@ def _resolve_experiment_paths(
 
 def _save_run_params(path: Path, run_params: dict, *, skip_if_exists: bool = False) -> None:
     """Write run_params.json, optionally skipping if the file already exists."""
-    if skip_if_exists and path.exists():
+    if skip_if_exists and read_json_or_none(path) is not None:
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(run_params, f, indent=2)
+    write_json_atomic(path, run_params)
     print(f"Saved run params to: {path}")
 
 
@@ -281,9 +280,8 @@ def main(
         run_params["noising_strategy"] = data_source.noising_strategy.value
     if evaluation_results_dir is not None:
         run_params_path = evaluation_results_dir / "run_params.json"
-        if resume and run_params_path.exists():
-            with open(run_params_path) as f:
-                existing_params = json.load(f)
+        existing_params = read_json_or_none(run_params_path) if resume else None
+        if existing_params is not None:
             conflicts = run_params_conflicts(existing_params, run_params)
             if conflicts:
                 details = "\n".join(

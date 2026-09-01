@@ -10,9 +10,10 @@ which are generated on demand (see ``collect_results`` / ``experiment_report``).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import List, Optional
+
+from src.utils.atomic_json import read_json_or_none, write_json_atomic
 
 FOLD_RESULT_FILENAME = "fold_result.json"
 
@@ -54,17 +55,12 @@ def fold_shared_dir(testing_dir: Path, fold: int, gt_rate: int) -> Path:
 
 def save_fold_result(fold_dir: Path, rows: List[dict]) -> None:
     """Persist a completed fold's result rows as its completion marker."""
-    with open(fold_dir / FOLD_RESULT_FILENAME, "w") as f:
-        json.dump(rows, f, indent=2)
+    write_json_atomic(fold_dir / FOLD_RESULT_FILENAME, rows)
 
 
 def try_load_fold_result(fold_dir: Path) -> Optional[List[dict]]:
     """Return a completed fold's cached result rows, or ``None`` if not complete."""
-    marker = fold_dir / FOLD_RESULT_FILENAME
-    if not marker.exists():
-        return None
-    with open(marker) as f:
-        return json.load(f)
+    return read_json_or_none(fold_dir / FOLD_RESULT_FILENAME)
 
 
 def _canonical_params(params: dict) -> dict:
