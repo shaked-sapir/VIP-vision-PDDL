@@ -12,6 +12,7 @@ ROSAME, and every ``PISAM_MILP_*`` variant sit side by side. Per-domain
 Usage:
     python -m benchmark.evaluation.export_dashboard_shared_metrics
     python -m benchmark.evaluation.export_dashboard_shared_metrics --modes simulation
+    python -m benchmark.evaluation.export_dashboard_shared_metrics --modes simulation-large
 """
 
 from __future__ import annotations
@@ -19,13 +20,14 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 
 from benchmark.evaluation.cfm.combine_dashboard_reports import (
-    _discover_experiments,
+    _find_grid_cells,
     _load_dashboard_config,
+    _parse_cell,
 )
 from benchmark.experiment_running_helpers.collect_results import collect_results
 from benchmark.experiment_running_helpers.result_schema import (
@@ -43,6 +45,55 @@ _COMBINED_NAME = "all_domains_shared_metrics.xlsx"
 _LEAD_COLS = [
     "mode", "domain", "experiment_name", "p_mask", "p_noise", "algorithm",
 ]
+_DATA_SIZES = ("small", "large")
+_MODE_CHOICES = ("simulation", "image", "simulation-large")
+
+
+def _config_block(cfg: dict, mode: str, data_size: str) -> dict:
+    """The ``mode``/``data_size`` config block, or ``{}`` when unconfigured."""
+    block = cfg.get(mode) or {}
+    if any(k in block for k in _DATA_SIZES):
+        return block.get(data_size) or {}
+    return block if data_size == "small" else {}
+
+
+def _discover_sim_cells(
+    cfg: dict, project_root: Path, data_size: str,
+) -> List[dict]:
+    """Grid cells under ``simulation.<data_size>.prefix`` (or the flat prefix)."""
+    results_root = project_root / cfg["results_root"]
+    prefixes: Dict[str, str] = _config_block(cfg, "simulation", data_size).get("prefix") or {}
+    experiments: List[dict] = []
+    for domain in cfg.get("domains", []):
+        prefix = prefixes.get(domain)
+        if not prefix:
+            continue
+        domain_dir = results_root / domain
+        if not domain_dir.is_dir():
+            continue
+        for cell in _find_grid_cells(domain_dir, prefix):
+            parsed = _parse_cell(cell.name)
+            if parsed is None:
+                continue
+            m, n = parsed
+            experiments.append({
+                "path": cell,
+                "domain": domain,
+                "p_mask": float(m),
+                "p_noise": float(n),
+            })
+    return experiments
+
+
+def _discover_image_experiments(
+    cfg: dict, project_root: Path, data_size: str = "small",
+) -> List[dict]:
+    """Image experiment dirs under ``image.<data_size>.experiment_dir``."""
+    dirs: Dict[str, str] = _config_block(cfg, "image", data_size).get("experiment_dir") or {}
+    return [
+        {"path": project_root / rel.strip(), "domain": domain}
+        for domain, rel in dirs.items() if rel
+    ]
 
 
 def _shared_metrics_frame(df_algos: pd.DataFrame) -> pd.DataFrame:
@@ -121,17 +172,21 @@ def export_dashboard_shared_metrics(
 ) -> Path:
     """Build combined (+ per-domain) shared-metrics workbooks from fold_result.json."""
     cfg = _load_dashboard_config(config_path)
-    sim_experiments, image_experiments = _discover_experiments(cfg, _PROJECT_ROOT)
-    want = set(modes or ["simulation", "image"])
+    want = set(modes or list(_MODE_CHOICES))
 
     all_frames: List[pd.DataFrame] = []
     by_domain: dict[str, List[pd.DataFrame]] = {}
 
     specs: List[tuple[str, dict]] = []
     if "simulation" in want:
-        specs.extend(("simulation", s) for s in sim_experiments)
+        specs.extend(("simulation", s) for s in _discover_sim_cells(cfg, _PROJECT_ROOT, "small"))
+    if "simulation-large" in want:
+        specs.extend(
+            ("simulation-large", s)
+            for s in _discover_sim_cells(cfg, _PROJECT_ROOT, "large")
+        )
     if "image" in want:
-        specs.extend(("image", s) for s in image_experiments)
+        specs.extend(("image", s) for s in _discover_image_experiments(cfg, _PROJECT_ROOT, "small"))
 
     for mode, spec in specs:
         exp_path: Path = spec["path"]
@@ -196,8 +251,8 @@ def main() -> None:
     ap.add_argument("--config", type=Path, default=_DEFAULT_CONFIG)
     ap.add_argument("--out-dir", type=Path, default=_DEFAULT_OUT)
     ap.add_argument(
-        "--modes", nargs="+", choices=["simulation", "image"], default=None,
-        help="Restrict to these modes (default: both).",
+        "--modes", nargs="+", choices=list(_MODE_CHOICES), default=None,
+        help="Restrict to these modes (default: all).",
     )
     args = ap.parse_args()
     if not args.config.is_file():
