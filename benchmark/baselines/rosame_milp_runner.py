@@ -48,6 +48,7 @@ from src.milp.converter import (
 from src.milp.encoding_config import MilpEncodingConfig
 from benchmark.algorithm_adapters.anytime_snapshots import SnapshotWriter
 from benchmark.algorithm_adapters.rosame_milp.milp_loop import MilpPORosame
+from benchmark.algorithm_adapters.seeding import seed_everything
 from benchmark.algorithm_adapters.rosame_milp.model_bridge import (
     extract_model_labels,
     model_agreement,
@@ -124,17 +125,28 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         milp_solver: str = "cp-sat-observed",
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
+        normalize_base_loss: bool = True,
+        rosame_seed: Optional[int] = 42,
     ) -> None:
         super().__init__(
             train_per_trajectory=train_per_trajectory,
             snapshot_interval=snapshot_interval,
             batch_size=batch_size,
+            rosame_seed=rosame_seed,
         )
+        self.normalize_base_loss = normalize_base_loss
         self.epochs = epochs
         self.mip_time_limit = mip_time_limit
         self.encoding_config = encoding_config or MilpEncodingConfig.upstream()
         self.goal_mode = goal_mode
         self.milp_solver = milp_solver
+
+    def run_params(self) -> Dict[str, object]:
+        return {
+            **super().run_params(),
+            "normalize_base_loss": self.normalize_base_loss,
+            "epochs": self.epochs,
+        }
 
     # ------------------------------------------------------------ MILP plumbing
 
@@ -213,6 +225,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
 
         try:
             partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
+            seed_everything(self.rosame_seed)
             rosame = PORosame_Runner(str(domain_path))
             prepared = self._build_prepared(traj_paths, partial_domain)
 
@@ -273,6 +286,8 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         milp_solver: str = "cp-sat-observed",
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
+        normalize_base_loss: bool = True,
+        rosame_seed: Optional[int] = 42,
     ) -> None:
         super().__init__(
             train_per_trajectory=False,
@@ -283,6 +298,8 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             milp_solver=milp_solver,
             snapshot_interval=snapshot_interval,
             batch_size=batch_size,
+            normalize_base_loss=normalize_base_loss,
+            rosame_seed=rosame_seed,
         )
         self.pre_mip_epochs = pre_mip_epochs
         self.mip_interval = mip_interval
@@ -318,6 +335,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             return None, {}
 
         extra: Dict = {
+            **self.run_params(),
             "goal_mode": self.goal_mode,
             "milp_solver": self.milp_solver,
             "encoding_config": self.encoding_config.as_stats(),
@@ -325,9 +343,10 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             "mip_interval": self.mip_interval,
             "mip_traces": self.mip_traces,
         }
+        seed_everything(self.rosame_seed)
         try:
             partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
-            rosame = MilpPORosame(str(domain_path))
+            rosame = MilpPORosame(str(domain_path), normalize_base_loss=self.normalize_base_loss)
             prepared = self._build_prepared(traj_paths, partial_domain)
 
             ps_domain, obs_t, n_gt_goals = self._build_milp_traces(

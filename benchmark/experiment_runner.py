@@ -271,6 +271,9 @@ def main(
         ) + [r.row_name(domain_ref_path) for r in (baselines or [])],
         "normalized": norm_trajs_dir is not None,
         "data_source_type": type(data_source).__name__,
+        "baseline_params": {
+            r.row_name(domain_ref_path): r.run_params() for r in (baselines or [])
+        },
     }
     # Simulated-only run context (image runs leave these absent).
     if isinstance(data_source, SimulatedDataSource):

@@ -274,6 +274,7 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
   - `benchmark/generate_gt_trajectories.py` — GT backfill/validation CLI (`gt_builder.py`)
   - `benchmark/simulated_version/run_simulated_experiment.py` — standalone simulated runs
   - `benchmark/backfill_baseline.py` — retrofit baseline results into existing cells (`original_observations/` → learn → evaluate → merge into `fold_result.json`); supports `--workers N` for parallel cells
+  - Symbolic ROSAME training dynamics are config, never a checkout: `shared.batch_size` (0 = one step per trace, 128 = ICAPS-24's DataLoader), `shared.normalize_base_loss` (ROSAME+MILP arms only) and `shared.rosame_seed` in `run_config.yaml`, mirrored by `backfill_baseline.py --batch-size / --normalize-base-loss / --rosame-seed`; each cell's `run_params.json` records them under `baseline_params`, and every symbolic ROSAME row carries them in `algorithm_specific`.
   - `benchmark/backfill_baseline.py` also carries `--epochs` / `--n-seeds` / `--ignore-budget`, forwarded only to the runners whose `__init__` accepts them; `--epochs 5000 --ignore-budget` is gate 7's budget-control cell, run outside the timeout.
 - `benchmark/backfill_cdps.py` — retrofit `cdps_anchored` / `pisam_milp_single_round` / `pisam_milp_loop` into existing cells via the same frozen-observation path (`backfill_common.py`); MILP knobs from `--milp-config`
   - `benchmark/migrate_arm_names.py` — rewrite superseded algorithm labels in a result tree (`cdps_milp` → `pisam_milp`, `ROSAME` → `ROSAME_24`) and purge retired arms

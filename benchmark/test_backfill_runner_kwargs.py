@@ -26,6 +26,9 @@ def _args(**overrides) -> argparse.Namespace:
             "n_seeds": None,
             "ignore_budget": False,
             "budget_mode": None,
+            "batch_size": None,
+            "normalize_base_loss": None,
+            "rosame_seed": None,
             **overrides,
         }
     )
@@ -53,6 +56,11 @@ class TestOnlyWhatWasPassedIsForwarded:
         assert _runner_kwargs(
             _args(ignore_budget=True, budget_mode="converge")
         ) == {"budget_mode": "converge"}
+
+    def test_the_symbolic_dynamics_are_forwarded_when_passed(self) -> None:
+        assert _runner_kwargs(
+            _args(batch_size=0, normalize_base_loss=False, rosame_seed=3)
+        ) == {"batch_size": 0, "normalize_base_loss": False, "rosame_seed": 3}
 
     def test_gate_sevens_full_setting(self) -> None:
         assert _runner_kwargs(_args(epochs=5000, n_seeds=1, ignore_budget=True)) == {

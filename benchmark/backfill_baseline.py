@@ -303,6 +303,12 @@ def _runner_kwargs(args: argparse.Namespace) -> dict:
         kwargs["epochs"] = args.epochs
     if args.n_seeds is not None:
         kwargs["n_seeds"] = args.n_seeds
+    if getattr(args, "batch_size", None) is not None:
+        kwargs["batch_size"] = args.batch_size
+    if getattr(args, "normalize_base_loss", None) is not None:
+        kwargs["normalize_base_loss"] = args.normalize_base_loss
+    if getattr(args, "rosame_seed", None) is not None:
+        kwargs["rosame_seed"] = args.rosame_seed
     if args.budget_mode is not None:
         kwargs["budget_mode"] = args.budget_mode
     elif args.ignore_budget:
@@ -342,6 +348,18 @@ def main() -> None:
                          "(--no-train-per-trajectory). Ignored by baselines that "
                          "don't accept it, ROSAME-I included — it trains pooled "
                          "unconditionally, as ICAPS-24 train.py does.")
+    ap.add_argument("--batch-size", type=int, default=None,
+                    help="Symbolic ROSAME arms: transitions per pooled optimizer "
+                         "step; 0 = one step per trace. Default: the runner's own "
+                         "(128, as ICAPS-24's DataLoader).")
+    ap.add_argument("--normalize-base-loss", action=argparse.BooleanOptionalAction,
+                    default=None,
+                    help="ROSAME+MILP arms: divide the base loss terms by the "
+                         "step's transition count before adding the pseudo-label "
+                         "CE. Default: the runner's own (on).")
+    ap.add_argument("--rosame-seed", type=int, default=None,
+                    help="Seed for the symbolic ROSAME arms' RNGs. Default: the "
+                         "runner's own (42).")
     ap.add_argument("--epochs", type=int, default=None,
                     help="Override the per-domain epoch budget of the ICAPS-26 "
                          "arm (rosame_i_26). The configured value is a ceiling "

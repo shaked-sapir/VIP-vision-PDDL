@@ -313,8 +313,13 @@ _RUNNER_KWARG_KEYS = {
     # `pre_mip_epochs` of them warmup before any MILP round fires.
     "epochs", "pre_mip_epochs",
     # Transitions per optimizer step. ICAPS-24 pools traces into one
-    # DataLoader and defaults to 128 (train.py:150).
+    # DataLoader and defaults to 128 (train.py:150); 0 steps once per trace.
     "batch_size",
+    # ROSAME+MILP arms only: divide the base loss terms by the step's
+    # transition count (ICAPS-26's B * (T+1)) before adding the pseudo-label CE.
+    "normalize_base_loss",
+    # Seed for the symbolic ROSAME arms' RNGs (torch, numpy, random).
+    "rosame_seed",
 }
 
 

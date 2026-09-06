@@ -36,11 +36,23 @@ from benchmark.algorithm_adapters.rosame_milp.model_bridge import model_cross_en
 MilpRoundFn = Callable[[], Tuple[Dict[str, "torch.Tensor"], float, Dict, object]]
 
 
+def base_loss_divisor(n_transitions: int, normalize_base_loss: bool) -> int:
+    """The divisor applied to each base loss term of one optimizer step.
+
+    ``normalize_base_loss`` divides by the step's transition count (ICAPS-26's
+    ``B * (T+1)``); off, the terms stay ICAPS-24's raw sums.
+    """
+    if not normalize_base_loss:
+        return 1
+    return max(int(n_transitions), 1)
+
+
 class MilpPORosame(PORosame_Runner):
     """PORosame with an additional model-CE term toward MILP pseudo-labels."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, normalize_base_loss: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
+        self.normalize_base_loss = normalize_base_loss
         self._model_labels: Optional[Dict[str, torch.Tensor]] = None
 
     def set_model_labels(self, labels: Optional[Dict[str, torch.Tensor]]) -> None:
@@ -62,8 +74,9 @@ class MilpPORosame(PORosame_Runner):
         Reimplements ``PORosame_Runner._train_step`` (backward/step are inside
         it, so the CE term cannot be appended externally).
 
-        The three base terms are divided by the transition count, which the
-        DL-only arm does not do. ICAPS-24 has no MILP and sums them raw
+        With ``normalize_base_loss`` on, the three base terms are divided by
+        the transition count, which the DL-only arm does not do; off, they are
+        the raw sums. ICAPS-24 has no MILP and sums them raw
         (``train.py:84-101``); ICAPS-26 normalises every term by ``B * (T+1)``
         before adding its pseudo-label CE (``dl/model.py:260-261``). Summing
         24's raw base with 26's CE -- which is a mean over schema rows, so O(1)
@@ -84,7 +97,7 @@ class MilpPORosame(PORosame_Runner):
             f"vs encoded={state_2.shape[1]} (re-ground the matching problem first)"
         )
         # Upstream 26's B * (T+1): the transitions this step covers.
-        n_transitions = max(int(state_2.shape[0]), 1)
+        n_transitions = base_loss_divisor(int(state_2.shape[0]), self.normalize_base_loss)
         preds = state_1 * (1 - deleff) + (1 - state_1) * addeff
         loss = F.mse_loss(preds, state_2, reduction="sum") / n_transitions
         validity_constraint = (1 - state_1) * precon

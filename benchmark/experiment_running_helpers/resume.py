@@ -35,6 +35,9 @@ _RENAMED_PARAMS = {
     "run_cdps_milp_loop": "run_pisam_milp_loop",
 }
 
+#: Keys compared only when the saved run recorded them (added after older runs).
+_OPTIONAL_PARAMS = frozenset({"baseline_params"})
+
 
 def fold_instance_dir(testing_dir: Path, fold: int, num_trajs: int, gt_rate: int) -> Path:
     """Return the canonical directory for one ``(fold, num_trajs, gt_rate)`` instance."""
@@ -79,4 +82,5 @@ def run_params_conflicts(existing: dict, current: dict) -> List[str]:
     existing = _canonical_params(existing)
     current = _canonical_params(current)
     keys = (set(existing) | set(current)) - RESUME_IGNORED_PARAMS
+    keys -= {k for k in _OPTIONAL_PARAMS if k not in existing}
     return sorted(k for k in keys if existing.get(k) != current.get(k))

@@ -72,6 +72,10 @@ class BaselineRunner(ABC):
             "uses_milp": self.uses_milp,
         }
 
+    def run_params(self) -> Dict[str, object]:
+        """The training knobs this arm ran with, recorded in ``run_params.json``."""
+        return {}
+
     # ------------------------------------------------------------------ #
     # Learning
     # ------------------------------------------------------------------ #

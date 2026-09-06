@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from benchmark.algorithm_adapters.anytime_snapshots import SnapshotWriter
-from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
+from benchmark.algorithm_adapters.po_rosame_runner import DEFAULT_BATCH_SIZE, PORosame_Runner
+from benchmark.algorithm_adapters.seeding import seed_everything
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 
 from benchmark.baselines.base_runner import BaselineRunner
@@ -87,10 +88,25 @@ class RosameBaselineRunner(BaselineRunner):
         train_per_trajectory: bool = True,
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
+        rosame_seed: Optional[int] = 42,
     ) -> None:
         self.train_per_trajectory = train_per_trajectory
         self.snapshot_interval = snapshot_interval
         self.batch_size = batch_size
+        self.rosame_seed = rosame_seed
+
+    @property
+    def effective_batch_size(self) -> int:
+        """Transitions per pooled optimizer step; 0 means one step per trace."""
+        size = DEFAULT_BATCH_SIZE if self.batch_size is None else self.batch_size
+        return size if size and size > 0 else 0
+
+    def run_params(self) -> Dict[str, object]:
+        return {
+            "train_per_trajectory": self.train_per_trajectory,
+            "batch_size": self.effective_batch_size,
+            "rosame_seed": self.rosame_seed,
+        }
 
     @property
     def name(self) -> str:
@@ -157,7 +173,8 @@ class RosameBaselineRunner(BaselineRunner):
             print("  [ROSAME] No valid trajectories, skipping")
             return None, {}
 
-        extra_info = {"train_per_trajectory": self.train_per_trajectory}
+        extra_info: Dict = dict(self.run_params())
+        seed_everything(self.rosame_seed)
         snapshot = None
         if self.snapshot_interval is not None:
             snapshot = SnapshotWriter(
