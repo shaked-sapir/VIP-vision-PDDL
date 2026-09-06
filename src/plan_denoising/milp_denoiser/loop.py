@@ -171,6 +171,8 @@ class LoopResult:
     learned_domain: Optional[LearnerDomain]
     conflicts: List[Any] = field(default_factory=list)
     observations: List[Observation] = field(default_factory=list)
+    #: Pool index of each entry in ``observations`` (the winning round's learner input).
+    observation_indices: List[int] = field(default_factory=list)
     solved: bool = False
     best_round_repair_cost: int = 0
     best_round_subset_size: int = 0
@@ -209,6 +211,7 @@ class LoopResult:
             "best_cost": None,
             "best_round_repair_cost": self.best_round_repair_cost,
             "best_round_subset_size": self.best_round_subset_size,
+            "observation_indices": list(self.observation_indices),
             "conflict_free_model_count": 1 if self.is_conflict_free else 0,
             "pisam_conflicts_on_feasible": len(self.conflicts) if self.solved else None,
             "n_rounds": len(self.rounds),
@@ -926,6 +929,7 @@ def _learn_and_score(
             negative_preconditions_policy, config.seed,
         )
         learner_observations = list(subset_repairs)
+        indices = list(subset)
 
     log.pisam_conflicts = len(conflicts)
     log.learner_input_size = len(learner_observations)
@@ -957,6 +961,7 @@ def _learn_and_score(
         result.learned_domain = domain
         result.conflicts = list(conflicts)
         result.observations = list(learner_observations)
+        result.observation_indices = list(indices)
         result.best_round_repair_cost = log.repair_cost
         result.best_round_subset_size = len(subset)
         result.solved = True

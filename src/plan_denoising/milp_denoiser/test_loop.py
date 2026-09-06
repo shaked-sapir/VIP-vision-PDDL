@@ -32,6 +32,7 @@ import json
 import random
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
@@ -51,6 +52,7 @@ from src.plan_denoising.milp_denoiser.loop import (
     RoundLog,
     _LoopState,
     _TraceCache,
+    _learn_and_score,
     _learner_input,
     _per_trace_scores,
     _remaining_budget,
@@ -819,6 +821,69 @@ class TestModelPrior(unittest.TestCase):
         action.preconditions = [(">", "(some numeric thing)")]
         projection = self._project(_FakeLearnedDomain([action]))
         self.assertEqual(projection.stats["non_predicate_preconditions"], 1)
+
+
+
+class TestObservationIndices(unittest.TestCase):
+    """The result names the pool indices of the observations it hands back.
+
+    The loop returns the winning round's learner input, which is a subset of
+    the fold; a consumer that labels those observations positionally mislabels
+    every one past the first gap (fold ``[p7, p5, p3]``, subset ``[0, 2]`` →
+    the second file must be ``p3``, not ``p5``).
+    """
+
+    class _Evaluation:
+        def __init__(self, v_raw: float) -> None:
+            self.v_raw = v_raw
+            self.v_per_transition = v_raw
+            self.effect_mismatches = 0
+            self.inapplicability_events = 0
+            self.success_rate = 1.0
+            self.per_trace = []
+
+    def _score(self, config: PisamMilpConfig, subset, repaired, conflicts_first=()):
+        """Run ``_learn_and_score`` with PI-SAM and V stubbed; return the result."""
+        result = LoopResult(learned_domain=None)
+        log = RoundLog(1, list(subset), NO_MODEL_HASH, 0.0, 0.0)
+        state = _state(repaired=dict(repaired))
+        outcomes = [(_move_model(), list(conflicts_first), {}), (_move_model(), [], {})]
+        with mock.patch("src.plan_denoising.milp_denoiser.loop._learn_with_pisam",
+                        side_effect=outcomes), \
+             mock.patch("src.plan_denoising.milp_denoiser.loop._evaluate",
+                        return_value=self._Evaluation(1.0)):
+            _learn_and_score(
+                log=log, state=state, result=result, config=config,
+                subset=list(subset), subset_repairs=[f"repair{i}" for i in subset],
+                partial_domain=None, observations=["o0", "o1", "o2"],
+                gt_states_by_obs=None, negative_preconditions_policy=None,
+                weights=None, pool=[0, 1, 2],
+            )
+        return result
+
+    def test_subset_only_records_the_subset(self) -> None:
+        result = self._score(_config(learner_input="subset_only"), [0, 2], {})
+        self.assertEqual(result.observation_indices, [0, 2])
+        self.assertEqual(result.observations, ["repair0", "repair2"])
+
+    def test_accumulated_records_every_repaired_index(self) -> None:
+        repaired = {0: "r0", 1: "r1", 2: "r2"}
+        result = self._score(_config(learner_input="accumulated"), [0, 2], repaired)
+        self.assertEqual(result.observation_indices, [0, 1, 2])
+        self.assertEqual(result.observations, ["r0", "r1", "r2"])
+
+    def test_mixed_set_fallback_records_the_subset(self) -> None:
+        repaired = {0: "r0", 1: "r1", 2: "r2"}
+        result = self._score(
+            _config(learner_input="accumulated"), [0, 2], repaired,
+            conflicts_first=["some conflict"],
+        )
+        self.assertEqual(result.observation_indices, [0, 2])
+        self.assertEqual(result.observations, ["repair0", "repair2"])
+
+    def test_report_carries_the_indices(self) -> None:
+        result = LoopResult(learned_domain=None, observation_indices=[0, 2])
+        self.assertEqual(result.as_report()["observation_indices"], [0, 2])
 
 
 if __name__ == "__main__":

@@ -319,8 +319,14 @@ def run_cdps_phase(
         if patched_observations is not None:
             print(f"  [{algo_name}] Saving {len(patched_observations)} patched observations...")
             final_observations_dir = cdps_work_dir / "final_observations"
+            # The loop returns the winning round's subset, so its files are
+            # named by pool index; the other arms return the whole fold in order.
+            observation_indices = (
+                denoising_report.get("observation_indices") if is_loop else None
+            )
             save_patched_observations(
-                patched_observations, trajectories, final_observations_dir, domain_ref_path
+                patched_observations, trajectories, final_observations_dir, domain_ref_path,
+                observation_indices=observation_indices,
             )
             run_post_process_gt_metrics(cdps_work_dir, trajectories, domain_ref_path, gt_rate)
             update_fold_metadata(
