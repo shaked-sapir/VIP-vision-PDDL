@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser
+from pddl_plus_parser.models import Domain, Observation
 
 from benchmark.experiment_running_helpers.cleaned_trajectories import (
     save_fold_observations,
@@ -37,24 +38,32 @@ from src.plan_denoising.milp_denoiser.single_round import run_single_round
 from src.utils.masking import load_masked_observation
 
 
-def _load_masked_observations(partial_domain, traj_paths, pre_built_observations):
+def _load_masked_observations(
+    partial_domain: Domain,
+    prepared_trajectories: List[Tuple[Path, Path, Path, Set[int]]],
+    pre_built_observations: Optional[List[Observation]],
+) -> List[Observation]:
     """The fold's masked observations, from memory or from disk.
 
     ``pre_built_observations`` (simulated runs) is authoritative when given;
-    otherwise each trajectory is paired with its sibling ``.masking_info`` and
-    loaded (image pipeline). Trajectories with no masking info are skipped.
+    otherwise each ``(trajectory, masking, problem, gt_indices)`` tuple is loaded
+    from disk (image pipeline), with the problem file supplying the declared
+    object types. Trajectories with no masking info are skipped.
     """
     if pre_built_observations is not None:
         return pre_built_observations
 
     observations = []
-    for traj_path_str in traj_paths:
-        traj_path = Path(traj_path_str)
+    for traj_path, _masking_path, problem_pddl_path, *_ in prepared_trajectories:
+        traj_path = Path(traj_path)
         masking_info_path = traj_path.parent / f"{traj_path.stem}.masking_info"
         if not masking_info_path.exists():
             continue
         observations.append(
-            load_masked_observation(traj_path, masking_info_path, partial_domain)
+            load_masked_observation(
+                traj_path, masking_info_path, partial_domain,
+                problem_path=Path(problem_pddl_path),
+            )
         )
     return observations
 
@@ -93,15 +102,16 @@ def _make_save_observations_fn(prepared_trajectories):
 
 
 def _learn_cdps_core(
-    domain_ref_path, traj_paths, config: CDPSConfig, timeout_seconds,
-    fold_work_dir=None, prepared_trajectories=None, gt_states_by_obs=None,
+    domain_ref_path, prepared_trajectories, config: CDPSConfig, timeout_seconds,
+    fold_work_dir=None, gt_states_by_obs=None,
     pre_built_observations=None, events_tracing: bool = False,
 ):
     """Run the Conflict-Directed Patch Search (CDPS).
 
     Args:
+        prepared_trajectories: (trajectory, masking, problem, gt_indices) tuples.
         pre_built_observations: Optional list of pre-built Observation objects.
-            When provided, file loading from traj_paths is skipped entirely
+            When provided, file loading from the tuples is skipped entirely
             (simulated data); otherwise observations are loaded from disk (image
             pipeline).
         events_tracing: If True, collect node expansion events and write
@@ -110,7 +120,7 @@ def _learn_cdps_core(
     partial_domain = DomainParser(Path(str(domain_ref_path)), partial_parsing=True).parse_domain()
 
     masked_observations = _load_masked_observations(
-        partial_domain, traj_paths, pre_built_observations
+        partial_domain, prepared_trajectories, pre_built_observations
     )
     _save_original_observations(
         masked_observations, fold_work_dir, prepared_trajectories,
@@ -225,7 +235,6 @@ def learn_cdps(
         prepared_trajectories, gt_source_indices_override
     )
 
-    traj_paths = [str(t[0]) for t in prepared_trajectories]
     config = CDPSConfig(
         fluent_patch_cost=fluent_patch_cost,
         fluent_patch_weight=fluent_patch_weight,
@@ -242,9 +251,8 @@ def learn_cdps(
     timeout_seconds = conflict_search_timeout if conflict_search_timeout is not None else 60
 
     model, report, patched_observations = _learn_cdps_core(
-        domain_ref_path, traj_paths, config, timeout_seconds,
-        fold_work_dir=fold_work_dir, prepared_trajectories=prepared_trajectories,
-        gt_states_by_obs=gt_states_by_obs,
+        domain_ref_path, prepared_trajectories, config, timeout_seconds,
+        fold_work_dir=fold_work_dir, gt_states_by_obs=gt_states_by_obs,
         pre_built_observations=pre_built_observations,
         events_tracing=events_tracing,
     )
@@ -353,7 +361,7 @@ def _prepare_milp_driver_inputs(
     ).parse_domain()
 
     observations = _load_masked_observations(
-        partial_domain, [str(t[0]) for t in prepared_trajectories], pre_built_observations
+        partial_domain, prepared_trajectories, pre_built_observations
     )
     _save_original_observations(
         observations, fold_work_dir, prepared_trajectories,

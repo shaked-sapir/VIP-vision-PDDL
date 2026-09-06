@@ -9,11 +9,7 @@ is identical for both data sources.
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from pddl_plus_parser.lisp_parsers import (
-    DomainParser,
-    ProblemParser,
-    TrajectoryParser,
-)
+from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser
 from pddl_plus_parser.models import Observation
 
 from benchmark.simulated_version.noise_injection import create_bounded_noisy_observation
@@ -22,6 +18,7 @@ from src.observation_degradation.noising import NoisingType
 from src.observation_degradation.predicate_masking import PredicateMasker
 from src.observation_degradation.predicate_noising import PredicateNoiser
 from src.utils.pddl_state import ground_observation_completely
+from src.utils.pddl_trajectory import parse_trajectory_with_declared_types
 
 
 # ---------------------------------------------------------------------------
@@ -62,17 +59,9 @@ def load_gt_observation(
     Returns:
         The fully grounded observation.
     """
-    if problem_path is not None and Path(problem_path).exists():
-        problem = ProblemParser(
-            problem_path=Path(problem_path), domain=domain
-        ).parse_problem()
-        observation = TrajectoryParser(
-            partial_domain=domain, problem=problem
-        ).parse_trajectory(trajectory_path)
-    else:
-        observation = TrajectoryParser(partial_domain=domain).parse_trajectory(
-            trajectory_path
-        )
+    observation = parse_trajectory_with_declared_types(
+        trajectory_path, domain, problem_path
+    )
     return ground_observation_completely(domain, observation)
 
 

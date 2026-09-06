@@ -1,13 +1,13 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
-from pddl_plus_parser.lisp_parsers import TrajectoryParser
 from pddl_plus_parser.models import GroundedPredicate, Domain, State, Observation
 
 from src.action_model.gym2SAM_parser import lift_predicate
 from src.action_model.pddl2gym_parser import NEGATION_PREFIX, pddlplus_to_gym_predicate
 from src.utils.pddl import ground_observation_completely
+from src.utils.pddl_trajectory import parse_trajectory_with_declared_types
 
 
 def save_masking_info(experiment_path: Path, problem_name: str, trajectory_masking_info: list[set[GroundedPredicate]]) -> None:
@@ -188,6 +188,7 @@ def load_masked_observation(
     trajectory_path: Path,
     masking_info_path: Path,
     domain: Domain,
+    problem_path: Optional[Path] = None,
 ) -> Observation:
     """
     Load a trajectory and apply masking in one unified call.
@@ -204,6 +205,9 @@ def load_masked_observation(
     :param trajectory_path: Path to the .trajectory file
     :param masking_info_path: Path to the .masking_info file
     :param domain: The PDDL domain for parsing predicates and actions
+    :param problem_path: The problem file declaring the trajectory's objects and their
+        types; without it, types are inferred from the initial state (see
+        ``parse_trajectory_with_declared_types``)
     :return: A fully grounded and masked observation ready for PI-SAM learning
 
     Example:
@@ -216,7 +220,7 @@ def load_masked_observation(
         >>>
         >>> masked_obs = load_masked_observation(traj_path, mask_path, domain)
     """
-    observation = TrajectoryParser(partial_domain=domain).parse_trajectory(trajectory_path)
+    observation = parse_trajectory_with_declared_types(trajectory_path, domain, problem_path)
     masking_info = load_masking_info(masking_info_path, domain)
     grounded_observation = ground_observation_completely(domain, observation)
     masked_observation = mask_observation(grounded_observation, masking_info)

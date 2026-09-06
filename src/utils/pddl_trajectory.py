@@ -6,10 +6,38 @@ import os
 from pathlib import Path
 from typing import List, Set, Union, Tuple, Optional
 
-from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
+from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 from pddl_plus_parser.models import Observation, GroundedPredicate, State, Domain
 
 from src.utils.pddl_gym import parse_gym_to_pddl_literal
+
+
+# ============================================================================
+# Trajectory parsing
+# ============================================================================
+
+def parse_trajectory_with_declared_types(
+    trajectory_path: Path,
+    domain: Domain,
+    problem_path: Optional[Path] = None,
+) -> Observation:
+    """Parse a trajectory, taking its object table from the problem file when one is given.
+
+    Without a problem the parser infers each object's type from its mentions in
+    the initial state, and an object whose last mention there sits in an untyped
+    slot comes out as ``object`` (depot's ``(clear pile2)`` types ``pile2`` as
+    ``object``, so ``(at-pile pile2 d2)`` can no longer be lifted to ``?pl - pile``).
+
+    :param trajectory_path: the ``.trajectory`` file.
+    :param domain: the (partial) domain the trajectory is expressed in.
+    :param problem_path: the problem declaring the trajectory's objects; ``None``
+        or a missing file falls back to inference from the initial state.
+    :return: the parsed (not yet grounded) observation.
+    """
+    problem = None
+    if problem_path is not None and Path(problem_path).exists():
+        problem = ProblemParser(problem_path=Path(problem_path), domain=domain).parse_problem()
+    return TrajectoryParser(partial_domain=domain, problem=problem).parse_trajectory(Path(trajectory_path))
 
 
 # ============================================================================
