@@ -751,8 +751,11 @@ _HTML = r"""<!DOCTYPE html>
   g.trend{transition:opacity .12s ease;}
   g.trend.hl path.ln{stroke-width:3.2px;}
   g.trend.hl circle{r:3px;}
-  .legkey .lg{cursor:default;border-radius:5px;padding:2px 6px;margin:-2px -6px;}
-  .legkey .lg:hover{background:#243049;color:#dce6ff;}
+  .legkey.legwrap{flex-wrap:wrap;row-gap:6px;justify-content:flex-end;min-width:0;max-width:100%;}
+  .legkey .algchk{border-radius:5px;padding:2px 6px;margin:-2px -6px;white-space:nowrap;}
+  .legkey .algchk:hover{background:#243049;color:#dce6ff;}
+  .legkey .algchk:has(input:not(:checked)){color:#6f7580;}
+  .legkey .algchk:has(input:not(:checked)) i{opacity:0.45;}
   .gflex{flex:1 1 460px;min-width:0;}
   .lcgrid{max-width:1000px;}
   table.lctbl{font-size:14px;height:100%;}
@@ -920,9 +923,13 @@ function hlAlg(a,on){
 }
 
 function bandLabel(){return S.band==="ci95"?"95% CI":(S.band==="minmax"?"min–max":"±1 std");}
-function lcLegend(){return `<span class="legkey">`+enabledAlgs().map(a=>{const st=algStyle(a);
- const esc=a.replace(/'/g,"\\'");
- return `<span class="lg" onmouseenter="hlAlg('${esc}',true)" onmouseleave="hlAlg('${esc}',false)"><i style="width:20px;height:0;border-top:3px ${st.dash?"dashed":"solid"} ${st.c};"></i> ${algLabel(a)}</span>`;}).join("")
+function toggleableAlgs(){return [CDPS,ORACLE,...(S.cmp?BASES:[])];}
+function algCheckbox(a,lockCdps){const st=algStyle(a);const esc=a.replace(/'/g,"\\'");
+ return `<label class="algchk" onmouseenter="hlAlg('${esc}',true)" onmouseleave="hlAlg('${esc}',false)"><input type="checkbox" ${S.off[a]?"":"checked"} ${(lockCdps&&a===CDPS)?"disabled":""} onchange="toggleAlg('${esc}')"><i style="width:14px;height:0;border-top:2px ${st.dash?"dashed":"solid"} ${st.c};display:inline-block;"></i>${algLabel(a)}</label>`;}
+// The curve-card legend doubles as a toggle row: every arm of the current mode
+// is listed, checked or not, so a hidden series can be re-enabled in place.
+// CDPS is toggleable here; the top control bar keeps it locked on.
+function lcLegend(){return `<span class="legkey legwrap">`+toggleableAlgs().map(a=>algCheckbox(a,false)).join("")
  +`<span><i style="width:20px;height:12px;background:rgba(75,143,226,0.25);border-radius:2px;"></i> ${bandLabel()}</span></span>`;}
 
 function curveTable(entries){
@@ -1169,9 +1176,7 @@ function imgView(){
 function ctrlBar(){
   const modes=`<span style="display:flex;gap:6px;"><button class="seg ${!S.cmp?'on':''}" onclick="setCmp(false)">CDPS only</button><button class="seg ${S.cmp?'on':''}" onclick="setCmp(true)">vs baselines</button></span>`;
   const band=`<label>band <select onchange="setBand(this.value)">${["std","ci95","minmax"].map(b=>`<option ${b===S.band?"selected":""}>${b}</option>`).join("")}</select></label>`;
-  const chk=a=>{const st=algStyle(a);const esc=a.replace(/'/g,"\\'");
-    return `<label class="algchk" onmouseenter="hlAlg('${esc}',true)" onmouseleave="hlAlg('${esc}',false)"><input type="checkbox" ${S.off[a]?"":"checked"} ${a===CDPS?"disabled":""} onchange="toggleAlg('${esc}')"><i style="width:12px;height:0;border-top:2px ${st.dash?"dashed":"solid"} ${st.c};display:inline-block;"></i>${algLabel(a)}</label>`;};
-  const boxes=[CDPS,ORACLE,...(S.cmp?BASES:[])].map(chk).join("");
+  const boxes=toggleableAlgs().map(a=>algCheckbox(a,true)).join("");
   const baseSel=(S.cmp&&BASES.length>1)?`<label>Δ vs <select onchange="setBase(this.value)">${BASES.map(b=>`<option ${b===S.base?"selected":""}>${b}</option>`).join("")}</select></label>`:"";
   const note=(S.cmp&&!BASES.length)?`<span style="color:#7d828b;">no baseline rows found (run the backfill)</span>`:"";
   $("ctrlbar").innerHTML=modes+band+boxes+baseSel+note;
