@@ -88,7 +88,7 @@ class RosameBaselineRunner(BaselineRunner):
         train_per_trajectory: bool = True,
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
-        rosame_seed: Optional[int] = 42,
+        rosame_seed: Optional[int] = 8800,
     ) -> None:
         self.train_per_trajectory = train_per_trajectory
         self.snapshot_interval = snapshot_interval

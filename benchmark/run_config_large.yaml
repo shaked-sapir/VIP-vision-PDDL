@@ -59,7 +59,7 @@ shared:
                                           # gt_anchoring ablation below (init_only + none).
   batch_size: 128                         # transitions per optimizer step for the symbolic ROSAME arms.
   normalize_base_loss: true               # ROSAME+MILP arms: ICAPS-26's B*(T+1) base-loss scaling, so the pseudo-label CE can move the network
-  rosame_seed: 42                         # seeds torch / numpy / random for the symbolic ROSAME arms
+  rosame_seed: 8800                       # one fixed seed per run, as upstream ICAPS-24 train.py (its default); see docs/algorithm_comparison_analysis.md §3.4
                                           # ICAPS-24 pools its traces into one DataLoader at this default
                                           # (train.py:150); we stepped once per trace, i.e. 10-20 transitions.
                                           # Traces are pooled only within a shared grounding, so a corpus with

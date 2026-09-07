@@ -126,7 +126,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
         normalize_base_loss: bool = True,
-        rosame_seed: Optional[int] = 42,
+        rosame_seed: Optional[int] = 8800,
     ) -> None:
         super().__init__(
             train_per_trajectory=train_per_trajectory,
@@ -287,7 +287,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
         normalize_base_loss: bool = True,
-        rosame_seed: Optional[int] = 42,
+        rosame_seed: Optional[int] = 8800,
     ) -> None:
         super().__init__(
             train_per_trajectory=False,

@@ -238,6 +238,48 @@ assumption, not the algorithms.
 `MilpEncodingConfig.tag()` (`forbid_redundant_adds=False`) and report how much of the gap
 closes. Fidelity to upstream is defensible; an undeclared asymmetry is not.
 
+### 3.4 Initialisation luck on unobserved actions (ROSAME_24, symbolic, small data)
+
+**Symptom.** In the depot small-data re-run of 2026-09-07, `ROSAME_24` scored
+`false_plans_ratio` 0.99 and `solving_ratio` 0.00 in all 270 simulation folds, against 0.27 and
+0.10 in the run it replaced. Its precision and recall were unchanged (0.74 / 0.78). The two
+symbolic `ROSAME_MILP_24*` arms moved the same way.
+
+**Mechanism.** ROSAME emits an action's preconditions by thresholding per-literal probabilities
+of a randomly initialised network. An action that never occurs in a fold's training traces —
+depot's `stack` in most small folds — is never touched by training, so its emitted precondition
+is the initialisation, thresholded. Unseeded, each fold rolled its own initialisation and about
+6% of actions (116 of 1890) came out with an empty precondition. The re-run fixed one seed (42)
+for every fold, so the same roll repeated 270 times; for `stack` that roll is an empty
+precondition, the planner applies `stack` anywhere, and every plan fails validation (285 of 1890
+empty). On one fold whose original model was valid, re-learning under the pre-seeding code gave
+`stack` 7 precondition literals; the seeded code gave 0.
+
+**Metric signature.** `false_plans` = 1.0 with `unsolvable` = 0 and *unchanged* P/R — the row in
+§4 for an over-permissive model, but the missing preconditions belong to an action the training
+data never contained, so no learning change can recover them. Confirm by checking whether the
+action with `:precondition (and )` appears in any `operator:` line of the fold's trajectories.
+
+**What upstream does** (checked in the `xikaioliver/ROSAME` clone, 2026-09-07). ICAPS-24
+(`main`, `train.py:156-161`) seeds `random` and `torch` with `--seed`, default **8800**, and
+trains once per configuration; there is no multi-seed loop and no averaging. ICAPS-26
+(`ROSAME+MILP`) seeds nothing; its CLI help advertises a `reproduce` mode ("three times with
+different random seeds, store the best", `dl/util/tuning.py:637`), but `dl/main/common.py` never
+dispatches it. Our imaged arms' rule — `n_seeds` = 3 from 8800, keep the lowest final training
+loss — is this harness's own protocol, not upstream's.
+
+**DECIDED (2026-09-07): faithfulness.** The symbolic `ROSAME_24` / `ROSAME_MILP_24*` arms run
+**once per fold with one fixed seed, upstream's default 8800**, set by `shared.rosame_seed` and
+recorded in every cell's `run_params.json` (`baseline_params`) and every row's
+`algorithm_specific`. `numpy` is seeded alongside `random` and `torch` (upstream seeds only the
+latter two; the DL path draws from neither numpy nor `random`, so this changes nothing). The
+multi-seed protocol stays confined to the imaged arms, where it was introduced. Consequence, to
+be stated wherever the symbolic arms are compared: on small data, `ROSAME_24`'s plan validity
+is largely decided by the initialisation of the actions the fold never observed, and a fixed
+seed makes that decision identical across folds rather than averaging it out. The training loss
+never sees those actions, so a best-of-N-by-loss rule would not fix it either — only per-fold
+variation hides it.
+
 ## 4. Reading the metrics correctly
 
 | pattern | means | look at |

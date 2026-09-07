@@ -359,7 +359,7 @@ def main() -> None:
                          "CE. Default: the runner's own (on).")
     ap.add_argument("--rosame-seed", type=int, default=None,
                     help="Seed for the symbolic ROSAME arms' RNGs. Default: the "
-                         "runner's own (42).")
+                         "runner's own (8800, upstream ICAPS-24's default).")
     ap.add_argument("--epochs", type=int, default=None,
                     help="Override the per-domain epoch budget of the ICAPS-26 "
                          "arm (rosame_i_26). The configured value is a ceiling "

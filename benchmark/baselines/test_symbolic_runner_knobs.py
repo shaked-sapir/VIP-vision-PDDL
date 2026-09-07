@@ -18,7 +18,7 @@ def test_small_data_knobs_reach_every_symbolic_arm():
 def test_defaults_are_the_large_sweep_dynamics():
     for runner in resolve_baselines(SYMBOLIC):
         assert runner.effective_batch_size == DEFAULT_BATCH_SIZE, runner.name
-        assert runner.rosame_seed == 42, runner.name
+        assert runner.rosame_seed == 8800, runner.name
         if runner.uses_milp:
             assert runner.normalize_base_loss is True, runner.name
 

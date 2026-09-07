@@ -32,7 +32,7 @@ shared:
   # trace with the raw ICAPS-24 loss; the large sweep sets 128 / true instead.
   batch_size: 0                         # transitions per pooled optimizer step; 0 = one step per trace
   normalize_base_loss: false            # true | false — ROSAME+MILP arms: divide base loss by the step's transitions
-  rosame_seed: 42                       # any int — seeds torch / numpy / random for the symbolic ROSAME arms
+  rosame_seed: 8800                     # any int — one fixed seed per run, as upstream ICAPS-24 train.py (its default); see docs/algorithm_comparison_analysis.md §3.4
   algorithms: [cdps, pisam_milp_single_round, pisam_milp_loop]          # any subset of: cdps (ours), cdps_anchored, pisam_milp_single_round, pisam_milp_loop, rosame_24, rosame_i_24, rosame_i_milp_24 (imaged cells only), rosame_milp_24*. e.g. [cdps] or [rosame_24] to run one standalone
 
   # Shared by both MILP arms; each arm pins its own variant from the selected
