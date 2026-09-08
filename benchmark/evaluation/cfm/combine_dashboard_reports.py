@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import yaml
 
+from benchmark.evaluation.cfm.build_dashboard import DATA_SIZES, mode_block
 from benchmark.evaluation.experiment_report import (
     RAW_COLUMNS,
     _parse_fold_dir_name,
@@ -94,12 +95,15 @@ def _collect_enriched_rows(
     return enriched
 
 
-def _discover_experiments(cfg: dict, project_root: Path) -> Tuple[List[dict], List[dict]]:
+def _discover_experiments(
+    cfg: dict, project_root: Path, data_size: str = "small",
+) -> Tuple[List[dict], List[dict]]:
+    """The grid cells and image experiments of one data size, as the dashboard resolves them."""
     results_root = project_root / cfg["results_root"]
     sim_experiments: List[dict] = []
     image_experiments: List[dict] = []
 
-    prefixes = cfg.get("simulation", {}).get("prefix", {})
+    prefixes = mode_block(cfg, "simulation", data_size).get("prefix") or {}
     for domain in cfg.get("domains", []):
         prefix = prefixes.get(domain)
         if prefix:
@@ -113,7 +117,7 @@ def _discover_experiments(cfg: dict, project_root: Path) -> Tuple[List[dict], Li
                     "p_noise": float(n),
                 })
 
-    for domain, rel in cfg.get("image", {}).get("experiment_dir", {}).items():
+    for domain, rel in (mode_block(cfg, "image", data_size).get("experiment_dir") or {}).items():
         image_experiments.append({
             "path": project_root / rel.strip(),
             "domain": domain,
@@ -168,10 +172,11 @@ def combine_dashboard_reports(
     config_path: Path = _DEFAULT_CONFIG,
     output_path: Optional[Path] = None,
     skip_regenerate: bool = False,
+    data_size: str = "small",
 ) -> Path:
     """Generate per-experiment reports and write the combined workbook."""
     cfg = _load_dashboard_config(config_path)
-    sim_experiments, image_experiments = _discover_experiments(cfg, _PROJECT_ROOT)
+    sim_experiments, image_experiments = _discover_experiments(cfg, _PROJECT_ROOT, data_size)
 
     if output_path is None:
         output_path = _PROJECT_ROOT / cfg["results_root"] / _OUTPUT_NAME
@@ -207,6 +212,10 @@ def main() -> None:
         action="store_true",
         help="Reuse existing fully-detailed-report.xlsx files",
     )
+    parser.add_argument(
+        "--data-size", choices=DATA_SIZES, default="small",
+        help="Which dashboard data-size block to read the experiments from (default: small)",
+    )
     args = parser.parse_args()
 
     if not args.config.is_file():
@@ -217,6 +226,7 @@ def main() -> None:
         config_path=args.config,
         output_path=args.output,
         skip_regenerate=args.skip_regenerate,
+        data_size=args.data_size,
     )
 
 
