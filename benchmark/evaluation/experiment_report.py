@@ -499,7 +499,7 @@ def _write_df_to_sheet(
     for _, data_row in df.iterrows():
         for c, col_name in enumerate(df.columns):
             val = data_row[col_name]
-            if pd.isna(val) if not isinstance(val, str) else False:
+            if pd.api.types.is_scalar(val) and not isinstance(val, str) and pd.isna(val):
                 sheet.write_blank(row, c, None, cell_fmt)
             elif isinstance(val, float):
                 sheet.write_number(row, c, val, cell_fmt)
