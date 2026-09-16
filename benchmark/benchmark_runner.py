@@ -64,6 +64,7 @@ sys.path.insert(0, str(project_root))
 
 from benchmark import experiment_runner
 from benchmark.algorithms import resolve_algorithms
+from benchmark.baselines.regime import DegradationRegime, gate_baselines
 from benchmark.evaluation.cfm.cfm_quality_analysis import generate_cfm_quality_analysis
 from benchmark.evaluation.cfm.cfm_quality_table import generate_cfm_quality_table
 from benchmark.evaluation.experiment_report import generate_experiment_report
@@ -320,7 +321,39 @@ _RUNNER_KWARG_KEYS = {
     "normalize_base_loss",
     # Seed for the symbolic ROSAME arms' RNGs (torch, numpy, random).
     "rosame_seed",
+    # NOLAM: the flip probability it is given ("oracle" = the fold's realised
+    # rate, or a pinned float), its negative-precondition variant, and its seed.
+    "nolam_noise", "nolam_allow_neg_precs", "nolam_seed",
 }
+
+
+# Shared-config keys read by this runner itself, never forwarded to main().
+_GATE_KEY = "baseline_regime_gate"
+_GATE_MODES = ("strict", "off")
+_RUN_LEVEL_KEYS = {_GATE_KEY}
+
+
+def _gate_is_strict(shared: dict) -> bool:
+    """Whether the regime gate drops arms outside their regime (``strict``, the default)."""
+    mode = shared.get(_GATE_KEY, "strict")
+    if mode not in _GATE_MODES:
+        raise ValueError(f"{_GATE_KEY} must be one of {_GATE_MODES}, got {mode!r}")
+    return mode == "strict"
+
+
+def _cell_regime(source: str, cell: dict, data_dir: Path) -> DegradationRegime:
+    """The degradation regime of one cell."""
+    if source == "image":
+        return DegradationRegime.image(data_dir)
+    return DegradationRegime.simulated(cell["masking_p"], cell["noising_p"], data_dir)
+
+
+def _gate_cell_baselines(
+    main_kwargs: Dict[str, Any], regime: DegradationRegime, strict: bool
+) -> Dict[str, Any]:
+    """``main_kwargs`` with the baselines this cell may run, and the ones it may not."""
+    kept, skipped = gate_baselines(main_kwargs["baselines"], regime, strict=strict)
+    return {**main_kwargs, "baselines": kept, "skipped_baselines": skipped}
 
 
 def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
@@ -329,11 +362,12 @@ def _build_main_kwargs(shared: dict) -> Dict[str, Any]:
     Only keys present in the config are forwarded; anything omitted falls back
     to main()'s own defaults. Unknown keys raise, so a typo (e.g. ``n_fold``) or
     a stale key (e.g. the removed ``mode``) fails loudly instead of being
-    silently dropped.
+    silently dropped. The ``baselines`` here are the run's full set; each cell
+    narrows them through :func:`_gate_cell_baselines`.
     """
     known_keys = _PASSTHROUGH_KEYS | MILP_CONFIG_KEYS | {
         "num_trajectories", "gt_rates", "algorithms", "baselines",
-    } | _RUNNER_KWARG_KEYS
+    } | _RUNNER_KWARG_KEYS | _RUN_LEVEL_KEYS
     unknown = set(shared) - known_keys
     if unknown:
         raise ValueError(
@@ -571,10 +605,18 @@ def execute_run(
     domains_label = "all domains" if not selected_domains else f"domains={selected_domains}"
     print(f"Run '{run_name}' (source={source}, {domains_label}): {len(experiment_cells)} cell(s)")
 
+    gate_strict = _gate_is_strict(shared)
+    shared_experiment_kwargs = _build_main_kwargs(shared)
+
     if dry_run:
         for cell in experiment_cells:
             experiment_name = _cell_experiment_name(run_name, cell)
-            print(f"  - {cell['domain_key']}: {experiment_name}  (data_dir={cell['data_dir']})")
+            regime = _cell_regime(source, cell, _resolve_data_dir(cell["data_dir"]))
+            gated = _gate_cell_baselines(shared_experiment_kwargs, regime, gate_strict)
+            note = ""
+            if gated["skipped_baselines"]:
+                note = f"  [gated out: {', '.join(gated['skipped_baselines'])}]"
+            print(f"  - {cell['domain_key']}: {experiment_name}  (data_dir={cell['data_dir']}){note}")
         return []
 
     # Pre-flight: simulated runs need GT trajectories for every cell. Abort the
@@ -588,7 +630,6 @@ def execute_run(
                 experiment_cells, missing_gt, selected_domains,
             )
 
-    shared_experiment_kwargs = _build_main_kwargs(shared)
     results: List[CellResult] = []
 
     for cell_index, cell in enumerate(experiment_cells, start=1):
@@ -606,12 +647,17 @@ def execute_run(
 
             data_source = _build_data_source(source, simulation_config, data_dir, cell)
 
+            regime = _cell_regime(source, cell, data_dir)
+            cell_kwargs = _gate_cell_baselines(shared_experiment_kwargs, regime, gate_strict)
+            for name, why in cell_kwargs["skipped_baselines"].items():
+                print(f"  [GATE] {name} skipped in {regime.describe()}: {why}")
+
             experiment_runner.main(
                 domain_key=domain_key,
                 data_dir=data_dir,
                 data_source=data_source,
                 experiment_name=experiment_name,
-                **shared_experiment_kwargs,
+                **cell_kwargs,
             )
             results.append(CellResult(
                 domain_key=domain_key, experiment_name=experiment_name, result_dir=result_dir,

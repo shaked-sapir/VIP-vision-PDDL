@@ -14,6 +14,8 @@ import inspect
 from typing import Dict, List, Type
 
 from benchmark.baselines.base_runner import BaselineRunner
+from benchmark.baselines.nolam_runner import NOLAMRunner
+from benchmark.baselines.offlam_runner import OffLAMRunner
 from benchmark.baselines.rosame_runner import RosameBaselineRunner
 from benchmark.baselines.rosame_i_runner import (
     ResizeSpec,
@@ -37,6 +39,8 @@ BASELINE_REGISTRY: Dict[str, List[Type[BaselineRunner]]] = {
     "rosame_i_milp_24": [RosameIMilpRunner],
     "rosame_milp_24": [RosameMilpRunner],
     "rosame_milp_24_tag": [RosameMilpTagRunner],
+    "nolam": [NOLAMRunner],
+    "offlam": [OffLAMRunner],
 }
 
 

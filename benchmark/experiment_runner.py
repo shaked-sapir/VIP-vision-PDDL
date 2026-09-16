@@ -30,6 +30,7 @@ from benchmark.algorithms import (
     cdps_family_names,
     resolve_algorithms,
 )
+from benchmark.baselines.regime import DegradationRegime, gate_baselines
 from benchmark.evaluation.correlation_analysis import aggregate_correlation_tables
 from benchmark.experiment_running_helpers.data_source import DataSource, ImageDataSource, SimulatedDataSource
 from benchmark.experiment_running_helpers.normalize import normalize_experiment_data
@@ -144,6 +145,7 @@ def main(
     pisam_milp_configs: Optional[List[PisamMilpConfig]] = None,
     events_tracing: bool = False,
     resume: bool = False,
+    skipped_baselines: Optional[dict] = None,
 ):
     """Run benchmark experiments on a single domain.
 
@@ -172,6 +174,9 @@ def main(
             marker exists), reloading their rows so reports stay complete.
             Strictly aborts if the current config conflicts with the saved
             run_params.json of the experiment being resumed.
+        skipped_baselines: ``{baseline name: reason}`` for the arms the
+            regime gate kept out of this cell; recorded in run_params.json so
+            the manifest says which arms were absent on purpose.
     """
     if num_trajectories_list is None:
         num_trajectories_list = [3, 4, 5, 6, 7, 8]
@@ -274,6 +279,7 @@ def main(
         "baseline_params": {
             r.row_name(domain_ref_path): r.run_params() for r in (baselines or [])
         },
+        "skipped_baselines": dict(skipped_baselines or {}),
     }
     # Simulated-only run context (image runs leave these absent).
     if isinstance(data_source, SimulatedDataSource):
@@ -352,6 +358,9 @@ def main(
         f"fluent_branch_mode={fluent_branch_mode}"
     )
     print(f"CV folds: {n_folds} (running: {fold_list})")
+    if skipped_baselines:
+        gated = ", ".join(f"{name} ({why})" for name, why in skipped_baselines.items())
+        print(f"Baselines gated out of this cell: {gated}")
     print(f"{'=' * 80}\n")
 
     # One-time data source setup (pre-generates files for ImageDataSource; no-op for SimulatedDataSource)
@@ -681,9 +690,17 @@ if __name__ == "__main__":
             seed=args.simulated_seed,
         )
         print(f"Data source: SimulatedDataSource ({len(simulated_gt_paths)} GT trajectories)")
+        regime = DegradationRegime.simulated(
+            args.simulated_masking_p, args.simulated_noising_p, data_dir
+        )
     else:
         data_source = ImageDataSource()
         print("Data source: ImageDataSource (pre-generated image-pipeline files)")
+        regime = DegradationRegime.image(data_dir)
+
+    baseline_runners, skipped_baselines = gate_baselines(baseline_runners, regime)
+    for name, why in skipped_baselines.items():
+        print(f"  [GATE] {name} skipped in {regime.describe()}: {why}")
 
     main(
         domain_key=args.domain,
@@ -715,4 +732,5 @@ if __name__ == "__main__":
         run_pisam_milp_loop=run_pisam_milp_loop,
         events_tracing=args.events_tracing,
         resume=args.resume,
+        skipped_baselines=skipped_baselines,
     )

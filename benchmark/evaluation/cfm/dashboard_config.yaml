@@ -56,6 +56,10 @@ results_dashboard:
   algorithms:
     - key: ROSAME_24    # simulation baseline (degraded PDDL trajectories)
       modes: [simulation]
+    - key: NOLAM        # simulation baseline, mask=0 row only (regime-gated)
+      modes: [simulation]
+    - key: OffLAM       # simulation baseline, noise=0 column only (regime-gated)
+      modes: [simulation]
     - key: ROSAME-I_24  # image baseline (learned straight from visual traces)
       modes: [image]
     - key: ROSAME-I_MILP_24  # image baseline, ROSAME-I with MILP pseudo-labels

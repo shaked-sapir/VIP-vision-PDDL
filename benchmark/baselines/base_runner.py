@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:  # pragma: no cover
+    from benchmark.baselines.regime import DegradationRegime
 
 
 class BaselineRunner(ABC):
@@ -55,7 +58,7 @@ class BaselineRunner(ABC):
     @property
     @abstractmethod
     def paper(self) -> str:
-        """Source paper of the network: ``'24'`` or ``'26'``."""
+        """Publication tag of the arm's source paper (``'24'``, ``'26'``, ``'icaps24'``, ...)."""
         ...
 
     @property
@@ -75,6 +78,28 @@ class BaselineRunner(ABC):
     def run_params(self) -> Dict[str, object]:
         """The training knobs this arm ran with, recorded in ``run_params.json``."""
         return {}
+
+    # ------------------------------------------------------------------ #
+    # Regime
+    # ------------------------------------------------------------------ #
+
+    def supports(self, regime: "DegradationRegime") -> Tuple[bool, str]:
+        """Whether this arm is a valid competitor in ``regime``, and why not.
+
+        Defaults to ``(True, "")``. An arm built for one degradation axis only
+        (noise but no masking, or the reverse) returns ``(False, reason)`` for
+        the cells outside it; the gate records the reason in the run manifest.
+        """
+        return True, ""
+
+    def for_regime(self, regime: "DegradationRegime") -> "BaselineRunner":
+        """The runner to use in ``regime``; ``self`` unless the arm reads the cell.
+
+        An arm whose learning depends on the cell (a noise level to hand the
+        learner, GT trajectories to measure it from) returns a bound copy so the
+        run-wide runner stays cell-agnostic.
+        """
+        return self
 
     # ------------------------------------------------------------------ #
     # Learning

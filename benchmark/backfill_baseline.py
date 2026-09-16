@@ -60,11 +60,13 @@ from benchmark.backfill_common import (
     is_cell_dir,
     merge_row,
     parse_cell_name,
+    read_run_params,
     resolve_data_dir,
     resolve_problem_dir,
     worker_init,
 )
 from benchmark.baselines import RESIZE_FROM_TABLE, ResizeSpec, resolve_baselines
+from benchmark.baselines.regime import DegradationRegime, gate_baselines
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import FOLD_RESULT_FILENAME
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt
@@ -100,6 +102,23 @@ def _build_prepared_trajectories(
     return prepared
 
 
+def _experiment_regime(exp_dir: Path, data_dir: Path) -> Optional[DegradationRegime]:
+    """The regime an experiment's ``run_params.json`` records, or ``None`` if it can't say.
+
+    Without a regime no gating happens, so a runner that only belongs in one
+    regime would run everywhere; the warning is what tells the operator.
+    """
+    params = read_run_params(exp_dir)
+    if params is None:
+        print(f"[WARN] {exp_dir.name}: no run_params.json; baselines are not regime-gated")
+        return None
+    try:
+        return DegradationRegime.from_run_params(params, data_dir)
+    except KeyError as err:
+        print(f"[WARN] {exp_dir.name}: run_params.json lacks {err}; baselines are not regime-gated")
+        return None
+
+
 def _copy_shared_fields(fold_result_path: Path) -> dict:
     """Copy shared data-context fields from an existing row (if any)."""
     if not fold_result_path.exists():
@@ -126,8 +145,14 @@ def backfill_cell(
     learn_timeout: int,
     force: bool,
     dry_run: bool,
+    regime: Optional[DegradationRegime] = None,
 ) -> str:
-    """Backfill one cell. Returns a status string: done | dry | skip | invalid."""
+    """Backfill one cell. Returns a status string: done | dry | skip | gated | invalid.
+
+    ``regime`` is the cell's degradation regime; when given, runners that do
+    not support it are dropped (``gated`` if none remain) and the rest are
+    bound to it, exactly as a live run does per cell.
+    """
     parsed = parse_cell_name(cell.name)
     if parsed is None:
         return "invalid"
@@ -139,6 +164,13 @@ def backfill_cell(
         print(f"  [SKIP] {cell.name}: missing fold_info.json or domain_reference.pddl")
         return "skip"
     fold_info = json.loads(fold_info_path.read_text())
+
+    if regime is not None:
+        baselines, gated = gate_baselines(baselines, regime)
+        for name, why in gated.items():
+            print(f"  [GATE] {cell.name}: {name} skipped in {regime.describe()}: {why}")
+        if not baselines:
+            return "gated"
 
     fold_result_path = cell / FOLD_RESULT_FILENAME
     existing = existing_algorithms(fold_result_path)
@@ -260,6 +292,7 @@ def _backfill_cell_worker(
     train_per_trajectory: bool = True,
     resize: ResizeSpec = RESIZE_FROM_TABLE,
     runner_kwargs: Optional[dict] = None,
+    regime: Optional[DegradationRegime] = None,
 ) -> Tuple[str, str]:
     """Process-pool entry point: resolve runners locally (no pickling of torch
     objects across processes) and backfill one cell.
@@ -283,7 +316,7 @@ def _backfill_cell_worker(
         status = backfill_cell(
             Path(cell_str), Path(problem_dir_str), bench_name, baselines,
             planning_timeout=planning_timeout, learn_timeout=learn_timeout,
-            force=force, dry_run=False,
+            force=force, dry_run=False, regime=regime,
         )
         return cell_str, status
     except Exception as e:  # keep one failing cell from killing the whole run
@@ -309,6 +342,12 @@ def _runner_kwargs(args: argparse.Namespace) -> dict:
         kwargs["normalize_base_loss"] = args.normalize_base_loss
     if getattr(args, "rosame_seed", None) is not None:
         kwargs["rosame_seed"] = args.rosame_seed
+    if getattr(args, "nolam_noise", None) is not None:
+        kwargs["nolam_noise"] = args.nolam_noise
+    if getattr(args, "nolam_allow_neg_precs", None) is not None:
+        kwargs["nolam_allow_neg_precs"] = args.nolam_allow_neg_precs
+    if getattr(args, "nolam_seed", None) is not None:
+        kwargs["nolam_seed"] = args.nolam_seed
     if args.budget_mode is not None:
         kwargs["budget_mode"] = args.budget_mode
     elif args.ignore_budget:
@@ -360,6 +399,20 @@ def main() -> None:
     ap.add_argument("--rosame-seed", type=int, default=None,
                     help="Seed for the symbolic ROSAME arms' RNGs. Default: the "
                          "runner's own (8800, upstream ICAPS-24's default).")
+    ap.add_argument("--nolam-noise", default=None,
+                    help="NOLAM: the flip probability it is given. 'oracle' "
+                         "(the runner's default) measures the fold's realised "
+                         "flip rate against the GT trajectories; a float pins "
+                         "one e for every cell and suffixes the row name "
+                         "(NOLAM__e=0.1) so it is never averaged with oracle rows.")
+    ap.add_argument("--nolam-allow-neg-precs", action=argparse.BooleanOptionalAction,
+                    default=None,
+                    help="NOLAM: learn negative preconditions (the paper's MAP "
+                         "variant, row name NOLAM__negprecs). Default: the "
+                         "runner's own (off, MAP_pre+).")
+    ap.add_argument("--nolam-seed", type=int, default=None,
+                    help="NOLAM: NumPy seed for MAP tie-breaking. Default: the "
+                         "runner's own (0).")
     ap.add_argument("--epochs", type=int, default=None,
                     help="Override the per-domain epoch budget of the ICAPS-26 "
                          "arm (rosame_i_26). The configured value is a ceiling "
@@ -425,7 +478,7 @@ def main() -> None:
     # *_fixed); --data-dir, when given, overrides this for every experiment. The
     # problem_dir is then resolved from it so the problem PDDLs match the cells'
     # predicate dialect.
-    tasks: List[Tuple[str, Path, Path]] = []
+    tasks: List[Tuple[str, Path, Path, Optional[DegradationRegime]]] = []
     for exp_dir in args.experiment_dir:
         exp_dir = exp_dir.resolve()
         testing = exp_dir / "testing"
@@ -449,10 +502,12 @@ def main() -> None:
             cells = [c for c in cells if args.cells in c.name]
 
         problem_dir = resolve_problem_dir(exp_dir, data_dir)
+        regime = _experiment_regime(exp_dir, data_dir)
         dialect_note = "" if problem_dir == data_dir else f", problems from {problem_dir.name}/"
+        regime_note = f", {regime.describe()}" if regime is not None else ""
         print(f"[{bench_name}] {exp_dir.name}: {len(cells)} cells "
-              f"(data_dir from {src}: {data_dir}{dialect_note})")
-        tasks.extend((bench_name, cell, problem_dir) for cell in cells)
+              f"(data_dir from {src}: {data_dir}{dialect_note}{regime_note})")
+        tasks.extend((bench_name, cell, problem_dir, regime) for cell in cells)
 
     if not tasks:
         print("Nothing to do.")
@@ -466,12 +521,12 @@ def main() -> None:
             args.baselines, train_per_trajectory=args.train_per_trajectory,
             resize=args.resize, **_runner_kwargs(args),
         )
-        for bench_name, cell, problem_dir in tasks:
+        for bench_name, cell, problem_dir, regime in tasks:
             backfill_cell(
                 cell, problem_dir, bench_name, baselines,
                 planning_timeout=args.planning_timeout,
                 learn_timeout=args.learn_timeout,
-                force=args.force, dry_run=args.dry_run,
+                force=args.force, dry_run=args.dry_run, regime=regime,
             )
         return
 
@@ -486,8 +541,9 @@ def main() -> None:
                 str(cell), str(problem_dir), bench_name, args.baselines,
                 args.planning_timeout, args.learn_timeout, args.force,
                 args.train_per_trajectory, args.resize, _runner_kwargs(args),
+                regime,
             ): cell
-            for bench_name, cell, problem_dir in tasks
+            for bench_name, cell, problem_dir, regime in tasks
         }
         for i, future in enumerate(as_completed(futures), start=1):
             try:
@@ -498,7 +554,7 @@ def main() -> None:
             print(f"[{i}/{len(futures)}] {Path(cell_str).name}: {status}")
 
     done = sum(1 for s in statuses.values() if s == "done")
-    skipped = sum(1 for s in statuses.values() if s in ("skip", "invalid"))
+    skipped = sum(1 for s in statuses.values() if s in ("skip", "gated", "invalid"))
     errors = {c: s for c, s in statuses.items() if s.startswith("error")}
     print(f"\nSummary: {done} done, {skipped} skipped, {len(errors)} errors")
     for cell_str, err in errors.items():

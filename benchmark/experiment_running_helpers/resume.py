@@ -36,7 +36,7 @@ _RENAMED_PARAMS = {
 }
 
 #: Keys compared only when the saved run recorded them (added after older runs).
-_OPTIONAL_PARAMS = frozenset({"baseline_params"})
+_OPTIONAL_PARAMS = frozenset({"baseline_params", "skipped_baselines"})
 
 
 def fold_instance_dir(testing_dir: Path, fold: int, num_trajs: int, gt_rate: int) -> Path:
