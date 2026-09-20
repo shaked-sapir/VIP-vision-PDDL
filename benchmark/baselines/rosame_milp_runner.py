@@ -32,7 +32,7 @@ import random
 import time
 from abc import abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 
 from pddl_plus_parser.lisp_parsers import DomainParser
 
@@ -55,13 +55,32 @@ from benchmark.algorithm_adapters.rosame_milp.model_bridge import (
     rosame_to_observation_m,
 )
 from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
-from benchmark.baselines.rosame_runner import RosameBaselineRunner, _setup_rosame_workspace
+from benchmark.baselines.rosame_runner import (
+    LearningBudget,
+    RosameBaselineRunner,
+    _setup_rosame_workspace,
+    write_training_series,
+)
 from benchmark.experiment_running_helpers.normalize import _normalize_hyphens
 
 from constraint_opt.factory import resolve as resolve_encoder
 from planning_structs.traces import Traces
 
 _OBJECTIVES = {"state", "model"}
+
+#: ``agreement_stop`` before it became optional; rows produced with it carry no key.
+LEGACY_AGREEMENT_STOP = 1.0
+
+
+def capped_solve_limit(mip_time_limit: int, seconds_left: float) -> int:
+    """One solve's time limit: the configured cap, or what is left of the fold budget.
+
+    Never below one second, so a solve started with the budget nearly spent
+    still returns promptly rather than being handed a non-positive limit.
+    """
+    if seconds_left == float("inf"):
+        return int(mip_time_limit)
+    return max(1, min(int(mip_time_limit), int(seconds_left)))
 
 
 def goal_fluents_from_trajectory(
@@ -127,15 +146,17 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         batch_size: Optional[int] = None,
         normalize_base_loss: bool = True,
         rosame_seed: Optional[int] = 8800,
+        rosame_convergence: Optional[Mapping[str, object]] = None,
     ) -> None:
         super().__init__(
             train_per_trajectory=train_per_trajectory,
             snapshot_interval=snapshot_interval,
             batch_size=batch_size,
             rosame_seed=rosame_seed,
+            epochs=epochs,
+            rosame_convergence=rosame_convergence,
         )
         self.normalize_base_loss = normalize_base_loss
-        self.epochs = epochs
         self.mip_time_limit = mip_time_limit
         self.encoding_config = encoding_config or MilpEncodingConfig.upstream()
         self.goal_mode = goal_mode
@@ -175,8 +196,8 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             obs_t.append(trace)
         return ps_domain, obs_t, n_gt_goals
 
-    def _solve(self, ps_domain, obs_t, obs_m):
-        """One MILP solve; returns (encoder, ok)."""
+    def _solve(self, ps_domain, obs_t, obs_m, time_limit: Optional[int] = None):
+        """One MILP solve; returns (encoder, ok). ``time_limit`` defaults to ``mip_time_limit``."""
         traces = Traces(instance=None, obs_m=obs_m, obs_t=obs_t)
         encoder = resolve_encoder(self.milp_solver)(
             ps_domain,
@@ -184,7 +205,9 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             _OBJECTIVES,
             config=self.encoding_config,
         )
-        ok = encoder.solve(time_limit=self.mip_time_limit)
+        ok = encoder.solve(
+            time_limit=self.mip_time_limit if time_limit is None else time_limit
+        )
         return encoder, ok
 
     @staticmethod
@@ -215,6 +238,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             "milp_solver": self.milp_solver,
             "encoding_config": self.encoding_config.as_stats(),
         }
+        budget = LearningBudget(timeout_seconds)
         snapshot = None
         if self.snapshot_interval is not None:
             snapshot = SnapshotWriter(
@@ -232,10 +256,13 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             # The DL phase is the same loop the DL-only arm runs, so the loss
             # curve is captured the same way. The MILP phase below is not
             # snapshotted; it does not train.
-            rosame.learn_full(
+            _pddl, training = rosame.learn_full_with_report(
                 prepared, train_per_trajectory=self.train_per_trajectory,
                 epochs=self.epochs, snapshot=snapshot,
+                stop_check=self._stop_check(), timeout_check=budget.exhausted,
+                tracker=self._tracker(),
             )
+            extra.update(training.as_stats())
 
             ps_domain, obs_t, n_gt_goals = self._build_milp_traces(
                 partial_domain, prepared, self._original_problem_paths(prepared_trajectories)
@@ -246,7 +273,10 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
                 raise ValueError("No usable traces for the MILP")
 
             obs_m = rosame_to_observation_m(rosame, ps_domain)
-            encoder, ok = self._solve(ps_domain, obs_t, obs_m)
+            encoder, ok = self._solve(
+                ps_domain, obs_t, obs_m,
+                time_limit=capped_solve_limit(self.mip_time_limit, budget.seconds_left()),
+            )
             extra["milp"] = encoder.solve_stats
 
             # The learned model is what this arm reports; the MILP supervises it
@@ -279,7 +309,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         pre_mip_epochs: int = 50,
         mip_interval: int = 1,
         mip_traces: Optional[int] = None,
-        agreement_stop: float = 1.0,
+        agreement_stop: Optional[float] = LEGACY_AGREEMENT_STOP,
         mip_time_limit: int = 60,
         encoding_config: Optional[MilpEncodingConfig] = None,
         goal_mode: str = "gt",
@@ -288,6 +318,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         batch_size: Optional[int] = None,
         normalize_base_loss: bool = True,
         rosame_seed: Optional[int] = 8800,
+        rosame_convergence: Optional[Mapping[str, object]] = None,
     ) -> None:
         super().__init__(
             train_per_trajectory=False,
@@ -300,11 +331,18 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             batch_size=batch_size,
             normalize_base_loss=normalize_base_loss,
             rosame_seed=rosame_seed,
+            rosame_convergence=rosame_convergence,
         )
         self.pre_mip_epochs = pre_mip_epochs
         self.mip_interval = mip_interval
         self.mip_traces = mip_traces
         self.agreement_stop = agreement_stop
+
+    def run_params(self) -> Dict[str, object]:
+        params = super().run_params()
+        if self.agreement_stop != LEGACY_AGREEMENT_STOP:
+            params["agreement_stop"] = self.agreement_stop
+        return params
 
     @property
     def name(self) -> str:
@@ -344,6 +382,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             "mip_traces": self.mip_traces,
         }
         seed_everything(self.rosame_seed)
+        budget = LearningBudget(timeout_seconds)
         try:
             partial_domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
             rosame = MilpPORosame(str(domain_path), normalize_base_loss=self.normalize_base_loss)
@@ -362,7 +401,10 @@ class RosameMilpRunner(RosameMilpBaseRunner):
                 if self.mip_traces is not None and self.mip_traces < len(obs_t):
                     round_obs_t = random.sample(obs_t, self.mip_traces)
                 obs_m = rosame_to_observation_m(rosame, ps_domain)
-                encoder, ok = self._solve(ps_domain, round_obs_t, obs_m)
+                encoder, ok = self._solve(
+                    ps_domain, round_obs_t, obs_m,
+                    time_limit=capped_solve_limit(self.mip_time_limit, budget.seconds_left()),
+                )
                 if not ok:
                     return {}, 0.0, encoder.solve_stats, None
                 solution = encoder.action_model_sol()
@@ -379,6 +421,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
                 extra["snapshot_interval"] = self.snapshot_interval
 
             start = time.perf_counter()
+            tracker = self._tracker()
             try:
                 report = rosame.learn_pooled_with_milp(
                     prepared,
@@ -388,22 +431,39 @@ class RosameMilpRunner(RosameMilpBaseRunner):
                     mip_interval=self.mip_interval,
                     agreement_stop=self.agreement_stop,
                     snapshot=snapshot,
+                    stop_check=self._stop_check(),
+                    timeout_check=budget.exhausted,
+                    tracker=tracker,
                     **({"batch_size": self.batch_size}
                        if self.batch_size is not None else {}),
                 )
             finally:
                 if snapshot is not None:
                     snapshot.close()
+            tracker.restore(rosame.rosame)
             extra["loop_seconds"] = round(time.perf_counter() - start, 2)
             extra["milp_rounds"] = report["rounds"]
-            extra["stop_reason"] = report["stop_reason"]
             extra["final_agreement"] = report["final_agreement"]
+            for key in ("stop_reason", "epochs_run", "first_solve_epoch",
+                        "best_epoch", "best_loss"):
+                extra[key] = report[key]
+            extra["agreement_stop"] = self.agreement_stop
+            if report["losses"]:
+                write_training_series(work_dir, self.name, {
+                    key: report[key] for key in (
+                        "stop_reason", "epochs_run", "first_solve_epoch", "best_epoch",
+                        "best_loss", "losses", "base_losses", "ce_losses",
+                    )
+                })
 
             solution = report["final_solution"]
             if solution is None:
                 # last-chance whole-fold solve before giving up on the MILP
                 obs_m = rosame_to_observation_m(rosame, ps_domain)
-                encoder, ok = self._solve(ps_domain, obs_t, obs_m)
+                encoder, ok = self._solve(
+                    ps_domain, obs_t, obs_m,
+                    time_limit=capped_solve_limit(self.mip_time_limit, budget.seconds_left()),
+                )
                 extra.setdefault("milp_rounds", []).append(
                     {"epoch": "final_fallback", **encoder.solve_stats})
                 solution = encoder.action_model_sol() if ok else None

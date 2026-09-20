@@ -36,6 +36,8 @@ class SnapshotRecord:
     path: str
     loss: Optional[float] = None
     agreement: Optional[float] = None
+    base_loss: Optional[float] = None
+    ce_loss: Optional[float] = None
 
 
 class SnapshotWriter:
@@ -93,6 +95,8 @@ class SnapshotWriter:
         render: Callable[[], str],
         loss: Optional[float] = None,
         agreement: Optional[float] = None,
+        base_loss: Optional[float] = None,
+        ce_loss: Optional[float] = None,
     ) -> None:
         """Capture a snapshot if ``step`` falls on the interval.
 
@@ -106,12 +110,14 @@ class SnapshotWriter:
                 track a loss gets.
             agreement: MILP/network agreement most recently observed, for the
                 arms that run a solver. ``None`` for a DL-only arm.
+            base_loss: The loss without the pseudo-label term, for the MILP arms.
+            ce_loss: The pseudo-label cross-entropy term, for the MILP arms.
         """
         if step % self.interval != 0:
             return
         self.capture(
             step=step, trajectory=trajectory, epoch=epoch, render=render,
-            loss=loss, agreement=agreement,
+            loss=loss, agreement=agreement, base_loss=base_loss, ce_loss=ce_loss,
         )
 
     def capture(
@@ -123,6 +129,8 @@ class SnapshotWriter:
         render: Callable[[], str],
         loss: Optional[float] = None,
         agreement: Optional[float] = None,
+        base_loss: Optional[float] = None,
+        ce_loss: Optional[float] = None,
     ) -> SnapshotRecord:
         """Unconditionally capture a snapshot and return its record."""
         elapsed = self.elapsed_seconds()
@@ -144,6 +152,8 @@ class SnapshotWriter:
             path=path.name,
             loss=loss,
             agreement=agreement,
+            base_loss=base_loss,
+            ce_loss=ce_loss,
         )
         self._records.append(record)
         return record

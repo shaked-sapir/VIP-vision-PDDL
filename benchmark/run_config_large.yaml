@@ -25,10 +25,12 @@
 # The fit rests on four points at N <= 8; the pilot gate (plan section 6) is
 # where it gets tested at scale.
 
-run_name: large-corpora__L-sweep__v3      # names the output experiments + the manifest dir.
-                                          # v2: first attempt (large-corpora__L-sweep) ran the
-                                          # rosame_milp_* arms uncapped (mip_traces None) and hit
-                                          # OUT_OF_MEMORY; its rows are not comparable with these.
+run_name: large-corpora__L-sweep__v4      # names the output experiments + the manifest dir.
+                                          # v1/v2: the rosame_milp_* arms ran uncapped (mip_traces None)
+                                          # and hit OUT_OF_MEMORY. v3: ROSAME stopped on agreement / a
+                                          # hardwired 100 epochs, and its per-step snapshots exhausted
+                                          # the cluster quota. v4 trains the ROSAME arms to loss
+                                          # convergence, so its rows are not comparable with any of them.
 source: simulated                         # symbolic only — the imaged arms are out of scope for this task
 
 shared:
@@ -64,10 +66,20 @@ shared:
                                           # (train.py:150); we stepped once per trace, i.e. 10-20 transitions.
                                           # Traces are pooled only within a shared grounding, so a corpus with
                                           # mixed object universes still steps per group.
-  snapshot_interval: 1                    # capture a ROSAME snapshot every N epochs, with that epoch's
-                                          # training loss, into <fold>/anytime_snapshots/<arm>/snapshots.json.
-                                          # Needed for the convergence panel: without it no per-epoch loss is
-                                          # recorded anywhere, for either ROSAME arm.
+  # ROSAME arms stop on training-loss convergence (docs/rosame-training-convergence-fix.md).
+  train_per_trajectory: false             # pooled: one persistent optimizer, one loss curve to converge on
+  epochs: 2000                            # a ceiling only; runs should end by convergence or by time
+  agreement_stop:                         # blank = agreement is recorded per round, never a stop rule
+  rosame_convergence:
+    window: 10                            # epochs per block; each block is summarised by its lowest loss
+    min_improvement: 0.002                # a block is progress if it beats the running best by 0.2%
+    patience: 3                           # stop after 3 blocks (30 epochs) without progress
+    min_epochs: 50                        # floor; the MILP arms count it from their first successful solve
+  # snapshot_interval is deliberately absent. Every arm writes its per-epoch loss
+  # series to <fold>/rosame_training/<arm>.json (one file), so the convergence
+  # panel no longer needs a model snapshot per step; v3's `snapshot_interval: 1`
+  # wrote 50,000 files per L=500 fold instance. Set it (e.g. 100) only to study
+  # how the emitted model evolves.
   mip_traces: 4                           # traces per MILP solve, for the rosame_milp_* arms.
                                           # Upstream caps this with a TraceSelector (vendor default 3,
                                           # see src/milp/vendor/UPSTREAM.md:95). Our runner left it None

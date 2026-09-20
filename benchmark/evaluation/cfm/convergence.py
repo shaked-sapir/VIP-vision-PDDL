@@ -27,6 +27,7 @@ from typing import Dict, List, Optional
 ROUND_STREAM = "milp_loop_rounds.jsonl"
 ROUND_FILE = "milp_loop_rounds.json"
 SNAPSHOT_INDEX = "snapshots.json"
+TRAINING_SERIES_DIR = "rosame_training"
 _INSTANCE_RE = re.compile(r"^fold(\d+)_numtrajs(\d+)_gtrate(\d+)$")
 
 
@@ -70,17 +71,28 @@ def pisam_series(instance_dir: Path) -> Dict[str, dict]:
     return out
 
 
-def rosame_series(instance_dir: Path) -> Dict[str, dict]:
-    """``{arm: {"x": [epoch], "loss": [...], "agreement": [...|None]}}``.
+def _training_series(instance_dir: Path) -> Dict[str, dict]:
+    """``{arm: payload}`` from ``<fold>/rosame_training/<arm>.json`` (one loss per epoch)."""
+    out: Dict[str, dict] = {}
+    root = instance_dir / TRAINING_SERIES_DIR
+    if not root.is_dir():
+        return out
+    for path in sorted(root.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if payload.get("losses"):
+            out[path.stem] = payload
+    return out
 
-    ``agreement`` is present only for the arms that run a solver; a DL-only arm
-    leaves it null at every epoch.
-    """
+
+def _snapshot_series(instance_dir: Path) -> Dict[str, dict]:
+    """``{arm: {"epochs": [...], "losses": [...]}}`` from the snapshot indexes."""
     out: Dict[str, dict] = {}
     root = instance_dir / "anytime_snapshots"
     if not root.is_dir():
         return out
-    rounds_by_arm = milp_rounds(instance_dir)
     for arm_dir in sorted(root.iterdir()):
         index = arm_dir / SNAPSHOT_INDEX
         if not index.is_file():
@@ -92,20 +104,47 @@ def rosame_series(instance_dir: Path) -> Dict[str, dict]:
         records = payload if isinstance(payload, list) else payload.get(
             "snapshots", payload.get("records", []))
         rows = [r for r in records if r.get("loss") is not None]
-        if not rows:
-            continue
-        epochs = [r["epoch"] for r in rows]
-        loss = [r["loss"] for r in rows]
-        by_epoch = rounds_by_arm.get(arm_dir.name, {})
+        if rows:
+            out[arm_dir.name] = {"epochs": [r["epoch"] for r in rows],
+                                 "losses": [r["loss"] for r in rows]}
+    return out
+
+
+def rosame_series(instance_dir: Path) -> Dict[str, dict]:
+    """``{arm: {"x": [epoch], "loss": [...], "agreement": [...|None], ...}}``.
+
+    The loss comes from the arm's training series file when it wrote one, and
+    from its snapshot index otherwise. ``agreement`` is present only for the
+    arms that run a solver. ``stop_reason``, ``stop_epoch``, ``best_epoch`` and
+    ``first_solve_epoch`` are present when the training series recorded them.
+    """
+    out: Dict[str, dict] = {}
+    rounds_by_arm = milp_rounds(instance_dir)
+    series = _snapshot_series(instance_dir)
+    markers: Dict[str, dict] = {}
+    for arm, payload in _training_series(instance_dir).items():
+        losses = payload["losses"]
+        series[arm] = {"epochs": list(range(len(losses))), "losses": list(losses)}
+        markers[arm] = {
+            "stop_reason": payload.get("stop_reason"),
+            "stop_epoch": len(losses) - 1,
+            "best_epoch": payload.get("best_epoch"),
+            "first_solve_epoch": payload.get("first_solve_epoch"),
+        }
+    for arm in sorted(series):
+        epochs = list(series[arm]["epochs"])
+        loss = list(series[arm]["losses"])
+        by_epoch = rounds_by_arm.get(arm, {})
         # A round can fall past the last snapshot: the loop returns on the stop
         # check before capturing again. Extend the axis so it is not dropped.
         for extra in sorted(e for e in by_epoch if e > (epochs[-1] if epochs else -1)):
             epochs.append(extra)
             loss.append(None)
-        out[arm_dir.name] = {
+        out[arm] = {
             "x": epochs,
             "loss": loss,
             "agreement": [by_epoch.get(e) for e in epochs],
+            **markers.get(arm, {}),
         }
     return out
 
