@@ -9,9 +9,10 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from amlgym.metrics import syntactic_precision, syntactic_recall, problem_solving
+from amlgym.metrics import syntactic_precision, syntactic_recall
 
 from benchmark.evaluation.predictive_metrics import evaluate_predictive_power
+from benchmark.experiment_running_helpers.planning_copy import SOLVING_FIELDS, solving_metrics
 
 
 def save_learning_metrics(
@@ -89,8 +90,8 @@ def evaluate_model(
 
             precision = syntactic_precision(model_path, str(domain_ref_path))
             recall = syntactic_recall(model_path, str(domain_ref_path))
-            problem_solving_result = problem_solving(
-                model_path, str(domain_ref_path), test_problems,
+            problem_solving_result = solving_metrics(
+                Path(model_path), domain_ref_path, test_problems,
                 timeout=planning_timeout,
             )
             break
@@ -135,9 +136,7 @@ def evaluate_model(
         'recall_eff_pos': recall.get('eff_pos') if isinstance(recall, dict) else None,
         'recall_eff_neg': recall.get('eff_neg') if isinstance(recall, dict) else None,
         'recall_overall': recall.get('mean') if isinstance(recall, dict) else recall,
-        'solving_ratio': problem_solving_result.get('solving_ratio') if isinstance(problem_solving_result, dict) else None,
-        'false_plans_ratio': problem_solving_result.get('false_plans_ratio') if isinstance(problem_solving_result, dict) else None,
-        'unsolvable_ratio': problem_solving_result.get('unsolvable_ratio') if isinstance(problem_solving_result, dict) else None,
-        'planning_timed_out_ratio': problem_solving_result.get('timed_out') if isinstance(problem_solving_result, dict) else None,
+        **(problem_solving_result if isinstance(problem_solving_result, dict)
+           else {key: None for key in SOLVING_FIELDS}),
         **predictive,
     }

@@ -534,6 +534,7 @@ def run_single_fold(
                     'recall_precs_pos', 'recall_precs_neg', 'recall_eff_pos',
                     'recall_eff_neg', 'recall_overall', 'solving_ratio',
                     'false_plans_ratio', 'unsolvable_ratio', 'planning_timed_out_ratio',
+                    'planning_syntax_error_ratio', 'planning_error_ratio', 'planning_dropped_operators',
                     'pred_app_precision', 'pred_app_recall',
                     'pred_eff_precision', 'pred_eff_recall']}
 

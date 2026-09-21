@@ -30,9 +30,10 @@ import shutil
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from amlgym.metrics import syntactic_precision, syntactic_recall, problem_solving
+from amlgym.metrics import syntactic_precision, syntactic_recall
 
 from benchmark.evaluation.predictive_metrics import evaluate_predictive_power
+from benchmark.experiment_running_helpers.planning_copy import SOLVING_FIELDS, solving_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -116,13 +117,13 @@ def evaluate_all_solutions(
 
         # --- Problem solving ---
         try:
-            solving = problem_solving(
-                str(model_path), str(ref_domain_path), test_problem_paths,
+            solving = solving_metrics(
+                model_path, ref_domain_path, test_problem_paths,
                 timeout=planning_timeout,
             )
         except Exception as e:
             logger.error(f"Problem solving eval failed for solution {solution_index}: {e}")
-            solving = {}
+            solving = {key: None for key in SOLVING_FIELDS}
 
         # --- Predictive power ---
         predictive = evaluate_predictive_power(
@@ -146,10 +147,7 @@ def evaluate_all_solutions(
             "recall_eff_neg": recall.get("eff_neg"),
             "recall_overall": recall.get("mean") if isinstance(recall, dict) else recall,
             # Problem solving
-            "solving_ratio": solving.get("solving_ratio"),
-            "false_plans_ratio": solving.get("false_plans_ratio"),
-            "unsolvable_ratio": solving.get("unsolvable_ratio"),
-            "planning_timed_out_ratio": solving.get("timed_out"),
+            **solving,
             # Predictive power
             **predictive,
         }
