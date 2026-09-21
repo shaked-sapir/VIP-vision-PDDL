@@ -100,33 +100,9 @@ python -m benchmark.benchmark_runner \
     --only-noise "$P_NOISE" \
     --only-fold "$FOLD" || RUN_RC=$?
 
-# Pack this fold's finished instances. The home quota is a file-count problem:
-# observations and ROSAME's workspace copies cost 5 files per trajectory, 13,300
-# per fold over the L sweep. fold_result.json is the resume marker and stays, so
-# a re-submitted job still skips these instances; an instance without it is left
-# whole for the re-run to finish. Unpack original_observations.tar.gz before any
-# backfill_* pass or a dashboard --refresh-stats over these cells.
-EXP_DIR="benchmark/running_results/${DOMAIN}/${RUN_NAME}__mask=${P_MASK}__noise=${P_NOISE}"
-# Most cells have no *_workspace dir (the Lamanna arms are regime-gated), so an
-# unmatched glob here is normal, not the error failglob treats it as.
-shopt -u failglob
-shopt -s nullglob
-INSTANCES=( "$EXP_DIR"/testing/fold"${FOLD}"_numtrajs*_gtrate* )
-if [ "${#INSTANCES[@]}" -eq 0 ]; then
-    echo "WARNING: no fold ${FOLD} instances under ${EXP_DIR}/testing; nothing packed" >&2
-else
-    for inst in "${INSTANCES[@]}"; do
-        [ -f "$inst/fold_result.json" ] || continue
-        rm -rf "$inst/temp_rosame_workspace" "$inst"/*_workspace/traces
-        if [ -d "$inst/original_observations" ]; then
-            tar czf "$inst/original_observations.tar.gz" -C "$inst" original_observations \
-                && rm -rf "$inst/original_observations"
-        fi
-    done
-    echo "packed: $(find "${INSTANCES[@]}" -type f | wc -l) files left in fold ${FOLD}'s ${#INSTANCES[@]} instances"
-fi
-shopt -u nullglob
-shopt -s failglob
+# Pack this fold's finished instances (scripts/cluster_large/pack_fold.sh).
+source scripts/cluster_large/pack_fold.sh
+pack_fold_instances "benchmark/running_results/${DOMAIN}/${RUN_NAME}__mask=${P_MASK}__noise=${P_NOISE}" "$FOLD"
 
 kill $MONITOR_PID 2>/dev/null || true
 echo "==================== MEMORY SUMMARY ===================="
