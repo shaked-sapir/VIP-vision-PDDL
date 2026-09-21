@@ -63,7 +63,25 @@ solving outcome classified. Sanity reads from it: both arms are near-perfect
 in the clean anchor cell of every domain; OffLAM is flat across masking 0 to
 0.1 (its paper's ceiling region); NOLAM degrades with noise and beats CDPS on
 gripper and npuzzle while trailing it on blocksworld and depot at noise 0.1.
-The "Order of work" step 4 (grid extension) has not been started.
+**Grid extension (step 4), small data.** Launched 2026-09-17 from
+`benchmark/run_config_small_grid.yaml` (the depot manifest's settings plus
+`nolam`, `offlam`; 300 s timeout, montecarlo folds, `percentage`
+strategies, seed 42) as two selections that together are exactly the 105 new
+cells, so no existing cell is re-entered: `--only-mask 0.2 0.3 0.4` (75
+cells) then `--only-mask 0.0 0.01 0.1 --only-noise 0.3 0.4` (30 cells). Log:
+the session scratchpad's `small_grid_extension.log`. Projection from the
+existing cells' recorded learning times (CDPS ~200 s mean per fold instance
+with a 300 s cap, the other arms ~70 s together, 30 instances per cell run
+five folds at a time): roughly 35 min per cell, about 2.5 days for all 105 on
+the 8-core laptop, one cell at a time so the wall-clock timeouts stay
+comparable with the old cells. Of the arms the old cells carry beyond the
+live list, only `PISAM_MILP_SR__gt=none` and `PISAM_MILP_LOOP__gt=none` are
+wanted on the extended grid (decided 2026-09-17, after the run had started,
+so they are backfilled into the 105 new cells afterwards with
+`backfill_cdps --milp-config benchmark/milp_configs/loop_gt_none.yaml`; the
+exact commands are in `run_config_small_grid.yaml`). `CDPS_ANCHORED` and
+`PISAM_MILP_SR__eq16=0.4` are not wanted there. The large-corpora sweep is a
+cluster job and has not been launched.
 
 Decisions already taken, so they are not re-opened below:
 

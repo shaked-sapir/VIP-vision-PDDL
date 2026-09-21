@@ -1,0 +1,94 @@
+# The small-data simulation sweep (`simulation-final-run`), extended to the
+# fixed 6 x 5 grid of docs/offlam-nolam-baselines-plan.md.
+#
+# Kept separate from run_config.yaml (which points at the hanoi image run) so
+# the sweep's settings are reproducible from one file. `shared` and
+# `simulation` are the archived manifest of the existing nine cells
+# (finished_run_configs/simulation-final-run/07-09-2026T07-04-50.json) plus the
+# two regime-gated arms; the data dirs are the ones each existing cell's
+# run_params.json records.
+#
+# The existing 3 x 3 cells stay as they are. Run only the new ones, so a
+# resumed old cell never trips the run_params check on the longer algorithm
+# list:
+#
+#   python -m benchmark.benchmark_runner --config benchmark/run_config_small_grid.yaml --only-mask 0.2 0.3 0.4
+#   python -m benchmark.benchmark_runner --config benchmark/run_config_small_grid.yaml --only-mask 0.0 0.01 0.1 --only-noise 0.3 0.4
+#
+# The two gt=none MILP arms are wanted in every cell of the extended grid but
+# are not in the live list (the run had started before that was decided), so
+# once the run is done they are backfilled into the 105 new cells the same way
+# they were into the old ones, from benchmark/milp_configs/loop_gt_none.yaml:
+#
+#   for arm in pisam_milp_single_round pisam_milp_loop; do
+#     python -m benchmark.backfill_cdps --algorithm $arm \
+#       --milp-config benchmark/milp_configs/loop_gt_none.yaml \
+#       --experiment-dir benchmark/running_results/*/simulation-final-run__mask=*__noise=* --workers 4
+#   done
+#
+# (backfill_cdps skips cells that already carry the row, so the old cells are
+# not re-run.) CDPS_ANCHORED and PISAM_MILP_SR__eq16=0.4 are not wanted on the
+# extended grid.
+
+run_name: simulation-final-run
+source: simulated
+
+shared:
+  n_folds: 5
+  num_trajectories: [3, 4, 5, 6, 7, 8]
+  gt_rates: [0]
+  learning_timeout_seconds: 300
+  planning_timeout_seconds: 60
+  search_mode: dfs
+  node_choosing_strategy: model_patch_first
+  model_constraint_weight: 0.0
+  conflict_group_strategy: largest
+  fluent_branch_mode: single
+  events_tracing: false
+  normalize: false
+  resume: true
+  batch_size: 0
+  normalize_base_loss: false
+  rosame_seed: 42
+  algorithms: [cdps, pisam_milp_single_round, pisam_milp_loop, rosame_24, rosame_milp_24, rosame_milp_24_tag, nolam, offlam]
+  baseline_regime_gate: strict
+  nolam_noise: oracle
+  nolam_allow_neg_precs: false
+  nolam_seed: 0
+  pisam_milp:
+    eq16: off
+    lambda_pre: 0.4
+    gt_anchoring: init_only
+    solver: cpsat
+    time_limit_seconds:
+    sampler: random
+    subset_size: half
+    learner_input: subset_only
+    pool_policy: frozen
+    co_sample_conflicts: off
+    w_prior: tiebreak
+    seed: 42
+    stop:
+      budget_seconds:
+      no_improvement_rounds:
+      stop_on_perfect_fit: true
+      max_rounds:
+      stop_on_fixpoint: true
+    eval:
+      effect_mismatch_weight: 1.0
+      inapplicability_weight: 1.0
+
+simulation:
+  masking_strategy: percentage
+  noising_strategy: percentage
+  seed: 42
+  grid:
+    masking_ps: [0.0, 0.01, 0.1, 0.2, 0.3, 0.4]
+    noising_ps: [0.0, 0.1, 0.2, 0.3, 0.4]
+
+domains:
+  - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"}
+  - {domain_key: depot,       data_dir: "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL-depot-rerun/benchmark/data/depot/multi_problem_04-07-2026T01:32:08__model=gpt-5.2__steps=100"}
+  - {domain_key: gripper,     data_dir: "benchmark/data/gripper/multi_problem_04-07-2026T14:50:04__model=gpt-5.2__steps=100"}
+  - {domain_key: hanoi,       data_dir: "benchmark/data/hanoi/hanoi_generated_problem1__final-version_fixed"}
+  - {domain_key: npuzzle,     data_dir: "benchmark/data/npuzzle/npuzzle_generated_problem0__final-version_fixed"}

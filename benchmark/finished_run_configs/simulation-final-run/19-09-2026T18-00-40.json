@@ -1,0 +1,860 @@
+{
+  "run_name": "simulation-final-run",
+  "source": "simulated",
+  "generated_at": "19-09-2026T18-00-40",
+  "run_status": "ok",
+  "selected_domains": "all",
+  "shared": {
+    "n_folds": 5,
+    "num_trajectories": [
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "gt_rates": [
+      0
+    ],
+    "learning_timeout_seconds": 300,
+    "planning_timeout_seconds": 60,
+    "search_mode": "dfs",
+    "node_choosing_strategy": "model_patch_first",
+    "model_constraint_weight": 0.0,
+    "conflict_group_strategy": "largest",
+    "fluent_branch_mode": "single",
+    "events_tracing": false,
+    "normalize": false,
+    "resume": true,
+    "batch_size": 0,
+    "normalize_base_loss": false,
+    "rosame_seed": 42,
+    "algorithms": [
+      "cdps",
+      "pisam_milp_single_round",
+      "pisam_milp_loop",
+      "rosame_24",
+      "rosame_milp_24",
+      "rosame_milp_24_tag",
+      "nolam",
+      "offlam"
+    ],
+    "baseline_regime_gate": "strict",
+    "nolam_noise": "oracle",
+    "nolam_allow_neg_precs": false,
+    "nolam_seed": 0,
+    "pisam_milp": {
+      "eq16": false,
+      "lambda_pre": 0.4,
+      "gt_anchoring": "init_only",
+      "solver": "cpsat",
+      "time_limit_seconds": null,
+      "sampler": "random",
+      "subset_size": "half",
+      "learner_input": "subset_only",
+      "pool_policy": "frozen",
+      "co_sample_conflicts": false,
+      "w_prior": "tiebreak",
+      "seed": 42,
+      "stop": {
+        "budget_seconds": null,
+        "no_improvement_rounds": null,
+        "stop_on_perfect_fit": true,
+        "max_rounds": null,
+        "stop_on_fixpoint": true
+      },
+      "eval": {
+        "effect_mismatch_weight": 1.0,
+        "inapplicability_weight": 1.0
+      }
+    }
+  },
+  "simulation": {
+    "masking_strategy": "percentage",
+    "noising_strategy": "percentage",
+    "seed": 42,
+    "grid": {
+      "masking_ps": [
+        0.0,
+        0.01,
+        0.1,
+        0.2,
+        0.3,
+        0.4
+      ],
+      "noising_ps": [
+        0.0,
+        0.1,
+        0.2,
+        0.3,
+        0.4
+      ]
+    }
+  },
+  "num_cells": 75,
+  "by_domain": {
+    "blocksworld": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.2__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.2__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.2__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.2__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.2__noise=0.4",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.3__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.3__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.3__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.3__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.3__noise=0.4",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.4__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.4__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.4__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.4__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.4__noise=0.4"
+    ],
+    "depot": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.2__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.2__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.2__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.2__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.2__noise=0.4",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.3__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.3__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.3__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.3__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.3__noise=0.4",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.4__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.4__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.4__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.4__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.4__noise=0.4"
+    ],
+    "gripper": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.2__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.2__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.2__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.2__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.2__noise=0.4",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.3__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.3__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.3__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.3__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.3__noise=0.4",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.4__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.4__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.4__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.4__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.4__noise=0.4"
+    ],
+    "hanoi": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.2__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.2__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.2__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.2__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.2__noise=0.4",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.3__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.3__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.3__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.3__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.3__noise=0.4",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.4__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.4__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.4__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.4__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.4__noise=0.4"
+    ],
+    "npuzzle": [
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.2__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.2__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.2__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.2__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.2__noise=0.4",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.3__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.3__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.3__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.3__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.3__noise=0.4",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.4__noise=0.0",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.4__noise=0.1",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.4__noise=0.2",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.4__noise=0.3",
+      "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.4__noise=0.4"
+    ]
+  },
+  "cells": [
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.2__noise=0.0",
+      "masking_p": 0.2,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.2__noise=0.1",
+      "masking_p": 0.2,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.2__noise=0.2",
+      "masking_p": 0.2,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.2__noise=0.3",
+      "masking_p": 0.2,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.2__noise=0.4",
+      "masking_p": 0.2,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.3__noise=0.0",
+      "masking_p": 0.3,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.3__noise=0.1",
+      "masking_p": 0.3,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.3__noise=0.2",
+      "masking_p": 0.3,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.3__noise=0.3",
+      "masking_p": 0.3,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.3__noise=0.4",
+      "masking_p": 0.3,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.4__noise=0.0",
+      "masking_p": 0.4,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.4__noise=0.1",
+      "masking_p": 0.4,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.4__noise=0.2",
+      "masking_p": 0.4,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.4__noise=0.3",
+      "masking_p": 0.4,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "blocksworld",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/blocksworld/simulation-final-run__mask=0.4__noise=0.4",
+      "masking_p": 0.4,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.2__noise=0.0",
+      "masking_p": 0.2,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.2__noise=0.1",
+      "masking_p": 0.2,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.2__noise=0.2",
+      "masking_p": 0.2,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.2__noise=0.3",
+      "masking_p": 0.2,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.2__noise=0.4",
+      "masking_p": 0.2,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.3__noise=0.0",
+      "masking_p": 0.3,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.3__noise=0.1",
+      "masking_p": 0.3,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.3__noise=0.2",
+      "masking_p": 0.3,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.3__noise=0.3",
+      "masking_p": 0.3,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.3__noise=0.4",
+      "masking_p": 0.3,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.4__noise=0.0",
+      "masking_p": 0.4,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.4__noise=0.1",
+      "masking_p": 0.4,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.4__noise=0.2",
+      "masking_p": 0.4,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.4__noise=0.3",
+      "masking_p": 0.4,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "depot",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/depot/simulation-final-run__mask=0.4__noise=0.4",
+      "masking_p": 0.4,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.2__noise=0.0",
+      "masking_p": 0.2,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.2__noise=0.1",
+      "masking_p": 0.2,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.2__noise=0.2",
+      "masking_p": 0.2,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.2__noise=0.3",
+      "masking_p": 0.2,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.2__noise=0.4",
+      "masking_p": 0.2,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.3__noise=0.0",
+      "masking_p": 0.3,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.3__noise=0.1",
+      "masking_p": 0.3,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.3__noise=0.2",
+      "masking_p": 0.3,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.3__noise=0.3",
+      "masking_p": 0.3,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.3__noise=0.4",
+      "masking_p": 0.3,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.4__noise=0.0",
+      "masking_p": 0.4,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.4__noise=0.1",
+      "masking_p": 0.4,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.4__noise=0.2",
+      "masking_p": 0.4,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.4__noise=0.3",
+      "masking_p": 0.4,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "gripper",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/gripper/simulation-final-run__mask=0.4__noise=0.4",
+      "masking_p": 0.4,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.2__noise=0.0",
+      "masking_p": 0.2,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.2__noise=0.1",
+      "masking_p": 0.2,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.2__noise=0.2",
+      "masking_p": 0.2,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.2__noise=0.3",
+      "masking_p": 0.2,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.2__noise=0.4",
+      "masking_p": 0.2,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.3__noise=0.0",
+      "masking_p": 0.3,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.3__noise=0.1",
+      "masking_p": 0.3,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.3__noise=0.2",
+      "masking_p": 0.3,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.3__noise=0.3",
+      "masking_p": 0.3,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.3__noise=0.4",
+      "masking_p": 0.3,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.4__noise=0.0",
+      "masking_p": 0.4,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.4__noise=0.1",
+      "masking_p": 0.4,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.4__noise=0.2",
+      "masking_p": 0.4,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.4__noise=0.3",
+      "masking_p": 0.4,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "hanoi",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/hanoi/simulation-final-run__mask=0.4__noise=0.4",
+      "masking_p": 0.4,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.2__noise=0.0",
+      "masking_p": 0.2,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.2__noise=0.1",
+      "masking_p": 0.2,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.2__noise=0.2",
+      "masking_p": 0.2,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.2__noise=0.3",
+      "masking_p": 0.2,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.2__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.2__noise=0.4",
+      "masking_p": 0.2,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.3__noise=0.0",
+      "masking_p": 0.3,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.3__noise=0.1",
+      "masking_p": 0.3,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.3__noise=0.2",
+      "masking_p": 0.3,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.3__noise=0.3",
+      "masking_p": 0.3,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.3__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.3__noise=0.4",
+      "masking_p": 0.3,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.0",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.4__noise=0.0",
+      "masking_p": 0.4,
+      "noising_p": 0.0,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.1",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.4__noise=0.1",
+      "masking_p": 0.4,
+      "noising_p": 0.1,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.2",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.4__noise=0.2",
+      "masking_p": 0.4,
+      "noising_p": 0.2,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.3",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.4__noise=0.3",
+      "masking_p": 0.4,
+      "noising_p": 0.3,
+      "status": "ok",
+      "error": null
+    },
+    {
+      "domain_key": "npuzzle",
+      "experiment_name": "simulation-final-run__mask=0.4__noise=0.4",
+      "result_dir": "/Users/shakedsapir/Documents/BGU/thesis/VIP-vision-PDDL/benchmark/running_results/npuzzle/simulation-final-run__mask=0.4__noise=0.4",
+      "masking_p": 0.4,
+      "noising_p": 0.4,
+      "status": "ok",
+      "error": null
+    }
+  ]
+}
