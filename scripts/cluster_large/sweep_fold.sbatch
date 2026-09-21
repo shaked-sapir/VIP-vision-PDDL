@@ -3,7 +3,8 @@
 # that fold's WHOLE L sweep and every arm.
 #
 #   python scripts/cluster_large/make_manifest.py --per-fold
-#   sbatch --array=0-224%45 scripts/cluster_large/sweep_fold.sbatch fold_manifest.csv
+#   sbatch --array=0-749%45 scripts/cluster_large/sweep_fold.sbatch fold_manifest.csv
+#   (rows are grouped by domain, 150 each, so one domain is a 150-index range)
 #
 # Why split by fold but NOT by L:
 #
@@ -29,7 +30,7 @@
 #SBATCH --partition main
 #SBATCH --job-name vip-fold
 #SBATCH --output logs/%x-%A_%a.out
-#SBATCH --time 1-00:00:00
+#SBATCH --time 3-00:00:00
 #SBATCH --cpus-per-task 6
 #SBATCH --constraint cpu256
 #SBATCH --gpus=0
@@ -90,15 +91,46 @@ export NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 
 # n_folds stays whatever the config says, so cv_split produces the identical
 # partition; --only-fold selects which fold to RUN, not how the data is split.
+# The exit code is held so a failed cell still gets its finished instances packed.
+RUN_RC=0
 python -m benchmark.benchmark_runner \
     --config "$CONFIG" \
     --domains "$DOMAIN" \
     --only-mask "$P_MASK" \
     --only-noise "$P_NOISE" \
-    --only-fold "$FOLD"
+    --only-fold "$FOLD" || RUN_RC=$?
+
+# Pack this fold's finished instances. The home quota is a file-count problem:
+# observations and ROSAME's workspace copies cost 5 files per trajectory, 13,300
+# per fold over the L sweep. fold_result.json is the resume marker and stays, so
+# a re-submitted job still skips these instances; an instance without it is left
+# whole for the re-run to finish. Unpack original_observations.tar.gz before any
+# backfill_* pass or a dashboard --refresh-stats over these cells.
+EXP_DIR="benchmark/running_results/${DOMAIN}/${RUN_NAME}__mask=${P_MASK}__noise=${P_NOISE}"
+# Most cells have no *_workspace dir (the Lamanna arms are regime-gated), so an
+# unmatched glob here is normal, not the error failglob treats it as.
+shopt -u failglob
+shopt -s nullglob
+INSTANCES=( "$EXP_DIR"/testing/fold"${FOLD}"_numtrajs*_gtrate* )
+if [ "${#INSTANCES[@]}" -eq 0 ]; then
+    echo "WARNING: no fold ${FOLD} instances under ${EXP_DIR}/testing; nothing packed" >&2
+else
+    for inst in "${INSTANCES[@]}"; do
+        [ -f "$inst/fold_result.json" ] || continue
+        rm -rf "$inst/temp_rosame_workspace" "$inst"/*_workspace/traces
+        if [ -d "$inst/original_observations" ]; then
+            tar czf "$inst/original_observations.tar.gz" -C "$inst" original_observations \
+                && rm -rf "$inst/original_observations"
+        fi
+    done
+    echo "packed: $(find "${INSTANCES[@]}" -type f | wc -l) files left in fold ${FOLD}'s ${#INSTANCES[@]} instances"
+fi
+shopt -u nullglob
+shopt -s failglob
 
 kill $MONITOR_PID 2>/dev/null || true
 echo "==================== MEMORY SUMMARY ===================="
 echo "cell: domain=$DOMAIN mask=$P_MASK noise=$P_NOISE fold=$FOLD"
 echo "cgroup_peak_mb=$(( $(cat "$CGROUP/memory.peak" 2>/dev/null || echo 0) / 1048576 )) of ${SLURM_MEM_PER_NODE:-?}MB"
 echo "========================================================"
+exit "$RUN_RC"

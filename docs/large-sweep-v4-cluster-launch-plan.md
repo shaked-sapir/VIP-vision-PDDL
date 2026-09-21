@@ -1,141 +1,138 @@
 # Large-corpora sweep v4 on the BGU cluster: launch plan
 
-Simulation only. The large-corpora configuration (`benchmark/run_config_large.yaml`,
-fold-level jobs from `scripts/cluster_large/`), on the extended 6 x 5 grid, with
-`nolam` and `offlam` added and both `gt_anchoring` variants of the MILP loop run
-live, as they already are in that config.
+Simulation only. `benchmark/run_config_large.yaml` run as fold-level jobs from
+`scripts/cluster_large/`, on the extended 6 x 5 grid, with `nolam` and `offlam`
+added, both `gt_anchoring` variants of the MILP loop live, and the ROSAME arms
+trained to loss convergence.
 
-Status: **plan only.** Nothing here has been changed, submitted or deleted.
-Facts marked *measured* were read on 2026-09-20 from the laptop's result trees
-or from the cluster over SSH.
+Status: **steps 1 and 3 done (2026-09-21); nothing submitted.** v3 was deleted from the
+cluster and the quota is unblocked; v1 and v2 remain there. The large config carries the
+6 x 5 grid and both new arms, `sweep_fold.sbatch` has a 3-day wall and the packing block
+(checked in bash against a fake fold tree), and `fold_manifest.csv` has the 750 rows,
+150 per domain in config order. Decided: a higher wall limit, and **no** sampling of the
+test problems. Revised
+2026-09-21 after the convergence work was merged (`420f7a2f1`, `9040e047c`,
+`f630f0938`). *Measured* means read that day from the laptop's result trees or
+from the cluster over SSH.
 
 ---
 
-## 1. State today
+## 1. What changed since the first version of this plan
 
-**The cluster quota is still exhausted.** *Measured:* `touch ~/.qtest` fails with
-`Disk quota exceeded`, for a 0-byte file. The filesystem itself is healthy
-(172 TB free, 1 % of inodes used), so the limit is the per-user one. Its numbers
-are unknown: `quota -s` prints nothing because the filer does not run `rquotad`.
-Until space is freed nothing can run, and `git pull` cannot write either.
-
-**What filled it.** The v3 sweep (`large-corpora__L-sweep__v3`) died at its L=500
-tier with 438 folds done. `snapshot_interval: 1` makes the ROSAME arms write one
-model file per training step:
-
-| *measured*, one fold instance | files | of which `anytime_snapshots/` |
+| | before | now |
 |---|---|---|
-| L = 10 | 579 | ~500 |
-| L = 100 | 10,700 | 10,082 |
-| L = 500 | 50,000 | 47,475 (`ROSAME_24` alone: 50,001) |
+| ROSAME stop rule | agreement = 1.0 (MILP arms), hardwired 100 epochs (`rosame_24`) | training-loss plateau (window 10, patience 3, 0.2 %), `epochs: 2000` as a ceiling, and the 1 h fold budget **enforced** |
+| `snapshot_interval` | `1` in the large config: one model file per training step | **removed from the config.** Each arm writes its whole per-epoch loss series to one file, `<fold>/rosame_training/<arm>.json`. It was never 5. Setting it (say 100) is now only for studying how the emitted model evolves |
+| large config `run_name` | `..__v3` | already `large-corpora__L-sweep__v4` |
+| solving metrics | a model with a no-effect operator scored 0 in every bucket | evaluation plans on a copy without no-effect operators (`planning_copy.py`); rows gain `planning_error_ratio` and `planning_dropped_operators` |
+| open decision "convergence fix first?" | open | **settled**: it is in the code v4 will run |
 
-An earlier session counted 6.6 million snapshot files. A 0-byte file failing
-points at an **inode (file-count) limit**, not a size limit: the bytes involved
-are small (50 MB per L=500 instance).
-
-**What is on the cluster, and whether the laptop has it** (*measured*,
-`fold_result.json` counts):
-
-| tree | cluster | laptop | note |
-|---|---|---|---|
-| `large-corpora__L-sweep` (v1) | 268 | 0 | the uncapped-MILP attempt that hit OUT_OF_MEMORY; superseded |
-| `..__v2` | 1,125 | 1,125 | complete locally |
-| `..__v3` | 438 | 420 | 18 folds not pulled; snapshot dirs still on the cluster |
-| probes, pilots, `simulation-cluster-run*` | present | — | small |
-
-Every one of v1, v2 and v3 predates the current symbolic ROSAME training
-dynamics (`docs/rosame-training-convergence-fix.md`: they predate `4997d76fa`
-and `c5e43f8c0`), so none is comparable with a new run. v4 is a fresh
-`run_name`, not a resume.
-
-**Corpora: no extension needed.** Masking and noise are injected at run time by
-`SimulatedDataSource` from each corpus's `gt_trajectories/`, seeded per fold, so
-a new grid value needs no new data. *Measured:* all five corpora are on the
-cluster with 2,500 GT problems and 2,500 training dirs each
-(`blocksworld/large_corpus_L500_n2500`, and `large_corpus_n2500` for hanoi,
-npuzzle, depot, gripper).
-
-**Environment drift.** The cluster env has `nolam 1.0.0` and **`offlam 1.0.1`**;
-the laptop, which produced every small-data OffLAM row, has `offlam 1.0.0`. The
-cluster checkout is on `run-experiments-large-traces` at `abbc5ae9d`, which has
-neither arm; they are on `adding-leonardo-algorithms` (pushed).
+Still to do in the config: the 6 x 5 grid and the two new arms (section 4,
+step 3). The convergence constants are **provisional**: the fix's own
+calibration probe (its section 6) and pilot gate (section 7) have not been run.
 
 ---
 
-## 2. Decisions that are yours
+## 2. State of the cluster (*measured*)
 
-1. **ROSAME convergence fix first, or not.** It is still "plan only". Launching
-   v4 now runs `rosame_24` on a fixed 100 epochs and the two `rosame_milp_24*`
-   arms until agreement reaches 1.0. If the fix lands afterwards, the ROSAME
-   rows of v4 are re-run (a `backfill_baseline` over frozen observations, not a
-   whole new sweep, provided the observations are kept; see 4.3).
-2. **What to delete on the cluster** (section 3, step 1). Deletions are yours to
-   run or to authorise; I have made none.
-3. **Pin `offlam==1.0.0` on the cluster**, so large and small rows come from one
-   version. Recommended.
-4. **Loss curves.** `snapshot_interval` off loses per-epoch ROSAME loss; the
-   agreement-per-round series the convergence panel uses comes from
-   `milp_rounds` in `fold_result.json` and is unaffected. If loss curves are
-   wanted, `snapshot_interval: 1000` costs about 50 files per arm, not 50,000.
+- **Quota still exhausted.** `touch ~/.qtest` fails with `Disk quota exceeded`
+  for a 0-byte file. `/home` itself has 172 TB free and 1 % of inodes used, so
+  it is the per-user limit. Its numbers are unknown (`quota -s` prints nothing;
+  the filer runs no `rquotad`). A 0-byte failure suggests an inode limit, but a
+  hard block limit can refuse file creation too, so **both readings stay open
+  until HPC support gives the numbers.** The same deletions relieve either.
+- Nothing runs, and `git pull` cannot write, until space is freed.
+- Corpora: all five present, 2,500 GT problems and 2,500 training dirs each.
+  **No corpus extension is needed for new grid values**: masking and noise are
+  injected at run time from `gt_trajectories/`, seeded per fold.
+- Env: `nolam 1.0.0`, `offlam 1.0.1`. The laptop, source of every small-data
+  OffLAM row, has `offlam 1.0.0`. **The two are the same learner for our usage,
+  so no pin is needed** (*measured*, by diffing the two installed copies and
+  running both): 1.0.1 adds `return_traces` / `infer_actions` to `learn()`, with
+  `greedy = not infer_actions`, which at the default is the `True` that 1.0.0
+  hard-coded; it bundles the VAL grounder and fixes its path, which is reached
+  only when a trace is missing an action, never in setting 1; it fixes
+  `Observation.__str__`, used only when a trace is printed; and it guards a
+  `None` constants table. Both versions learned literal-for-literal identical
+  models on the frozen traces of five folds of the extended small grid, one per
+  domain, at masking 0.1 to 0.4.
+- Checkout: branch `run-experiments-large-traces` at `abbc5ae9d`, which has
+  neither the new arms nor the convergence code.
 
 ---
 
-## 3. Steps, in order
+## 3. How much to free, and what
 
-### Step 1. Free the quota (cluster)
+What is on the cluster (fold results counted over SSH; file counts from the
+laptop copy where one exists, estimated otherwise):
 
-Nothing else works before this. In order of inodes recovered:
+| tree | fold results on cluster | files | real bytes | on the laptop |
+|---|---|---|---|---|
+| v3 `anytime_snapshots/` only | — | **6.63 M** *(measured locally)* | 8.1 GB | yes, all 6.6 M files (they cost the laptop 8 GB too) |
+| v3, everything else | 438 | 0.39 M | 1.0 GB | 420 of 438 folds, full artifacts |
+| v2 | 1,125 | ~3.2 M *(est.: 14 k per fold x 225 folds)* | ~10 GB | **fold results only** (1,170 files); models, loop logs and observations exist on the cluster only |
+| v1 (`large-corpora__L-sweep`) | 268 | ~0.7 M *(est.)* | ~2 GB | none; the OUT_OF_MEMORY attempt |
+| probes, pilots, small sweeps, corpora, conda envs | — | ~0.5 to 1 M *(est.)* | ~10 to 15 GB | — |
 
-```bash
-cd ~/projects/VIP-vision-PDDL/benchmark/running_results
-# a) v3's snapshots: the 6.6M files. The fold results beside them stay.
-find . -path '*large-corpora__L-sweep__v3*' -type d -name anytime_snapshots -prune -exec rm -rf {} +
-# b) superseded trees, once you are satisfied with what the laptop holds
-rm -rf */large-corpora__L-sweep__mask=*          # v1, never pulled, OOM-broken
-rm -rf */large-corpora__L-sweep__v2__mask=*      # 1125/1125 on the laptop
-rm -rf */large-corpora__L-sweep__v3__mask=*      # 420/438 on the laptop; pull the 18 first if wanted
-```
+The filer charges whole blocks per file, so its accounting is roughly 4x the
+real bytes for trees of small files: v3's snapshots alone are about 30 GB as
+the quota sees them.
 
-Unlinking millions of files is slow and is metadata load on a shared login node;
-run it under `nice`, or as a job with `--output=/dev/null` (a job cannot write
-its log into a full home). Then confirm: `touch ~/.qtest && rm ~/.qtest`.
+Three levels, in order of how much they return:
 
-### Step 2. Get the real quota numbers
+1. **Minimum: v3's snapshot dirs.** 6.6 M files. This alone puts the account
+   back where it was before v3 started, a state in which the whole v2 sweep ran
+   to completion. v3's fold results stay.
+2. **Recommended: all of v1, v2 and v3.** About 11 M files. None of the three
+   is comparable with v4 (v1/v2 ran the MILP arms uncapped; all three predate
+   the current ROSAME training dynamics). What is lost that the laptop does not
+   have: v2's models and logs, 18 v3 folds, all of v1. The dashboard's large tab
+   reads v2's fold results, which the laptop has.
+3. Probes and pilots (`epprobe__*`, `probe__*`, `mtprobe__*`, `pilot-cpu256`)
+   are small; leave them unless the numbers from support say otherwise.
 
-Ask HPC support for the block and inode limits of `shaksa` on `/home`. Every
-estimate in section 4 is a count of files; without the limit it is a comparison
-against "what broke last time", not against a number.
+After level 2 the account holds roughly 0.5 to 1 M files; v4 as designed below
+adds at most about 0.9 M at its peak (4.2).
 
-### Step 3. Code and config (laptop, branch `adding-leonardo-algorithms`)
+Deleting millions of files is slow metadata work on a shared login node. Run it
+under `nice`, or as a job with `--output=/dev/null` (a job cannot write its log
+into a full home). The deletions are yours to run or to authorise.
 
-`benchmark/run_config_large.yaml`:
+---
+
+## 4. Steps, in order
+
+### Step 1. Free the quota (section 3), then confirm `touch ~/.qtest && rm ~/.qtest`.
+
+### Step 2. Ask HPC support for the block and inode limits of `shaksa` on `/home`.
+
+### Step 3. Config and template (laptop, branch `adding-leonardo-algorithms`)
+
+`benchmark/run_config_large.yaml` (run name, convergence block and snapshot
+removal are already in):
 
 ```yaml
-run_name: large-corpora__L-sweep__v4
 shared:
   algorithms: [pisam_milp_loop, rosame_24, rosame_milp_24, rosame_milp_24_tag, nolam, offlam]
-  # snapshot_interval: removed (or 1000 if loss curves are wanted)
   baseline_regime_gate: strict
   nolam_noise: oracle
   nolam_allow_neg_precs: false
   nolam_seed: 0
-  # pisam_milp.ablations.gt_anchoring: [init_only, none]   <- already there: both loop arms run live
+  # pisam_milp.ablations.gt_anchoring: [init_only, none]  <- already there: both loop arms run live
 simulation:
   grid:
     masking_ps: [0.0, 0.01, 0.1, 0.2, 0.3, 0.4]
     noising_ps: [0.0, 0.1, 0.2, 0.3, 0.4]
 ```
 
-`scripts/cluster_large/sweep_fold.sbatch`:
-
-- `--time 2-00:00:00` (section 5).
-- A packing block after `benchmark_runner` returns. The job owns its fold, so
-  this is safe, and resume is untouched because `fold_result.json` stays:
+`scripts/cluster_large/sweep_fold.sbatch`: raise `--time` (section 5) and add a
+packing block after `benchmark_runner` returns. The job owns its fold, so this
+is safe, and resume is untouched because `fold_result.json` stays:
 
 ```bash
 EXP="benchmark/running_results/${DOMAIN}/${RUN_NAME}__mask=${P_MASK}__noise=${P_NOISE}"
 for inst in "$EXP"/testing/fold${FOLD}_numtrajs*_gtrate*; do
-    [ -f "$inst/fold_result.json" ] || continue            # only finished instances
+    [ -f "$inst/fold_result.json" ] || continue            # finished instances only
     rm -rf "$inst/temp_rosame_workspace" "$inst"/*_workspace/traces
     if [ -d "$inst/original_observations" ]; then
         tar czf "$inst/original_observations.tar.gz" -C "$inst" original_observations \
@@ -144,140 +141,156 @@ for inst in "$EXP"/testing/fold${FOLD}_numtrajs*_gtrate*; do
 done
 ```
 
-  (`$DOMAIN` must be the results-dir name, which for these five domains equals
-  the config key; check npuzzle's display name before trusting it.)
-
-Then `python scripts/cluster_large/make_manifest.py --per-fold` (750 rows),
-commit, push.
+Then `python scripts/cluster_large/make_manifest.py --per-fold`, commit, push.
 
 ### Step 4. Sync the cluster
 
 ```bash
 cd ~/projects/VIP-vision-PDDL
 git fetch && git checkout adding-leonardo-algorithms && git pull
-source activate vip_venv11 && pip install offlam==1.0.0      # decision 3
+source activate vip_venv11
 python -c "import nolam, offlam; print('ok')"
 python -m benchmark.benchmark_runner --config benchmark/run_config_large.yaml --dry-run \
     --domains blocksworld --only-mask 0.0 --only-noise 0.4    # expect: [gated out: OffLAM]
 conda deactivate
 ```
 
-### Step 5. Pilot: three fold jobs, not 750
+### Step 5. Convergence calibration probe (the fix's section 6)
 
-One domain, fold 0, the three corners that exercise what is new:
+One job per domain, rule off, `snapshot_interval: 1`, fixed 500 epochs at
+L = 10, 100, 2000, one fold. It yields the noise band that sets
+`min_improvement` and `window`, and **seconds per epoch at L = 2000**, which
+decides whether the rule can fire inside the hour there at all. About 15,000
+files in total; delete them once read.
 
-| cell | why |
+### Step 6. Pilot gate: a handful of fold jobs, not 750
+
+One domain, fold 0, the fix's gate plus the corners that are new in v4:
+
+| cell | what it answers |
 |---|---|
-| mask 0.0, noise 0.4 | NOLAM at L=2000; slowest evaluation regime |
-| mask 0.4, noise 0.0 | OffLAM at L=2000: does it finish inside 3600 s, and how much memory |
-| mask 0.4, noise 0.4 | worst case for the loop arms and for wall time |
+| mask 0.0, noise 0.0 | every ROSAME row reports `converged`; the L = 2000 arms finish inside the hour (the fix's gate) |
+| mask 0.0, noise 0.4 | NOLAM at L = 2000; evaluation cost at the highest noise |
+| mask 0.4, noise 0.0 | OffLAM at L = 2000: finishes inside 3,600 s or times out, and its memory |
+| mask 0.4, noise 0.4 | worst case for wall time |
 
 Read from each: elapsed, `cgroup_peak_mb` (the template logs it; `sacct` memory
-is disabled on this cluster), OffLAM's `terminated_by` per L, and the file count
-of the packed fold dir (`find <fold dirs> -type f | wc -l`).
+is disabled on this cluster), every arm's stop reason per L,
+`planning_error_ratio`, and the packed fold's file count.
 
-### Step 6. Submit
+### Step 7. Submit, one domain at a time
 
-Set `--mem` from the pilot's peak with 2x headroom and `--time` from its
-elapsed. Then, staged by domain so the cluster never holds more than one
-domain's results:
+Set `--mem` and `--time` from the pilot. 150 fold jobs per domain:
 
 ```bash
 python scripts/cluster_large/make_manifest.py --per-fold --domains blocksworld
 sbatch --array=0-149%45 scripts/cluster_large/sweep_fold.sbatch scripts/cluster_large/fold_manifest.csv
 ```
 
-150 fold jobs per domain (30 cells x 5 folds). Failed indices are re-submitted
-as they are; `resume: true` skips finished instances.
+Failed or wall-killed indices are re-submitted as they are; `resume: true`
+skips finished fold instances, so a killed job loses at most the training size
+it was on.
 
-### Step 7. Pull, verify, purge, next domain
+### Step 8. Pull, verify, purge, next domain
 
 ```bash
 ssh bgu "cd ~/projects/VIP-vision-PDDL/benchmark/running_results/blocksworld && tar czf - large-corpora__L-sweep__v4__*" \
   | tar xzf - -C benchmark/running_results/blocksworld/
 ```
 
-Verify by counting `fold_result.json` on both sides (750 per domain) and parsing
-each, never by the transfer's exit banner. Only then delete the domain's v4 tree
-on the cluster and submit the next domain.
+Verify by counting and parsing `fold_result.json` on both sides (750 per
+domain), then delete that domain's v4 tree on the cluster and submit the next.
 
-### Step 8. Dashboard
+### Step 9. Dashboard
 
-`dashboard_config.yaml`: `simulation.large.prefix.<domain>: large-corpora__L-sweep__v4`,
-then `build_dashboard --regen-plots`. `--refresh-stats` reads `.masking_info`
-from `original_observations/`, which are tarballs after step 3; unpack them for
-the cells whose corruption table is wanted, or leave that table to the
-small-data sweep.
+`simulation.large.prefix.<domain>: large-corpora__L-sweep__v4`, then
+`build_dashboard --regen-plots`. `--refresh-stats` reads `.masking_info` from
+`original_observations/`, which are tarballs after packing; unpack the cells
+whose corruption table is wanted.
 
 ---
 
-## 4. Storage
+## 5. Storage for v4
 
-### 4.1 What one fold job writes
+A fold job runs one fold of one cell over all five training sizes, 2,660
+trajectories. *Measured* rates (v3): `original_observations/` 2 files and
+3.1 KB per trajectory; `temp_rosame_workspace/` 3 files per trajectory, still
+written by the current ROSAME runners; a loop-arm dir 40 to 120 files; the
+fold-shared test states 1 file of 1.3 MB; a Lamanna trace 1 file of ~10 KB per
+trajectory in its gated cells; `rosame_training/` 3 files per instance.
 
-A fold job runs one fold of one cell over all five training sizes: 2,660
-trajectories in total (10 + 50 + 100 + 500 + 2,000). *Measured* rates from v3:
-`original_observations/` is 2 files and about 3.1 KB per trajectory,
-`temp_rosame_workspace/` 3 files per trajectory, a loop-arm dir 40 to 120 files
-and 0.15 MB, the fold-shared test states 1 file of 1.3 MB. A Lamanna trace is 1
-file of about 10 KB per trajectory (3.5x its source), in the gated cells only.
-
-| per fold job | files | bytes |
+| per fold job | files | real bytes |
 |---|---|---|
-| as the config stands (`snapshot_interval: 1`) | ~125,000 | ~150 MB |
-| snapshots off, nothing else | ~14,000 to 19,000 | ~45 to 100 MB |
-| snapshots off + step 3's packing (final, at rest) | **~1,000** | **~5 MB** |
-| same, transient peak while the job runs | ~17,000 | ~100 MB |
+| current config, no packing | ~14,000 to 19,000 | ~45 to 100 MB |
+| **current config + packing, at rest** | **~1,000** | **~5 MB** |
+| transient peak while the job runs | ~17,000 | ~100 MB |
+| (for reference: v3's config) | ~125,000 | ~150 MB |
 
-### 4.2 The whole sweep: 150 cells x 5 folds = 750 fold jobs
+| whole sweep, 750 fold jobs | files | real bytes |
+|---|---|---|
+| current config, no packing | ~11 to 14 M | ~35 to 75 GB |
+| **current config + packing** | **~0.75 M** | **~4 GB** |
+| same, one domain on the cluster at a time | ~0.15 M at rest + ~0.77 M transient at 45 jobs | ~0.8 GB + ~4.5 GB |
 
-| | files | bytes | `du` on the cluster (block padding, ~4x) |
-|---|---|---|---|
-| as the config stands | ~94 million | ~110 GB | ~450 GB |
-| snapshots off only | ~11 to 14 million | ~35 to 75 GB | ~150 to 300 GB |
-| **snapshots off + packing** | **~0.75 million** | **~4 GB** | **~15 GB** |
-| same, one domain at a time (step 6) | ~0.15 million | ~0.8 GB | ~3 GB |
-| transient, 45 jobs running | ~0.77 million | ~4.5 GB | — |
+Removing the snapshots was necessary and is done; it is not sufficient. Without
+packing, v4 would still write more files than the 6.6 M that broke the quota,
+because the observations and ROSAME's workspace copies cost 5 files per
+trajectory. With packing and domain staging the peak is about 0.9 M files.
 
-For scale: what exhausted the quota was about 6.6 million snapshot files on top
-of the older trees. "Snapshots off" alone would still write more files than
-that, which is why the packing step is not optional. With packing and domain
-staging, the cluster holds about 0.15 M files at rest plus 0.77 M transient,
-under a fifth of what it held when it broke.
+What packing costs: a later `backfill_*` pass, or the dashboard's corruption
+table, needs the observations unpacked first. They are kept, not deleted, so
+both stay possible.
 
-### 4.3 What packing costs
-
-`original_observations/` become one tarball per fold instance. Anything that
-reads them afterwards needs them unpacked first: a `backfill_baseline` /
-`backfill_cdps` pass (for example re-running the ROSAME arms after the
-convergence fix), and the dashboard's corruption table. They are kept, not
-deleted, precisely so those remain possible.
-
-### 4.4 The laptop
-
-*Measured:* 28 GB free. The packed v4 tree is about 4 GB and 0.75 M files, which
-fits. The unpacked form (11+ M files) would not, which is what took the laptop to
-99 % during the v3 pull.
+Laptop (*measured*: 28 GB free, of which v3's local snapshots hold 8 GB that
+can go): the packed v4 tree, ~4 GB and 0.75 M files, fits. The unpacked form
+would not.
 
 ---
 
-## 5. Memory and time
+## 6. Memory
 
-**Memory.** `sweep_fold.sbatch` requests 24G for one fold worker. The v2
-measurement behind it: a five-fold cell peaked at 7.2 to 14.6 GB, so 1.5 to 3 GB
-per fold, and that was with the MILP arms uncapped; v4 keeps `mip_traces: 4`.
-NOLAM is a counting pass and small. OffLAM holding 2,000 traces is the unmeasured
-one, and it runs in a child process inside the job's cgroup, so an OffLAM blow-up
-is an OOM kill of the job's largest process, reported as an `error` row, not a
-lost fold. Keep 24G for the pilot; set the array's value from the pilot's
-`cgroup_peak_mb`. 45 concurrent jobs at 24G is about 1 TB requested, which can
-pend on memory while cores idle, so lowering it after the pilot also shortens the
-queue.
+24G per fold job, as the template has it. Behind it: a five-fold v2 cell peaked
+at 7.2 to 14.6 GB with the MILP arms uncapped, so 1.5 to 3 GB per fold, and v4
+keeps `mip_traces: 4`. NOLAM is a counting pass. OffLAM holding 2,000 traces is
+unmeasured; it runs as a child inside the job's cgroup, so a blow-up kills that
+child and becomes an `error` row, not a lost fold. Set the array's `--mem` from
+the pilot's `cgroup_peak_mb` with 2x headroom: 45 concurrent jobs at 24G is
+about 1 TB requested and can pend on memory while cores idle.
 
-**Time.** v2 cells took 5 to 10 h at noise up to 0.2, dominated by evaluation,
-and two hit the 24 h wall (one `gt=none` evaluation took 8.4 h). v4 adds noise
-0.3 and 0.4, where the small-data sweep's cells ran 2 to 4x longer, and OffLAM
-can spend its full 3,600 s at each of the larger sizes in the noise-0 cells.
-Hence `--time 2-00:00:00`; the partition maximum is 7 days. Order of magnitude
-for the whole sweep: 750 jobs at about 10 h is 7,500 job-hours; at a throttle of
-45 that is about a week of wall time, per domain about a day and a half.
+---
+
+## 7. Time: the real risk
+
+Learning is now bounded: every learner is capped at the 3,600 s fold budget, so
+one training size costs at most about 6 h (three ROSAME arms, two loop arms,
+OffLAM in its cells) and the two large sizes will often sit near that cap. A
+fold job's learning is therefore roughly 10 to 14 h in the worst case.
+
+**Evaluation is not bounded, and it dominates.** Each fold scores every model
+on **500 test problems** (*measured* from v3's `fold_info.json`; k-fold over
+2,500), and a fold job scores 35 models (7 arms x 5 sizes): 17,500 planner calls
+at up to 60 s each. In v3 at noise up to 0.2 the planner never timed out
+(*measured* timeout ratio 0.000) and cells still took 5 to 10 h, with two
+hitting the 24 h wall. At noise 0.3 and 0.4 models are worse; every 10 % of
+problems that run to the 60 s cap adds about 50 min per model, up to a day per
+fold job. There is no knob today that caps or samples the test problems.
+
+Consequences for the design:
+
+- `--time 3-00:00:00` as the starting value (partition maximum is 7 days),
+  corrected from the pilot's worst corner. Resume makes a wall kill cheap.
+- If the pilot shows evaluation running to days, the choice is between a lower
+  `planning_timeout_seconds` for v4 (it is a fresh run, so nothing on disk
+  constrains it) and a sampled test set, which needs a small code change. That
+  is a decision for after the pilot, with its numbers in hand.
+- Order of magnitude if the worst case does not materialise: 750 jobs at 12 to
+  20 h, throttle 45, about 8 to 14 days of wall time; a day and a half to three
+  days per domain.
+
+---
+
+## 8. Decisions that are yours
+
+1. What to delete on the cluster (section 3). Recommended: all of v1, v2, v3.
+2. Whether to delete v3's 6.6 M snapshot files on the laptop as well (8 GB).
+3. After the pilot: `--mem`, `--time`, and whether evaluation needs bounding.

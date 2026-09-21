@@ -56,9 +56,16 @@ shared:
   events_tracing: false                   # HEAVY — leave off at this scale
   normalize: false
   resume: true                            # long runs; skip folds already complete
-  algorithms: [pisam_milp_loop, rosame_24, rosame_milp_24, rosame_milp_24_tag]
-                                          # 5 arms in total: pisam_milp_loop expands to two via the
-                                          # gt_anchoring ablation below (init_only + none).
+  algorithms: [pisam_milp_loop, rosame_24, rosame_milp_24, rosame_milp_24_tag, nolam, offlam]
+                                          # 5 arms in every cell: pisam_milp_loop expands to two via the
+                                          # gt_anchoring ablation below (init_only + none). The two
+                                          # regime-gated arms add one each where they are valid: nolam in
+                                          # the mask=0 row, offlam in the noise=0 column, both in the
+                                          # mask=0/noise=0 anchor cell (docs/offlam-nolam-baselines-plan.md).
+  baseline_regime_gate: strict            # strict | off — off runs every listed arm in every cell
+  nolam_noise: oracle                     # oracle (the fold's realised flip rate, measured against gt_trajectories/) | float
+  nolam_allow_neg_precs: false            # false = MAP_pre+; no GT domain here has negative preconditions
+  nolam_seed: 0                           # NumPy seed for NOLAM's MAP tie-breaking
   batch_size: 128                         # transitions per optimizer step for the symbolic ROSAME arms.
   normalize_base_loss: true               # ROSAME+MILP arms: ICAPS-26's B*(T+1) base-loss scaling, so the pseudo-label CE can move the network
   rosame_seed: 8800                       # one fixed seed per run, as upstream ICAPS-24 train.py (its default); see docs/algorithm_comparison_analysis.md §3.4
@@ -132,8 +139,8 @@ simulation:
   noising_strategy: percentage
   seed: 42
   grid:
-    masking_ps: [0.0, 0.01, 0.1]          # reused from the small-data grid
-    noising_ps: [0.0, 0.1, 0.2]
+    masking_ps: [0.0, 0.01, 0.1, 0.2, 0.3, 0.4]   # the extended small-data grid: 6 x 5 = 30 cells per domain
+    noising_ps: [0.0, 0.1, 0.2, 0.3, 0.4]
 
 # One domain for the pilot. Uncomment the rest after the plan's section 6 gate.
 domains:
