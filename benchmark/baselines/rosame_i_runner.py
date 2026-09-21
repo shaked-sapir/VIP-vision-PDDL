@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain
 
+from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker
 from benchmark.baselines.base_runner import BaselineRunner
+from src.milp.loss_convergence import LossConvergenceRule
 from benchmark.baselines.image_fold_inputs import (
     ResolvedTrace,
     infer_bench_key,
@@ -121,12 +123,27 @@ class RosameIBaselineRunner(BaselineRunner):
         device: Optional[str] = None,
         base_seed: int = 8800,
         resize: ResizeSpec = _RESIZE_FROM_TABLE,
+        rosame_convergence: Optional[Mapping[str, object]] = None,
     ) -> None:
         self.n_seeds = n_seeds
         self.device = device
         self.base_seed = base_seed
         self.resize = resize
+        self.convergence_rule = LossConvergenceRule.from_config(rosame_convergence)
         self._bench_cache: Dict[Path, Tuple[str, Domain]] = {}
+
+    def run_params(self) -> Dict[str, object]:
+        if self.convergence_rule is None:
+            return {}
+        return {"rosame_convergence": self.convergence_rule.as_stats()}
+
+    def _stop_check(self) -> Optional[Callable[[List[float]], bool]]:
+        """The loop's stop hook: the plateau rule, or ``None`` when it is off."""
+        return None if self.convergence_rule is None else self.convergence_rule.converged
+
+    def _tracker(self) -> BestModelTracker:
+        """Best-loss checkpointing per seed, active only when the rule is on."""
+        return BestModelTracker(active=self.convergence_rule is not None)
 
     def _bench_and_domain(self, domain_path: Path) -> Tuple[str, Domain]:
         """Parse ``domain_path`` and derive its bench key, memoized per instance.
@@ -223,6 +240,7 @@ class RosameIBaselineRunner(BaselineRunner):
 
         seed_losses: Dict[int, float] = {}
         seed_models: Dict[int, str] = {}
+        seed_stops: Dict[int, Dict[str, object]] = {}
         skipped_seeds: List[int] = []
 
         for i in range(self.n_seeds):
@@ -230,6 +248,7 @@ class RosameIBaselineRunner(BaselineRunner):
             if seed_models and timeout_check():
                 skipped_seeds.append(seed)
                 continue
+            tracker = self._tracker()
             try:
                 runner = RosameI_Runner(
                     str(domain_path), device=self.device, seed=seed, resize=resize
@@ -241,6 +260,8 @@ class RosameIBaselineRunner(BaselineRunner):
                     lambda_=float(hp["lambda_"]),
                     augment=augment,
                     timeout_check=timeout_check,
+                    stop_check=self._stop_check(),
+                    tracker=tracker,
                 )
             except Exception as e:  # keep one bad seed from killing the cell
                 print(f"  [ROSAME-I] seed {seed} failed: {e}")
@@ -253,6 +274,9 @@ class RosameIBaselineRunner(BaselineRunner):
                 print(f"  [ROSAME-I] seed {seed}: invalid model, skipping")
                 continue
 
+            if tracker.best_loss is not None:
+                final_loss = tracker.best_loss
+            seed_stops[seed] = runner.training_report.as_stats()
             seed_losses[seed] = final_loss
             seed_models[seed] = model
             seed_dir = Path(work_dir) / "baseline_models" / self.name / f"seed_{seed}"
@@ -272,6 +296,9 @@ class RosameIBaselineRunner(BaselineRunner):
             # schedule was removed, which carry "train_per_trajectory": true.
             "schedule": "pooled",
             "resize": resize,
+            **self.run_params(),
+            **seed_stops[chosen],
+            "seed_stops": seed_stops,
         }
         if skipped_seeds:
             extra_info["skipped_seeds_timeout"] = skipped_seeds

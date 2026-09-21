@@ -343,6 +343,11 @@ def _runner_kwargs(args: argparse.Namespace) -> dict:
         kwargs["normalize_base_loss"] = args.normalize_base_loss
     if getattr(args, "rosame_seed", None) is not None:
         kwargs["rosame_seed"] = args.rosame_seed
+    if getattr(args, "rosame_convergence", None) is not None:
+        kwargs["rosame_convergence"] = json.loads(args.rosame_convergence)
+    if getattr(args, "agreement_stop", None) is not None:
+        text = str(args.agreement_stop).strip().lower()
+        kwargs["agreement_stop"] = None if text in ("none", "null", "off") else float(text)
     if getattr(args, "nolam_noise", None) is not None:
         kwargs["nolam_noise"] = args.nolam_noise
     if getattr(args, "nolam_allow_neg_precs", None) is not None:
@@ -400,6 +405,17 @@ def main() -> None:
     ap.add_argument("--rosame-seed", type=int, default=None,
                     help="Seed for the symbolic ROSAME arms' RNGs. Default: the "
                          "runner's own (8800, upstream ICAPS-24's default).")
+    ap.add_argument("--rosame-convergence", default=None, metavar="JSON",
+                    help="Symbolic ROSAME arms: the training-loss plateau rule as a "
+                         "JSON mapping, e.g. '{\"window\": 10, \"min_improvement\": "
+                         "0.002, \"patience\": 3, \"min_epochs\": 50}'. Omitted = "
+                         "off (fixed epochs). Pair it with --no-train-per-trajectory "
+                         "for rosame_24: the per-trajectory schedule has no single "
+                         "loss curve, so the rule does not apply to it.")
+    ap.add_argument("--agreement-stop", default=None, metavar="FLOAT|none",
+                    help="ROSAME+MILP arms: stop once network/MILP agreement "
+                         "reaches this level; 'none' records agreement without "
+                         "stopping on it. Default: the runner's own (1.0).")
     ap.add_argument("--nolam-noise", default=None,
                     help="NOLAM: the flip probability it is given. 'oracle' "
                          "(the runner's default) measures the fold's realised "

@@ -6,7 +6,40 @@ symbolic arms in the large-corpora sweep stop on ROSAME/MILP agreement (the
 MILP arms) or on a hardwired 100 epochs (the DL-only arm); neither is a
 convergence criterion.
 
-Status: **plan only — nothing implemented.**
+Status: **code implemented (branch `rosame-loss-convergence`, 2026-09-21); the
+calibration probe (§6) and the pilot gate (§7) have not been run.** The
+constants in §3.1 are therefore still the plan's starting values, not measured
+ones.
+
+What was built, and where it departs from the text below:
+
+- §4.1 `src/milp/loss_convergence.py` holds `window_best`,
+  `relative_improvements`, `has_converged`, the `LossConvergenceRule` dataclass
+  and the shared stop-reason vocabulary. `rosame26_budget.has_converged` is now
+  a thin wrapper that supplies the ICAPS-26 constants.
+- §4.2 `benchmark/algorithm_adapters/best_checkpoint.py` holds
+  `BestModelTracker` (with `reset()`); `rosame26_runner` imports it.
+- §4.3 `learn_pooled` returns a `TrainingReport`. `learn_full` still returns the
+  PDDL string, because four callers and two tests depend on it; the new
+  `learn_full_with_report` returns both.
+- §4.4 as written, except `seconds_left` is not a loop argument: the symbolic
+  runner's `milp_round` closure caps each solve with `capped_solve_limit`, which
+  keeps `MilpRoundFn` zero-argument.
+- §4.5 **runner defaults are unchanged**: the rule is off, `agreement_stop` is
+  1.0 and `rosame_24` keeps 100 epochs, so every small-data row stays
+  reproducible and `run_params()` gains keys only when the rule is on. The
+  large config opts in.
+- The per-epoch loss series is written to `<fold>/rosame_training/<arm>.json`
+  (one file per arm, with `base_losses` / `ce_losses` for the MILP arms), and
+  `benchmark/evaluation/cfm/convergence.py` reads it in preference to the
+  snapshot index. `run_config_large.yaml` therefore no longer sets
+  `snapshot_interval`; v3's value of 1 wrote 50,000 files per L=500 fold
+  instance and exhausted the cluster quota.
+- §4.8 the reader exposes `stop_reason`, `stop_epoch`, `best_epoch` and
+  `first_solve_epoch` per arm; the dashboard panel does not draw them yet.
+- §5 the four imaged arms take the same `rosame_convergence` block and
+  vocabulary; `CONVERGE_MIN_EPOCHS` is 50; the 26 MILP arm scores only the
+  history after its first successful solve.
 
 Every result tree on disk (`large-corpora__L-sweep__v2`, `__v3`, the
 `epprobe__*` runs) predates commits `4997d76fa` (base-loss normalisation where a

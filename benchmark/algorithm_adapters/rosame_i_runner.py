@@ -27,7 +27,9 @@ import torchvision
 from PIL import Image
 from torchvision import transforms
 
-from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner
+from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker
+from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner, TrainingReport
+from src.milp.loss_convergence import CONVERGED, TIMEOUT
 
 
 # Paper synth/resnet preprocessing. ICAPS-24 ``train.py:211/226/237`` uses
@@ -348,6 +350,8 @@ class RosameI_Runner(PORosame_Runner):
         lambda_: float,
         augment: bool,
         timeout_check: Optional[Callable[[], bool]] = None,
+        stop_check: Optional[Callable[[List[float]], bool]] = None,
+        tracker: Optional[BestModelTracker] = None,
     ) -> float:
         """Each epoch steps over every trace in a fresh random order.
 
@@ -355,17 +359,41 @@ class RosameI_Runner(PORosame_Runner):
         and iterates ``DataLoader(trainset, args.batch_size, shuffle=True)`` once
         per epoch. One trace per optimizer step rather than a batch of them; the
         ordering is upstream's, the batch dimension is not.
+
+        ``stop_check`` is called with the per-epoch loss history (the sum of
+        the epoch's step losses) and ends training as ``converged``. With a
+        ``tracker``, the best-loss schema heads are restored before returning.
+        The run is described by :attr:`training_report`.
         """
+        report = TrainingReport()
+        self.training_report = report
+        if tracker is not None:
+            tracker.bind(self.rosame)
         order = list(range(len(traces)))
-        for _ in range(epochs):
+        for epoch in range(epochs):
             random.shuffle(order)
+            epoch_loss = 0.0
             for i in order:
                 self.optimizer.zero_grad()
                 loss = self._trajectory_loss(traces[i], gamma, lambda_, augment)
                 loss.backward()
                 self.optimizer.step()
-            if timeout_check is not None and timeout_check():
+                epoch_loss += float(loss.item())
+            report.epochs_run = epoch + 1
+            report.step = epoch + 1
+            report.losses.append(epoch_loss)
+            if tracker is not None:
+                tracker.observe(epoch_loss, epoch)
+            if stop_check is not None and stop_check(report.losses):
+                report.stop_reason = CONVERGED
                 break
+            if timeout_check is not None and timeout_check():
+                report.stop_reason = TIMEOUT
+                break
+        if tracker is not None:
+            tracker.restore(self.rosame)
+            report.best_epoch = tracker.best_epoch
+            report.best_loss = tracker.best_loss
         return self._total_loss(traces, gamma, lambda_)
 
     # ------------------------------------------------------------------ orchestration
@@ -378,6 +406,8 @@ class RosameI_Runner(PORosame_Runner):
         lambda_: float,
         augment: bool,
         timeout_check: Optional[Callable[[], bool]] = None,
+        stop_check: Optional[Callable[[List[float]], bool]] = None,
+        tracker: Optional[BestModelTracker] = None,
     ) -> Optional[float]:
         """Ground, prepare all traces, and train them pooled.
 
@@ -389,7 +419,10 @@ class RosameI_Runner(PORosame_Runner):
         traces = self.prepare_traces(prepared_problems)
         if not traces:
             return None
-        return self.learn_pooled(traces, epochs, gamma, lambda_, augment, timeout_check)
+        return self.learn_pooled(
+            traces, epochs, gamma, lambda_, augment, timeout_check,
+            stop_check=stop_check, tracker=tracker,
+        )
 
     def to_pddl(self) -> str:
         """Threshold the learned schemas into a PDDL domain string."""

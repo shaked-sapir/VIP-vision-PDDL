@@ -46,6 +46,13 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, List, Mapping, Optional, Sequence
 
+from src.milp.loss_convergence import (  # noqa: F401  (re-exported)
+    has_converged as _has_converged,
+    relative_improvements,
+    window_best,
+)
+
+
 #: Median CP-SAT solve, seconds, over 630 samples of the real encoder (§1.2).
 #: The nominal ``mip_time_limit`` of 60 s is a cap the measurements never reach.
 PER_SOLVE_SECONDS: float = 0.318
@@ -104,8 +111,10 @@ CONVERGE_MIN_IMPROVEMENT: float = 0.002
 #: flat window happens regularly mid-descent on a noisy fold.
 CONVERGE_PATIENCE: int = 3
 
-#: Epochs that must run before convergence may trigger at all.
-CONVERGE_MIN_EPOCHS: int = 60
+#: Epochs that must run before convergence may trigger at all; the upstream
+#: warmup length, shared with the ICAPS-24 arms. For the MILP arm it counts from
+#: the first successful solve.
+CONVERGE_MIN_EPOCHS: int = 50
 
 
 class BudgetExceededError(RuntimeError):
@@ -288,47 +297,6 @@ def projection_for(
     )
 
 
-def window_best(losses: Sequence[float], window: int) -> List[float]:
-    """The best loss within each consecutive ``window``-epoch block.
-
-    A trailing partial block is dropped: comparing a 20-epoch window against a
-    3-epoch one would read as improvement whenever the short block happens to
-    contain a good epoch.
-    """
-    if window < 1:
-        raise ValueError(f"window must be at least 1, got {window}")
-    complete = len(losses) // window
-    return [min(losses[i * window : (i + 1) * window]) for i in range(complete)]
-
-
-def relative_improvements(bests: Sequence[float]) -> List[float]:
-    """Fractional improvement of each window over the **best window before it**.
-
-    Positive means a new best; zero or negative means the window did not beat
-    what the run had already achieved.
-
-    Measured against the running best rather than the immediately previous
-    window because the quantity of interest is "is this run still getting
-    better", and a window that fails to beat an earlier one has not made
-    progress however it compares to its neighbour. Note what this does **not**
-    buy: at the tuned defaults below the two rules stop the measured 1200-epoch
-    run at the same epoch, so this is a correctness argument, not a measured
-    improvement — the window width and the threshold are what move that number.
-
-    Normalised by the running best's magnitude, so the figure is comparable
-    across domains whose losses differ in scale. A running best of exactly zero
-    yields ``0.0`` rather than dividing.
-    """
-    out: List[float] = []
-    for index in range(1, len(bests)):
-        best_before = min(bests[:index])
-        scale = abs(best_before)
-        out.append(
-            0.0 if scale == 0.0 else (best_before - bests[index]) / scale
-        )
-    return out
-
-
 def has_converged(
     losses: Sequence[float],
     *,
@@ -337,31 +305,14 @@ def has_converged(
     patience: int = CONVERGE_PATIENCE,
     min_epochs: int = CONVERGE_MIN_EPOCHS,
 ) -> bool:
-    """Whether the training loss has plateaued (mode ``converge``).
-
-    A relative-improvement plateau: for ``patience`` consecutive windows, the
-    window's best loss must have improved the *running best* by less than
-    ``min_improvement``. Reads training loss only, never test data.
-
-    Args:
-        losses: Per-epoch training loss so far, in order.
-        window: Epochs per window.
-        min_improvement: Fractional improvement below which a window is a
-            plateau. ``0.01`` is 1%.
-        patience: Consecutive plateau windows required.
-        min_epochs: Floor before convergence may trigger, so a flat start
-            cannot stop the run.
-
-    Returns:
-        ``True`` when training should stop.
-    """
-    if len(losses) < min_epochs:
-        return False
-    bests = window_best(losses, window)
-    improvements = relative_improvements(bests)
-    if len(improvements) < patience:
-        return False
-    return all(value < min_improvement for value in improvements[-patience:])
+    """The shared plateau rule with this arm's constants (mode ``converge``)."""
+    return _has_converged(
+        losses,
+        window=window,
+        min_improvement=min_improvement,
+        patience=patience,
+        min_epochs=min_epochs,
+    )
 
 
 def _max_epochs(

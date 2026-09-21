@@ -12,18 +12,51 @@ in the (degraded) trajectory, so the encoder reads the wrong value directly.
 
 from __future__ import annotations
 
+import json
 import shutil
+import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
 from benchmark.algorithm_adapters.anytime_snapshots import SnapshotWriter
+from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker
 from benchmark.algorithm_adapters.po_rosame_runner import DEFAULT_BATCH_SIZE, PORosame_Runner
 from benchmark.algorithm_adapters.seeding import seed_everything
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 
 from benchmark.baselines.base_runner import BaselineRunner
+from src.milp.loss_convergence import LossConvergenceRule
 from src.utils.masking import load_masking_info, mask_observation
 from src.utils.pddl import ground_observation_completely
+
+TRAINING_SERIES_DIRNAME = "rosame_training"
+
+
+class LearningBudget:
+    """The fold's wall-clock learning budget, started when constructed."""
+
+    def __init__(self, timeout_seconds: Optional[float]) -> None:
+        self.timeout_seconds = timeout_seconds
+        self._start = time.perf_counter()
+
+    def seconds_left(self) -> float:
+        """Seconds remaining; ``inf`` when no budget was given."""
+        if self.timeout_seconds is None:
+            return float("inf")
+        return self.timeout_seconds - (time.perf_counter() - self._start)
+
+    def exhausted(self) -> bool:
+        """Whether the budget is spent."""
+        return self.seconds_left() <= 0
+
+
+def write_training_series(work_dir: Path, arm_name: str, payload: Mapping[str, object]) -> Path:
+    """Write one arm's per-epoch loss series to ``<work_dir>/rosame_training/<arm>.json``."""
+    out_dir = Path(work_dir) / TRAINING_SERIES_DIRNAME
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{arm_name}.json"
+    path.write_text(json.dumps(payload))
+    return path
 
 
 def _setup_rosame_workspace(
@@ -89,11 +122,15 @@ class RosameBaselineRunner(BaselineRunner):
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
         rosame_seed: Optional[int] = 8800,
+        epochs: int = 100,
+        rosame_convergence: Optional[Mapping[str, object]] = None,
     ) -> None:
         self.train_per_trajectory = train_per_trajectory
         self.snapshot_interval = snapshot_interval
         self.batch_size = batch_size
         self.rosame_seed = rosame_seed
+        self.epochs = epochs
+        self.convergence_rule = LossConvergenceRule.from_config(rosame_convergence)
 
     @property
     def effective_batch_size(self) -> int:
@@ -102,11 +139,23 @@ class RosameBaselineRunner(BaselineRunner):
         return size if size and size > 0 else 0
 
     def run_params(self) -> Dict[str, object]:
-        return {
+        params: Dict[str, object] = {
             "train_per_trajectory": self.train_per_trajectory,
             "batch_size": self.effective_batch_size,
             "rosame_seed": self.rosame_seed,
         }
+        if self.convergence_rule is not None:
+            params["epochs"] = self.epochs
+            params["rosame_convergence"] = self.convergence_rule.as_stats()
+        return params
+
+    def _stop_check(self) -> Optional[Callable[[List[float]], bool]]:
+        """The loop's stop hook: the plateau rule, or ``None`` when it is off."""
+        return None if self.convergence_rule is None else self.convergence_rule.converged
+
+    def _tracker(self) -> BestModelTracker:
+        """Best-loss checkpointing, active only when the rule is on."""
+        return BestModelTracker(active=self.convergence_rule is not None)
 
     @property
     def name(self) -> str:
@@ -175,6 +224,10 @@ class RosameBaselineRunner(BaselineRunner):
 
         extra_info: Dict = dict(self.run_params())
         seed_everything(self.rosame_seed)
+        budget = LearningBudget(timeout_seconds)
+        if self.convergence_rule is not None and self.train_per_trajectory:
+            print("  [ROSAME] rosame_convergence is set but the per-trajectory schedule "
+                  "has no single loss curve; the rule is not applied")
         snapshot = None
         if self.snapshot_interval is not None:
             snapshot = SnapshotWriter(
@@ -191,12 +244,21 @@ class RosameBaselineRunner(BaselineRunner):
             learn_kwargs = {}
             if self.batch_size is not None:
                 learn_kwargs["batch_size"] = self.batch_size
-            model = rosame.learn_full(
+            model, report = rosame.learn_full_with_report(
                 prepared,
                 train_per_trajectory=self.train_per_trajectory,
+                epochs=self.epochs,
                 snapshot=snapshot,
+                stop_check=self._stop_check(),
+                timeout_check=budget.exhausted,
+                tracker=self._tracker(),
                 **learn_kwargs,
             )
+            extra_info.update(report.as_stats())
+            if report.losses:
+                write_training_series(work_dir, self.name, {
+                    **report.as_stats(), "losses": report.losses,
+                })
             if model and ":action" in model:
                 return model, extra_info
             raise ValueError("Invalid ROSAME model")

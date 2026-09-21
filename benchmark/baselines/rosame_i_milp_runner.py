@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain, Problem
@@ -75,14 +75,16 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         mip_interval: int = 1,
         mip_traces: int = 3,
         mip_time_limit: float = 60.0,
-        agreement_stop: float = 1.0,
+        agreement_stop: Optional[float] = 1.0,
         encoding_config: Optional[MilpEncodingConfig] = None,
         goal_mode: str = "gt",
         milp_solver: str = "cp-sat-observed",
         resize: ResizeSpec = _RESIZE_FROM_TABLE,
+        rosame_convergence: Optional[Mapping[str, object]] = None,
     ) -> None:
         super().__init__(
             n_seeds=n_seeds, device=device, base_seed=base_seed, resize=resize,
+            rosame_convergence=rosame_convergence,
         )
         self.psi = psi
         self.pre_mip_epochs = pre_mip_epochs
@@ -299,6 +301,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
             seed = self.base_seed + i
             if seed_models and timeout_check():
                 continue
+            tracker = self._tracker()
             try:
                 rosame = MilpRosameI(
                     str(domain_path), device=self.device, seed=seed, psi=self.psi,
@@ -318,6 +321,8 @@ class RosameIMilpRunner(RosameIBaselineRunner):
                     agreement_stop=self.agreement_stop,
                     timeout_check=timeout_check,
                     seconds_left=seconds_left,
+                    stop_check=self._stop_check(),
+                    tracker=tracker,
                 )
             except Exception as e:  # keep one bad seed from killing the cell
                 print(f"  [{self.name}] seed {seed} failed: {e}")
@@ -329,7 +334,9 @@ class RosameIMilpRunner(RosameIBaselineRunner):
                 continue
 
             report["milp_failed"] = failed
-            seed_losses[seed] = report["final_loss"]
+            seed_losses[seed] = (
+                report["best_loss"] if report["best_loss"] is not None else report["final_loss"]
+            )
             seed_models[seed] = model
             seed_reports[seed] = report
             seed_dir = Path(work_dir) / "baseline_models" / self.name / f"seed_{seed}"
@@ -353,6 +360,12 @@ class RosameIMilpRunner(RosameIBaselineRunner):
             "final_agreement": report["final_agreement"],
             "milp_failed": report["milp_failed"],
             "mip_interval_used": report["mip_interval_used"],
+            "agreement_stop": self.agreement_stop,
+            "epochs_run": report["epochs_run"],
+            "first_solve_epoch": report["first_solve_epoch"],
+            "best_epoch": report["best_epoch"],
+            "best_loss": report["best_loss"],
+            **self.run_params(),
         }
 
     def _model_from(self, rosame, ps_domain, report: Dict) -> Tuple[str, bool]:

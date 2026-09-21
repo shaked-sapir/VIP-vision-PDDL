@@ -23,13 +23,23 @@ from typing import Callable, Dict, List, Optional, Tuple
 import torch
 import torch.optim as optim
 
+from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker
 from benchmark.algorithm_adapters.po_rosame_runner import (
     DEFAULT_BATCH_SIZE,
     PORosame_Runner,
+    StopCheck,
+    TimeoutCheck,
     _BATCH_SZ,
     batched_steps,
 )
 from benchmark.algorithm_adapters.rosame_milp.model_bridge import model_cross_entropy
+from src.milp.loss_convergence import (
+    AGREEMENT_REACHED,
+    CONVERGED,
+    EPOCHS_EXHAUSTED,
+    NO_USABLE_TRACES,
+    TIMEOUT,
+)
 
 # One MILP round: called with the current model, returns
 # (labels per schema, agreement in [0,1], solve stats dict, decoded solution).
@@ -54,6 +64,8 @@ class MilpPORosame(PORosame_Runner):
         super().__init__(*args, **kwargs)
         self.normalize_base_loss = normalize_base_loss
         self._model_labels: Optional[Dict[str, torch.Tensor]] = None
+        # (base, ce) of the most recent optimizer step; ce is 0.0 before the first solve.
+        self.last_loss_parts: Tuple[float, float] = (0.0, 0.0)
 
     def set_model_labels(self, labels: Optional[Dict[str, torch.Tensor]]) -> None:
         self._model_labels = labels
@@ -109,9 +121,11 @@ class MilpPORosame(PORosame_Runner):
         loss += 0.2 * F.mse_loss(
             precon, torch.ones(precon.shape, dtype=precon.dtype), reduction="sum"
         ) / n_transitions
+        base = loss.item()
         ce = self._model_ce()
         if ce is not None:
             loss = loss + ce
+        self.last_loss_parts = (base, 0.0 if ce is None else ce.item())
         loss.backward()
         optimizer.step()
         return loss.item()
@@ -125,28 +139,47 @@ class MilpPORosame(PORosame_Runner):
         epochs: int = 100,
         pre_mip_epochs: int = 50,
         mip_interval: int = 1,
-        agreement_stop: float = 1.0,
+        agreement_stop: Optional[float] = 1.0,
         snapshot=None,
         batch_size: Optional[int] = DEFAULT_BATCH_SIZE,
+        stop_check: Optional[StopCheck] = None,
+        timeout_check: Optional[TimeoutCheck] = None,
+        tracker: Optional[BestModelTracker] = None,
     ) -> Dict:
         """Pooled training with interleaved MILP rounds.
+
+        Stops on the first of: ``stop_check`` (``converged``), ``timeout_check``
+        (``timeout``), agreement reaching ``agreement_stop``
+        (``agreement_reached``), or ``epochs`` (``epochs_exhausted``).
+
+        The convergence series, and ``tracker``, restart at the first
+        *successful* solve: the pseudo-label cross-entropy joins the loss there
+        and shifts its scale, so warmup losses are recorded but not scored.
 
         Args:
             prepared: ``(problem, observation)`` pairs.
             milp_round: solves a MILP from the current model; returns
                 ``(labels, agreement, stats, solution)``.
-            epochs: total training epochs.
+            epochs: total training epochs; a ceiling when ``stop_check`` is given.
             pre_mip_epochs: warmup epochs without MILP (upstream: 50).
             mip_interval: solve every this many epochs after warmup (upstream: 1).
-            agreement_stop: stop once ROSAME/MILP agreement reaches this level.
+            agreement_stop: stop once ROSAME/MILP agreement reaches this level;
+                ``None`` records agreement without stopping on it.
             batch_size: Transitions per optimizer step, pooled across the
                 traces that share a grounding. ``None`` steps once per trace.
             snapshot: Optional ``SnapshotWriter``; captures the model and that
                 epoch's training loss every Nth epoch. The DL phase only — a
                 MILP round does not train.
+            stop_check: Called with the post-first-solve loss series after each
+                epoch; ``True`` ends training.
+            timeout_check: Called after each epoch; ``True`` ends training.
+            tracker: Keeps the best post-first-solve checkpoint. The caller
+                restores it.
 
         Returns:
-            Report dict: per-round history, final solution + labels, stop reason.
+            Report dict: per-round history, final solution, stop reason,
+            ``epochs_run``, ``first_solve_epoch``, ``best_epoch``, ``best_loss``,
+            and the full ``losses`` / ``base_losses`` / ``ce_losses`` series.
         """
         cached: List[Tuple[object, torch.Tensor, torch.Tensor, torch.Tensor]] = []
         for problem, observation in prepared:
@@ -156,14 +189,20 @@ class MilpPORosame(PORosame_Runner):
                 continue
             cached.append((problem, *encoded))
 
-        report: Dict = {"rounds": [], "stop_reason": "epochs_exhausted",
-                        "final_solution": None, "final_agreement": None}
+        report: Dict = {"rounds": [], "stop_reason": EPOCHS_EXHAUSTED,
+                        "final_solution": None, "final_agreement": None,
+                        "epochs_run": 0, "first_solve_epoch": None,
+                        "best_epoch": None, "best_loss": None,
+                        "losses": [], "base_losses": [], "ce_losses": []}
         if not cached:
-            report["stop_reason"] = "no_usable_traces"
+            report["stop_reason"] = NO_USABLE_TRACES
             return report
 
+        if tracker is not None:
+            tracker.bind(self.rosame)
+        # Losses since the first successful solve; what stop_check and tracker score.
+        scored: List[float] = []
         optimizer = self._build_optimizer()
-        order = list(range(len(cached)))
         # The snapshot for an epoch is taken before that epoch's MILP round, so
         # the agreement it carries is the previous round's -- the most recent
         # value known at capture time. None until the first round has run.
@@ -172,13 +211,25 @@ class MilpPORosame(PORosame_Runner):
             snapshot.start()
 
         for epoch in range(epochs):
-            loss_final = 0.0
+            loss_final = base_final = ce_final = 0.0
             for problem, s1, a, s2 in batched_steps(cached, batch_size, random):
                 self.problem = problem
                 self.ground_new_trajectory()
                 loss_final += self._train_step(s1, a, s2, optimizer) / _BATCH_SZ
+                base_final += self.last_loss_parts[0] / _BATCH_SZ
+                ce_final += self.last_loss_parts[1] / _BATCH_SZ
             if epoch % 10 == 0:
                 print(f"Epoch {epoch} RESULTS: Pooled average loss: {loss_final:.10f}")
+
+            report["epochs_run"] = epoch + 1
+            report["losses"].append(loss_final)
+            report["base_losses"].append(base_final)
+            report["ce_losses"].append(ce_final)
+            solved = report["first_solve_epoch"] is not None
+            if solved:
+                scored.append(loss_final)
+                if tracker is not None:
+                    tracker.observe(loss_final, epoch)
 
             if snapshot is not None:
                 # No single trace owns a pooled epoch, hence -1.
@@ -186,7 +237,15 @@ class MilpPORosame(PORosame_Runner):
                     step=epoch + 1, trajectory=-1, epoch=epoch,
                     render=self.rosame_to_pddl, loss=loss_final,
                     agreement=last_agreement,
+                    base_loss=base_final, ce_loss=ce_final,
                 )
+
+            if solved and stop_check is not None and stop_check(scored):
+                report["stop_reason"] = CONVERGED
+                break
+            if timeout_check is not None and timeout_check():
+                report["stop_reason"] = TIMEOUT
+                break
 
             past_warmup = epoch + 1 >= pre_mip_epochs
             if past_warmup and (epoch + 1 - pre_mip_epochs) % mip_interval == 0:
@@ -202,8 +261,16 @@ class MilpPORosame(PORosame_Runner):
                     report["final_solution"] = solution
                     report["final_agreement"] = agreement
                     self.set_model_labels(labels)
-                if agreement >= agreement_stop and solution is not None:
-                    report["stop_reason"] = "agreement_reached"
-                    return report
+                    if report["first_solve_epoch"] is None:
+                        report["first_solve_epoch"] = epoch
+                        if tracker is not None:
+                            tracker.reset()
+                if (agreement_stop is not None and agreement >= agreement_stop
+                        and solution is not None):
+                    report["stop_reason"] = AGREEMENT_REACHED
+                    break
 
+        if tracker is not None:
+            report["best_epoch"] = tracker.best_epoch
+            report["best_loss"] = tracker.best_loss
         return report

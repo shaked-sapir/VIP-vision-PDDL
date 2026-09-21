@@ -111,6 +111,49 @@ class TestRosameSeries:
         assert rosame_series(inst)["ROSAME_MILP_24"]["agreement"] == [None]
 
 
+class TestRosameTrainingSeries:
+    """With snapshots off, the loss comes from ``rosame_training/<arm>.json``."""
+
+    def _series(self, inst: Path, arm: str, payload):
+        d = inst / "rosame_training"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{arm}.json").write_text(json.dumps(payload))
+
+    def test_reads_the_loss_without_any_snapshot(self, tmp_path):
+        inst = _instance(tmp_path)
+        self._series(inst, "ROSAME_24", {
+            "losses": [9.0, 7.0, 6.5], "stop_reason": "converged", "best_epoch": 2})
+        s = rosame_series(inst)["ROSAME_24"]
+        assert s["x"] == [0, 1, 2] and s["loss"] == [9.0, 7.0, 6.5]
+        assert (s["stop_reason"], s["stop_epoch"], s["best_epoch"]) == ("converged", 2, 2)
+
+    def test_the_series_file_wins_over_a_sparser_snapshot_index(self, tmp_path):
+        inst = _instance(tmp_path)
+        snapshots = inst / "anytime_snapshots" / "ROSAME_24"
+        snapshots.mkdir(parents=True)
+        (snapshots / "snapshots.json").write_text(json.dumps([{"epoch": 0, "loss": 9.0}]))
+        self._series(inst, "ROSAME_24", {"losses": [9.0, 7.0]})
+        assert rosame_series(inst)["ROSAME_24"]["x"] == [0, 1]
+
+    def test_agreement_and_the_first_solve_join_on_epoch(self, tmp_path):
+        inst = _instance(tmp_path)
+        self._series(inst, "ROSAME_MILP_24", {
+            "losses": [3.0, 2.0, 2.6, 2.5], "first_solve_epoch": 1,
+            "stop_reason": "epochs_exhausted", "best_epoch": 3})
+        (inst / "fold_result.json").write_text(json.dumps([{
+            "algorithm": "ROSAME_MILP_24",
+            "algorithm_specific": {"milp_rounds": [
+                {"epoch": 1, "agreement": 0.6}, {"epoch": 2, "agreement": 0.9}]}}]))
+        s = rosame_series(inst)["ROSAME_MILP_24"]
+        assert s["agreement"] == [None, 0.6, 0.9, None]
+        assert s["first_solve_epoch"] == 1
+
+    def test_an_empty_series_file_is_ignored(self, tmp_path):
+        inst = _instance(tmp_path)
+        self._series(inst, "ROSAME_24", {"losses": []})
+        assert rosame_series(inst) == {}
+
+
 class TestMilpRounds:
     def test_maps_each_arm_to_its_epoch_agreement(self, tmp_path):
         inst = _instance(tmp_path)

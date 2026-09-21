@@ -321,6 +321,10 @@ _RUNNER_KWARG_KEYS = {
     "normalize_base_loss",
     # Seed for the symbolic ROSAME arms' RNGs (torch, numpy, random).
     "rosame_seed",
+    # Symbolic ROSAME arms: the training-loss plateau rule (a mapping of window /
+    # min_improvement / patience / min_epochs; absent = off), and the MILP arms'
+    # agreement threshold (null = recorded, never a stop rule).
+    "rosame_convergence", "agreement_stop",
     # NOLAM: the flip probability it is given ("oracle" = the fold's realised
     # rate, or a pinned float), its negative-precondition variant, and its seed.
     "nolam_noise", "nolam_allow_neg_precs", "nolam_seed",

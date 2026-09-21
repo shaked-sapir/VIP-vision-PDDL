@@ -1,7 +1,8 @@
 import random
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -20,8 +21,16 @@ except ModuleNotFoundError:
         sys.path.insert(0, str(rosame_root))
     from experiment_runner.rosame_runner import Rosame_Runner
 
+from src.milp.loss_convergence import CONVERGED, EPOCHS_EXHAUSTED, NO_USABLE_TRACES, TIMEOUT
+
 if TYPE_CHECKING:  # import-cycle-free: only needed for the annotation
     from benchmark.algorithm_adapters.anytime_snapshots import SnapshotWriter
+    from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker
+
+#: Called with the per-epoch loss history after each epoch; ``True`` stops training.
+StopCheck = Callable[[List[float]], bool]
+#: Called between epochs; ``True`` means the learning budget is spent.
+TimeoutCheck = Callable[[], bool]
 
 
 # Matches the vendored ``learn_rosame`` batch size, so pooled and per-trajectory
@@ -33,6 +42,38 @@ _BATCH_SZ = 1000
 #: (``train.py:150``); we stepped once per trace, which is 10-20 transitions on
 #: these corpora -- so both smaller and far more frequent than upstream.
 DEFAULT_BATCH_SIZE = 128
+
+
+@dataclass
+class TrainingReport:
+    """What one training run did.
+
+    Attributes:
+        stop_reason: ``converged`` | ``epochs_exhausted`` | ``timeout`` |
+            ``no_usable_traces``.
+        epochs_run: Epochs completed.
+        losses: Per-epoch training loss, in order (pooled schedule only).
+        step: The global step counter after the last epoch.
+        best_epoch: Epoch of the lowest loss the tracker saw, if one was given.
+        best_loss: That loss.
+    """
+
+    stop_reason: str = EPOCHS_EXHAUSTED
+    epochs_run: int = 0
+    losses: List[float] = field(default_factory=list)
+    step: int = 0
+    best_epoch: Optional[int] = None
+    best_loss: Optional[float] = None
+
+    def as_stats(self) -> Dict[str, object]:
+        """The summary fields a result row carries; the loss series is not one."""
+        return {
+            "stop_reason": self.stop_reason,
+            "epochs_run": self.epochs_run,
+            "best_epoch": self.best_epoch,
+            "best_loss": self.best_loss,
+            "final_loss": self.losses[-1] if self.losses else None,
+        }
 
 
 def batched_steps(cached, batch_size, rng):
@@ -312,7 +353,10 @@ class PORosame_Runner(Rosame_Runner):
         snapshot: Optional["SnapshotWriter"] = None,
         step_offset: int = 0,
         batch_size: Optional[int] = DEFAULT_BATCH_SIZE,
-    ) -> int:
+        stop_check: Optional[StopCheck] = None,
+        timeout_check: Optional[TimeoutCheck] = None,
+        tracker: Optional["BestModelTracker"] = None,
+    ) -> TrainingReport:
         """Interleaved schedule: one persistent optimizer, all traces per epoch.
 
         Removes the per-trajectory ordering bias of the continual loop. Because
@@ -325,9 +369,16 @@ class PORosame_Runner(Rosame_Runner):
             epochs: Epochs over the pooled set of traces.
             snapshot: Optional writer for anytime curves.
             step_offset: Starting value for the global step counter.
+            batch_size: Transitions per optimizer step; ``None`` steps once per trace.
+            stop_check: Called with the loss history after each epoch; ``True``
+                ends training as ``converged``. ``None`` runs every epoch.
+            timeout_check: Called after each epoch; ``True`` ends training as
+                ``timeout``.
+            tracker: Observes each epoch's loss and keeps the best checkpoint.
+                The caller restores it; this loop only feeds it.
 
         Returns:
-            The global step counter after the last epoch.
+            The run's :class:`TrainingReport`.
         """
         # Ground + encode each trace once, caching its problem and tensors.
         cached: List[Tuple[object, torch.Tensor, torch.Tensor, torch.Tensor]] = []
@@ -338,10 +389,13 @@ class PORosame_Runner(Rosame_Runner):
                 continue
             cached.append((problem, *encoded))
 
+        report = TrainingReport(step=step_offset)
         if not cached:
-            return step_offset
+            report.stop_reason = NO_USABLE_TRACES
+            return report
 
-        step = step_offset
+        if tracker is not None:
+            tracker.bind(self.rosame)
         optimizer = self._build_optimizer()
         for epoch in range(epochs):
             loss_final = 0.0
@@ -355,14 +409,28 @@ class PORosame_Runner(Rosame_Runner):
             if epoch % 10 == 0:
                 print(f"Epoch {epoch} RESULTS: Pooled average loss: {loss_final:.10f}")
 
-            step += 1
+            report.step += 1
+            report.epochs_run = epoch + 1
+            report.losses.append(loss_final)
+            if tracker is not None:
+                tracker.observe(loss_final, epoch)
             if snapshot is not None:
                 # No single trace owns a pooled epoch, hence -1.
                 snapshot.maybe_capture(
-                    step=step, trajectory=-1, epoch=epoch,
+                    step=report.step, trajectory=-1, epoch=epoch,
                     render=self._render_pddl, loss=loss_final,
                 )
-        return step
+            if stop_check is not None and stop_check(report.losses):
+                report.stop_reason = CONVERGED
+                break
+            if timeout_check is not None and timeout_check():
+                report.stop_reason = TIMEOUT
+                break
+
+        if tracker is not None:
+            report.best_epoch = tracker.best_epoch
+            report.best_loss = tracker.best_loss
+        return report
 
     # ------------------------------------------------------------- snapshots
 
@@ -378,15 +446,22 @@ class PORosame_Runner(Rosame_Runner):
         with torch.no_grad():
             return self.rosame_to_pddl()
 
-    def learn_full(
+    def learn_full_with_report(
         self,
         prepared: List[Tuple[object, object]],
         train_per_trajectory: bool = True,
         epochs: int = 100,
         snapshot: Optional["SnapshotWriter"] = None,
         batch_size: Optional[int] = DEFAULT_BATCH_SIZE,
-    ) -> str:
-        """Run the selected schedule and return the learned PDDL domain string.
+        stop_check: Optional[StopCheck] = None,
+        timeout_check: Optional[TimeoutCheck] = None,
+        tracker: Optional["BestModelTracker"] = None,
+    ) -> Tuple[str, TrainingReport]:
+        """Run the selected schedule; return the PDDL domain and the training report.
+
+        The three hooks apply to the pooled schedule only. With a ``tracker``,
+        its best checkpoint is restored before the model is rendered, so the
+        returned PDDL is the best-loss model and not the final epoch's.
 
         When ``snapshot`` is given, its clock starts here and is closed on the
         way out, so the recorded times cover training only — not the caller's
@@ -396,11 +471,31 @@ class PORosame_Runner(Rosame_Runner):
             snapshot.start()
         try:
             if train_per_trajectory:
-                self.learn_per_trajectory(prepared, epochs, snapshot=snapshot)
+                step = self.learn_per_trajectory(prepared, epochs, snapshot=snapshot)
+                report = TrainingReport(step=step, epochs_run=epochs)
             else:
-                self.learn_pooled(prepared, epochs, snapshot=snapshot,
-                                  batch_size=batch_size)
+                report = self.learn_pooled(
+                    prepared, epochs, snapshot=snapshot, batch_size=batch_size,
+                    stop_check=stop_check, timeout_check=timeout_check, tracker=tracker,
+                )
+                if tracker is not None:
+                    tracker.restore(self.rosame)
         finally:
             if snapshot is not None:
                 snapshot.close()
-        return self.rosame_to_pddl()
+        return self.rosame_to_pddl(), report
+
+    def learn_full(
+        self,
+        prepared: List[Tuple[object, object]],
+        train_per_trajectory: bool = True,
+        epochs: int = 100,
+        snapshot: Optional["SnapshotWriter"] = None,
+        batch_size: Optional[int] = DEFAULT_BATCH_SIZE,
+    ) -> str:
+        """Run the selected schedule and return the learned PDDL domain string."""
+        pddl, _report = self.learn_full_with_report(
+            prepared, train_per_trajectory=train_per_trajectory, epochs=epochs,
+            snapshot=snapshot, batch_size=batch_size,
+        )
+        return pddl

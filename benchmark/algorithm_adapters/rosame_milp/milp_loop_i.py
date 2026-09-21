@@ -20,12 +20,20 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import torch
 import torch.nn.functional as F
 
+from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker
 from benchmark.algorithm_adapters.rosame_i_runner import (
     RosameI_Runner,
     _PreparedTrace,
     _set_seed,
 )
 from benchmark.algorithm_adapters.rosame_milp.model_bridge import model_cross_entropy
+from src.milp.loss_convergence import (
+    AGREEMENT_REACHED,
+    CONVERGED,
+    EPOCHS_EXHAUSTED,
+    NO_USABLE_TRACES,
+    TIMEOUT,
+)
 
 # Probability floor for the state channel, matching the MILP boundary's clamp.
 _EPS = 1e-4
@@ -177,9 +185,11 @@ class MilpRosameI(RosameI_Runner):
         mip_interval: int = 1,
         mip_traces: int = 3,
         mip_time_limit: float = 60.0,
-        agreement_stop: float = 1.0,
+        agreement_stop: Optional[float] = 1.0,
         timeout_check: Optional[Callable[[], bool]] = None,
         seconds_left: Optional[Callable[[], float]] = None,
+        stop_check: Optional[Callable[[List[float]], bool]] = None,
+        tracker: Optional[BestModelTracker] = None,
     ) -> Dict:
         """Pooled ROSAME-I training with interleaved MILP rounds.
 
@@ -191,33 +201,56 @@ class MilpRosameI(RosameI_Runner):
             mip_interval: solve every this many epochs after warmup.
             mip_traces: how many of each epoch's shuffled order to hand the solver.
             mip_time_limit: the configured per-solve ceiling, before budgeting.
-            agreement_stop: stop once ROSAME/MILP model agreement reaches this.
+            agreement_stop: stop once ROSAME/MILP model agreement reaches this;
+                ``None`` records agreement without stopping on it.
             timeout_check: consulted between epochs; cannot interrupt a solve.
             seconds_left: fold budget still available, used to size each solve.
+            stop_check: called with the post-first-solve per-epoch loss series
+                (the sum of the epoch's step losses); ``True`` ends training.
+            tracker: keeps the best post-first-solve schema heads and restores
+                them before the final loss is computed.
 
         Returns:
             A report: per-round history, final solution, stop reason, final loss,
+            ``epochs_run``, ``first_solve_epoch``, ``best_epoch``, ``best_loss``,
             and any divergence from the configured schedule.
         """
         _set_seed(self.seed)
         traces = self.prepare_traces(prepared_problems)
         report: Dict = {
-            "rounds": [], "stop_reason": "epochs_exhausted", "final_solution": None,
+            "rounds": [], "stop_reason": EPOCHS_EXHAUSTED, "final_solution": None,
             "final_agreement": None, "final_loss": None, "n_traces": len(traces),
             "psi": self.psi, "pre_mip_epochs": pre_mip_epochs,
             "mip_interval_configured": mip_interval, "mip_interval_used": mip_interval,
             "mip_traces": mip_traces, "mip_time_limit_configured": mip_time_limit,
+            "epochs_run": 0, "first_solve_epoch": None,
+            "best_epoch": None, "best_loss": None,
         }
         if not traces:
-            report["stop_reason"] = "no_usable_traces"
+            report["stop_reason"] = NO_USABLE_TRACES
             return report
 
+        if tracker is not None:
+            tracker.bind(self.rosame)
+        # Losses since the first successful solve; what stop_check and tracker score.
+        scored: List[float] = []
         order = list(range(len(traces)))
         for epoch in range(epochs):
             random.shuffle(order)
+            epoch_loss = 0.0
             for i in order:
-                self._train_step(traces[i], gamma, lambda_, augment)
+                epoch_loss += self._train_step(traces[i], gamma, lambda_, augment)
             self._age_state_labels()
+            report["epochs_run"] = epoch + 1
+
+            solved = report["first_solve_epoch"] is not None
+            if solved:
+                scored.append(epoch_loss)
+                if tracker is not None:
+                    tracker.observe(epoch_loss, epoch)
+            if solved and stop_check is not None and stop_check(scored):
+                report["stop_reason"] = CONVERGED
+                break
 
             if self._should_solve(epoch, pre_mip_epochs, mip_interval):
                 mip_interval = self._run_round(
@@ -226,12 +259,20 @@ class MilpRosameI(RosameI_Runner):
                     agreement_stop, seconds_left,
                 )
                 report["mip_interval_used"] = mip_interval
-                if report["stop_reason"] == "agreement_reached":
+                if report["first_solve_epoch"] is None and report["final_solution"] is not None:
+                    report["first_solve_epoch"] = epoch
+                    if tracker is not None:
+                        tracker.reset()
+                if report["stop_reason"] == AGREEMENT_REACHED:
                     break
             if timeout_check is not None and timeout_check():
-                report["stop_reason"] = "timeout"
+                report["stop_reason"] = TIMEOUT
                 break
 
+        if tracker is not None:
+            tracker.restore(self.rosame)
+            report["best_epoch"] = tracker.best_epoch
+            report["best_loss"] = tracker.best_loss
         report["final_loss"] = self._total_loss(traces, gamma, lambda_)
         return report
 
@@ -253,7 +294,7 @@ class MilpRosameI(RosameI_Runner):
         mip_interval: int,
         mip_traces: int,
         mip_time_limit: float,
-        agreement_stop: float,
+        agreement_stop: Optional[float],
         seconds_left: Optional[Callable[[], float]],
     ) -> int:
         """Solve once over a FIFO prefix of this epoch's order; return the interval.
@@ -282,6 +323,6 @@ class MilpRosameI(RosameI_Runner):
             report["final_agreement"] = agreement
             self.set_model_labels(model_labels)
             self.set_state_labels(state_labels)
-            if agreement >= agreement_stop:
-                report["stop_reason"] = "agreement_reached"
+            if agreement_stop is not None and agreement >= agreement_stop:
+                report["stop_reason"] = AGREEMENT_REACHED
         return mip_interval

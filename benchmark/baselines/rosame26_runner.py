@@ -32,6 +32,7 @@ from typing import Dict, List, Optional, Tuple
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain
 
+from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker as _BestModelTracker
 from benchmark.baselines.base_runner import BaselineRunner
 from benchmark.baselines.image_fold_inputs import infer_bench_key, resolve_fold_inputs
 from benchmark.baselines.rosame_i_runner import (
@@ -75,47 +76,14 @@ _RESIZE: Dict[str, ResizeSpec] = {
 }
 
 
-class _BestModelTracker:
-    """Keeps the lowest-training-loss snapshot of the schema heads.
+#: ``Rosame26MipRepairer.rounds`` statuses that did not produce pseudo-labels.
+_UNSOLVED_ROUND_STATUSES = frozenset({"NO_TRACES", "NO_SOLUTION"})
 
-    The emitted PDDL is a function of ``domain_model.action_schemas`` alone, so
-    their ``state_dict`` is the whole checkpoint. Selection reads training loss
-    only and never touches test data.
 
-    Inactive outside ``converge`` mode: :meth:`observe` and :meth:`restore`
-    become no-ops, so the other two modes keep emitting the final epoch.
-    """
-
-    def __init__(self, active: bool) -> None:
-        self.active = active
-        self.best_loss: Optional[float] = None
-        self.best_epoch: Optional[int] = None
-        self._state = None
-        self._model = None
-
-    def bind(self, domain_model) -> None:
-        """Attach the model whose schema heads are snapshotted."""
-        self._model = domain_model
-
-    def observe(self, loss: float, epoch: int) -> None:
-        """Snapshot if ``loss`` is the best seen so far."""
-        if not self.active or self._model is None:
-            return
-        if self.best_loss is None or loss < self.best_loss:
-            import copy
-
-            self.best_loss = loss
-            self.best_epoch = epoch
-            self._state = copy.deepcopy(
-                [schema.state_dict() for schema in self._model.action_schemas]
-            )
-
-    def restore(self, domain_model) -> None:
-        """Load the best snapshot back, if one was taken."""
-        if not self.active or self._state is None:
-            return
-        for schema, state in zip(domain_model.action_schemas, self._state):
-            schema.load_state_dict(state)
+def _has_successful_round(mip_repairer) -> bool:
+    """Whether the repairer has solved at least once; ``False`` for the DL-only arm."""
+    rounds = getattr(mip_repairer, "rounds", None) or []
+    return any(r.get("status") not in _UNSOLVED_ROUND_STATUSES for r in rounds)
 
 
 class Rosame26BaselineRunner(BaselineRunner):
@@ -408,12 +376,25 @@ class Rosame26BaselineRunner(BaselineRunner):
 
         from src.milp.rosame26_budget import has_converged
 
+        # Index of the first epoch scored. 0 for the DL-only arm; for the MILP arm
+        # it moves to the epoch after the first successful solve, where the
+        # pseudo-label term joins the loss and shifts its scale.
+        series_start = {"index": 0, "solved": False}
+
         def check(history: List[Dict[str, float]]) -> bool:
             # Bound here rather than before `train`: `domain_model` is created by
             # `build()` inside it, and this hook first fires after epoch 0.
-            tracker.bind(trainer_ref["trainer"].domain_model)
-            losses = [float(record["total_loss"]) for record in history]
-            tracker.observe(losses[-1], len(losses) - 1)
+            trainer = trainer_ref["trainer"]
+            tracker.bind(trainer.domain_model)
+            if not series_start["solved"] and _has_successful_round(trainer.mip_repairer):
+                series_start["solved"] = True
+                series_start["index"] = len(history)
+                tracker.reset()
+                return False
+            losses = [float(record["total_loss"]) for record in history[series_start["index"]:]]
+            if not losses:
+                return False
+            tracker.observe(losses[-1], len(history) - 1)
             return has_converged(losses)
 
         return check
