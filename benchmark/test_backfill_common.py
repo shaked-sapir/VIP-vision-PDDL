@@ -131,3 +131,37 @@ def test_data_dir_override_is_still_dialect_resolved(tmp_path):
     assert resolve_problem_dir(exp_dir, data_dir) == (
         override / "training" / "trajectories_normalized"
     )
+
+
+# ── test states live in the cell (old layout) or the fold-shared dir (current) ──
+
+def _cell(tmp_path, name="fold2_numtrajs5_gtrate0"):
+    cell = tmp_path / "testing" / name
+    cell.mkdir(parents=True)
+    return cell
+
+
+def test_find_test_states_prefers_the_cell_local_copy(tmp_path):
+    from benchmark.backfill_common import find_test_states
+
+    cell = _cell(tmp_path)
+    local = cell / "predictive_power_test_states" / "test_states.json"
+    local.parent.mkdir()
+    local.write_text("{}")
+    assert find_test_states(cell) == local
+
+
+def test_find_test_states_falls_back_to_the_fold_shared_dir(tmp_path):
+    from benchmark.backfill_common import find_test_states
+
+    cell = _cell(tmp_path)
+    shared = tmp_path / "testing" / "fold2_gtrate0_shared" / "predictive_power_test_states" / "test_states.json"
+    shared.parent.mkdir(parents=True)
+    shared.write_text("{}")
+    assert find_test_states(cell) == shared
+
+
+def test_find_test_states_is_none_when_neither_layout_has_it(tmp_path):
+    from benchmark.backfill_common import find_test_states
+
+    assert find_test_states(_cell(tmp_path)) is None

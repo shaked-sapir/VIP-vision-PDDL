@@ -17,6 +17,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
+from benchmark.experiment_running_helpers.resume import fold_shared_dir
+
 _CELL_RE = re.compile(r"^fold(\d+)_numtrajs(\d+)_gtrate(\d+)$")
 
 # Same metric keys run_fold uses for its null record.
@@ -42,6 +44,31 @@ def parse_cell_name(cell_name: str) -> Optional[Tuple[int, int, int]]:
 def is_cell_dir(path: Path) -> bool:
     """True if ``path`` is a ``fold*_numtrajs*_gtrate*`` cell directory."""
     return path.is_dir() and _CELL_RE.match(path.name) is not None
+
+
+TEST_STATES_DIRNAME = "predictive_power_test_states"
+TEST_STATES_FILENAME = "test_states.json"
+
+
+def find_test_states(cell: Path) -> Optional[Path]:
+    """A cell's predictive-power test states, in either on-disk layout.
+
+    Older runs wrote them inside each fold instance; current runs write one copy
+    per fold under ``testing/fold{F}_gtrate{G}_shared/``, shared by every
+    training size of that fold.
+
+    Returns:
+        The ``test_states.json`` path, or ``None`` when neither layout has it.
+    """
+    local = cell / TEST_STATES_DIRNAME / TEST_STATES_FILENAME
+    if local.exists():
+        return local
+    parsed = parse_cell_name(cell.name)
+    if parsed is None:
+        return None
+    fold, _num_trajs, gt_rate = parsed
+    shared = fold_shared_dir(cell.parent, fold, gt_rate) / TEST_STATES_DIRNAME / TEST_STATES_FILENAME
+    return shared if shared.exists() else None
 
 
 def find_problem_pddl(search_root: Path, problem_name: str) -> Optional[Path]:

@@ -68,6 +68,7 @@ from benchmark.backfill_common import (
     NULL_METRIC_KEYS,
     existing_algorithms,
     find_problem_pddl,
+    find_test_states,
     is_cell_dir,
     merge_row,
     parse_cell_name,
@@ -377,8 +378,8 @@ def backfill_cell(
         print(f"  [SKIP] {cell.name}: no test problem PDDLs found")
         return "skip"
 
-    test_states = cell / "predictive_power_test_states" / "test_states.json"
-    test_states_str = str(test_states) if test_states.exists() else None
+    test_states = find_test_states(cell)
+    test_states_str = str(test_states) if test_states is not None else None
 
     trajectories = _fold_inputs(cell, settings, spec, fold_info, gt_rate)
     if not trajectories:
