@@ -210,6 +210,27 @@ whose corruption table is wanted.
 
 ---
 
+## 5a. Probe results (2026-09-22)
+
+`scripts/cluster_large/convergence_probe.sbatch`, jobs 21536269–21536273, one
+per domain, all `COMPLETED 0:0` on EPYC 7763 nodes. What they settle:
+
+| | measured |
+|---|---|
+| job elapsed | 5.0 h (blocksworld) to 9.3 h (npuzzle); learning 4.0–7.3 h of it, the rest evaluation of 6 models: **10–20 min per model** on the cluster |
+| seconds per epoch, L = 2000 | 12.6–19.6 (`rosame_24`), 13.5–22.7 (`rosame_milp_24`) |
+| L = 2000 with the rule on | `rosame_24` stops at epoch 50 (10–16 min), `rosame_milp_24` at 99 (22–37 min): inside the hour |
+| peak memory per job | 2.2–6.8 GB (npuzzle highest) against 24G requested |
+| packing | 30 files left per job (3 fold instances) |
+| planner errors | `planning_error_ratio` 0.00 and no dropped operators in all 30 rows |
+
+Convergence constants: the starting values are confirmed (details in
+`docs/rosame-training-convergence-fix.md`, status paragraph). Consequences for
+the sweep template: `--mem` can drop to 12G, and evaluation at 10–20 min per
+model puts a 25-model fold job at 4–8 h and a 35-model one at 6–12 h of
+evaluation, on top of at most ~6 h of learning per training size that hits the
+cap. The 3-day wall stands.
+
 ## 5. Storage for v4
 
 A fold job runs one fold of one cell over all five training sizes, 2,660

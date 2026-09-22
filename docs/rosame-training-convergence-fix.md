@@ -6,10 +6,40 @@ symbolic arms in the large-corpora sweep stop on ROSAME/MILP agreement (the
 MILP arms) or on a hardwired 100 epochs (the DL-only arm); neither is a
 convergence criterion.
 
-Status: **code implemented (branch `rosame-loss-convergence`, 2026-09-21); the
-calibration probe (§6) and the pilot gate (§7) have not been run.** The
-constants in §3.1 are therefore still the plan's starting values, not measured
-ones.
+Status: **code implemented (branch `rosame-loss-convergence`, 2026-09-21);
+calibration probe (§6) run 2026-09-21/22 (cluster jobs 21536269–21536273,
+`scripts/cluster_large/convergence_probe.sbatch`), which confirms the §3.1
+starting values for the symbolic arms; the pilot gate (§7) has not been run.**
+
+Probe results (five domains, `rosame_24` + `rosame_milp_24`, pooled, rule off,
+500 epochs, L = 10/100/2000, fold 0 of mask 0.1 / noise 0.2; series pulled into
+this branch's plan doc, `docs/large-sweep-v4-cluster-launch-plan.md` §6):
+
+- **Seconds per epoch at L = 2000:** 12.6–19.6 (DL-only), 13.5–22.7 (MILP).
+  `window x patience = 30` epochs is 6–11 min; `min_epochs = 50` is 10–16 min.
+  With the rule on, the L = 2000 arms stop at epoch 50 (DL) / 99 (MILP): 10–37
+  min, inside the hour with room to spare.
+- **DL-only curve shape:** within 0.5 % of its 500-epoch minimum by epoch 1–7
+  at L >= 100 and by epoch 15–68 at L = 10; total drop over 500 epochs 0.1–1.7 %
+  at L = 2000. Epoch-to-epoch upticks: median 0.00–0.01 %. The rule fires at
+  the floor (epoch 50) at L >= 100 and at 50–90 at L = 10; the loss at the stop
+  is within 0.01 % (L >= 100) / 0.23 % (L = 10) of the 500-epoch minimum.
+- **MILP curve shape:** first solve at epoch 49 in every run; the post-solve
+  series has its minimum at the first post-solve epoch in 11 of 15 runs. Upticks
+  are 0.7–5.9 % median (the pseudo-label CE and the sampled subset), so the
+  window-minimum filter is what makes the rule usable; the 0.2 % threshold sits
+  far below the uptick band yet the rule still fires at the floor (epoch 99)
+  because the window minima do not improve. Cost of stopping there: 0 % in 12
+  runs; +0.7–2.0 % in npuzzle L = 10/100 and gripper L = 10, whose loss drifted
+  down slowly over hundreds of epochs at well under 0.2 % per window.
+- **Alternatives replayed:** `min_improvement 0.001` changes nothing (the
+  window minima decide); `window 20` recovers a little on the drifting runs
+  (npuzzle L = 100: +0.48 % instead of +0.74 %) at +30 epochs everywhere;
+  `patience 5` likewise. None beats the starting values on the sweep as a whole.
+- **Memory:** cgroup peak 2.2 GB (gripper) to 6.8 GB (npuzzle) per job.
+
+Decision: keep `window 10, min_improvement 0.002, patience 3, min_epochs 50`
+for the symbolic arms.
 
 What was built, and where it departs from the text below:
 
