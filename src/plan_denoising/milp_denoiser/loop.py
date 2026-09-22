@@ -65,6 +65,7 @@ from src.plan_denoising.milp_denoiser.config import (
     LearnerInput,
     PoolPolicy,
     Sampler,
+    StopRules,
 )
 from src.milp.converter import (
     build_ps_domain,
@@ -476,6 +477,16 @@ def resolve_no_improvement_rounds(
     return max(1, math.ceil(PATIENCE_COEFFICIENT * math.log(max(total, 2))))
 
 
+def loop_stop_rules(config: PisamMilpConfig, cdps_budget_seconds: Optional[int]) -> StopRules:
+    """The rules the loop checks, with a blank ``budget_seconds`` resolved to the fold's.
+
+    ``_stop_reason`` reads ``budget_seconds`` off the rules it is handed, so the
+    resolved value has to live there; a blank left in place is no cap at all.
+    """
+    rules = config.effective_stop_rules()
+    return replace(rules, budget_seconds=rules.resolve_budget(cdps_budget_seconds))
+
+
 def _stop_reason(
     stop_rules,
     rounds: Sequence[RoundLog],
@@ -604,11 +615,11 @@ def run_loop(
     """
     start = time.perf_counter()
     gt_states_by_obs = config.resolve_gt_states(gt_states_by_obs)
-    stop_rules = config.effective_stop_rules()
     # One argument, two budgets, each with its own override. Deriving them
     # separately is what keeps ``time_limit_seconds: 30`` (a per-solve cap) from
     # silently also capping the whole loop at 30 seconds.
-    loop_budget = stop_rules.resolve_budget(cdps_budget_seconds)
+    stop_rules = loop_stop_rules(config, cdps_budget_seconds)
+    loop_budget = stop_rules.budget_seconds
     solve_limit = config.resolve_time_limit(cdps_budget_seconds)
     weights = EvaluationWeights(
         effect_mismatch=config.eval.effect_mismatch_weight,

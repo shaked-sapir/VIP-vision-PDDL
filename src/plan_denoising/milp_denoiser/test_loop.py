@@ -59,6 +59,7 @@ from src.plan_denoising.milp_denoiser.loop import (
     _sample_hardest_first,
     _sample_random,
     _stop_reason,
+    loop_stop_rules,
     _subset_gt,
     model_hash,
     ROUND_STREAM_NAME,
@@ -325,6 +326,26 @@ class TestDrawAndDedup(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- stop rules
+
+
+class TestLoopStopRules(unittest.TestCase):
+    """The budget the stop check reads is the resolved one, not the raw config."""
+
+    def test_a_blank_budget_resolves_to_the_fold_budget(self) -> None:
+        rules = loop_stop_rules(_config(stop={"budget_seconds": None}), 3600)
+        self.assertEqual(rules.budget_seconds, 3600)
+        self.assertEqual(
+            _stop_reason(rules, [], None, 3600.0, 0, False), "budget_seconds"
+        )
+
+    def test_an_explicit_budget_wins(self) -> None:
+        rules = loop_stop_rules(_config(stop={"budget_seconds": 120}), 3600)
+        self.assertEqual(rules.budget_seconds, 120)
+
+    def test_no_budget_anywhere_is_no_cap(self) -> None:
+        rules = loop_stop_rules(_config(stop={"budget_seconds": None}), None)
+        self.assertIsNone(rules.budget_seconds)
+        self.assertIsNone(_stop_reason(rules, [], None, 1e9, 0, False))
 
 
 class TestStopRules(unittest.TestCase):
