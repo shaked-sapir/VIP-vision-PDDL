@@ -313,12 +313,13 @@ def _candidate_counts(cell: Path) -> List[int]:
     subtract the masked count read straight from the ``.masking_info`` text. This
     is robust for any p_mask (the mask-application path fails on masked cells).
     """
-    from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
+    from pddl_plus_parser.lisp_parsers import DomainParser
 
     from src.utils.pddl_state import (
         ground_observation_completely,
         get_state_grounded_predicates,
     )
+    from src.utils.pddl_trajectory import parse_trajectory_with_declared_types
 
     counts: List[int] = []
     for fold in sorted(cell.glob("testing/*")):
@@ -331,7 +332,7 @@ def _candidate_counts(cell: Path) -> List[int]:
             mf = tf.with_suffix(".masking_info")
             if not mf.exists():
                 continue
-            obs = TrajectoryParser(partial_domain=domain).parse_trajectory(tf)
+            obs = parse_trajectory_with_declared_types(tf, domain)
             grounded = ground_observation_completely(domain, obs)
             states = [grounded.components[0].previous_state] + [
                 c.next_state for c in grounded.components
@@ -365,8 +366,18 @@ def cell_fluent_stats(cell: Path, noise_ratio: float) -> Dict[str, Optional[floa
     return out
 
 
-def load_or_compute_stats(domain_dir: Path, cells: List[Path], refresh: bool) -> Dict[str, dict]:
-    cache = domain_dir / _STATS_FILENAME
+def stats_cache_path(domain_dir: Path, prefix: Optional[str]) -> Path:
+    """The stats cache for one simulation prefix of a domain: ``_grid_fluent_stats__<prefix>.json``,
+    or the unsuffixed name when no prefix is configured."""
+    if not prefix:
+        return domain_dir / _STATS_FILENAME
+    return domain_dir / f"{Path(_STATS_FILENAME).stem}__{prefix}.json"
+
+
+def load_or_compute_stats(
+    domain_dir: Path, cells: List[Path], refresh: bool, prefix: Optional[str] = None,
+) -> Dict[str, dict]:
+    cache = stats_cache_path(domain_dir, prefix)
     if cache.exists() and not refresh:
         data = json.loads(cache.read_text())
         if not any(v and v.get("flipped") is None for v in data.values()):
@@ -517,7 +528,7 @@ def build_sim_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
         if regen:
             print("    regenerating shared-x trend plots...")
             regenerate_shared_x_plots(cells, metrics, error_band=cfg.get("error_band", DEFAULT_ERROR_BAND))
-        fluent = load_or_compute_stats(domain_dir, cells, refresh)
+        fluent = load_or_compute_stats(domain_dir, cells, refresh, prefixes.get(domain))
 
         cells_out[domain] = {}
         for cell in cells:
@@ -847,9 +858,26 @@ function bases(){
   for(const d of Object.keys(dd))if(dd[d].curves)for(const a of Object.keys(dd[d].curves.algs))if(a!==CDPS&&a!==ORACLE)set.add(a);
  }
  return[...set].filter(algAllowed).sort();}
-const PAL=["#e8710a","#1baf7a","#d55181","#9085e9","#c98500","#e66767"];
+const PAL=["#c98500","#9085e9","#d55181","#e66767","#1baf7a","#e8710a"];
+// Named colours (longest prefix first) so a series keeps its colour across
+// tabs instead of cycling with BASES sort order. ROSAME_24 is blue so it
+// does not share orange with ROSAME_MILP_24_TAG.
+const ALG_COLOR={
+ "NOLAM":"#6aa84f",
+ "OffLAM":"#cc3333",
+ "ROSAME_24":"#2563eb",
+ "ROSAME_MILP_24_TAG":"#e69138",
+ "PISAM_MILP_LOOP__gt=none":"#f2f2f2",
+ "PISAM_MILP_LOOP":"#8e7cc3",
+};
+const ALG_COLOR_KEYS=["ROSAME_MILP_24_TAG","PISAM_MILP_LOOP__gt=none","PISAM_MILP_LOOP","ROSAME_24","NOLAM","OffLAM"];
+function namedColor(a){
+ for(const k of ALG_COLOR_KEYS){if(a===k||a.startsWith(k+"__"))return ALG_COLOR[k];}
+ return null;}
 function algStyle(a){if(a===CDPS)return{c:"#4b8fe2",dash:null};if(a===ORACLE)return{c:"#9dc1f0",dash:"5 4"};
  if(a===ANCHORED)return{c:"#2f6fb0",dash:"6 3"};
+ const named=namedColor(a);
+ if(named)return{c:named,dash:"2 3"};
  return{c:PAL[Math.max(0,BASES.indexOf(a))%PAL.length],dash:"2 3"};}
 function algLabel(a){return a===ORACLE?"oracle":a===ANCHORED?"CDPS (anchored)":a;}
 function enabledAlgs(){return [CDPS,ORACLE,...(S.cmp?BASES:[])].filter(a=>!S.off[a]);}

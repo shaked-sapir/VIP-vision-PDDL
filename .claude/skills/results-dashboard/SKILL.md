@@ -134,13 +134,13 @@ python -m benchmark.evaluation.cfm.build_dashboard
 ```
 
 That is the fast path: it reuses the existing trend PNGs and the per-domain
-`_grid_fluent_stats.json` cache, and rebuilds only the HTML.
+`_grid_fluent_stats__<prefix>.json` cache, and rebuilds only the HTML.
 
 | Flag | Use it when | Cost |
 |---|---|---|
 | *(none)* | only the page layout, config metadata or algorithm registry changed | fast |
 | `--regen-plots` | metric data changed (new folds, a rerun, a backfill), or `error_band` changed | ~2× the fast path; rewrites `evaluation_results/CFM_quality_shared/<key>_trend.png` per cell |
-| `--refresh-stats` | observations changed — new folds, or `original_observations/` was rewritten | recomputes `<results_root>/<domain>/_grid_fluent_stats.json`; parses `.masking_info` and grounds predicates, so the most expensive flag |
+| `--refresh-stats` | observations changed — new folds, or `original_observations/` was rewritten | recomputes `<results_root>/<domain>/_grid_fluent_stats__<prefix>.json` (one cache per simulation prefix, so the small and large grids never share figures); parses `.masking_info` and grounds predicates, so the most expensive flag |
 | `--domains a b` | iterating on one or two domains | proportionally faster — **but see below** |
 | `--embed` | you need one shareable file (email, upload) | much larger file, **different filename** |
 | `--config PATH` | trying an alternative config without editing the tracked one | — |
@@ -287,7 +287,7 @@ without regenerating data. Afterwards:
 |---|---|---|
 | `results_dashboard.html` | yes | rebuild |
 | `CFM_quality_shared/*_trend.png` | yes, if the backfilled arm is CDPS-family | `--regen-plots` |
-| `_grid_fluent_stats.json` | only if `original_observations/` changed | `--refresh-stats` |
+| `_grid_fluent_stats__<prefix>.json` | only if `original_observations/` changed | `--refresh-stats` |
 | `fully-detailed-report.xlsx` | yes | drop `--skip-regenerate`, or delete the file |
 
 A **new algorithm key** additionally needs a decision in the config: give it an
@@ -331,5 +331,5 @@ wherever it happens to have data. Its key must match the `algorithm` field in
   dashboard to compare repair magnitude across arms; read the net field
   directly (`src/plan_denoising/patch_accounting.py`).
 - The builder is read-only with respect to experiments: it writes only the
-  HTML, the `CFM_quality_shared/` PNGs and the `_grid_fluent_stats.json` cache.
+  HTML, the `CFM_quality_shared/` PNGs and the `_grid_fluent_stats__<prefix>.json` caches.
   If a rebuild appears to change a result, the result changed underneath it.
