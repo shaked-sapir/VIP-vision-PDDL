@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Set, Union, Tuple, Optional
 
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
-from pddl_plus_parser.models import Observation, GroundedPredicate, State, Domain
+from pddl_plus_parser.models import Observation, GroundedPredicate, State, Domain, PDDLObject
 
 from src.utils.pddl_gym import parse_gym_to_pddl_literal
 
@@ -37,7 +37,33 @@ def parse_trajectory_with_declared_types(
     problem = None
     if problem_path is not None and Path(problem_path).exists():
         problem = ProblemParser(problem_path=Path(problem_path), domain=domain).parse_problem()
-    return TrajectoryParser(partial_domain=domain, problem=problem).parse_trajectory(Path(trajectory_path))
+    observation = TrajectoryParser(partial_domain=domain, problem=problem).parse_trajectory(Path(trajectory_path))
+    if problem is None:
+        complete_object_table(observation)
+    return observation
+
+
+def complete_object_table(observation: Observation) -> Observation:
+    """Add every object mentioned in any state of the observation to its object table.
+
+    The parser fills ``grounded_objects`` from the initial state only; an object
+    first mentioned in a later state is added here, typed by the predicate slot
+    it appears in.
+
+    :param observation: the parsed observation; its ``grounded_objects`` is updated in place.
+    :return: the same observation.
+    """
+    objects = dict(observation.grounded_objects)
+    states = [observation.components[0].previous_state] if observation.components else []
+    states += [component.next_state for component in observation.components]
+    for state in states:
+        for predicates in state.state_predicates.values():
+            for predicate in predicates:
+                for param_name, object_name in predicate.object_mapping.items():
+                    if object_name not in objects:
+                        objects[object_name] = PDDLObject(name=object_name, type=predicate.signature[param_name])
+    observation.add_problem_objects(objects)
+    return observation
 
 
 # ============================================================================
