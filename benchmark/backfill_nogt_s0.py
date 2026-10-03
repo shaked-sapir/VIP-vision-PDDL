@@ -126,13 +126,27 @@ def read_unanchored_config(path: Optional[Path]) -> PisamMilpConfig:
     return replace(PisamMilpConfig.from_dict(base), gt_anchoring=GtAnchoring.NONE)
 
 
-def resolve_arm(key: str, milp_config_path: Optional[Path]) -> AlgorithmSpec:
-    """The unanchored arm ``key`` names, with its tagged row label and work dir."""
+def resolve_arm(
+    key: str, milp_config_path: Optional[Path], solve_time_limit: Optional[int] = None,
+) -> AlgorithmSpec:
+    """The unanchored arm ``key`` names, with its tagged row label and work dir.
+
+    Args:
+        key: ``pisam_milp_loop`` or ``pisam_milp_single_round``.
+        milp_config_path: YAML holding the ``pisam_milp`` settings, or None for defaults.
+        solve_time_limit: Seconds one MILP solve may take; a solve that reaches it
+            returns its best solution so far. Suffixes the label with ``solve=<n>``.
+            None keeps the config's ``time_limit_seconds``.
+    """
     config = milp_config_for(key, read_unanchored_config(milp_config_path))
+    suffix = ""
+    if solve_time_limit is not None:
+        config = replace(config, time_limit_seconds=solve_time_limit)
+        suffix = f"__solve={solve_time_limit}"
     return AlgorithmSpec(
         key,
-        noisy_initial_label(pisam_milp_algorithm_name(config)),
-        noisy_initial_label(milp_work_subdir(key, config)),
+        noisy_initial_label(pisam_milp_algorithm_name(config)) + suffix,
+        noisy_initial_label(milp_work_subdir(key, config)) + suffix,
         config,
     )
 
@@ -521,6 +535,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Source experiment director(y/ies) containing testing/.")
     ap.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT,
                     help=f"Root of the mirrored results tree. Default {DEFAULT_OUT_ROOT}.")
+    ap.add_argument("--solve-time-limit", type=int, default=None,
+                    help="Cap, in seconds, on one MILP solve; a solve that reaches it "
+                         "returns its best solution so far. Adds __solve=<n> to the row "
+                         "label. Default: the config's time_limit_seconds.")
     ap.add_argument("--seed", type=int, default=42,
                     help="Base seed of the redrawn states. Default 42.")
     ap.add_argument("--keep-masked-values", action="store_true",
@@ -558,7 +576,9 @@ def main() -> None:
     if args.workers < 1:
         raise SystemExit("--workers must be >= 1")
 
-    arm = resolve_arm(args.algorithm, args.milp_config)
+    if args.solve_time_limit is not None and args.solve_time_limit < 1:
+        raise SystemExit("--solve-time-limit must be >= 1")
+    arm = resolve_arm(args.algorithm, args.milp_config, args.solve_time_limit)
     options = StagingOptions(
         out_root=args.out_root.resolve(),
         hide_masked=not args.keep_masked_values,

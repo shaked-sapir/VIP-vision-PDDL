@@ -17,11 +17,13 @@
 # observations are read from the tarball.
 #
 # $VIP_NOGT_ALGORITHMS lists the arms to run in order (default pisam_milp_loop),
-# and $VIP_LARGE_CONFIG the YAML their pisam_milp block is read from. The
+# and $VIP_LARGE_CONFIG the YAML their pisam_milp block is read from.
+# $VIP_NOGT_LOOP_ARGS holds driver flags for the pisam_milp_loop arm only. The
 # small-corpora run:
 #   VIP_NOGT_SOURCE_ROOT=benchmark/running_results_small_src \
 #   VIP_LARGE_CONFIG=benchmark/run_config.yaml \
 #   VIP_NOGT_ALGORITHMS="pisam_milp_loop pisam_milp_single_round" \
+#   VIP_NOGT_LOOP_ARGS="--solve-time-limit 60" \
 #   sbatch --array=0-749 scripts/cluster_large/nogt_s0_fold.sbatch \
 #       scripts/cluster_large/nogt_small_fold_manifest.csv
 #
@@ -59,7 +61,7 @@ SOURCE_EXP="${SOURCE_ROOT}/${DOMAIN}/${EXPERIMENT}"
 
 echo "SLURM_JOBID=${SLURM_JOB_ID:-?} node=${SLURM_JOB_NODELIST:-?}"
 echo "task=${SLURM_ARRAY_TASK_ID}: domain=${DOMAIN} mask=${P_MASK} noise=${P_NOISE} fold=${FOLD}"
-echo "source=${SOURCE_EXP} out_root=${OUT_ROOT} config=${CONFIG} algorithms=${ALGORITHMS} extra_args=${VIP_NOGT_ARGS:-}"
+echo "source=${SOURCE_EXP} out_root=${OUT_ROOT} config=${CONFIG} algorithms=${ALGORITHMS} extra_args=${VIP_NOGT_ARGS:-} loop_args=${VIP_NOGT_LOOP_ARGS:-}"
 echo "cpu_model=$(awk -F': ' '/^model name/{print $2; exit}' /proc/cpuinfo)"
 
 if [ ! -d "$SOURCE_EXP/testing" ]; then
@@ -95,6 +97,10 @@ export NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 # The exit code is held so a failed size still gets the finished ones packed.
 RUN_RC=0
 for ALGORITHM in $ALGORITHMS; do
+    ARM_ARGS=""
+    if [ "$ALGORITHM" = "pisam_milp_loop" ]; then
+        ARM_ARGS="${VIP_NOGT_LOOP_ARGS:-}"
+    fi
     python -m benchmark.backfill_nogt_s0 \
         --experiment-dir "$SOURCE_EXP" \
         --data-dir "$DATA_DIR" \
@@ -102,7 +108,7 @@ for ALGORITHM in $ALGORITHMS; do
         --milp-config "$CONFIG" \
         --out-root "$OUT_ROOT" \
         --cells "fold${FOLD}_numtrajs" \
-        --workers 1 ${VIP_NOGT_ARGS:-} || RUN_RC=$?
+        --workers 1 ${VIP_NOGT_ARGS:-} $ARM_ARGS || RUN_RC=$?
 done
 
 source scripts/cluster_large/pack_fold.sh

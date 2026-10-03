@@ -115,6 +115,26 @@ class TestLabels:
         assert loop.work_subdir != single.work_subdir
 
 
+class TestSolveTimeLimit:
+    def test_the_limit_reaches_the_config_and_the_label(self):
+        arm = resolve_arm(PISAM_MILP_LOOP, SMALL_CONFIG, solve_time_limit=60)
+        assert arm.milp_config.time_limit_seconds == 60
+        assert arm.milp_config.resolve_time_limit(300) == 60
+        assert arm.row_name == "PISAM_MILP_LOOP__gt=none__s0=noisy__solve=60"
+        assert arm.work_subdir == "pisam_milp_loop__gt=none__s0=noisy__solve=60"
+
+    def test_without_a_limit_a_solve_inherits_the_budget(self):
+        arm = resolve_arm(PISAM_MILP_LOOP, SMALL_CONFIG)
+        assert arm.milp_config.time_limit_seconds is None
+        assert arm.milp_config.resolve_time_limit(300) == 300
+        assert "solve=" not in arm.row_name
+
+    def test_the_loop_never_lets_a_solve_exceed_the_limit_or_the_budget(self):
+        from src.plan_denoising.milp_denoiser.loop import _remaining_budget
+        assert _remaining_budget(300, 60, elapsed=10.0) == 60
+        assert _remaining_budget(300, 60, elapsed=270.0) == 30
+
+
 class TestConfig:
     def test_anchoring_is_forced_to_none(self):
         assert read_unanchored_config(LARGE_CONFIG).gt_anchoring is GtAnchoring.NONE
