@@ -38,3 +38,37 @@ pack_fold_instances() {
     [ "$had_failglob" -eq 1 ] && shopt -s failglob
     return 0
 }
+
+
+# pack_nogt_instances OUT_EXP_DIR FOLD
+#   For every instance of FOLD under OUT_EXP_DIR/testing (the mirrored tree
+#   benchmark/backfill_nogt_s0.py writes) that has its fold_result.json: turn
+#   observations_noisy_s0/ into observations_noisy_s0.tar.gz and remove the copy
+#   of the observations each arm directory keeps. An instance without
+#   fold_result.json is left whole for the re-run.
+pack_nogt_instances() {
+    local exp_dir="$1" fold="$2" inst arm
+    local had_failglob=0
+    shopt -q failglob && had_failglob=1
+    shopt -u failglob
+    shopt -s nullglob
+    local instances=( "$exp_dir"/testing/fold"${fold}"_numtrajs*_gtrate* )
+    if [ "${#instances[@]}" -eq 0 ]; then
+        echo "WARNING: no fold ${fold} instances under ${exp_dir}/testing; nothing packed" >&2
+    else
+        for inst in "${instances[@]}"; do
+            [ -f "$inst/fold_result.json" ] || continue
+            for arm in "$inst"/*/original_observations; do
+                rm -rf "$arm"
+            done
+            if [ -d "$inst/observations_noisy_s0" ]; then
+                tar czf "$inst/observations_noisy_s0.tar.gz" -C "$inst" observations_noisy_s0 \
+                    && rm -rf "$inst/observations_noisy_s0"
+            fi
+        done
+        echo "packed: $(find "${instances[@]}" -type f | wc -l) files left in fold ${fold}'s ${#instances[@]} instances"
+    fi
+    shopt -u nullglob
+    [ "$had_failglob" -eq 1 ] && shopt -s failglob
+    return 0
+}
