@@ -21,6 +21,7 @@ from benchmark.experiment_running_helpers.simulated_data_utils import (
 from benchmark.simulated_version.leading_state_corruption import (
     LEADING_STATE_INDICES,
     DegradationSpec,
+    _sorted_state_line,
     hide_masked_values,
     leading_state_seed,
     observation_states,
@@ -132,7 +133,8 @@ def _masking_lines(path: Path) -> List[str]:
 
 def _fluents(state_line: str) -> set:
     """The fluents listed on a ``(:init ...)`` / ``(:state ...)`` line."""
-    return {re.sub(r"\s+\)", ")", fluent) for fluent in re.findall(r"\([^()]*\)", state_line)}
+    body = state_line.partition(" ")[2]
+    return {re.sub(r"\s+\)", ")", fluent) for fluent in re.findall(r"\([^()]*\)", body)}
 
 
 def _fluent_key(predicate) -> str:
@@ -306,3 +308,39 @@ class TestMismatchedInputsAreRejected:
         paths["gt"] = short_gt
         with pytest.raises(ValueError, match="differ in length"):
             _stage(paths, tmp_path / "out", spec(0.2, 0.2))
+
+
+def _stage_until_a_leading_state_is_empty(paths: Dict[str, Path], out: Path, state_index: int):
+    """Stage over folds until the redrawn state lists no fluent; returns the staged pair."""
+    for fold in range(400):
+        staged = _stage(paths, out / f"fold{fold}", spec(0.9, 0.0), fold=fold)
+        if not _fluents(_lines(staged[0])[1 + 2 * state_index]):
+            return staged
+    raise AssertionError("no fold produced an empty leading state")
+
+
+class TestEmptyStateLines:
+    """A state whose true fluents are all masked is written as an empty line."""
+
+    @pytest.mark.parametrize("line", ["(:init )", "(:state )"])
+    def test_sorting_keeps_an_empty_line_empty(self, line):
+        assert _sorted_state_line(line) == line
+
+    def test_sorting_orders_the_fluents(self):
+        assert _sorted_state_line("(:state (on a b) (clear a) (handempty ))") == (
+            "(:state (clear a) (handempty ) (on a b))"
+        )
+
+    @pytest.mark.parametrize("state_index", LEADING_STATE_INDICES)
+    def test_an_empty_redrawn_state_is_written_empty_and_loads(self, tmp_path, state_index):
+        paths = write_blocks_fixture(tmp_path, 0.9, 0.0)
+        staged, staged_masking = _stage_until_a_leading_state_is_empty(
+            paths, tmp_path / "out", state_index
+        )
+        head = "(:init" if state_index == 0 else "(:state"
+        assert _lines(staged)[1 + 2 * state_index] == f"{head} )"
+
+        observation = load_masked_observation(staged, staged_masking, blocks_domain(), paths["problem"])
+        predicates = get_state_grounded_predicates(observation_states(observation)[state_index])
+        assert not [p for p in predicates if p.is_positive and not p.is_masked]
+        assert sum(1 for p in predicates if p.is_masked) == max(1, round(len(predicates) * 0.9))

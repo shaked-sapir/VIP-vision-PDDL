@@ -97,6 +97,7 @@ class StagingOptions:
     out_root: Path
     hide_masked: bool
     prepare_only: bool
+    retry_errors: bool = False
 
 
 def noisy_initial_label(label: str) -> str:
@@ -305,6 +306,22 @@ def _test_problem_paths(problem_dir: Path, fold_info: dict) -> List[str]:
     return paths
 
 
+def row_recorded_error(fold_result_path: Path, row_name: str) -> bool:
+    """Whether the cell's row for ``row_name`` exists and carries an error."""
+    if not fold_result_path.exists():
+        return False
+    try:
+        rows = json.loads(fold_result_path.read_text())
+    except json.JSONDecodeError as error:
+        print(f"[WARN] unreadable {fold_result_path}: {error}")
+        return False
+    return any(
+        row.get("algorithm") == row_name
+        and (row.get("algorithm_specific") or {}).get("error") is not None
+        for row in rows
+    )
+
+
 def backfill_cell(
     cell: Path,
     settings: ExperimentSettings,
@@ -328,7 +345,8 @@ def backfill_cell(
 
     out_cell = output_cell(options.out_root, cell).resolve()
     fold_result_path = out_cell / FOLD_RESULT_FILENAME
-    if (not force and not options.prepare_only
+    retry = options.retry_errors and row_recorded_error(fold_result_path, arm.row_name)
+    if (not force and not retry and not options.prepare_only
             and arm.row_name in existing_algorithms(fold_result_path)):
         print(f"  [SKIP] {cell.name}: {arm.row_name} row already present")
         return "skip"
@@ -346,7 +364,7 @@ def backfill_cell(
               f"{'' if test_states else ' (no test states!)'}")
         return "dry"
 
-    trajectories = None if force else staged_trajectories(
+    trajectories = None if force or retry else staged_trajectories(
         out_cell, settings, degradation, fold_info, options.hide_masked,
     )
     if trajectories is None:
@@ -522,6 +540,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Only process cell dirs whose name contains this substring.")
     ap.add_argument("--force", action="store_true",
                     help="Re-run and replace the arm's row even if present.")
+    ap.add_argument("--retry-errors", action="store_true",
+                    help="Re-stage and re-run cells whose row for this arm recorded an "
+                         "error; cells with a clean row are still skipped.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--workers", type=int, default=1,
                     help="Cells to process in parallel. Dry runs are sequential.")
@@ -542,6 +563,7 @@ def main() -> None:
         out_root=args.out_root.resolve(),
         hide_masked=not args.keep_masked_values,
         prepare_only=args.prepare_only,
+        retry_errors=args.retry_errors,
     )
     print(f"Arm {arm.key} as row '{arm.row_name}' (work dir: {arm.work_subdir}/) "
           f"→ {options.out_root}")

@@ -7,6 +7,10 @@
 #   sbatch --array=450-749 scripts/cluster_large/nogt_s0_fold.sbatch
 #   (fold_manifest.csv rows are grouped by domain, 150 each)
 #
+# Extra driver flags go in $VIP_NOGT_ARGS, e.g. to redo only the sizes whose row
+# recorded an error:
+#   VIP_NOGT_ARGS=--retry-errors sbatch --array=100,105 scripts/cluster_large/nogt_s0_fold.sbatch
+#
 # Reads benchmark/running_results/<domain>/<run_name>__mask=..__noise=../ and
 # writes only under $VIP_NOGT_OUT (default benchmark/running_results_nogt_s0).
 # The source run may be packed: frozen observations are read from the tarball.
@@ -85,7 +89,7 @@ python -m benchmark.backfill_nogt_s0 \
     --milp-config "$CONFIG" \
     --out-root "$OUT_ROOT" \
     --cells "fold${FOLD}_numtrajs" \
-    --workers 1 || RUN_RC=$?
+    --workers 1 ${VIP_NOGT_ARGS:-} || RUN_RC=$?
 
 source scripts/cluster_large/pack_fold.sh
 pack_nogt_instances "${OUT_ROOT}/${DOMAIN}/${EXPERIMENT}" "$FOLD"

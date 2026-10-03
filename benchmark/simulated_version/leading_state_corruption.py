@@ -112,8 +112,8 @@ def hide_masked_values(masking_line: str) -> str:
 
 def _sorted_state_line(line: str) -> str:
     """A ``(:init ...)`` / ``(:state ...)`` line with its fluents in sorted order."""
-    head = line.split(" ", 1)[0]
-    return f"{head} {' '.join(sorted(_FLUENT.findall(line)))})"
+    head, _, body = line.partition(" ")
+    return f"{head} {' '.join(sorted(_FLUENT.findall(body)))})"
 
 
 def _sorted_masking_line(line: str) -> str:

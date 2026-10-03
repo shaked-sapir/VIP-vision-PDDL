@@ -13,6 +13,8 @@ from typing import Dict, Tuple
 
 import pytest
 
+import benchmark.backfill_nogt_s0 as driver
+
 from benchmark.algorithms import PISAM_MILP_LOOP, PISAM_MILP_SINGLE_ROUND
 from benchmark.backfill_cdps import ExperimentSettings
 from benchmark.backfill_nogt_s0 import (
@@ -26,6 +28,7 @@ from benchmark.backfill_nogt_s0 import (
     output_cell,
     read_unanchored_config,
     resolve_arm,
+    row_recorded_error,
     stage_cell_observations,
     staged_trajectories,
 )
@@ -286,3 +289,53 @@ class TestSequentialRun:
 
         assert _run_sequential(tasks, arm, options, force=False) == 1
         assert (output_cell(options.out_root, cell) / PROVENANCE_FILENAME).exists()
+
+
+class TestRetryErrors:
+    @staticmethod
+    def _write_row(out_cell: Path, row_name: str, error) -> Path:
+        out_cell.mkdir(parents=True, exist_ok=True)
+        path = out_cell / "fold_result.json"
+        specific = {"error": error} if error is not None else {}
+        path.write_text(json.dumps([{"algorithm": row_name, "algorithm_specific": specific}]))
+        return path
+
+    def test_an_error_row_is_recognised(self, tmp_path):
+        path = self._write_row(tmp_path, "ARM", "Received illegal state component")
+        assert row_recorded_error(path, "ARM") is True
+        assert row_recorded_error(path, "OTHER") is False
+
+    def test_a_clean_or_missing_row_is_not_an_error(self, tmp_path):
+        assert row_recorded_error(self._write_row(tmp_path, "ARM", None), "ARM") is False
+        assert row_recorded_error(tmp_path / "absent.json", "ARM") is False
+
+    def _run(self, tmp_path, monkeypatch, error):
+        cell, settings = _make_experiment(tmp_path)
+        arm = resolve_arm(PISAM_MILP_LOOP, LARGE_CONFIG)
+        options = StagingOptions(
+            out_root=tmp_path / "out", hide_masked=True, prepare_only=False, retry_errors=True,
+        )
+        out_cell = output_cell(options.out_root, cell)
+        result_path = self._write_row(out_cell, arm.row_name, error)
+        calls = []
+
+        def fake_phase(**kwargs):
+            calls.append(kwargs["trajectories"])
+            return {"algorithm": arm.row_name, "algorithm_specific": {}, "solving_ratio": 1.0}
+
+        monkeypatch.setattr(driver, "run_cdps_phase", fake_phase)
+        status = backfill_cell(
+            cell, settings, spec(0.2, 0.2), arm, options, force=False, dry_run=False,
+        )
+        return status, calls, json.loads(result_path.read_text())
+
+    def test_an_errored_cell_is_restaged_and_rerun(self, tmp_path, monkeypatch):
+        status, calls, rows = self._run(tmp_path, monkeypatch, "boom")
+        assert status == "done"
+        assert len(calls) == 1 and calls[0][0][0].exists()
+        assert rows[0]["algorithm_specific"] == {} and rows[0]["solving_ratio"] == 1.0
+
+    def test_a_clean_cell_is_still_skipped(self, tmp_path, monkeypatch):
+        status, calls, _rows = self._run(tmp_path, monkeypatch, None)
+        assert status == "skip"
+        assert calls == []
