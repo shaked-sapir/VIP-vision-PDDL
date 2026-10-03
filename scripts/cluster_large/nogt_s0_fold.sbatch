@@ -11,9 +11,19 @@
 # recorded an error:
 #   VIP_NOGT_ARGS=--retry-errors sbatch --array=100,105 scripts/cluster_large/nogt_s0_fold.sbatch
 #
-# Reads benchmark/running_results/<domain>/<run_name>__mask=..__noise=../ and
-# writes only under $VIP_NOGT_OUT (default benchmark/running_results_nogt_s0).
-# The source run may be packed: frozen observations are read from the tarball.
+# Reads $VIP_NOGT_SOURCE_ROOT/<domain>/<run_name>__mask=..__noise=../ (default
+# root benchmark/running_results) and writes only under $VIP_NOGT_OUT (default
+# benchmark/running_results_nogt_s0). The source run may be packed: frozen
+# observations are read from the tarball.
+#
+# $VIP_NOGT_ALGORITHMS lists the arms to run in order (default pisam_milp_loop),
+# and $VIP_LARGE_CONFIG the YAML their pisam_milp block is read from. The
+# small-corpora run:
+#   VIP_NOGT_SOURCE_ROOT=benchmark/running_results_small_src \
+#   VIP_LARGE_CONFIG=benchmark/run_config.yaml \
+#   VIP_NOGT_ALGORITHMS="pisam_milp_loop pisam_milp_single_round" \
+#   sbatch --array=0-749 scripts/cluster_large/nogt_s0_fold.sbatch \
+#       scripts/cluster_large/nogt_small_fold_manifest.csv
 #
 # Resources and the one-worker, whole-L-sweep-per-job shape match
 # sweep_fold.sbatch, so the wall-clock learning budget is comparable with the
@@ -35,6 +45,8 @@ cd "${SLURM_SUBMIT_DIR}"
 MANIFEST="${1:-scripts/cluster_large/fold_manifest.csv}"
 CONFIG="${VIP_LARGE_CONFIG:-benchmark/run_config_large.yaml}"
 OUT_ROOT="${VIP_NOGT_OUT:-benchmark/running_results_nogt_s0}"
+SOURCE_ROOT="${VIP_NOGT_SOURCE_ROOT:-benchmark/running_results}"
+ALGORITHMS="${VIP_NOGT_ALGORITHMS:-pisam_milp_loop}"
 
 LINE="$(sed -n "$((SLURM_ARRAY_TASK_ID + 2))p" "$MANIFEST" | tr -d '\r')"
 if [ -z "$LINE" ]; then
@@ -43,11 +55,11 @@ if [ -z "$LINE" ]; then
 fi
 IFS=, read -r DOMAIN DATA_DIR P_MASK P_NOISE FOLD RUN_NAME <<< "$LINE"
 EXPERIMENT="${RUN_NAME}__mask=${P_MASK}__noise=${P_NOISE}"
-SOURCE_EXP="benchmark/running_results/${DOMAIN}/${EXPERIMENT}"
+SOURCE_EXP="${SOURCE_ROOT}/${DOMAIN}/${EXPERIMENT}"
 
 echo "SLURM_JOBID=${SLURM_JOB_ID:-?} node=${SLURM_JOB_NODELIST:-?}"
 echo "task=${SLURM_ARRAY_TASK_ID}: domain=${DOMAIN} mask=${P_MASK} noise=${P_NOISE} fold=${FOLD}"
-echo "source=${SOURCE_EXP} out_root=${OUT_ROOT} config=${CONFIG}"
+echo "source=${SOURCE_EXP} out_root=${OUT_ROOT} config=${CONFIG} algorithms=${ALGORITHMS} extra_args=${VIP_NOGT_ARGS:-}"
 echo "cpu_model=$(awk -F': ' '/^model name/{print $2; exit}' /proc/cpuinfo)"
 
 if [ ! -d "$SOURCE_EXP/testing" ]; then
@@ -82,14 +94,16 @@ export NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 
 # The exit code is held so a failed size still gets the finished ones packed.
 RUN_RC=0
-python -m benchmark.backfill_nogt_s0 \
-    --experiment-dir "$SOURCE_EXP" \
-    --data-dir "$DATA_DIR" \
-    --algorithm pisam_milp_loop \
-    --milp-config "$CONFIG" \
-    --out-root "$OUT_ROOT" \
-    --cells "fold${FOLD}_numtrajs" \
-    --workers 1 ${VIP_NOGT_ARGS:-} || RUN_RC=$?
+for ALGORITHM in $ALGORITHMS; do
+    python -m benchmark.backfill_nogt_s0 \
+        --experiment-dir "$SOURCE_EXP" \
+        --data-dir "$DATA_DIR" \
+        --algorithm "$ALGORITHM" \
+        --milp-config "$CONFIG" \
+        --out-root "$OUT_ROOT" \
+        --cells "fold${FOLD}_numtrajs" \
+        --workers 1 ${VIP_NOGT_ARGS:-} || RUN_RC=$?
+done
 
 source scripts/cluster_large/pack_fold.sh
 pack_nogt_instances "${OUT_ROOT}/${DOMAIN}/${EXPERIMENT}" "$FOLD"
