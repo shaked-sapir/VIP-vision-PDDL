@@ -9,6 +9,7 @@ from pathlib import Path
 
 from benchmark.backfill_baseline import _runner_kwargs
 from benchmark.baselines import resolve_baselines
+from src.milp.converter import GtAnchoring
 from benchmark.baselines.rosame_milp_runner import (
     FREE_GOAL_MODE,
     RosameMilpBaseRunner,
@@ -72,3 +73,33 @@ def test_the_command_line_options_reach_both_milp_arms_and_no_other():
     assert (tag.goal_mode, tag.mip_traces) == (FREE_GOAL_MODE, 4)
     assert tag.encoding_config.as_stats() != milp.encoding_config.as_stats()
     assert plain.row_name(DOMAIN) == "ROSAME_24"
+
+
+def test_nothing_fixed_is_labelled_as_no_ground_truth():
+    runner = RosameMilpRunner(goal_mode=FREE_GOAL_MODE, gt_anchoring=GtAnchoring.NONE)
+    tag = RosameMilpTagRunner(goal_mode=FREE_GOAL_MODE, gt_anchoring=GtAnchoring.NONE)
+    assert runner.row_name(DOMAIN) == "ROSAME_MILP_24__gt=none"
+    assert tag.row_name(DOMAIN) == "ROSAME_MILP_24_TAG__gt=none"
+    assert runner.run_params()["gt_anchoring"] == "none"
+
+
+def test_a_free_initial_state_alone_has_its_own_label():
+    assert RosameMilpRunner(gt_anchoring=GtAnchoring.NONE).row_name(DOMAIN) == "ROSAME_MILP_24__init=none"
+    assert "gt_anchoring" not in RosameMilpRunner().run_params()
+
+
+def test_the_anchoring_option_reaches_the_milp_arms_only():
+    import argparse
+
+    args = argparse.Namespace(
+        epochs=None, n_seeds=None, ignore_budget=False, budget_mode=None,
+        goal_mode=FREE_GOAL_MODE, milp_gt_anchoring="none",
+    )
+    kwargs = _runner_kwargs(args)
+    assert kwargs == {"goal_mode": FREE_GOAL_MODE, "gt_anchoring": GtAnchoring.NONE}
+    milp, tag, plain, nolam, offlam = resolve_baselines(
+        ["rosame_milp_24", "rosame_milp_24_tag", "rosame_24", "nolam", "offlam"], **kwargs
+    )
+    assert milp.gt_anchoring is GtAnchoring.NONE and tag.gt_anchoring is GtAnchoring.NONE
+    assert not hasattr(plain, "gt_anchoring")
+    assert [r.row_name(DOMAIN) for r in (plain, nolam, offlam)] == ["ROSAME_24", "NOLAM", "OffLAM"]

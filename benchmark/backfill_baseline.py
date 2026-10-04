@@ -67,13 +67,20 @@ from benchmark.backfill_common import (
     resolve_problem_dir,
     worker_init,
 )
-from benchmark.backfill_nogt_s0 import frozen_observations_dir, output_cell
+from benchmark.backfill_nogt_s0 import (
+    PROVENANCE_FILENAME,
+    ROW_TAG,
+    frozen_observations_dir,
+    output_cell,
+    staged_observations_dir,
+)
 from benchmark.baselines import RESIZE_FROM_TABLE, ResizeSpec, resolve_baselines
 from benchmark.baselines.regime import DegradationRegime, gate_baselines
 from benchmark.baselines.rosame_milp_runner import FREE_GOAL_MODE, GT_GOAL_MODE
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import FOLD_RESULT_FILENAME
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt
+from src.milp.converter import GtAnchoring
 
 
 def _build_prepared_trajectories(
@@ -150,6 +157,7 @@ def backfill_cell(
     dry_run: bool,
     regime: Optional[DegradationRegime] = None,
     out_root: Optional[Path] = None,
+    staged_root: Optional[Path] = None,
 ) -> str:
     """Backfill one cell. Returns a status string: done | dry | skip | gated | invalid.
 
@@ -160,6 +168,10 @@ def backfill_cell(
     ``out_root``, when given, is the root of a mirrored results tree: the rows,
     models and work files go to ``<out_root>/<domain>/<experiment>/testing/<cell>/``
     and the source cell is only read.
+
+    ``staged_root``, when given, is a ``backfill_nogt_s0`` tree: the runners learn
+    from that tree's no-clean-state observations of the cell instead of the frozen
+    ones, and every row label gains ``__s0=noisy``.
     """
     parsed = parse_cell_name(cell.name)
     if parsed is None:
@@ -183,7 +195,9 @@ def backfill_cell(
     domain_ref = out_cell / "domain_reference.pddl"
     fold_result_path = out_cell / FOLD_RESULT_FILENAME
     existing = existing_algorithms(fold_result_path)
-    todo = [r for r in baselines if force or r.row_name(cell / "domain_reference.pddl") not in existing]
+    label_suffix = "" if staged_root is None else f"__{ROW_TAG}"
+    labels = {id(r): r.row_name(cell / "domain_reference.pddl") + label_suffix for r in baselines}
+    todo = [r for r in baselines if force or labels[id(r)] not in existing]
     if not todo:
         print(f"  [SKIP] {cell.name}: all requested baselines already present")
         return "skip"
@@ -202,7 +216,12 @@ def backfill_cell(
     test_states = find_test_states(cell)
     test_states_str = str(test_states.resolve()) if test_states is not None else None
 
-    with frozen_observations_dir(cell) as obs_dir:
+    staged_cell = None if staged_root is None else output_cell(staged_root, cell)
+    observations = (
+        frozen_observations_dir(cell) if staged_cell is None
+        else staged_observations_dir(staged_cell)
+    )
+    with observations as obs_dir:
         prepared = [] if obs_dir is None else _build_prepared_trajectories(
             obs_dir.resolve(), problem_dir, fold_info,
         )
@@ -211,9 +230,10 @@ def backfill_cell(
             return "skip"
 
         if dry_run:
-            names = ", ".join(r.row_name(cell / "domain_reference.pddl") for r in todo)
+            names = ", ".join(labels[id(r)] for r in todo)
+            source = "" if staged_cell is None else f" staged under {staged_root}"
             print(f"  [DRY] {cell.name}: would run [{names}] on "
-                  f"{len(prepared)} trajectories, {len(test_problem_paths)} test problems"
+                  f"{len(prepared)} trajectories{source}, {len(test_problem_paths)} test problems"
                   f"{'' if test_states_str else ' (no test states!)'}"
                   f"{'' if out_root is None else f' into {out_cell}'}")
             return "dry"
@@ -227,11 +247,13 @@ def backfill_cell(
             out_cell.mkdir(parents=True, exist_ok=True)
             for name in ("fold_info.json", "domain_reference.pddl"):
                 shutil.copy2(cell / name, out_cell / name)
+            if staged_cell is not None and (staged_cell / PROVENANCE_FILENAME).is_file():
+                shutil.copy2(staged_cell / PROVENANCE_FILENAME, out_cell / PROVENANCE_FILENAME)
 
         _learn_and_score(
             todo, prepared, out_cell, domain_ref, bench_name, fold, num_trajs, gt_rate,
             test_problem_paths, test_states_str, shared, fold_result_path,
-            planning_timeout, learn_timeout,
+            planning_timeout, learn_timeout, label_suffix,
         )
     return "done"
 
@@ -251,8 +273,12 @@ def _learn_and_score(
     fold_result_path: Path,
     planning_timeout: int,
     learn_timeout: int,
+    label_suffix: str = "",
 ) -> None:
-    """Run each runner on ``prepared`` inside ``work_cell`` and merge its row."""
+    """Run each runner on ``prepared`` inside ``work_cell`` and merge its row.
+
+    ``label_suffix`` is appended to every runner's row label.
+    """
     null_metrics = {k: None for k in NULL_METRIC_KEYS}
 
     # AMLGym's problem_solving writes ./tmp to the cwd — work inside the cell
@@ -261,7 +287,7 @@ def _learn_and_score(
     os.chdir(work_cell)
     try:
         for runner in runners:
-            algo_name = runner.row_name(domain_ref)
+            algo_name = runner.row_name(domain_ref) + label_suffix
             print(f"  [{algo_name}] {work_cell.name}: learning...")
             learn_start = time.perf_counter()
             model, extra_info = runner.learn(
@@ -335,6 +361,7 @@ def _backfill_cell_worker(
     runner_kwargs: Optional[dict] = None,
     regime: Optional[DegradationRegime] = None,
     out_root: Optional[Path] = None,
+    staged_root: Optional[Path] = None,
 ) -> Tuple[str, str]:
     """Process-pool entry point: resolve runners locally (no pickling of torch
     objects across processes) and backfill one cell.
@@ -359,6 +386,7 @@ def _backfill_cell_worker(
             Path(cell_str), Path(problem_dir_str), bench_name, baselines,
             planning_timeout=planning_timeout, learn_timeout=learn_timeout,
             force=force, dry_run=False, regime=regime, out_root=out_root,
+            staged_root=staged_root,
         )
         return cell_str, status
     except Exception as e:  # keep one failing cell from killing the whole run
@@ -393,6 +421,8 @@ def _runner_kwargs(args: argparse.Namespace) -> dict:
         kwargs["goal_mode"] = args.goal_mode
     if getattr(args, "mip_traces", None) is not None:
         kwargs["mip_traces"] = args.mip_traces
+    if getattr(args, "milp_gt_anchoring", None) is not None:
+        kwargs["gt_anchoring"] = GtAnchoring(args.milp_gt_anchoring)
     if getattr(args, "nolam_noise", None) is not None:
         kwargs["nolam_noise"] = args.nolam_noise
     if getattr(args, "nolam_allow_neg_precs", None) is not None:
@@ -466,6 +496,12 @@ def main() -> None:
                          "in the MILP to its ground truth, 'none' leaves it "
                          "free and labels the row <arm>__goal=none. Default: "
                          "the runner's own (gt).")
+    ap.add_argument("--milp-gt-anchoring", default=None,
+                    choices=[GtAnchoring.INIT_ONLY.value, GtAnchoring.NONE.value],
+                    help="ROSAME+MILP arms: 'init_only' fixes each trace's "
+                         "initial state in the MILP, 'none' leaves it free. "
+                         "With --goal-mode none as well the row is labelled "
+                         "<arm>__gt=none. Default: the runner's own (init_only).")
     ap.add_argument("--mip-traces", type=int, default=None,
                     help="ROSAME+MILP arms: traces sampled per MILP solve. "
                          "Default: the runner's own (all traces).")
@@ -533,6 +569,12 @@ def main() -> None:
                          "this root (<out-root>/<domain>/<experiment>/testing/<cell>/) "
                          "and only read the source experiment. Default: merge into "
                          "the source cell.")
+    ap.add_argument("--staged-root", type=Path, default=None,
+                    help="Learn from the no-clean-state observations a "
+                         "backfill_nogt_s0 run staged under this root (states 0 "
+                         "and 1 redrawn under the cell's own masking and noise) "
+                         "instead of the frozen ones; row labels gain "
+                         "__s0=noisy. Requires --out-root.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--workers", type=int, default=1,
                     help="Number of cells to backfill in parallel (one process "
@@ -542,6 +584,11 @@ def main() -> None:
     args = ap.parse_args()
 
     out_root = args.out_root.resolve() if args.out_root else None
+    staged_root = args.staged_root.resolve() if args.staged_root else None
+    if staged_root is not None and out_root is None:
+        raise SystemExit("--staged-root requires --out-root")
+    if staged_root is not None and not staged_root.is_dir():
+        raise SystemExit(f"--staged-root does not exist: {staged_root}")
     override_data_dir = args.data_dir.resolve() if args.data_dir else None
     if override_data_dir and not override_data_dir.is_dir():
         raise SystemExit(f"--data-dir does not exist: {override_data_dir}")
@@ -603,7 +650,7 @@ def main() -> None:
                 planning_timeout=args.planning_timeout,
                 learn_timeout=args.learn_timeout,
                 force=args.force, dry_run=args.dry_run, regime=regime,
-                out_root=out_root,
+                out_root=out_root, staged_root=staged_root,
             )
         return
 
@@ -618,7 +665,7 @@ def main() -> None:
                 str(cell), str(problem_dir), bench_name, args.baselines,
                 args.planning_timeout, args.learn_timeout, args.force,
                 args.train_per_trajectory, args.resize, _runner_kwargs(args),
-                regime, out_root,
+                regime, out_root, staged_root,
             ): cell
             for bench_name, cell, problem_dir, regime in tasks
         }

@@ -172,19 +172,29 @@ def output_cell(out_root: Path, cell: Path) -> Path:
 
 
 @contextmanager
-def frozen_observations_dir(cell: Path) -> Iterator[Optional[Path]]:
-    """The cell's frozen observations, unpacked to a temp dir if they are packed."""
-    loose = cell / _FROZEN_DIRNAME
-    packed = cell / f"{_FROZEN_DIRNAME}.tar.gz"
+def _loose_or_unpacked(cell: Path, dirname: str) -> Iterator[Optional[Path]]:
+    """``cell/dirname``, or ``cell/dirname.tar.gz`` unpacked to a temp dir, or None."""
+    loose = cell / dirname
+    packed = cell / f"{dirname}.tar.gz"
     if loose.is_dir():
         yield loose
     elif packed.is_file():
-        with tempfile.TemporaryDirectory(prefix="frozen_obs_") as tmp:
+        with tempfile.TemporaryDirectory(prefix="unpacked_obs_") as tmp:
             with tarfile.open(packed) as archive:
                 archive.extractall(tmp, filter="data")
-            yield Path(tmp) / _FROZEN_DIRNAME
+            yield Path(tmp) / dirname
     else:
         yield None
+
+
+def frozen_observations_dir(cell: Path):
+    """The cell's frozen observations, unpacked to a temp dir if they are packed."""
+    return _loose_or_unpacked(cell, _FROZEN_DIRNAME)
+
+
+def staged_observations_dir(staged_cell: Path):
+    """A staged cell's no-clean-state observations, unpacked to a temp dir if packed."""
+    return _loose_or_unpacked(staged_cell, OBSERVATIONS_DIRNAME)
 
 
 def stage_cell_observations(

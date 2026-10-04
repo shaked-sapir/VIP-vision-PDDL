@@ -39,6 +39,7 @@ from pddl_plus_parser.lisp_parsers import DomainParser
 import benchmark.algorithm_adapters.rosame_milp  # noqa: F401  (vendor sys.path bootstrap)
 from src.milp import encoder as _encoder_module  # noqa: F401  (factory registration)
 from src.milp.converter import (
+    GtAnchoring,
     build_ps_domain,
     build_ps_instance,
     find_gt_trajectory,
@@ -151,6 +152,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         normalize_base_loss: bool = True,
         rosame_seed: Optional[int] = 8800,
         rosame_convergence: Optional[Mapping[str, object]] = None,
+        gt_anchoring: GtAnchoring = GtAnchoring.INIT_ONLY,
     ) -> None:
         super().__init__(
             train_per_trajectory=train_per_trajectory,
@@ -165,12 +167,23 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         self.encoding_config = encoding_config or MilpEncodingConfig.upstream()
         self.goal_mode = goal_mode
         self.milp_solver = milp_solver
+        self.gt_anchoring = gt_anchoring
 
     def row_name(self, domain_path: Path) -> str:
-        """``name``, suffixed with the goal mode when the MILP's final state is not fixed."""
-        if self.goal_mode == GT_GOAL_MODE:
+        """``name``, suffixed with whichever endpoint states the MILP does not fix.
+
+        ``__goal=<mode>`` when only the final state is free, ``__init=none`` when
+        only the initial state is, ``__gt=none`` when neither is fixed.
+        """
+        goal_fixed = self.goal_mode == GT_GOAL_MODE
+        init_fixed = self.gt_anchoring is not GtAnchoring.NONE
+        if goal_fixed and init_fixed:
             return self.name
-        return f"{self.name}__goal={self.goal_mode}"
+        if init_fixed:
+            return f"{self.name}__goal={self.goal_mode}"
+        if goal_fixed:
+            return f"{self.name}__init={GtAnchoring.NONE.value}"
+        return f"{self.name}__gt={GtAnchoring.NONE.value}"
 
     def run_params(self) -> Dict[str, object]:
         params = {
@@ -180,6 +193,8 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         }
         if self.goal_mode != GT_GOAL_MODE:
             params["goal_mode"] = self.goal_mode
+        if self.gt_anchoring is not GtAnchoring.INIT_ONLY:
+            params["gt_anchoring"] = self.gt_anchoring.value
         return params
 
     # ------------------------------------------------------------ MILP plumbing
@@ -208,7 +223,9 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         for (problem, observation), stem in zip(prepared, problem_stems):
             instance = build_ps_instance(ps_domain, partial_domain, problem)
             goal = self._goal_fluents_for(original_problem_paths.get(stem))
-            trace = observation_to_trace(instance, observation, goal)
+            trace = observation_to_trace(
+                instance, observation, goal, gt_anchoring=self.gt_anchoring,
+            )
             if trace is None:
                 continue
             if goal is not None:
@@ -260,6 +277,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         extra: Dict = {
             "train_per_trajectory": self.train_per_trajectory,
             "goal_mode": self.goal_mode,
+            "gt_anchoring": self.gt_anchoring.value,
             "milp_solver": self.milp_solver,
             "encoding_config": self.encoding_config.as_stats(),
         }
@@ -345,6 +363,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         normalize_base_loss: bool = True,
         rosame_seed: Optional[int] = 8800,
         rosame_convergence: Optional[Mapping[str, object]] = None,
+        gt_anchoring: GtAnchoring = GtAnchoring.INIT_ONLY,
     ) -> None:
         super().__init__(
             train_per_trajectory=False,
@@ -358,6 +377,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             normalize_base_loss=normalize_base_loss,
             rosame_seed=rosame_seed,
             rosame_convergence=rosame_convergence,
+            gt_anchoring=gt_anchoring,
         )
         self.pre_mip_epochs = pre_mip_epochs
         self.mip_interval = mip_interval
@@ -401,6 +421,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         extra: Dict = {
             **self.run_params(),
             "goal_mode": self.goal_mode,
+            "gt_anchoring": self.gt_anchoring.value,
             "milp_solver": self.milp_solver,
             "encoding_config": self.encoding_config.as_stats(),
             "pre_mip_epochs": self.pre_mip_epochs,
