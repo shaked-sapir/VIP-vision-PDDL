@@ -70,6 +70,7 @@ from benchmark.backfill_common import (
 from benchmark.backfill_nogt_s0 import frozen_observations_dir, output_cell
 from benchmark.baselines import RESIZE_FROM_TABLE, ResizeSpec, resolve_baselines
 from benchmark.baselines.regime import DegradationRegime, gate_baselines
+from benchmark.baselines.rosame_milp_runner import FREE_GOAL_MODE, GT_GOAL_MODE
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import FOLD_RESULT_FILENAME
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt
@@ -388,6 +389,10 @@ def _runner_kwargs(args: argparse.Namespace) -> dict:
     if getattr(args, "agreement_stop", None) is not None:
         text = str(args.agreement_stop).strip().lower()
         kwargs["agreement_stop"] = None if text in ("none", "null", "off") else float(text)
+    if getattr(args, "goal_mode", None) is not None:
+        kwargs["goal_mode"] = args.goal_mode
+    if getattr(args, "mip_traces", None) is not None:
+        kwargs["mip_traces"] = args.mip_traces
     if getattr(args, "nolam_noise", None) is not None:
         kwargs["nolam_noise"] = args.nolam_noise
     if getattr(args, "nolam_allow_neg_precs", None) is not None:
@@ -456,6 +461,14 @@ def main() -> None:
                     help="ROSAME+MILP arms: stop once network/MILP agreement "
                          "reaches this level; 'none' records agreement without "
                          "stopping on it. Default: the runner's own (1.0).")
+    ap.add_argument("--goal-mode", choices=[GT_GOAL_MODE, FREE_GOAL_MODE], default=None,
+                    help="ROSAME+MILP arms: 'gt' fixes each trace's final state "
+                         "in the MILP to its ground truth, 'none' leaves it "
+                         "free and labels the row <arm>__goal=none. Default: "
+                         "the runner's own (gt).")
+    ap.add_argument("--mip-traces", type=int, default=None,
+                    help="ROSAME+MILP arms: traces sampled per MILP solve. "
+                         "Default: the runner's own (all traces).")
     ap.add_argument("--nolam-noise", default=None,
                     help="NOLAM: the flip probability it is given. 'oracle' "
                          "(the runner's default) measures the fold's realised "

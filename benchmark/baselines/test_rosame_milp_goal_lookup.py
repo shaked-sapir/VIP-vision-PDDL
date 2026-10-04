@@ -7,7 +7,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from benchmark.baselines.rosame_milp_runner import RosameMilpBaseRunner
+from benchmark.backfill_baseline import _runner_kwargs
+from benchmark.baselines import resolve_baselines
+from benchmark.baselines.rosame_milp_runner import (
+    FREE_GOAL_MODE,
+    RosameMilpBaseRunner,
+    RosameMilpRunner,
+    RosameMilpTagRunner,
+    goal_fluents_for,
+)
 
 
 def test_stems_come_from_the_workspace_trajectory_files():
@@ -27,3 +35,40 @@ def test_every_stem_resolves_to_its_original_problem_file():
     assert [lookup[stem] for stem in stems] == [
         Path("data/problem3/problem3.pddl"), Path("data/problem11/problem11.pddl"),
     ]
+
+
+DOMAIN = Path("domain_reference.pddl")
+
+
+def test_the_default_goal_mode_keeps_the_arm_label():
+    assert RosameMilpRunner().row_name(DOMAIN) == "ROSAME_MILP_24"
+    assert RosameMilpTagRunner().row_name(DOMAIN) == "ROSAME_MILP_24_TAG"
+    assert "goal_mode" not in RosameMilpRunner().run_params()
+
+
+def test_a_free_final_state_gets_its_own_label_on_both_arms():
+    assert RosameMilpRunner(goal_mode=FREE_GOAL_MODE).row_name(DOMAIN) == "ROSAME_MILP_24__goal=none"
+    assert RosameMilpTagRunner(goal_mode=FREE_GOAL_MODE).row_name(DOMAIN) == "ROSAME_MILP_24_TAG__goal=none"
+    assert RosameMilpRunner(goal_mode=FREE_GOAL_MODE).run_params()["goal_mode"] == FREE_GOAL_MODE
+
+
+def test_a_free_final_state_reads_no_ground_truth():
+    assert goal_fluents_for(Path("data/problem3/problem3.pddl"), FREE_GOAL_MODE) is None
+
+
+def test_the_command_line_options_reach_both_milp_arms_and_no_other():
+    import argparse
+
+    args = argparse.Namespace(
+        epochs=None, n_seeds=None, ignore_budget=False, budget_mode=None,
+        goal_mode=FREE_GOAL_MODE, mip_traces=4,
+    )
+    kwargs = _runner_kwargs(args)
+    assert kwargs == {"goal_mode": FREE_GOAL_MODE, "mip_traces": 4}
+    milp, tag, plain = resolve_baselines(
+        ["rosame_milp_24", "rosame_milp_24_tag", "rosame_24"], **kwargs
+    )
+    assert (milp.goal_mode, milp.mip_traces) == (FREE_GOAL_MODE, 4)
+    assert (tag.goal_mode, tag.mip_traces) == (FREE_GOAL_MODE, 4)
+    assert tag.encoding_config.as_stats() != milp.encoding_config.as_stats()
+    assert plain.row_name(DOMAIN) == "ROSAME_24"

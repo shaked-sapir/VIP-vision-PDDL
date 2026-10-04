@@ -106,13 +106,17 @@ def goal_fluents_from_trajectory(
     }
 
 
+GT_GOAL_MODE = "gt"
+FREE_GOAL_MODE = "none"
+
+
 def goal_fluents_for(
     problem_pddl_path: Optional[Path],
-    goal_mode: str = "gt",
+    goal_mode: str = GT_GOAL_MODE,
     normalize_identifiers: bool = False,
 ) -> Optional[set]:
     """GT final-state fluents for one problem, or None (-> soft final state)."""
-    if goal_mode != "gt" or problem_pddl_path is None:
+    if goal_mode != GT_GOAL_MODE or problem_pddl_path is None:
         return None
     gt_path = find_gt_trajectory(problem_pddl_path)
     if gt_path is None:
@@ -140,7 +144,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         epochs: int = 100,
         mip_time_limit: int = 60,
         encoding_config: Optional[MilpEncodingConfig] = None,
-        goal_mode: str = "gt",
+        goal_mode: str = GT_GOAL_MODE,
         milp_solver: str = "cp-sat-observed",
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
@@ -162,12 +166,21 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         self.goal_mode = goal_mode
         self.milp_solver = milp_solver
 
+    def row_name(self, domain_path: Path) -> str:
+        """``name``, suffixed with the goal mode when the MILP's final state is not fixed."""
+        if self.goal_mode == GT_GOAL_MODE:
+            return self.name
+        return f"{self.name}__goal={self.goal_mode}"
+
     def run_params(self) -> Dict[str, object]:
-        return {
+        params = {
             **super().run_params(),
             "normalize_base_loss": self.normalize_base_loss,
             "epochs": self.epochs,
         }
+        if self.goal_mode != GT_GOAL_MODE:
+            params["goal_mode"] = self.goal_mode
+        return params
 
     # ------------------------------------------------------------ MILP plumbing
 
@@ -325,7 +338,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         agreement_stop: Optional[float] = LEGACY_AGREEMENT_STOP,
         mip_time_limit: int = 60,
         encoding_config: Optional[MilpEncodingConfig] = None,
-        goal_mode: str = "gt",
+        goal_mode: str = GT_GOAL_MODE,
         milp_solver: str = "cp-sat-observed",
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
