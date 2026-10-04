@@ -180,14 +180,21 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         partial_domain,
         prepared: List[Tuple[object, object]],
         original_problem_paths: Dict[str, Path],
+        problem_stems: List[str],
     ):
-        """(ps_domain, obs_t list) from the trained-side prepared pairs."""
+        """(ps_domain, obs_t list, GT-goal count) from the trained-side prepared pairs.
+
+        Args:
+            prepared: ``(problem, observation)`` pairs.
+            original_problem_paths: problem file stem -> original problem PDDL path.
+            problem_stems: the problem file stem of each ``prepared`` pair, in order.
+        """
         ps_domain = build_ps_domain(partial_domain)
         obs_t = []
         n_gt_goals = 0
-        for problem, observation in prepared:
+        for (problem, observation), stem in zip(prepared, problem_stems):
             instance = build_ps_instance(ps_domain, partial_domain, problem)
-            goal = self._goal_fluents_for(original_problem_paths.get(problem.name))
+            goal = self._goal_fluents_for(original_problem_paths.get(stem))
             trace = observation_to_trace(instance, observation, goal)
             if trace is None:
                 continue
@@ -211,8 +218,13 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         return encoder, ok
 
     @staticmethod
+    def _problem_stems(traj_paths: List[str]) -> List[str]:
+        """The problem file stem each workspace trajectory was staged under."""
+        return [Path(traj_path).stem for traj_path in traj_paths]
+
+    @staticmethod
     def _original_problem_paths(prepared_trajectories) -> Dict[str, Path]:
-        """problem name -> original problem PDDL path (for GT trajectory lookup)."""
+        """Problem file stem -> original problem PDDL path (for GT trajectory lookup)."""
         return {
             problem_pddl_path.stem: problem_pddl_path
             for _traj, _mask, problem_pddl_path, *_ in prepared_trajectories
@@ -265,7 +277,8 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             extra.update(training.as_stats())
 
             ps_domain, obs_t, n_gt_goals = self._build_milp_traces(
-                partial_domain, prepared, self._original_problem_paths(prepared_trajectories)
+                partial_domain, prepared, self._original_problem_paths(prepared_trajectories),
+                self._problem_stems(traj_paths),
             )
             extra["n_traces"] = len(obs_t)
             extra["n_gt_goals"] = n_gt_goals
@@ -389,7 +402,8 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             prepared = self._build_prepared(traj_paths, partial_domain)
 
             ps_domain, obs_t, n_gt_goals = self._build_milp_traces(
-                partial_domain, prepared, self._original_problem_paths(prepared_trajectories)
+                partial_domain, prepared, self._original_problem_paths(prepared_trajectories),
+                self._problem_stems(traj_paths),
             )
             extra["n_traces"] = len(obs_t)
             extra["n_gt_goals"] = n_gt_goals

@@ -48,6 +48,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -66,6 +67,7 @@ from benchmark.backfill_common import (
     resolve_problem_dir,
     worker_init,
 )
+from benchmark.backfill_nogt_s0 import frozen_observations_dir, output_cell
 from benchmark.baselines import RESIZE_FROM_TABLE, ResizeSpec, resolve_baselines
 from benchmark.baselines.regime import DegradationRegime, gate_baselines
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
@@ -74,10 +76,9 @@ from benchmark.experiment_running_helpers.statistics import count_total_transiti
 
 
 def _build_prepared_trajectories(
-    cell: Path, problem_dir: Path, fold_info: dict,
+    obs_dir: Path, problem_dir: Path, fold_info: dict,
 ) -> List[Tuple[Path, Optional[Path], Path, set]]:
-    """Rebuild run_fold-style prepared trajectory tuples from a saved cell."""
-    obs_dir = cell / "original_observations"
+    """Rebuild run_fold-style prepared trajectory tuples from a cell's frozen observations."""
     prepared: List[Tuple[Path, Optional[Path], Path, set]] = []
 
     for entry in fold_info.get("trajectories", []):
@@ -147,12 +148,17 @@ def backfill_cell(
     force: bool,
     dry_run: bool,
     regime: Optional[DegradationRegime] = None,
+    out_root: Optional[Path] = None,
 ) -> str:
     """Backfill one cell. Returns a status string: done | dry | skip | gated | invalid.
 
     ``regime`` is the cell's degradation regime; when given, runners that do
     not support it are dropped (``gated`` if none remain) and the rest are
     bound to it, exactly as a live run does per cell.
+
+    ``out_root``, when given, is the root of a mirrored results tree: the rows,
+    models and work files go to ``<out_root>/<domain>/<experiment>/testing/<cell>/``
+    and the source cell is only read.
     """
     parsed = parse_cell_name(cell.name)
     if parsed is None:
@@ -160,8 +166,7 @@ def backfill_cell(
     fold, num_trajs, gt_rate = parsed
 
     fold_info_path = cell / "fold_info.json"
-    domain_ref = cell / "domain_reference.pddl"
-    if not fold_info_path.exists() or not domain_ref.exists():
+    if not fold_info_path.exists() or not (cell / "domain_reference.pddl").exists():
         print(f"  [SKIP] {cell.name}: missing fold_info.json or domain_reference.pddl")
         return "skip"
     fold_info = json.loads(fold_info_path.read_text())
@@ -173,24 +178,20 @@ def backfill_cell(
         if not baselines:
             return "gated"
 
-    fold_result_path = cell / FOLD_RESULT_FILENAME
+    out_cell = cell if out_root is None else output_cell(out_root, cell).resolve()
+    domain_ref = out_cell / "domain_reference.pddl"
+    fold_result_path = out_cell / FOLD_RESULT_FILENAME
     existing = existing_algorithms(fold_result_path)
-    todo = [r for r in baselines if force or r.row_name(domain_ref) not in existing]
+    todo = [r for r in baselines if force or r.row_name(cell / "domain_reference.pddl") not in existing]
     if not todo:
         print(f"  [SKIP] {cell.name}: all requested baselines already present")
-        return "skip"
-
-    # Inputs shared by all runners in this cell
-    prepared = _build_prepared_trajectories(cell, problem_dir, fold_info)
-    if not prepared:
-        print(f"  [SKIP] {cell.name}: no usable trajectories")
         return "skip"
 
     test_problem_paths: List[str] = []
     for problem in fold_info.get("test_problems", []):
         p = find_problem_pddl(problem_dir, problem)
         if p is not None:
-            test_problem_paths.append(str(p))
+            test_problem_paths.append(str(p.resolve()))
         else:
             print(f"    Warning: test problem PDDL not found for {problem}")
     if not test_problem_paths:
@@ -198,49 +199,88 @@ def backfill_cell(
         return "skip"
 
     test_states = find_test_states(cell)
-    test_states_str = str(test_states) if test_states is not None else None
+    test_states_str = str(test_states.resolve()) if test_states is not None else None
 
-    shared = _copy_shared_fields(fold_result_path)
-    if not shared:
-        total_transitions, total_gt = count_total_transitions_and_gt(prepared)
-        shared = {"total_transitions": total_transitions, "total_gt_transitions": total_gt}
+    with frozen_observations_dir(cell) as obs_dir:
+        prepared = [] if obs_dir is None else _build_prepared_trajectories(
+            obs_dir.resolve(), problem_dir, fold_info,
+        )
+        if not prepared:
+            print(f"  [SKIP] {cell.name}: no usable trajectories")
+            return "skip"
 
-    if dry_run:
-        names = ", ".join(r.row_name(domain_ref) for r in todo)
-        print(f"  [DRY] {cell.name}: would run [{names}] on "
-              f"{len(prepared)} trajectories, {len(test_problem_paths)} test problems"
-              f"{'' if test_states_str else ' (no test states!)'}")
-        return "dry"
+        if dry_run:
+            names = ", ".join(r.row_name(cell / "domain_reference.pddl") for r in todo)
+            print(f"  [DRY] {cell.name}: would run [{names}] on "
+                  f"{len(prepared)} trajectories, {len(test_problem_paths)} test problems"
+                  f"{'' if test_states_str else ' (no test states!)'}"
+                  f"{'' if out_root is None else f' into {out_cell}'}")
+            return "dry"
 
+        shared = _copy_shared_fields(cell / FOLD_RESULT_FILENAME)
+        if not shared:
+            total_transitions, total_gt = count_total_transitions_and_gt(prepared)
+            shared = {"total_transitions": total_transitions, "total_gt_transitions": total_gt}
+
+        if out_root is not None:
+            out_cell.mkdir(parents=True, exist_ok=True)
+            for name in ("fold_info.json", "domain_reference.pddl"):
+                shutil.copy2(cell / name, out_cell / name)
+
+        _learn_and_score(
+            todo, prepared, out_cell, domain_ref, bench_name, fold, num_trajs, gt_rate,
+            test_problem_paths, test_states_str, shared, fold_result_path,
+            planning_timeout, learn_timeout,
+        )
+    return "done"
+
+
+def _learn_and_score(
+    runners: list,
+    prepared: List[Tuple[Path, Optional[Path], Path, set]],
+    work_cell: Path,
+    domain_ref: Path,
+    bench_name: str,
+    fold: int,
+    num_trajs: int,
+    gt_rate: int,
+    test_problem_paths: List[str],
+    test_states_str: Optional[str],
+    shared: dict,
+    fold_result_path: Path,
+    planning_timeout: int,
+    learn_timeout: int,
+) -> None:
+    """Run each runner on ``prepared`` inside ``work_cell`` and merge its row."""
     null_metrics = {k: None for k in NULL_METRIC_KEYS}
 
     # AMLGym's problem_solving writes ./tmp to the cwd — work inside the cell
     # (same protection as run_fold).
     original_cwd = os.getcwd()
-    os.chdir(cell)
+    os.chdir(work_cell)
     try:
-        for runner in todo:
+        for runner in runners:
             algo_name = runner.row_name(domain_ref)
-            print(f"  [{algo_name}] {cell.name}: learning...")
+            print(f"  [{algo_name}] {work_cell.name}: learning...")
             learn_start = time.perf_counter()
             model, extra_info = runner.learn(
                 domain_path=domain_ref,
                 prepared_trajectories=prepared,
-                work_dir=cell,
+                work_dir=work_cell,
                 timeout_seconds=learn_timeout,
             )
             learn_time = time.perf_counter() - learn_start
 
             if model:
-                model_dir = cell / "baseline_models" / algo_name
+                model_dir = work_cell / "baseline_models" / algo_name
                 model_dir.mkdir(parents=True, exist_ok=True)
                 (model_dir / "model.pddl").write_text(model)
 
-            print(f"  [{algo_name}] {cell.name}: evaluating...")
+            print(f"  [{algo_name}] {work_cell.name}: evaluating...")
             row = evaluate_and_build_result(
                 model, algo_name, bench_name, fold, num_trajs, gt_rate,
-                test_problem_paths, domain_ref, cell.parent,
-                null_metrics, cell,
+                test_problem_paths, domain_ref, work_cell.parent,
+                null_metrics, work_cell,
                 total_transitions=shared.get("total_transitions"),
                 total_gt_transitions=shared.get("total_gt_transitions"),
                 learning_time_seconds=learn_time,
@@ -249,10 +289,9 @@ def backfill_cell(
                 test_states_path=test_states_str,
             )
             merge_row(fold_result_path, row)
-            print(f"  [{algo_name}] {cell.name}: row merged into {FOLD_RESULT_FILENAME}")
+            print(f"  [{algo_name}] {work_cell.name}: row merged into {fold_result_path}")
     finally:
         os.chdir(original_cwd)
-    return "done"
 
 
 # ── Parallel execution (one process per cell) ──────────────────────────────
@@ -294,6 +333,7 @@ def _backfill_cell_worker(
     resize: ResizeSpec = RESIZE_FROM_TABLE,
     runner_kwargs: Optional[dict] = None,
     regime: Optional[DegradationRegime] = None,
+    out_root: Optional[Path] = None,
 ) -> Tuple[str, str]:
     """Process-pool entry point: resolve runners locally (no pickling of torch
     objects across processes) and backfill one cell.
@@ -317,7 +357,7 @@ def _backfill_cell_worker(
         status = backfill_cell(
             Path(cell_str), Path(problem_dir_str), bench_name, baselines,
             planning_timeout=planning_timeout, learn_timeout=learn_timeout,
-            force=force, dry_run=False, regime=regime,
+            force=force, dry_run=False, regime=regime, out_root=out_root,
         )
         return cell_str, status
     except Exception as e:  # keep one failing cell from killing the whole run
@@ -475,6 +515,11 @@ def main() -> None:
                          "name carries a suffix (e.g. ROSAME-I_24__res=64x64) so "
                          "two resolutions can never be averaged under one "
                          "label. Ignored by baselines that don't accept it.")
+    ap.add_argument("--out-root", type=Path, default=None,
+                    help="Write rows, models and work files to a mirrored tree under "
+                         "this root (<out-root>/<domain>/<experiment>/testing/<cell>/) "
+                         "and only read the source experiment. Default: merge into "
+                         "the source cell.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--workers", type=int, default=1,
                     help="Number of cells to backfill in parallel (one process "
@@ -483,6 +528,7 @@ def main() -> None:
                          "always sequential.")
     args = ap.parse_args()
 
+    out_root = args.out_root.resolve() if args.out_root else None
     override_data_dir = args.data_dir.resolve() if args.data_dir else None
     if override_data_dir and not override_data_dir.is_dir():
         raise SystemExit(f"--data-dir does not exist: {override_data_dir}")
@@ -544,6 +590,7 @@ def main() -> None:
                 planning_timeout=args.planning_timeout,
                 learn_timeout=args.learn_timeout,
                 force=args.force, dry_run=args.dry_run, regime=regime,
+                out_root=out_root,
             )
         return
 
@@ -558,7 +605,7 @@ def main() -> None:
                 str(cell), str(problem_dir), bench_name, args.baselines,
                 args.planning_timeout, args.learn_timeout, args.force,
                 args.train_per_trajectory, args.resize, _runner_kwargs(args),
-                regime,
+                regime, out_root,
             ): cell
             for bench_name, cell, problem_dir, regime in tasks
         }
