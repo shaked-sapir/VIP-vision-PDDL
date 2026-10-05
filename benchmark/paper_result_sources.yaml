@@ -1,0 +1,127 @@
+# Where each arm's rows come from, and which rows form the paper's comparisons.
+#
+# `sources` drives benchmark/merge_result_roots.py: each root is a mirrored
+# results tree (<root>/<domain>/<experiment>/testing/<cell>/fold_result.json)
+# pulled from the cluster, and only the listed labels are merged into `target`.
+# Sources are applied in order; a later source replaces an earlier row (or an
+# on-disk row) that carries the same label, so the rechecks come last.
+#
+# `paper_arms` is the mapping agreed on 2026-10-06: for each comparison, the
+# label to read per corpus. It is documentation for the dashboard and the
+# paper; the merge script does not read it.
+
+target: benchmark/running_results
+
+sources:
+  # NPI-SAM, no ground truth, small corpus (loop capped at 60 s per solve; the
+  # single-round arm is uncapped).
+  - root: benchmark/running_results_nogt_s0
+    experiments: "simulation-final-run__*"
+    labels:
+      - PISAM_MILP_LOOP__gt=none__s0=noisy__solve=60
+      - PISAM_MILP_SR__gt=none__s0=noisy
+
+  # NPI-SAM, no ground truth, large corpus, 60 s per solve. The uncapped rows
+  # of the same arm (PISAM_MILP_LOOP__gt=none__s0=noisy__m=4, same root as
+  # above) are superseded and not merged.
+  - root: benchmark/running_results_nogt_s0_solve60
+    labels:
+      - PISAM_MILP_LOOP__gt=none__s0=noisy__m=4__solve=60
+
+  # NPI-SAM anchored (initial state fixed in the MILP), 60 s per solve, both
+  # corpora. Supersedes the on-disk PISAM_MILP_LOOP / PISAM_MILP_LOOP__m=4.
+  - root: benchmark/running_results_anchored_solve60
+    labels:
+      - PISAM_MILP_LOOP__m=4__solve=60
+      - PISAM_MILP_LOOP__solve=60
+
+  # PI-SAM with no repair step, on the original observations (clean state 0).
+  - root: benchmark/running_results_pisam_raw
+    labels:
+      - PISAM
+
+  # PI-SAM with no repair step, on the observations with no clean state.
+  - root: benchmark/running_results_pisam_raw_nogt_s0
+    labels:
+      - PISAM__s0=noisy
+
+  # ROSAME+MILP with init and final state fixed in the MILP, small blocksworld,
+  # depot and gripper: replaces the on-disk rows, whose MILP never received the
+  # final state. (hanoi, npuzzle and the large corpus are correct on disk.)
+  - root: benchmark/running_results_rosame_milp_small_fix
+    labels:
+      - ROSAME_MILP_24
+      - ROSAME_MILP_24_TAG
+
+  # ROSAME+MILP with only the initial state fixed in the MILP.
+  - root: benchmark/running_results_rosame_milp_goal_none
+    labels:
+      - ROSAME_MILP_24__goal=none
+      - ROSAME_MILP_24_TAG__goal=none
+
+  # Every baseline on the observations with no clean state. The released NOLAM
+  # has no model past a few hundred transitions per operator; its large-corpus
+  # rows are kept but the paper reads NOLAM__logspace__s0=noisy instead.
+  - root: benchmark/running_results_baselines_nogt_s0
+    labels:
+      - ROSAME_24__s0=noisy
+      - ROSAME_MILP_24__gt=none__s0=noisy
+      - ROSAME_MILP_24_TAG__gt=none__s0=noisy
+      - NOLAM__s0=noisy
+      - OffLAM__s0=noisy
+
+  # NOLAM with the posterior evaluated in log space, large corpus, mask=0 cells.
+  - root: benchmark/running_results_nolam_logspace_clean_s0
+    labels:
+      - NOLAM__logspace
+  - root: benchmark/running_results_nolam_logspace_nogt_s0
+    labels:
+      - NOLAM__logspace__s0=noisy
+
+  # Clean reruns of the rows two jobs processed at the same time in
+  # running_results_baselines_nogt_s0 (26 small rows, 9 large rows). Last, so
+  # they replace the rows merged from that root.
+  - root: benchmark/running_results_baselines_nogt_s0_recheck_rosame
+    labels:
+      - ROSAME_24__s0=noisy
+      - ROSAME_MILP_24__gt=none__s0=noisy
+      - ROSAME_MILP_24_TAG__gt=none__s0=noisy
+  - root: benchmark/running_results_baselines_nogt_s0_recheck_lamanna
+    labels:
+      - NOLAM__s0=noisy
+      - OffLAM__s0=noisy
+
+# Labels that stay on disk but are not part of any comparison.
+superseded_labels:
+  - PISAM_MILP_LOOP                       # anchored, MILP uncapped
+  - PISAM_MILP_LOOP__m=4                  # anchored, MILP uncapped
+  - PISAM_MILP_LOOP__gt=none              # nothing fixed in the MILP but state 0 clean in the data, uncapped
+  - PISAM_MILP_LOOP__gt=none__m=4         # same, large corpus
+  - PISAM_MILP_LOOP__gt=none__s0=noisy__m=4   # no ground truth, MILP uncapped (not merged)
+  - PISAM_MILP_SR                         # single round, anchored, uncapped
+  - PISAM_MILP_SR__gt=none                # single round, state 0 clean in the data, uncapped
+  - PISAM_MILP_SR__eq16=0.4
+  - CDPS
+  - CDPS_ANCHORED
+  - NOLAM                                 # large corpus only: no model in 264 of 625 rows; read NOLAM__logspace
+
+paper_arms:
+  # gt: "init" = state 0 clean in the data (and fixed in the MILP where there
+  # is one); "init+final" = both endpoint states fixed in the MILP; "none" =
+  # states 0 and 1 redrawn under the cell's masking and noise, nothing fixed.
+  grid:
+    - {arm: rosame, milp: false, gt: init,  small: ROSAME_24, large: ROSAME_24}
+    - {arm: rosame, milp: false, gt: none,  small: ROSAME_24__s0=noisy, large: ROSAME_24__s0=noisy}
+    - {arm: rosame, milp: true,  gt: init,  small: [ROSAME_MILP_24__goal=none, ROSAME_MILP_24_TAG__goal=none], large: [ROSAME_MILP_24__goal=none, ROSAME_MILP_24_TAG__goal=none]}
+    - {arm: rosame, milp: true,  gt: init+final, small: [ROSAME_MILP_24, ROSAME_MILP_24_TAG], large: [ROSAME_MILP_24, ROSAME_MILP_24_TAG]}
+    - {arm: rosame, milp: true,  gt: none,  small: [ROSAME_MILP_24__gt=none__s0=noisy, ROSAME_MILP_24_TAG__gt=none__s0=noisy], large: [ROSAME_MILP_24__gt=none__s0=noisy, ROSAME_MILP_24_TAG__gt=none__s0=noisy]}
+    - {arm: pisam,  milp: false, gt: init,  small: PISAM, large: PISAM}
+    - {arm: pisam,  milp: false, gt: none,  small: PISAM__s0=noisy, large: PISAM__s0=noisy}
+    - {arm: pisam,  milp: true,  gt: init,  small: PISAM_MILP_LOOP__solve=60, large: PISAM_MILP_LOOP__m=4__solve=60}
+    - {arm: pisam,  milp: true,  gt: none,  small: PISAM_MILP_LOOP__gt=none__s0=noisy__solve=60, large: PISAM_MILP_LOOP__gt=none__s0=noisy__m=4__solve=60}
+  mask_free_axis:   # mask = 0 cells: the grid arms above plus NOLAM
+    - {arm: nolam,  milp: false, gt: init,  small: NOLAM, large: NOLAM__logspace}
+    - {arm: nolam,  milp: false, gt: none,  small: NOLAM__s0=noisy, large: NOLAM__logspace__s0=noisy}
+  noise_free_axis:  # noise = 0 cells: the grid arms above plus OffLAM
+    - {arm: offlam, milp: false, gt: init,  small: OffLAM, large: OffLAM}
+    - {arm: offlam, milp: false, gt: none,  small: OffLAM__s0=noisy, large: OffLAM__s0=noisy}
