@@ -19,6 +19,7 @@ def learn_nolam(
     e: float,
     allow_neg_precs: bool,
     seed: int,
+    log_space: bool = False,
 ) -> str:
     """Learn a model with NOLAM's MAP criterion and return its PDDL text.
 
@@ -35,15 +36,20 @@ def learn_nolam(
         e: The per-atom flip probability NOLAM conditions on.
         allow_neg_precs: ``True`` is the paper's ``MAP``, ``False`` its ``MAP_pre+``.
         seed: NumPy seed for MAP tie-breaking.
+        log_space: Evaluate the posterior in log space (:mod:`nolam_log_space`)
+            instead of with the library's float likelihoods.
     """
     import numpy as np
     from nolam.algorithm import Configuration
     from nolam.algorithm.Learner import Learner
 
+    from benchmark.algorithm_adapters.lamanna.nolam_log_space import LogSpaceLearner
+
     Configuration.ALLOW_PREC_NEG = bool(allow_neg_precs)
     Configuration.SAMPLING = False
     np.random.seed(seed)
-    model = Learner().learn(domain_path, list(trace_paths), e)
+    learner = LogSpaceLearner() if log_space else Learner()
+    model = learner.learn(domain_path, list(trace_paths), e)
 
     empty = [op.operator_name for op in model.operators if _is_empty(op)]
     if empty:

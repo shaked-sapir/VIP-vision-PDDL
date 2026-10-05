@@ -429,6 +429,8 @@ def _runner_kwargs(args: argparse.Namespace) -> dict:
         kwargs["nolam_allow_neg_precs"] = args.nolam_allow_neg_precs
     if getattr(args, "nolam_seed", None) is not None:
         kwargs["nolam_seed"] = args.nolam_seed
+    if getattr(args, "nolam_log_space", None) is not None:
+        kwargs["nolam_log_space"] = args.nolam_log_space
     if args.budget_mode is not None:
         kwargs["budget_mode"] = args.budget_mode
     elif args.ignore_budget:
@@ -516,6 +518,12 @@ def main() -> None:
                     help="NOLAM: learn negative preconditions (the paper's MAP "
                          "variant, row name NOLAM__negprecs). Default: the "
                          "runner's own (off, MAP_pre+).")
+    ap.add_argument("--nolam-log-space", action=argparse.BooleanOptionalAction,
+                    default=None,
+                    help="NOLAM: evaluate the posterior in log space; the "
+                         "library's own arithmetic overflows past a few "
+                         "hundred transitions per operator. Labels the row "
+                         "NOLAM__logspace. Default: the runner's own (off).")
     ap.add_argument("--nolam-seed", type=int, default=None,
                     help="NOLAM: NumPy seed for MAP tie-breaking. Default: the "
                          "runner's own (0).")

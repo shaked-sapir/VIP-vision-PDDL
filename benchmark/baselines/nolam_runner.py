@@ -58,6 +58,9 @@ class NOLAMRunner(LamannaBaselineRunner):
             ``False`` (default) its ``MAP_pre+``, which learns no negative
             preconditions.
         nolam_seed: NumPy seed for MAP tie-breaking.
+        nolam_log_space: Evaluate the posterior in log space, which the
+            library's float likelihoods cannot do past a few hundred
+            transitions per operator; suffixes the row ``NOLAM__logspace``.
         regime: The cell this runner is bound to; set by :meth:`for_regime`.
     """
 
@@ -69,8 +72,10 @@ class NOLAMRunner(LamannaBaselineRunner):
         nolam_allow_neg_precs: bool = False,
         nolam_seed: int = 0,
         regime: Optional[DegradationRegime] = None,
+        nolam_log_space: bool = False,
     ) -> None:
         super().__init__(regime)
+        self.nolam_log_space = bool(nolam_log_space)
         self.nolam_noise = _parse_noise(nolam_noise)
         self.nolam_allow_neg_precs = bool(nolam_allow_neg_precs)
         self.nolam_seed = int(nolam_seed)
@@ -90,6 +95,8 @@ class NOLAMRunner(LamannaBaselineRunner):
             parts.append(f"e={self.nolam_noise:g}")
         if self.nolam_allow_neg_precs:
             parts.append("negprecs")
+        if self.nolam_log_space:
+            parts.append("logspace")
         return self.name + ("__" + "__".join(parts) if parts else "")
 
     @property
@@ -105,11 +112,14 @@ class NOLAMRunner(LamannaBaselineRunner):
         return "icaps24"
 
     def run_params(self) -> Dict[str, object]:
-        return {
+        params: Dict[str, object] = {
             "nolam_noise": self.nolam_noise,
             "nolam_allow_neg_precs": self.nolam_allow_neg_precs,
             "nolam_seed": self.nolam_seed,
         }
+        if self.nolam_log_space:
+            params["nolam_log_space"] = True
+        return params
 
     # ------------------------------------------------------------------ #
     # Regime
@@ -155,6 +165,7 @@ class NOLAMRunner(LamannaBaselineRunner):
             "nolam_e_source": e_source,
             "nolam_e_used": e,
             "unobserved_operators": unobserved,
+            "nolam_log_space": self.nolam_log_space,
         })
         print(f"  [NOLAM] e={e:.4f} ({e_source}), {len(trace_paths)} traces, "
               f"allow_neg_precs={self.nolam_allow_neg_precs}"
@@ -167,6 +178,7 @@ class NOLAMRunner(LamannaBaselineRunner):
                 "e": e,
                 "allow_neg_precs": self.nolam_allow_neg_precs,
                 "seed": self.nolam_seed,
+                "log_space": self.nolam_log_space,
             },
             workspace,
             timeout_seconds,

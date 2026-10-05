@@ -174,3 +174,20 @@ class TestLearn:
         pick_up = model[model.index("(:action pick_up"):model.index("(:action put_down")]
         assert "(holding ?param_1)" in pick_up
         assert "(not (ontable ?param_1))" in pick_up
+
+
+class TestLogSpaceOption:
+    def test_off_by_default_and_absent_from_the_label_and_params(self) -> None:
+        runner = NOLAMRunner()
+        assert runner.nolam_log_space is False
+        assert runner.row_name(Path("domain.pddl")) == "NOLAM"
+        assert "nolam_log_space" not in runner.run_params()
+
+    def test_on_gets_its_own_label_and_is_recorded(self) -> None:
+        (runner,) = resolve_baselines(["nolam"], nolam_log_space=True)
+        assert runner.row_name(Path("domain.pddl")) == "NOLAM__logspace"
+        assert runner.run_params()["nolam_log_space"] is True
+
+    def test_binding_to_a_cell_keeps_the_option(self) -> None:
+        bound = NOLAMRunner(nolam_log_space=True).for_regime(DegradationRegime.simulated(0.0, 0.2))
+        assert bound.nolam_log_space is True

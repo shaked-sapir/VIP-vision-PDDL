@@ -327,7 +327,7 @@ _RUNNER_KWARG_KEYS = {
     "rosame_convergence", "agreement_stop",
     # NOLAM: the flip probability it is given ("oracle" = the fold's realised
     # rate, or a pinned float), its negative-precondition variant, and its seed.
-    "nolam_noise", "nolam_allow_neg_precs", "nolam_seed",
+    "nolam_noise", "nolam_allow_neg_precs", "nolam_seed", "nolam_log_space",
 }
 
 
