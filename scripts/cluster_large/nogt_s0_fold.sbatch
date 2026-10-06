@@ -26,6 +26,8 @@
 #   VIP_NOGT_LOOP_ARGS="--solve-time-limit 60" \
 #   sbatch --array=0-749 scripts/cluster_large/nogt_s0_fold.sbatch \
 #       scripts/cluster_large/nogt_small_fold_manifest.csv
+# A manifest row whose fold field is "all" runs every fold of its cell in one
+# task (anchored_small_cell_manifest.csv: 150 rows for the small corpora).
 #
 # Resources and the one-worker, whole-L-sweep-per-job shape match
 # sweep_fold.sbatch, so the wall-clock learning budget is comparable with the
@@ -95,6 +97,12 @@ export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 
 # The exit code is held so a failed size still gets the finished ones packed.
+if [ "$FOLD" = "all" ]; then
+    CELL_ARGS=()
+else
+    CELL_ARGS=(--cells "fold${FOLD}_numtrajs")
+fi
+
 RUN_RC=0
 for ALGORITHM in $ALGORITHMS; do
     ARM_ARGS=""
@@ -107,12 +115,18 @@ for ALGORITHM in $ALGORITHMS; do
         --algorithm "$ALGORITHM" \
         --milp-config "$CONFIG" \
         --out-root "$OUT_ROOT" \
-        --cells "fold${FOLD}_numtrajs" \
+        ${CELL_ARGS[@]+"${CELL_ARGS[@]}"} \
         --workers 1 ${VIP_NOGT_ARGS:-} $ARM_ARGS || RUN_RC=$?
 done
 
 source scripts/cluster_large/pack_fold.sh
-pack_nogt_instances "${OUT_ROOT}/${DOMAIN}/${EXPERIMENT}" "$FOLD"
+if [ "$FOLD" = "all" ]; then
+    for f in $(ls -d "${OUT_ROOT}/${DOMAIN}/${EXPERIMENT}"/testing/fold*_numtrajs* 2>/dev/null | sed -E 's/.*fold([0-9]+)_.*/\1/' | sort -un); do
+        pack_nogt_instances "${OUT_ROOT}/${DOMAIN}/${EXPERIMENT}" "$f"
+    done
+else
+    pack_nogt_instances "${OUT_ROOT}/${DOMAIN}/${EXPERIMENT}" "$FOLD"
+fi
 
 kill $MONITOR_PID 2>/dev/null || true
 echo "==================== MEMORY SUMMARY ===================="
