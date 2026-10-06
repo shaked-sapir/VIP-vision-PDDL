@@ -23,6 +23,7 @@ from src.milp.converter import GtAnchoring
 from src.milp.encoding_config import (
     MilpEncodingConfig,
     PriorWeightMode,
+    SchemaNonemptyRule,
 )
 
 _E = TypeVar("_E", bound=Enum)
@@ -335,6 +336,9 @@ class PisamMilpConfig:
         solver: Constraint-program backend.
         obs_weights: Per-fluent-slot weighting scheme.
         gt_anchoring: Which known-GT states become hard constraints.
+        schema_nonempty: Per-schema non-empty constraint in the MILP: ``none``
+            (the dialect's default), ``pre_and_add`` (every operator needs a
+            precondition and an add effect) or ``add``.
         time_limit_seconds: Solver budget for ONE solve. ``None`` = inherit the
             fold's CDPS search budget, which is what makes the head-to-head
             comparison fair. Distinct from ``stop.budget_seconds``, which caps
@@ -358,6 +362,7 @@ class PisamMilpConfig:
     solver: MilpSolver = MilpSolver.CPSAT
     obs_weights: ObsWeighting = ObsWeighting.UNIFORM
     gt_anchoring: GtAnchoring = GtAnchoring.INIT_ONLY
+    schema_nonempty: SchemaNonemptyRule = SchemaNonemptyRule.NONE
     time_limit_seconds: Optional[int] = None
     sampler: Sampler = Sampler.RANDOM
     subset_size: SubsetSize = field(default_factory=SubsetSize)
@@ -370,7 +375,7 @@ class PisamMilpConfig:
 
     _KEYS = frozenset({
         "variant", "eq16", "lambda_pre", "w_prior", "solver", "obs_weights",
-        "gt_anchoring", "time_limit_seconds",
+        "gt_anchoring", "schema_nonempty", "time_limit_seconds",
         "sampler", "subset_size", "learner_input", "pool_policy",
         "co_sample_conflicts", "stop", "eval", "seed",
     })
@@ -400,6 +405,9 @@ class PisamMilpConfig:
             ),
             gt_anchoring=_parse_enum(
                 GtAnchoring, raw.get("gt_anchoring", "init_only"), "gt_anchoring"
+            ),
+            schema_nonempty=_parse_enum(
+                SchemaNonemptyRule, raw.get("schema_nonempty", "none"), "schema_nonempty"
             ),
             time_limit_seconds=None if limit is None else int(limit),
             sampler=_parse_enum(Sampler, raw.get("sampler", "random"), "sampler"),
@@ -461,6 +469,7 @@ class PisamMilpConfig:
             eq16=self.eq16,
             lambda_pre=self.lambda_pre,
             prior_weighting=self.w_prior if has_prior else PriorWeightMode.NONE,
+            schema_nonempty=self.schema_nonempty,
         )
 
     def solver_encoder_key(self) -> str:
@@ -505,6 +514,7 @@ class PisamMilpConfig:
             "solver": self.solver.value,
             "obs_weights": self.obs_weights.value,
             "gt_anchoring": self.gt_anchoring.value,
+            "schema_nonempty": self.schema_nonempty.value,
             "time_limit_seconds": self.time_limit_seconds,
             "sampler": self.sampler.value,
             "subset_size": self.subset_size.as_stat(),
@@ -532,7 +542,7 @@ class PisamMilpConfig:
         shared = (
             self.variant, self.eq16, self.lambda_pre if self.eq16 else 0.0,
             self.solver, self.obs_weights, self.gt_anchoring,
-            self.time_limit_seconds,
+            self.schema_nonempty, self.time_limit_seconds,
         )
         if self.variant is not MilpVariant.LOOP:
             return shared

@@ -33,7 +33,7 @@ from src.plan_denoising.milp_denoiser.config import (
     Sampler,
     SubsetSizeKind,
 )
-from src.milp.encoding_config import PriorWeightMode
+from src.milp.encoding_config import PriorWeightMode, SchemaNonemptyRule
 from src.milp.converter import GtAnchoring
 
 # Selector keys (CLI/config) and the display/results labels for our algorithm.
@@ -69,7 +69,8 @@ def _shared_milp_suffix_parts(config: PisamMilpConfig) -> List[str]:
 
     - ``eq16`` — the precondition bias changes T' itself, not only the witness
       model (and voids the ``cost(MILP) <= cost(CDPS)`` lower-bound check);
-    - ``gt_anchoring`` — decides which states are unrepairable.
+    - ``gt_anchoring`` — decides which states are unrepairable;
+    - ``schema_nonempty`` — a per-schema constraint the solved model must obey.
 
     ``solver`` and ``obs_weights`` have one implemented value each, so neither
     can distinguish two arms and neither enters the label.
@@ -79,6 +80,8 @@ def _shared_milp_suffix_parts(config: PisamMilpConfig) -> List[str]:
         parts.append(f"eq16={config.lambda_pre:g}")
     if config.gt_anchoring is not GtAnchoring.INIT_ONLY:
         parts.append(f"gt={config.gt_anchoring.value}")
+    if config.schema_nonempty is not SchemaNonemptyRule.NONE:
+        parts.append(f"schema={config.schema_nonempty.value}")
     return parts
 
 

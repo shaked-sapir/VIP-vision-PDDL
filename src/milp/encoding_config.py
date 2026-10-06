@@ -132,6 +132,7 @@ class MilpEncodingConfig:
         eq16: bool = False,
         lambda_pre: float = 0.4,
         prior_weighting: PriorWeightMode = PriorWeightMode.NONE,
+        schema_nonempty: SchemaNonemptyRule = SchemaNonemptyRule.NONE,
     ) -> "MilpEncodingConfig":
         """The ``pisam_milp_*`` dialect: every constraint family that can exclude
         a legal ground-truth model is dropped, so feasibility is guaranteed and
@@ -143,9 +144,12 @@ class MilpEncodingConfig:
             lambda_pre: Bias coefficient, used only when ``eq16`` is True.
             prior_weighting: ``NONE`` for ``single_round`` (no reference model
                 exists); ``TIEBREAK``/``ROSAME`` for the loop's later rounds.
+            schema_nonempty: The per-schema non-empty rule; ``NONE`` by default,
+                ``PRE_AND_ADD`` is the one constraint family of ``upstream()``
+                that the dialect can take on.
         """
         return cls(
-            schema_nonempty=SchemaNonemptyRule.NONE,
+            schema_nonempty=schema_nonempty,
             forbid_redundant_adds=False,
             delete_implies_precondition=False,
             eq16=eq16,

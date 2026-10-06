@@ -1,0 +1,25 @@
+# The small-corpora NPI-SAM loop (benchmark/run_config.yaml, pisam_milp block) with
+# the MILP's per-schema non-empty constraint on; see npisam_schema_nonempty_large.yaml.
+pisam_milp:
+  eq16: off
+  lambda_pre: 0.4
+  gt_anchoring: init_only
+  schema_nonempty: pre_and_add
+  solver: cpsat
+  time_limit_seconds:
+  sampler: random
+  subset_size: half
+  learner_input: subset_only
+  pool_policy: frozen
+  co_sample_conflicts: off
+  w_prior: tiebreak
+  seed: 42
+  stop:
+    budget_seconds:
+    no_improvement_rounds:
+    stop_on_perfect_fit: true
+    max_rounds:
+    stop_on_fixpoint: true
+  eval:
+    effect_mismatch_weight: 1.0
+    inapplicability_weight: 1.0
