@@ -103,3 +103,20 @@ def test_the_anchoring_option_reaches_the_milp_arms_only():
     assert milp.gt_anchoring is GtAnchoring.NONE and tag.gt_anchoring is GtAnchoring.NONE
     assert not hasattr(plain, "gt_anchoring")
     assert [r.row_name(DOMAIN) for r in (plain, nolam, offlam)] == ["ROSAME_24", "NOLAM", "OffLAM"]
+
+
+def test_a_non_default_solve_cap_is_part_of_the_label_and_the_params():
+    runner = RosameMilpRunner(goal_mode=FREE_GOAL_MODE, gt_anchoring=GtAnchoring.NONE, mip_time_limit=3600)
+    assert runner.row_name(DOMAIN) == "ROSAME_MILP_24__gt=none__solve=3600"
+    assert runner.run_params()["mip_time_limit"] == 3600
+    assert RosameMilpTagRunner(mip_time_limit=300).row_name(DOMAIN) == "ROSAME_MILP_24_TAG__solve=300"
+    assert "mip_time_limit" not in RosameMilpRunner().run_params()
+
+
+def test_the_solve_cap_option_reaches_the_milp_arms():
+    import argparse
+
+    args = argparse.Namespace(epochs=None, n_seeds=None, ignore_budget=False, budget_mode=None, mip_time_limit=3600)
+    assert _runner_kwargs(args) == {"mip_time_limit": 3600}
+    milp, plain = resolve_baselines(["rosame_milp_24", "rosame_24"], mip_time_limit=3600)
+    assert milp.mip_time_limit == 3600 and not hasattr(plain, "mip_time_limit")

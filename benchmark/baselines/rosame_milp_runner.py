@@ -71,6 +71,8 @@ _OBJECTIVES = {"state", "model"}
 
 #: ``agreement_stop`` before it became optional; rows produced with it carry no key.
 LEGACY_AGREEMENT_STOP = 1.0
+#: Seconds one MILP solve may take unless configured otherwise; rows at this cap carry no suffix.
+DEFAULT_MIP_TIME_LIMIT = 60
 
 
 def capped_solve_limit(mip_time_limit: int, seconds_left: float) -> int:
@@ -143,7 +145,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         self,
         train_per_trajectory: bool = True,
         epochs: int = 100,
-        mip_time_limit: int = 60,
+        mip_time_limit: int = DEFAULT_MIP_TIME_LIMIT,
         encoding_config: Optional[MilpEncodingConfig] = None,
         goal_mode: str = GT_GOAL_MODE,
         milp_solver: str = "cp-sat-observed",
@@ -170,20 +172,24 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         self.gt_anchoring = gt_anchoring
 
     def row_name(self, domain_path: Path) -> str:
-        """``name``, suffixed with whichever endpoint states the MILP does not fix.
+        """``name``, suffixed with whichever endpoint states the MILP does not fix and a non-default solve cap.
 
         ``__goal=<mode>`` when only the final state is free, ``__init=none`` when
-        only the initial state is, ``__gt=none`` when neither is fixed.
+        only the initial state is, ``__gt=none`` when neither is fixed;
+        ``__solve=<n>`` when one solve may take other than the default seconds.
         """
         goal_fixed = self.goal_mode == GT_GOAL_MODE
         init_fixed = self.gt_anchoring is not GtAnchoring.NONE
-        if goal_fixed and init_fixed:
-            return self.name
-        if init_fixed:
-            return f"{self.name}__goal={self.goal_mode}"
-        if goal_fixed:
-            return f"{self.name}__init={GtAnchoring.NONE.value}"
-        return f"{self.name}__gt={GtAnchoring.NONE.value}"
+        parts = []
+        if init_fixed and not goal_fixed:
+            parts.append(f"goal={self.goal_mode}")
+        elif goal_fixed and not init_fixed:
+            parts.append(f"init={GtAnchoring.NONE.value}")
+        elif not goal_fixed and not init_fixed:
+            parts.append(f"gt={GtAnchoring.NONE.value}")
+        if self.mip_time_limit != DEFAULT_MIP_TIME_LIMIT:
+            parts.append(f"solve={self.mip_time_limit}")
+        return self.name + "".join(f"__{part}" for part in parts)
 
     def run_params(self) -> Dict[str, object]:
         params = {
@@ -195,6 +201,8 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             params["goal_mode"] = self.goal_mode
         if self.gt_anchoring is not GtAnchoring.INIT_ONLY:
             params["gt_anchoring"] = self.gt_anchoring.value
+        if self.mip_time_limit != DEFAULT_MIP_TIME_LIMIT:
+            params["mip_time_limit"] = self.mip_time_limit
         return params
 
     # ------------------------------------------------------------ MILP plumbing
@@ -278,6 +286,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             "train_per_trajectory": self.train_per_trajectory,
             "goal_mode": self.goal_mode,
             "gt_anchoring": self.gt_anchoring.value,
+            "mip_time_limit": self.mip_time_limit,
             "milp_solver": self.milp_solver,
             "encoding_config": self.encoding_config.as_stats(),
         }
@@ -354,7 +363,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         mip_interval: int = 1,
         mip_traces: Optional[int] = None,
         agreement_stop: Optional[float] = LEGACY_AGREEMENT_STOP,
-        mip_time_limit: int = 60,
+        mip_time_limit: int = DEFAULT_MIP_TIME_LIMIT,
         encoding_config: Optional[MilpEncodingConfig] = None,
         goal_mode: str = GT_GOAL_MODE,
         milp_solver: str = "cp-sat-observed",
@@ -422,6 +431,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             **self.run_params(),
             "goal_mode": self.goal_mode,
             "gt_anchoring": self.gt_anchoring.value,
+            "mip_time_limit": self.mip_time_limit,
             "milp_solver": self.milp_solver,
             "encoding_config": self.encoding_config.as_stats(),
             "pre_mip_epochs": self.pre_mip_epochs,

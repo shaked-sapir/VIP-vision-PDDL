@@ -423,6 +423,8 @@ def _runner_kwargs(args: argparse.Namespace) -> dict:
         kwargs["mip_traces"] = args.mip_traces
     if getattr(args, "milp_gt_anchoring", None) is not None:
         kwargs["gt_anchoring"] = GtAnchoring(args.milp_gt_anchoring)
+    if getattr(args, "mip_time_limit", None) is not None:
+        kwargs["mip_time_limit"] = args.mip_time_limit
     if getattr(args, "nolam_noise", None) is not None:
         kwargs["nolam_noise"] = args.nolam_noise
     if getattr(args, "nolam_allow_neg_precs", None) is not None:
@@ -504,6 +506,11 @@ def main() -> None:
                          "initial state in the MILP, 'none' leaves it free. "
                          "With --goal-mode none as well the row is labelled "
                          "<arm>__gt=none. Default: the runner's own (init_only).")
+    ap.add_argument("--mip-time-limit", type=int, default=None,
+                    help="ROSAME+MILP arms: seconds one MILP solve may take "
+                         "(always also bounded by the fold's remaining learning "
+                         "budget). Other than the default 60 labels the row "
+                         "<arm>__solve=<n>.")
     ap.add_argument("--mip-traces", type=int, default=None,
                     help="ROSAME+MILP arms: traces sampled per MILP solve. "
                          "Default: the runner's own (all traces).")
