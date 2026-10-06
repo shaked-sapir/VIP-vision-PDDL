@@ -1037,7 +1037,7 @@ function simDeltaCard(){
       if(dv==null){body+=`<td class="na${sep}">–</td>`;continue;}
       body+=`<td class="hc${sep}" style="background:${dheat(meta(S.metric).invert?-dv:dv)}">${dv>=0?"+":""}${dv.toFixed(2)}</td>`;}
     body+=`</tr>`;}
-  return `<div class="card gflex"><h4>${ml} — Δ vs ${algLabel(S.base)} <span style="color:#7d828b;font-weight:400;font-size:11px;">(${S.stat==='best'?'oracle-best':'last'} CFM − ${S.base}, paired per instance)</span></h4><div class="twrap"><table class="heat"><thead>${h1}${h2}</thead><tbody>${body}</tbody></table></div><div class="note">green = CDPS ahead · red = ${S.base} ahead · “–” = ${S.base} not backfilled for this cell</div></div>`;
+  return `<div class="card gflex"><h4>${ml} — Δ vs ${algLabel(S.base)} <span style="color:#7d828b;font-weight:400;font-size:11px;">(${S.stat==='best'?'oracle-best':'last'} CFM − ${algLabel(S.base)}, paired per instance)</span></h4><div class="twrap"><table class="heat"><thead>${h1}${h2}</thead><tbody>${body}</tbody></table></div><div class="note">green = CDPS ahead · red = ${algLabel(S.base)} ahead · “–” = ${algLabel(S.base)} not backfilled for this cell</div></div>`;
 }
 function heatRow(){
   if(!(S.cmp&&S.base))return simHeat();
