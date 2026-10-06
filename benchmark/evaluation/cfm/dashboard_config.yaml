@@ -84,14 +84,66 @@ results_dashboard:
       modes: [image]
 
   # Baselines present in fold_result.json but omitted from learning-curve plots,
-  # legend, and Δ tables. Keys must match the "algorithm" field exactly.
+  # legend, and Δ tables. Keys must match the "algorithm" field exactly. A plain
+  # list applies to both data sizes; the mapping form names the size (`all`,
+  # `small`, `large`). The paper's arm set (benchmark/paper_result_sources.yaml,
+  # `paper_arms`) is what survives these lists: the MILP arms are the 60 s
+  # capped ones, ROSAME and NPI-SAM alike.
   exclude_algorithms:
-    # Control arm of the forced-square resize A/B: Resize((64, 64)) against the
-    # default Resize(64). Refuted -- it moved nothing on hanoi, the one domain
-    # distorted enough to be a real test (docs/algorithm_comparison_analysis.md
-    # §5.3). Its 30 rows per domain sit inside the live image experiment dirs,
-    # so without this it plots as a competitor rather than as spent ablation.
-    - ROSAME-I_24__res=64x64
+    all:
+      # Control arm of the forced-square resize A/B: Resize((64, 64)) against the
+      # default Resize(64). Refuted -- it moved nothing on hanoi, the one domain
+      # distorted enough to be a real test (docs/algorithm_comparison_analysis.md
+      # §5.3). Its 30 rows per domain sit inside the live image experiment dirs,
+      # so without this it plots as a competitor rather than as spent ablation.
+      - ROSAME-I_24__res=64x64
+      # Not in the paper: the search-based arms.
+      - CDPS_ANCHORED
+      # NPI-SAM rows whose MILP had no 60 s cap (superseded by the __solve=60 rows).
+      - PISAM_MILP_LOOP
+      - PISAM_MILP_LOOP__m=4
+      # Nothing fixed in the MILP but state 0 clean in the data; not a paper category.
+      - PISAM_MILP_LOOP__gt=none
+      - PISAM_MILP_LOOP__gt=none__m=4
+      # Single-round variants, MILP uncapped.
+      - PISAM_MILP_SR
+      - PISAM_MILP_SR__gt=none
+      - PISAM_MILP_SR__eq16=0.4
+      - PISAM_MILP_SR__gt=none__s0=noisy
+      # ROSAME+MILP with init AND final state fixed in the MILP: more ground
+      # truth than any other arm; not one of the paper's three GT settings.
+      - ROSAME_MILP_24
+      - ROSAME_MILP_24_TAG
+    small: []
+    large:
+      # The released NOLAM has no model past a few hundred transitions per
+      # operator (264/625 and 268/625 rows); the large corpus reads the
+      # log-space rows (NOLAM__logspace, NOLAM__logspace__s0=noisy) instead.
+      - NOLAM
+      - NOLAM__s0=noisy
+
+  # Legend / selector text per algorithm key (the key itself when absent).
+  # "init GT" = the first state is clean (and fixed in the MILP where there is
+  # one); "no GT" = states 0 and 1 redrawn under the cell's masking and noise.
+  display_names:
+    ROSAME_24: "ROSAME (init GT)"
+    ROSAME_24__s0=noisy: "ROSAME (no GT)"
+    ROSAME_MILP_24__goal=none: "ROSAME+MILP (init GT)"
+    ROSAME_MILP_24_TAG__goal=none: "ROSAME+MILP tag (init GT)"
+    ROSAME_MILP_24__gt=none__s0=noisy: "ROSAME+MILP (no GT)"
+    ROSAME_MILP_24_TAG__gt=none__s0=noisy: "ROSAME+MILP tag (no GT)"
+    PISAM: "PI-SAM (init GT)"
+    PISAM__s0=noisy: "PI-SAM (no GT)"
+    PISAM_MILP_LOOP__solve=60: "NPI-SAM (init GT)"
+    PISAM_MILP_LOOP__m=4__solve=60: "NPI-SAM (init GT)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy__solve=60: "NPI-SAM (no GT)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy__m=4__solve=60: "NPI-SAM (no GT)"
+    NOLAM: "NOLAM (init GT)"
+    NOLAM__logspace: "NOLAM (init GT)"
+    NOLAM__s0=noisy: "NOLAM (no GT)"
+    NOLAM__logspace__s0=noisy: "NOLAM (no GT)"
+    OffLAM: "OffLAM (init GT)"
+    OffLAM__s0=noisy: "OffLAM (no GT)"
 
   # ── Selector labels ──────────────────────────────────────────────────
   # The dashboard exposes two independent selectors. `mode` is what used to be

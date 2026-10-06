@@ -123,8 +123,10 @@ _INSTANCE_RE = re.compile(r"^fold(\d+)_numtrajs(\d+)_gtrate(\d+)$")
 
 # Our own series (derived from CDPS's CFM set); baselines are discovered from
 # fold_result.json rows. Rows carrying these labels belong to us and are NOT
-# baselines ("PISAM" appears in older result files, with _internal_phase).
-_OUR_ROW_LABELS = {"CDPS", "PISAM"}
+# baselines. Older result files also carry an internal "PISAM" row, marked
+# ``_internal_phase``; the PI-SAM baseline arm writes the same label without it.
+_OUR_ROW_LABELS = {"CDPS"}
+_LEGACY_INTERNAL_LABEL = "PISAM"
 CDPS_SERIES = "CDPS"
 ORACLE_SERIES = "CDPS (oracle)"
 # The init+final-anchored CDPS variant. It carries its own fold_result.json row
@@ -227,7 +229,8 @@ def _baseline_rows(instance_dir: Path, metric_keys: List[str]) -> Dict[str, Dict
     out: Dict[str, Dict[str, float]] = {}
     for row in rows:
         alg = row.get("algorithm")
-        if not alg or alg in _OUR_ROW_LABELS or alg == ANCHORED_SERIES:
+        legacy = alg == _LEGACY_INTERNAL_LABEL and row.get("_internal_phase")
+        if not alg or alg in _OUR_ROW_LABELS or alg == ANCHORED_SERIES or legacy:
             # CDPS_ANCHORED is ours: its series comes from its own CFM set
             # (see _cfm_last_and_best), not from the returned-model row —
             # the row falls back to a conflicted final model when the search
@@ -471,6 +474,24 @@ def img_src(png: Path, out_dir: Path, embed: bool) -> str:
 DATA_SIZES = ("small", "large")
 
 
+def exclusions_by_size(raw) -> Dict[str, List[str]]:
+    """``exclude_algorithms`` as ``{"all": [...], "small": [...], "large": [...]}``.
+
+    A plain list applies to every data size; a mapping names the size each
+    list applies to, with ``all`` for both.
+    """
+    if not raw:
+        return {"all": [], "small": [], "large": []}
+    if isinstance(raw, list):
+        return {"all": [str(a) for a in raw], "small": [], "large": []}
+    if isinstance(raw, dict):
+        unknown = set(raw) - {"all", "small", "large"}
+        if unknown:
+            raise ValueError(f"exclude_algorithms: unknown data size(s) {sorted(unknown)}")
+        return {size: [str(a) for a in (raw.get(size) or [])] for size in ("all", "small", "large")}
+    raise ValueError("exclude_algorithms must be a list or a mapping by data size")
+
+
 def _algorithms_in(part: dict) -> set:
     """Algorithm names that actually have rows in one built payload.
 
@@ -652,7 +673,8 @@ def build(config_path: Path, regen: bool, refresh: bool,
         for size, payload_part in per_size.items()
     }
     selectors = cfg.get("selectors") or {}
-    exclude_algs = [str(a) for a in cfg.get("exclude_algorithms", [])]
+    exclude_algs = exclusions_by_size(cfg.get("exclude_algorithms"))
+    display_names = {str(k): str(v) for k, v in (cfg.get("display_names") or {}).items()}
 
     payload = {
         "domains": cfg["domains"],
@@ -669,6 +691,7 @@ def build(config_path: Path, regen: bool, refresh: bool,
         "alg_present": alg_present,
         "selectors": selectors,
         "exclude_algs": exclude_algs,
+        "display_names": display_names,
     }
     out_html.write_text(_HTML.replace("__DATA__", json.dumps(payload)))
     size_mb = out_html.stat().st_size / 1e6
@@ -818,11 +841,13 @@ function masksOf(){return simData().masks||[];}
 function noisesOf(){return simData().noises||[];}
 const CDPS=DATA.cdps_series, ORACLE=DATA.oracle_series, ANCHORED=DATA.anchored_series;
 const ALG_MODES=DATA.alg_modes||{};
-const EXCLUDE=new Set(DATA.exclude_algs||[]);
+const EXCLUDE=DATA.exclude_algs||{};
+const DISPLAY=DATA.display_names||{};
+function excluded(a){return (EXCLUDE.all||[]).indexOf(a)>=0||(EXCLUDE[S.ds]||[]).indexOf(a)>=0;}
 function etMode(){return S.et==="sim"?"simulation":"image";}
 const ALG_PRESENT=DATA.alg_present||{};
 function algAllowed(a){
-  if(EXCLUDE.has(a))return false;
+  if(excluded(a))return false;
   const m=ALG_MODES[a]; if(m&&m.indexOf(etMode())<0)return false;
   // The two data sizes ran different arm sets, so a mode-only filter would
   // list arms that never ran in the selected pair.
@@ -876,10 +901,12 @@ function namedColor(a){
  return null;}
 function algStyle(a){if(a===CDPS)return{c:"#4b8fe2",dash:null};if(a===ORACLE)return{c:"#9dc1f0",dash:"5 4"};
  if(a===ANCHORED)return{c:"#2f6fb0",dash:"6 3"};
+ // The no-ground-truth variant of an arm keeps its colour and gets a longer dash.
+ const dash=a.indexOf("__s0=noisy")>=0?"7 3":"2 3";
  const named=namedColor(a);
- if(named)return{c:named,dash:"2 3"};
- return{c:PAL[Math.max(0,BASES.indexOf(a))%PAL.length],dash:"2 3"};}
-function algLabel(a){return a===ORACLE?"oracle":a===ANCHORED?"CDPS (anchored)":a;}
+ if(named)return{c:named,dash:dash};
+ return{c:PAL[Math.max(0,BASES.indexOf(a))%PAL.length],dash:dash};}
+function algLabel(a){return a===ORACLE?"oracle":a===ANCHORED?"CDPS (anchored)":(DISPLAY[a]||a);}
 function enabledAlgs(){return [CDPS,ORACLE,...(S.cmp?BASES:[])].filter(a=>!S.off[a]);}
 
 function curveSVG(cv){
@@ -1010,7 +1037,7 @@ function simDeltaCard(){
       if(dv==null){body+=`<td class="na${sep}">–</td>`;continue;}
       body+=`<td class="hc${sep}" style="background:${dheat(meta(S.metric).invert?-dv:dv)}">${dv>=0?"+":""}${dv.toFixed(2)}</td>`;}
     body+=`</tr>`;}
-  return `<div class="card gflex"><h4>${ml} — Δ vs ${S.base} <span style="color:#7d828b;font-weight:400;font-size:11px;">(${S.stat==='best'?'oracle-best':'last'} CFM − ${S.base}, paired per instance)</span></h4><div class="twrap"><table class="heat"><thead>${h1}${h2}</thead><tbody>${body}</tbody></table></div><div class="note">green = CDPS ahead · red = ${S.base} ahead · “–” = ${S.base} not backfilled for this cell</div></div>`;
+  return `<div class="card gflex"><h4>${ml} — Δ vs ${algLabel(S.base)} <span style="color:#7d828b;font-weight:400;font-size:11px;">(${S.stat==='best'?'oracle-best':'last'} CFM − ${S.base}, paired per instance)</span></h4><div class="twrap"><table class="heat"><thead>${h1}${h2}</thead><tbody>${body}</tbody></table></div><div class="note">green = CDPS ahead · red = ${S.base} ahead · “–” = ${S.base} not backfilled for this cell</div></div>`;
 }
 function heatRow(){
   if(!(S.cmp&&S.base))return simHeat();
@@ -1205,7 +1232,7 @@ function ctrlBar(){
   const modes=`<span style="display:flex;gap:6px;"><button class="seg ${!S.cmp?'on':''}" onclick="setCmp(false)">CDPS only</button><button class="seg ${S.cmp?'on':''}" onclick="setCmp(true)">vs baselines</button></span>`;
   const band=`<label>band <select onchange="setBand(this.value)">${["std","ci95","minmax"].map(b=>`<option ${b===S.band?"selected":""}>${b}</option>`).join("")}</select></label>`;
   const boxes=toggleableAlgs().map(a=>algCheckbox(a,true)).join("");
-  const baseSel=(S.cmp&&BASES.length>1)?`<label>Δ vs <select onchange="setBase(this.value)">${BASES.map(b=>`<option ${b===S.base?"selected":""}>${b}</option>`).join("")}</select></label>`:"";
+  const baseSel=(S.cmp&&BASES.length>1)?`<label>Δ vs <select onchange="setBase(this.value)">${BASES.map(b=>`<option value="${b}" ${b===S.base?"selected":""}>${algLabel(b)}</option>`).join("")}</select></label>`:"";
   const note=(S.cmp&&!BASES.length)?`<span style="color:#7d828b;">no baseline rows found (run the backfill)</span>`:"";
   $("ctrlbar").innerHTML=modes+band+boxes+baseSel+note;
 }
