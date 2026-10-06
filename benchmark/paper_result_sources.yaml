@@ -107,13 +107,14 @@ superseded_labels:
 
 paper_arms:
   # gt: "init" = state 0 clean in the data (and fixed in the MILP where there
-  # is one); "init+final" = both endpoint states fixed in the MILP; "none" =
-  # states 0 and 1 redrawn under the cell's masking and noise, nothing fixed.
+  # is one); "none" = states 0 and 1 redrawn under the cell's masking and
+  # noise, nothing fixed. No presented arm fixes the final state; the on-disk
+  # ROSAME_MILP_24 / ROSAME_MILP_24_TAG rows (init and final fixed) are merged
+  # for completeness but not presented.
   grid:
     - {arm: rosame, milp: false, gt: init,  small: ROSAME_24, large: ROSAME_24}
     - {arm: rosame, milp: false, gt: none,  small: ROSAME_24__s0=noisy, large: ROSAME_24__s0=noisy}
     - {arm: rosame, milp: true,  gt: init,  small: [ROSAME_MILP_24__goal=none, ROSAME_MILP_24_TAG__goal=none], large: [ROSAME_MILP_24__goal=none, ROSAME_MILP_24_TAG__goal=none]}
-    - {arm: rosame, milp: true,  gt: init+final, small: [ROSAME_MILP_24, ROSAME_MILP_24_TAG], large: [ROSAME_MILP_24, ROSAME_MILP_24_TAG]}
     - {arm: rosame, milp: true,  gt: none,  small: [ROSAME_MILP_24__gt=none__s0=noisy, ROSAME_MILP_24_TAG__gt=none__s0=noisy], large: [ROSAME_MILP_24__gt=none__s0=noisy, ROSAME_MILP_24_TAG__gt=none__s0=noisy]}
     - {arm: pisam,  milp: false, gt: init,  small: PISAM, large: PISAM}
     - {arm: pisam,  milp: false, gt: none,  small: PISAM__s0=noisy, large: PISAM__s0=noisy}
