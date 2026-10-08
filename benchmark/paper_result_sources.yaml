@@ -78,6 +78,44 @@ sources:
     labels:
       - NOLAM__logspace__s0=noisy
 
+  # NPI-SAM, no ground truth, large corpus, MILP uncapped (one solve may use
+  # the whole 3600 s budget): the counterpart of the uncapped ROSAME+MILP below.
+  - root: benchmark/running_results_nogt_s0
+    experiments: "large-corpora__*"
+    labels:
+      - PISAM_MILP_LOOP__gt=none__s0=noisy__m=4
+
+  # NPI-SAM, no ground truth, small corpus, MILP uncapped (300 s budget).
+  - root: benchmark/running_results_nogt_s0_uncapped_small
+    labels:
+      - PISAM_MILP_LOOP__gt=none__s0=noisy
+
+  # ROSAME+MILP with nothing fixed in the MILP and no 60 s cap (a solve may use
+  # the whole learning budget: 3600 s large, 300 s small).
+  - root: benchmark/running_results_rosame_milp_nogt_uncapped_large
+    labels:
+      - ROSAME_MILP_24__gt=none__solve=3600__s0=noisy
+      - ROSAME_MILP_24_TAG__gt=none__solve=3600__s0=noisy
+  - root: benchmark/running_results_rosame_milp_nogt_uncapped_small
+    labels:
+      - ROSAME_MILP_24__gt=none__solve=300__s0=noisy
+      - ROSAME_MILP_24_TAG__gt=none__solve=300__s0=noisy
+
+  # NPI-SAM with the MILP's per-schema non-empty constraint on (every operator
+  # needs a precondition and an add effect), 60 s cap, init GT and no GT.
+  - root: benchmark/running_results_anchored_solve60_schema_large
+    labels:
+      - PISAM_MILP_LOOP__schema=pre_and_add__m=4__solve=60
+  - root: benchmark/running_results_anchored_solve60_schema_small
+    labels:
+      - PISAM_MILP_LOOP__schema=pre_and_add__solve=60
+  - root: benchmark/running_results_nogt_s0_solve60_schema_large
+    labels:
+      - PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__m=4__solve=60
+  - root: benchmark/running_results_nogt_s0_solve60_schema_small
+    labels:
+      - PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__solve=60
+
   # Clean reruns of the rows two jobs processed at the same time in
   # running_results_baselines_nogt_s0 (26 small rows, 9 large rows). Last, so
   # they replace the rows merged from that root.
@@ -97,7 +135,6 @@ superseded_labels:
   - PISAM_MILP_LOOP__m=4                  # anchored, MILP uncapped
   - PISAM_MILP_LOOP__gt=none              # nothing fixed in the MILP but state 0 clean in the data, uncapped
   - PISAM_MILP_LOOP__gt=none__m=4         # same, large corpus
-  - PISAM_MILP_LOOP__gt=none__s0=noisy__m=4   # no ground truth, MILP uncapped (not merged)
   - PISAM_MILP_SR                         # single round, anchored, uncapped
   - PISAM_MILP_SR__gt=none                # single round, state 0 clean in the data, uncapped
   - PISAM_MILP_SR__eq16=0.4
@@ -126,3 +163,9 @@ paper_arms:
   noise_free_axis:  # noise = 0 cells: the grid arms above plus OffLAM
     - {arm: offlam, milp: false, gt: init,  small: OffLAM, large: OffLAM}
     - {arm: offlam, milp: false, gt: none,  small: OffLAM__s0=noisy, large: OffLAM__s0=noisy}
+  uncapped_no_gt:   # both MILP arms with no ground truth and no 60 s cap (bounded by the learning budget only)
+    - {arm: pisam,  milp: true, gt: none, small: PISAM_MILP_LOOP__gt=none__s0=noisy, large: PISAM_MILP_LOOP__gt=none__s0=noisy__m=4}
+    - {arm: rosame, milp: true, gt: none, small: [ROSAME_MILP_24__gt=none__solve=300__s0=noisy, ROSAME_MILP_24_TAG__gt=none__solve=300__s0=noisy], large: [ROSAME_MILP_24__gt=none__solve=3600__s0=noisy, ROSAME_MILP_24_TAG__gt=none__solve=3600__s0=noisy]}
+  schema_constraint:  # NPI-SAM, 60 s cap, with the per-schema non-empty constraint of the ROSAME+MILP encoding switched on
+    - {arm: pisam, milp: true, gt: init, small: PISAM_MILP_LOOP__schema=pre_and_add__solve=60, large: PISAM_MILP_LOOP__schema=pre_and_add__m=4__solve=60}
+    - {arm: pisam, milp: true, gt: none, small: PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__solve=60, large: PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__m=4__solve=60}

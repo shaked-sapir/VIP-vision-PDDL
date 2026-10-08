@@ -105,17 +105,21 @@ results_dashboard:
       # Nothing fixed in the MILP but state 0 clean in the data; not a paper category.
       - PISAM_MILP_LOOP__gt=none
       - PISAM_MILP_LOOP__gt=none__m=4
-      # Single-round variants, MILP uncapped.
-      - PISAM_MILP_SR
+      # Single-round variants with state 0 clean but nothing fixed, and the
+      # eq. 16 ablation; the two single-round arms the small-data view shows
+      # (PISAM_MILP_SR, PISAM_MILP_SR__gt=none__s0=noisy) are excluded for the
+      # large data only, where they never ran.
       - PISAM_MILP_SR__gt=none
       - PISAM_MILP_SR__eq16=0.4
-      - PISAM_MILP_SR__gt=none__s0=noisy
       # ROSAME+MILP with init AND final state fixed in the MILP: more ground
       # truth than any other arm; not one of the paper's three GT settings.
       - ROSAME_MILP_24
       - ROSAME_MILP_24_TAG
     small: []
     large:
+      # Single-round NPI-SAM ran on the small corpora only (MILP uncapped).
+      - PISAM_MILP_SR
+      - PISAM_MILP_SR__gt=none__s0=noisy
       # The released NOLAM has no model past a few hundred transitions per
       # operator (264/625 and 268/625 rows); the large corpus reads the
       # log-space rows (NOLAM__logspace, NOLAM__logspace__s0=noisy) instead.
@@ -138,12 +142,24 @@ results_dashboard:
     PISAM_MILP_LOOP__m=4__solve=60: "NPI-SAM (init GT)"
     PISAM_MILP_LOOP__gt=none__s0=noisy__solve=60: "NPI-SAM (no GT)"
     PISAM_MILP_LOOP__gt=none__s0=noisy__m=4__solve=60: "NPI-SAM (no GT)"
+    PISAM_MILP_SR: "NPI-SAM single round (init GT)"
+    PISAM_MILP_SR__gt=none__s0=noisy: "NPI-SAM single round (no GT)"
     NOLAM: "NOLAM (init GT)"
     NOLAM__logspace: "NOLAM (init GT)"
     NOLAM__s0=noisy: "NOLAM (no GT)"
     NOLAM__logspace__s0=noisy: "NOLAM (no GT)"
     OffLAM: "OffLAM (init GT)"
     OffLAM__s0=noisy: "OffLAM (no GT)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy: "NPI-SAM (no GT, uncapped)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy__m=4: "NPI-SAM (no GT, uncapped)"
+    ROSAME_MILP_24__gt=none__solve=300__s0=noisy: "ROSAME+MILP (no GT, uncapped)"
+    ROSAME_MILP_24_TAG__gt=none__solve=300__s0=noisy: "ROSAME+MILP tag (no GT, uncapped)"
+    ROSAME_MILP_24__gt=none__solve=3600__s0=noisy: "ROSAME+MILP (no GT, uncapped)"
+    ROSAME_MILP_24_TAG__gt=none__solve=3600__s0=noisy: "ROSAME+MILP tag (no GT, uncapped)"
+    PISAM_MILP_LOOP__schema=pre_and_add__solve=60: "NPI-SAM +schema (init GT)"
+    PISAM_MILP_LOOP__schema=pre_and_add__m=4__solve=60: "NPI-SAM +schema (init GT)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__solve=60: "NPI-SAM +schema (no GT)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__m=4__solve=60: "NPI-SAM +schema (no GT)"
 
   # ── Selector labels ──────────────────────────────────────────────────
   # The dashboard exposes two independent selectors. `mode` is what used to be
