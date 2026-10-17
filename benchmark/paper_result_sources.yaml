@@ -135,6 +135,10 @@ superseded_labels:
   - PISAM_MILP_LOOP__m=4                  # anchored, MILP uncapped
   - PISAM_MILP_LOOP__gt=none              # nothing fixed in the MILP but state 0 clean in the data, uncapped
   - PISAM_MILP_LOOP__gt=none__m=4         # same, large corpus
+  - PISAM_MILP_LOOP__m=4__solve=60        # anchored, capped, schema rule off (superseded 2026-10-08)
+  - PISAM_MILP_LOOP__solve=60             # same, small corpus
+  - PISAM_MILP_LOOP__gt=none__s0=noisy__m=4__solve=60   # unanchored, capped, schema rule off
+  - PISAM_MILP_LOOP__gt=none__s0=noisy__solve=60        # same, small corpus
   - PISAM_MILP_SR                         # single round, anchored, uncapped
   - PISAM_MILP_SR__gt=none                # single round, state 0 clean in the data, uncapped
   - PISAM_MILP_SR__eq16=0.4
@@ -155,8 +159,8 @@ paper_arms:
     - {arm: rosame, milp: true,  gt: none,  small: [ROSAME_MILP_24__gt=none__s0=noisy, ROSAME_MILP_24_TAG__gt=none__s0=noisy], large: [ROSAME_MILP_24__gt=none__s0=noisy, ROSAME_MILP_24_TAG__gt=none__s0=noisy]}
     - {arm: pisam,  milp: false, gt: init,  small: PISAM, large: PISAM}
     - {arm: pisam,  milp: false, gt: none,  small: PISAM__s0=noisy, large: PISAM__s0=noisy}
-    - {arm: pisam,  milp: true,  gt: init,  small: PISAM_MILP_LOOP__solve=60, large: PISAM_MILP_LOOP__m=4__solve=60}
-    - {arm: pisam,  milp: true,  gt: none,  small: PISAM_MILP_LOOP__gt=none__s0=noisy__solve=60, large: PISAM_MILP_LOOP__gt=none__s0=noisy__m=4__solve=60}
+    - {arm: pisam,  milp: true,  gt: init,  small: PISAM_MILP_LOOP__schema=pre_and_add__solve=60, large: PISAM_MILP_LOOP__schema=pre_and_add__m=4__solve=60}
+    - {arm: pisam,  milp: true,  gt: none,  small: PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__solve=60, large: PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__m=4__solve=60}
   mask_free_axis:   # mask = 0 cells: the grid arms above plus NOLAM
     - {arm: nolam,  milp: false, gt: init,  small: NOLAM, large: NOLAM__logspace}
     - {arm: nolam,  milp: false, gt: none,  small: NOLAM__s0=noisy, large: NOLAM__logspace__s0=noisy}
