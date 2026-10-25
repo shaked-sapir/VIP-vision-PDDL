@@ -56,6 +56,7 @@ from typing import Any, Dict, Optional, Tuple
 import cpmpy as cp
 from cpmpy import Model, boolvar, SolverLookup
 from cpmpy.solvers.solver_interface import ExitStatus
+from ortools.sat.python import cp_model as _cp_model
 
 from constraint_opt.factory import register_problem
 from constraint_opt.util import args2str, unifies
@@ -75,6 +76,27 @@ from src.milp.encoding_config import (
 # Leaving it to the solver made repeated runs of the same fold disagree.
 DEFAULT_RANDOM_SEED = 42
 DEFAULT_NUM_WORKERS = 1
+
+
+class IncumbentTimeline(_cp_model.CpSolverSolutionCallback):
+    """Records the wall time and objective of every incumbent CP-SAT reports."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list = []
+
+    def on_solution_callback(self) -> None:
+        self.events.append((round(self.WallTime(), 3), self.ObjectiveValue()))
+
+    @property
+    def first_seconds(self) -> Optional[float]:
+        """Wall time of the first feasible solution, or None."""
+        return self.events[0][0] if self.events else None
+
+    @property
+    def last_seconds(self) -> Optional[float]:
+        """Wall time of the last improving solution, or None."""
+        return self.events[-1][0] if self.events else None
 
 
 class CPSATObservedActions:
@@ -391,6 +413,45 @@ class CPSATObservedActions:
             self.model.maximize(cp.sum(terms))
         self.report_time()
 
+    def fix_model_bits(
+        self,
+        obs_m,
+        channels: Tuple[str, ...] = ("add", "dele"),
+        declared_only: bool = True,
+        threshold: float = 0.5,
+        schemas: Optional[set] = None,
+    ) -> int:
+        """Pin model bits of the given channels to a reference model's values.
+
+        Args:
+            obs_m: an ``ObservationM`` whose channel dicts hold probabilities.
+            channels: any of ``pre``, ``add``, ``dele``.
+            declared_only: pin only the bits the reference declares (prob above
+                ``threshold``); False also pins every undeclared bit to 0.
+            threshold: declared / undeclared cut-off.
+            schemas: pin only bits of these action schemas; None means all.
+
+        Returns:
+            The number of bits pinned.
+        """
+        by_name = {"pre": self.pre, "add": self.add, "dele": self.dele}
+        pinned = 0
+        for name in channels:
+            probs = getattr(obs_m, name)
+            for key, variable in by_name[name].items():
+                if schemas is not None and key[0] not in schemas:
+                    continue
+                declared = probs.get(key, threshold) > threshold
+                if declared:
+                    self.model += (variable == 1)
+                elif not declared_only:
+                    self.model += (variable == 0)
+                else:
+                    continue
+                pinned += 1
+        self.solve_stats["pinned_model_bits"] = pinned
+        return pinned
+
     # ---------- solving ----------
 
     def make_solution_hints(self, threshold: float = 0.5):
@@ -460,11 +521,13 @@ class CPSATObservedActions:
         solver = SolverLookup.get("ortools", self.model)
         hint_vars, hint_vals = self.make_solution_hints()
         solver.solution_hint(hint_vars, hint_vals)
+        timeline = IncumbentTimeline()
         solver.solve(
             time_limit=time_limit,
             log_search_progress=log_search_progress,
             random_seed=random_seed,
             num_search_workers=num_workers,
+            solution_callback=timeline,
         )
 
         st = solver.status()
@@ -473,6 +536,11 @@ class CPSATObservedActions:
             "exit_status": str(st.exitstatus),
             "solve_time_seconds": round(time.time() - start, 3),
             "objective_value": solver.objective_value(),
+            "objective_bound": solver.ort_solver.BestObjectiveBound(),
+            "obj_scale": self.obj_scale,
+            "first_solution_seconds": timeline.first_seconds,
+            "last_improvement_seconds": timeline.last_seconds,
+            "n_incumbents": len(timeline.events),
             "n_model_vars": 3 * len(self.pre),
             "n_trace_vars": len(self.hol) + 3 * len(self.stepadd),
             "n_traces": self.n_traces,
