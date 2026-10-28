@@ -369,13 +369,18 @@ Proposal: present the comparison **row by row of this table**, and say in the
 text which row is which. Three additions make every row populated on both
 sides:
 
-1. **`ROSAME-I_24__anchor=vlm` (0 clean states).** The anchor target is the
-   VLM's own classification of the last frame instead of the GT final state;
-   atoms the VLM left `UNCERTAIN` drop out of the anchor loss. This is the
-   pixel arm with the same information our `gt=none` arms have: frames,
-   actions, and whatever the VLM pipeline produced. Code: `_prepare_trace`
-   reads the degraded trajectory's final state and its masking line instead of
-   `gt_final_predicates`; a masked-MSE in `_loss_from_predictions`.
+1. **`ROSAME-I_24__anchor=vlm` (0 clean states).** The anchor stays at
+   frame 0 (the position of the Init row) but its target is the VLM's own
+   classification of frame 0 instead of the GT state; atoms the VLM left
+   `UNCERTAIN` drop out of the anchor loss. This is the same swap the symbolic
+   arms undergo between the Init and No-GT rows (state 0 still exists, its
+   source changes from GT to VLM), so the pixel arm has exactly the
+   information our `gt=none` arms have. An anchor is unavoidable: without one
+   nothing ties the CV head's output slots to named predicates and the
+   trivial constant-state solution minimises the loss. Code:
+   `_prepare_trace` reads the staged trajectory's state 0 and its masking
+   line instead of `gt_init_predicates`; a masked-MSE in
+   `_loss_from_predictions`.
 2. **`ROSAME-I_24__anchor=init` (1 clean state, same position as ours).** The
    `gamma` anchor moves from `domain_preds[-1]` to `domain_preds[0]`
    (`rosame_i_runner.py:320`); `ResolvedTrace.gt_init_predicates` is already
