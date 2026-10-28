@@ -363,7 +363,7 @@ our arms were already run with one clean state (`gt=init`) and with none
 | 0 | `PISAM__s0=noisy`, `PISAM_MILP_LOOP__gt=none__s0=noisy…` | **new** `ROSAME-I_24__anchor=vlm` (3.4.1) | `ROSAME_24__s0=noisy`, `ROSAME_MILP_24__gt=none__s0=noisy` |
 | 1 (init) | `PISAM`, `PISAM_MILP_LOOP__schema=…__solve=60` | **new** `ROSAME-I_24__anchor=init+vlm` (3.4.1: GT frame 0 + last state with VLM labels) | `ROSAME_24`, `ROSAME_MILP_24__goal=none` |
 | 1 (final) | — | `ROSAME-I_24` (upstream: GT last state) | — |
-| 2 (init + final) | **new** `PISAM_MILP_LOOP__gt=all…` (3.4.3) | `ROSAME-I_MILP_24` (upstream), `ROSAME-I_26`, `ROSAME-I_MILP_26` | `ROSAME_MILP_24` (`goal_mode gt`) |
+| 2 (init + final) | **new** `PISAM_MILP_LOOP__gt=init_final…` (3.4.3) | `ROSAME-I_24__anchor=both`, `ROSAME-I_MILP_24` (ICAPS-24, as published); `ROSAME-I_26`, `ROSAME-I_MILP_26` (ICAPS-26 network, as published: it takes init and goal as hard inputs, so it has no other row) | `ROSAME_MILP_24` (`goal_mode gt`) |
 
 Proposal: present the comparison **row by row of this table**, and say in the
 text which row is which. Three additions make every row populated on both

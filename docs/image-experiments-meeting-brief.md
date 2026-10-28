@@ -88,7 +88,7 @@ reaches it through the data copy only.
 | `ROSAME_MILP_24` [+`_TAG`] | `…__gt=none__s0=noisy` · L none, goal none | `…__goal=none` · L init fixed, final free · paper arm | `…__gt=none__goal=gt__s0=noisy` · L final fixed only | `ROSAME_MILP_24` · L init + final fixed (exists) |
 | `ROSAME-I_24` (pixel) | `…__anchor=vlm` · L upstream's last-state anchor with the VLM's labels, masked atoms excluded (new) | `…__anchor=init+vlm` · L GT frame-0 anchor + last-state anchor with VLM labels (new) | `ROSAME-I_24` · L last-state anchor with GT · **upstream, verbatim** | `…__anchor=both` · L GT frame-0 anchor + GT last-state anchor (new) |
 | `ROSAME-I_MILP_24` (pixel) | `…__anchor=vlm__gt=none__goal=none` · loss as above, MILP fixes nothing (new) | `…__anchor=init+vlm__goal=none` · MILP fixes init only (new) | `…__gt=none` · loss as upstream, MILP fixes final only (new flag) | `ROSAME-I_MILP_24` · upstream (exists) |
-| `ROSAME-I_26`, `ROSAME-I_MILP_26` | — | — | — | upstream only; keep / footnote / appendix (decision) |
+| `ROSAME-I_26`, `ROSAME-I_MILP_26` (pixel, ICAPS-26 network) | — | — | — | as published only: the network takes init **and** goal as hard inputs, so it exists in this row alone. A different system from the 24 pair (encoder + decoder + action head, batch training, N−1 interior frames, own vocabulary), not a setting of it. Keep / footnote / appendix (decision) |
 
 Label note: the encoder's value is `all_gt_states` ("every *tagged* state",
 not every state); the row label should read `gt=init_final` or `gt=final`
