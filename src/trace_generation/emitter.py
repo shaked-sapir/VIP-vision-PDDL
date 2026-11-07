@@ -29,6 +29,7 @@ from src.utils.pddl_trajectory import export_gt_trajectory
 POOL_SUBPATH = Path("training") / "trajectories"
 GT_SUBPATH = Path("gt_trajectories")
 GENERATION_INFO_NAME = "generation_info.json"
+FRAME_INDEX_FORMAT = "06d"
 
 # pddlgym.parser.FAST_DOWNWARD_STR, reproduced so a symbolic corpus can be
 # emitted for a domain pddlgym has never heard of.
@@ -63,7 +64,7 @@ def emit_window(
     corpus_root: Path,
     export_gt: bool = True,
     render: bool = False,
-    frame_index_format: str = "06d",
+    frame_index_format: str = FRAME_INDEX_FORMAT,
     source: Optional[str] = None,
 ) -> EmittedProblem:
     """Write one window as a problem folder and return where it landed.
@@ -100,7 +101,7 @@ def emit_window(
 
     rendered = False
     if render:
-        rendered = _write_images(window, problem_dir, frame_index_format)
+        rendered = write_window_frames(window, problem_dir, frame_index_format)
 
     return EmittedProblem(
         name=problem_name,
@@ -182,8 +183,8 @@ def _write_plan(window: Window, problem_dir: Path) -> Path:
 
 # ── Images ───────────────────────────────────────────────────────────────
 
-def _write_images(window: Window, problem_dir: Path,
-                  frame_index_format: str) -> bool:
+def write_window_frames(window: Window, problem_dir: Path,
+                        frame_index_format: str = FRAME_INDEX_FORMAT) -> bool:
     """Copy the window's frames as state_0..state_k.png. False when it has none."""
     if not all(step.has_frames for step in window.steps):
         return False

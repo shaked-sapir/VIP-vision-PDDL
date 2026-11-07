@@ -1,4 +1,4 @@
-"""External-source trajectory handler — for domains whose images come from outside PDDLGym."""
+"""Problem-folder trajectory handler: frames + GT on disk in, inferred trajectory out."""
 
 from pathlib import Path
 from typing import List
@@ -8,9 +8,10 @@ from src.utils.pddl_trajectory import ensure_trajectory_json, extract_actions_fr
 
 
 class ExternalImageTrajectoryHandler(ImageTrajectoryHandler):
-    """Trajectory handler for externally-sourced image sequences.
+    """Trajectory handler for a problem folder of frames and ground truth.
 
-    Expects a directory containing:
+    The folder is either shipped with the domain (depot, gripper) or emitted by
+    ``src/trace_generation`` with rendering on. Expects a directory containing:
         - state_*.png images (any padding: state_0.png or state_0000.png).
         - A .trajectory file (GT trajectory in PDDL format).
         - A problem .pddl file (for object typing).

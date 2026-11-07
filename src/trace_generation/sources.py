@@ -60,8 +60,9 @@ class WalkConfig:
     """Everything :class:`ProblemWalkSource` needs beyond the two PDDL files.
 
     Attributes:
-        backend: ``"native"``. ``"pddlgym"`` is the renderer-only backend and is
-            not implemented here.
+        backend: ``"native"``, the only walk backend. Rendering is a strategy
+            on the source (:class:`~src.trace_generation.frame_renderer.RenderedSource`),
+            not a backend.
         p_rnd: Probability of a random action. ``1`` skips the planner, so a
             problem with an unreachable or trivial goal is still walkable.
         seed: Seed for the walk RNG. The cutter is seeded separately.
@@ -87,8 +88,8 @@ class WalkConfig:
         if self.backend != "native":
             raise NotImplementedError(
                 f"backend={self.backend!r} is not available; only 'native' is "
-                "implemented. The pddlgym backend renders images and stays in "
-                "src/trajectory_handlers/pddlgym_problem_generator.py.")
+                "implemented. To render frames, wrap the source in RenderedSource "
+                "(--render in benchmark/data_generator.py).")
         if not 0.0 <= self.p_rnd <= 1.0:
             raise ValueError(f"p_rnd must be in [0, 1], got {self.p_rnd}.")
 
