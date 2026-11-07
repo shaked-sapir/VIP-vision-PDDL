@@ -126,9 +126,9 @@ class PDDLGymRenderer:
             render_fn: ``pddlgym.rendering.<domain>.render``.
             schema: The domain's :class:`GymSchema`.
             render_kwargs: Extra keyword arguments for ``render_fn``.
-            prime_colors: Called once with the sorted object names before the
-                first render, for renderers that assign per-object colours in
-                order of first sight.
+            prime_colors: Called once, before the first render, with the
+                state's gym entities sorted by name, for renderers that assign
+                per-object colours in order of first sight.
             name: The renderer's name, recorded in ``generation_info.json``.
         """
         self._render_fn = render_fn
@@ -140,10 +140,12 @@ class PDDLGymRenderer:
 
     def render(self, state: TraceState, *, step: int, action: Optional[str]) -> Image.Image:
         """Render the state's literals; ``step`` and ``action`` are ignored."""
+        literals = self._schema.gym_literals(state)
         if not self._primed and self._prime_colors is not None:
-            self._prime_colors(sorted(obj.split(":", 1)[0] for obj in state.objects))
+            entities = {variable for literal in literals for variable in literal.variables}
+            self._prime_colors(sorted(entities, key=lambda entity: entity.name))
             self._primed = True
-        frame = self._render_fn(self._schema.gym_literals(state), **self._render_kwargs)
+        frame = self._render_fn(literals, **self._render_kwargs)
         plt.close("all")
         return Image.fromarray(to_uint8_rgba(frame))
 
@@ -157,9 +159,28 @@ class PDDLGymRenderer:
                 "render_kwargs": dict(self._render_kwargs)}
 
 
-def prime_block_colors(block_names: Sequence[str]) -> None:
-    """Assign PDDLGym's block colours in a fixed order, independent of first sight."""
+def blocks_encounter_order(state: TraceState) -> List[Any]:
+    """The order PDDLGym's blocks renderer first meets the blocks of ``state``.
+
+    Piles left to right, bottom up, then the held block: the order a fresh
+    process assigns colours in when ``state`` is the first frame it draws.
+    """
+    from pddlgym.rendering.blocks import get_objects_from_obs
+
+    piles, holding = get_objects_from_obs(BLOCKS_SCHEMA.gym_literals(state))
+    order = [block for pile in piles for block in pile]
+    if holding is not None:
+        order.append(holding)
+    return order
+
+
+def prime_block_colors(blocks: Sequence[Any]) -> None:
+    """Assign PDDLGym's block colours in ``blocks`` order, independent of first sight.
+
+    The colour table is keyed by the gym's typed entities, so ``blocks`` must be
+    the entities the render function will see, not bare names.
+    """
     from pddlgym.rendering.blocks import block_name_to_color
 
-    for name in block_names:
-        block_name_to_color(name)
+    for block in blocks:
+        block_name_to_color(block)

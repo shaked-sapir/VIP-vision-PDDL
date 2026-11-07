@@ -3,12 +3,14 @@
     blocksworld, hanoi, npuzzle  ->  PDDLGymRenderer (pddlgym.rendering.*)
     depot, gripper               ->  VisualizerRenderer (../planning-visualizer)
 
-The visualizer checkout is read from ``rendering.planning_visualizer_dir`` in
-``config.yaml``, falling back to the sibling ``../planning-visualizer`` checkout.
+The visualizer checkout is taken from the ``VIP_PLANNING_VISUALIZER`` environment
+variable, else ``rendering.planning_visualizer_dir`` in ``config.yaml``, else the
+sibling ``../planning-visualizer`` checkout.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -25,6 +27,7 @@ from src.utils.config import load_config
 
 CONFIG_SECTION = "rendering"
 CONFIG_VISUALIZER_KEY = "planning_visualizer_dir"
+VISUALIZER_ENV = "VIP_PLANNING_VISUALIZER"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_VISUALIZER_ROOT = PROJECT_ROOT.parent / "planning-visualizer"
 
@@ -68,7 +71,10 @@ RENDERABLE_DOMAINS = sorted(RENDERER_REGISTRY)
 
 
 def visualizer_root_from_config(config: Optional[Dict[str, Any]] = None) -> Path:
-    """``rendering.planning_visualizer_dir`` from ``config.yaml``, or the sibling checkout."""
+    """The visualizer checkout: environment, then ``config.yaml``, then the sibling dir."""
+    from_env = os.environ.get(VISUALIZER_ENV)
+    if from_env:
+        return Path(from_env)
     config = config if config is not None else load_config()
     configured = config.get(CONFIG_SECTION, {}).get(CONFIG_VISUALIZER_KEY)
     return Path(configured) if configured else DEFAULT_VISUALIZER_ROOT
