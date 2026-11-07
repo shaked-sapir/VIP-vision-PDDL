@@ -82,6 +82,56 @@ Independent of A1–A6 and doable by whoever is free (it needs no VLM):
   Feasibility test: three windows per domain, compare with walk-rendered frames.
   This decides whether the large image corpora are the symbolic corpora's twins.
 
+  **Done 2026-11-08, gate passed** (branch `claude/render-pipeline-4f6e5c`).
+  Rendering is now a strategy on the source: `src/trace_generation/frame_renderer.py`
+  (`FrameRenderer`, `RenderedSource`), `pddlgym_renderer.py` (blocksworld, hanoi,
+  npuzzle through `pddlgym.rendering.*`, fed from eval-schema states by a
+  per-domain `GymSchema`), `visualizer_renderer.py` (depot, gripper) and
+  `renderer_registry.py`. `benchmark/render_gate.py` re-renders a stored
+  problem folder and counts differing pixels per frame;
+  `benchmark/test_render_gate.py` is the same gate as a test. Result, three
+  windows per domain:
+
+  | domain | reference frames | result |
+  |---|---|---|
+  | hanoi | three windows of the old PDDLGym walk (`benchmark/data/hanoi/render_gate_reference_n3/`, seed 42) | identical, every frame |
+  | npuzzle | same, `npuzzle/render_gate_reference_n3/` | identical, every frame |
+  | blocksworld | same, `blocksworld/render_gate_reference_n3/` | identical when block colours are primed in the walk's own first-sight order (`--blocks-colors encounter`); with the renderer's sorted priming only blocks d and e swap colours (6052 px per frame), see below |
+  | depot | `src/domains/depot/problems/problem{1,2,3}` (the small corpus's source frames) | identical, every frame |
+  | gripper | `src/domains/gripper/problems/problem{1,2,3}` | identical, every frame |
+
+  Three facts the gate turned up:
+
+  1. The depot and gripper frames were **not** made by the visualizer's PIL
+     path (`generate_images.py`) but by its Node canvas path
+     (`backend/api/generate_images.ts --no-metadata`: the frontend's TypeScript
+     renderers plus `truck.png` / `rooboot.png` sprites, no step overlay). The
+     PIL path draws a different picture. `VisualizerRenderer` therefore runs
+     the Python layout (`RendererFactory`) in-process and streams one JSON per
+     frame to a persistent Node worker, `backend/api/render_states.ts`, added to
+     the planning-visualizer checkout (uncommitted there). Rendering depot and
+     gripper needs Node and the `canvas` package, so those two domains render
+     on the laptop (about 12 frames/s), not on the cluster.
+  2. The visualizer places same-typed objects in the order its own PDDL parser
+     lists them, which for `d1 d2 - depot` is d2 before d1. `VisualizerRenderer.use_problem`
+     takes that order from the problem file; the large corpora's problem files
+     list one object per line, so there the order is the sorted one.
+  3. PDDLGym colours blocks in order of first sight within a process
+     (`pddlgym/rendering/blocks.py`, seeded RNG). A fresh walk from the gym's
+     bundled problem10 meets the blocks as a, b, c, e, d, so **d was yellow and
+     e green** in every old generate-mode blocksworld corpus, while
+     `LLMBlocksFluentClassifier.imaged_obj_to_gym_obj_name` maps red→a,
+     cyan→b, blue→c, green→d, yellow→e. The renderer primes the colours in
+     sorted name order, which gives exactly the classifier's map and is the
+     same in every process, so cluster chunks agree. The old small blocks
+     corpora should be read with that swap in mind.
+
+  The visualizer's domain files are not byte-equal to `src/domains/{depot,gripper}/*.pddl`
+  (an `(and ...)` wrapper around single preconditions; the visualizer's depot
+  `drop` lacks our `(not (clear ?p))` effect). They are never applied here:
+  the renderer is fed our GT states, never actions, so only the predicate
+  vocabulary has to agree, and it does.
+
 ### Track B: pixel arms on the GPU
 
 | day | step | output |
