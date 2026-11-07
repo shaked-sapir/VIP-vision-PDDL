@@ -66,3 +66,9 @@ experiment:
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Frame rendering (benchmark/data_generator.py --render, benchmark/render_corpus.py)
+rendering:
+  # The planning-visualizer checkout that renders depot and gripper frames.
+  # Defaults to the sibling ../planning-visualizer when omitted.
+  planning_visualizer_dir: "../planning-visualizer"
