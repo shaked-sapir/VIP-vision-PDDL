@@ -9,6 +9,17 @@
 > existing trajectory file — for **any** PDDL domain, not only the ones PDDLGym
 > ships. Symbolic output only; images remain the existing pipeline's job.
 
+> **Status (2026-11-08, branch `claude/render-pipeline-4f6e5c`)**: §8 step 5
+> is done, but not as §1.2 / §7.1 planned it. `PDDLGymProblemGenerator`,
+> `PDDLGymImageTrajectoryHandler` and the `domains.<key>.generation` config
+> block are gone; `--gen-mode generate` is a thin alias over trace mode (a
+> random walk, cut, rendered, then inference), and rendering is a strategy on
+> the source (`RenderedSource` + `FrameRenderer`, `src/trace_generation/frame_renderer.py`)
+> rather than a `pddlgym` walk backend. Every mention of the generator, of
+> `_resolve_problem_index` / `from_pddlgym` and of "images remain the existing
+> pipeline's job" below is historical. The current design and its gate record
+> are in `docs/image-experiments-week1-plan.md`, item A7.
+
 > **Status (2026-08-15, branch `trace-generation-implementation`)**: §8 steps 1–4
 > are built and the step-4 acceptance gate passed (§8.1). Steps 5–6 and
 > multi-input corpora are not built. This document has been edited in place to
