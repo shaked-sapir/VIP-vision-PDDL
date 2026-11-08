@@ -109,7 +109,7 @@ Independent of A1–A6 and doable by whoever is free (it needs no VLM):
      PIL path draws a different picture. `VisualizerRenderer` therefore runs
      the Python layout (`RendererFactory`) in-process and streams one JSON per
      frame to a persistent Node worker, `backend/api/render_states.ts`, added to
-     the planning-visualizer checkout (uncommitted there). Rendering depot and
+     the planning-visualizer checkout (commit b71a987 there). Rendering depot and
      gripper needs Node and the `canvas` package, so those two domains render
      on the laptop (about 12 frames/s), not on the cluster.
   2. The visualizer places same-typed objects in the order its own PDDL parser
@@ -131,6 +131,24 @@ Independent of A1–A6 and doable by whoever is free (it needs no VLM):
   `drop` lacks our `(not (clear ?p))` effect). They are never applied here:
   the renderer is fed our GT states, never actions, so only the predicate
   vocabulary has to agree, and it does.
+
+  **All five large corpora rendered 2026-11-08** (laptop, one process,
+  `scripts/cluster_large/render_local.sh all` equivalent, 1 h 40 min in all):
+  every `training/trajectories/problemN/` of the five corpora holds one
+  `state_NNNNNN.png` per GT state, checked against the operator count of
+  `gt_trajectories/problemN/problemN.trajectory` for all 2500 problems of each
+  corpus; GT and problem files untouched.
+
+  | corpus | frames | wall time |
+  |---|---|---|
+  | depot `large_corpus_n2500` | 42,579 | 33 min |
+  | gripper `large_corpus_n2500` | 41,428 | 34 min |
+  | blocksworld `large_corpus_L500_n2500` | 31,425 | 8 min |
+  | hanoi `large_corpus_n2500` | 39,920 | 7 min |
+  | npuzzle `large_corpus_n2500` | 37,828 | 19 min |
+
+  `render_corpus.sbatch` + `render_manifest.csv` stay as the cluster route for
+  a future corpus; nothing was submitted.
 
 ### Track B: pixel arms on the GPU
 
