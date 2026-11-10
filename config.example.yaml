@@ -7,6 +7,43 @@ openai:
   visual_components_model_name: "gpt-5-mini"
   conflict_verification_model_name: "gpt-5-mini" #for better results, this should be different from the above model
 
+# An open VLM served by vLLM (OpenAI-compatible); reached through an SSH tunnel
+# from the cluster GPU node, see scripts/cluster_image/serve_vlm.sbatch.
+# model_name must equal the server's --served-model-name (no "/" — it names
+# the output directory).
+# VIP_LLM_BASE_URL in the environment overrides base_url (a cluster job names
+# the serving node that way).
+vllm:
+  api: openai
+  api_key: "EMPTY"
+  base_url: "http://localhost:8000/v1"
+  request_extras:            # merged into every chat request (thinking off)
+    extra_body:
+      chat_template_kwargs: {enable_thinking: false}
+  object_detection_model: &vllm_object_detection_model
+    model_name: "qwen3.8-27b"
+    temperature: 0.0
+  fluent_classification_model: &vllm_fluent_classification_model
+    model_name: "qwen3.8-27b"
+    temperature: 0.0
+
+# The same model served with thinking mode on (a second serve_vlm.sbatch job,
+# VIP_VLM_NAME=qwen3.8-27b-think).
+vllm_think:
+  api: openai
+  api_key: "EMPTY"
+  base_url: "http://localhost:8001/v1"
+  request_extras:            # thinking on, at the model's medium effort
+    reasoning_effort: medium
+    extra_body:
+      chat_template_kwargs: {enable_thinking: true, preserve_thinking: false}
+  object_detection_model: &vllm_think_object_detection_model
+    model_name: "qwen3.8-27b-think"
+    temperature: 0.0
+  fluent_classification_model: &vllm_think_fluent_classification_model
+    model_name: "qwen3.8-27b-think"
+    temperature: 0.0
+
 # Default Paths
 paths:
   domains_dir: "src/domains"
@@ -18,6 +55,7 @@ domains:
     gym_domain_name: "PDDLEnvBlocks_operator_actionsTest-v0"
     domain_file: "src/domains/blocks/blocks.pddl"
     problems_dir: "src/domains/blocks/problems"
+    example_dir: "src/domains/blocks/example"   # held-out one-shot example (frame 0 + GT); unset = the problem's own frame 0
     problem_prefix: "problem"
     # Read by `benchmark/data_generator.py --gen-mode generate` only. The CLI
     # flag of the same name wins. Trace mode (--gen-mode trace) reads nothing
@@ -35,6 +73,7 @@ domains:
     gym_domain_name: "PDDLEnvHanoi_operator_actions-v0"
     domain_file: "src/domains/hanoi/hanoi.pddl"
     problems_dir: "src/domains/hanoi/problems"
+    example_dir: "src/domains/hanoi/example"   # held-out one-shot example (frame 0 + GT); unset = the problem's own frame 0
     problem_prefix: "problem"
     generation:
       num_problems: 10

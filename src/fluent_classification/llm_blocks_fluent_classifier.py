@@ -18,6 +18,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             self,
             llm_backend: ImageLLMBackend,
             init_state_image_path: Path,
+            example_dir: Path | None = None,
             type_to_objects: dict[str, list[str]] = None,
             temperature: float = None,
             use_uncertain: bool = True
@@ -28,7 +29,8 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             llm_backend=llm_backend,
             type_to_objects=type_to_objects,
             temperature=temperature,
-            init_state_image_path=init_state_image_path
+            init_state_image_path=init_state_image_path,
+            example_dir=example_dir,
         )
 
         self.imaged_obj_to_gym_obj_name = {
@@ -47,7 +49,7 @@ class LLMBlocksFluentClassifier(LLMFluentClassifier):
             for p in preds
             if "handfull" not in p
         ]
-        self.fewshot_examples = [(init_state_image_path, preds)]
+        self.fewshot_examples = [(self.example_image_path, preds)]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""

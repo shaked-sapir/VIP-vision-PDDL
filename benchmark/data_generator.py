@@ -175,6 +175,22 @@ def _resolve_problem_index(domain_config: dict, problem_index: Optional[int]) ->
 
 # ── Domain registry ──────────────────────────────────────────────────────
 
+def _example_dir(domain_config: dict) -> Optional[Path]:
+    """The domain's held-out one-shot example folder from config, or ``None``."""
+    value = domain_config.get("example_dir")
+    if not value:
+        return None
+    path = Path(value)
+    if not path.is_dir():
+        raise FileNotFoundError(f"example_dir {path} from config.yaml does not exist")
+    return path
+
+
+def _protocol_tag(example_dir: Optional[Path]) -> str:
+    """The output-name suffix that tells the two example protocols apart."""
+    return "__fs=shared" if example_dir is not None else ""
+
+
 def build_frame_classifier(inference_workers: int):
     """The frame-classification strategy for a run.
 
@@ -350,9 +366,11 @@ def generate_trajectories_via_generation(
         "generation_cursor_steps_limit", 1000)
 
     model_name = config[vendor].get("fluent_classification_model", {}).get("model_name", vendor)
+    example_dir = _example_dir(domain_config)
     timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
     auto_name = (f"multi_problem_{timestamp}__model={model_name}"
-                 f"__gen__prob={problem_index}__len={length_min}-{length_max}")
+                 f"__gen__prob={problem_index}__len={length_min}-{length_max}"
+                 f"{_protocol_tag(example_dir)}")
     experiment_name = output_dir_name if output_dir_name is not None else auto_name
 
     print("=" * 80)
@@ -396,6 +414,7 @@ def generate_trajectories_via_generation(
                 pddl_domain_file=domain_file,
                 vendor=vendor,
                 frame_classifier=build_frame_classifier(inference_workers),
+                example_dir=example_dir,
             )
             _run_generation_inference(handler, problem_name, problem_dir, gt_root)
             _apply_transform(registry["transform_fn"], problem_dir)
@@ -662,10 +681,11 @@ def generate_trajectories(
 
     # Model name for experiment naming
     model_name = config[vendor].get("fluent_classification_model", {}).get("model_name", vendor)
+    example_dir = _example_dir(domain_config)
 
     # Build experiment name
     timestamp = datetime.now().strftime("%d-%m-%YT%H:%M:%S")
-    auto_name = f"multi_problem_{timestamp}__model={model_name}__steps={num_steps}"
+    auto_name = f"multi_problem_{timestamp}__model={model_name}__steps={num_steps}{_protocol_tag(example_dir)}"
     if start_index > 0:
         auto_name += f"__start={start_index}"
     if planner:
@@ -723,6 +743,7 @@ def generate_trajectories(
                 pddl_domain_file=domain_file,
                 vendor=vendor,
                 frame_classifier=build_frame_classifier(inference_workers),
+                example_dir=example_dir,
             )
 
             if is_external:
@@ -823,8 +844,9 @@ if __name__ == "__main__":
         help="Last problem index to process (0-based, inclusive)",
     )
     parser.add_argument(
-        "--vendor", type=str, default="openai", choices=["openai", "google"],
-        help="LLM vendor for the vision pipeline (default: openai)",
+        "--vendor", type=str, default="openai", choices=["openai", "google", "vllm"],
+        help="LLM vendor block of config.yaml for the vision pipeline "
+             "(default: openai; vllm = an open VLM behind a vLLM server)",
     )
 
     # ── Generation-mode args (--gen-mode) ────────────────────────────────

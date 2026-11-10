@@ -57,9 +57,9 @@ class GeminiImageLLMBackend(ImageLLMBackend):
                 # Example image + explanation + gold predicates
                 contents.append(img_part)
                 contents.append(
-                    "Example image. According to the predicate definitions "
-                    "in the system prompt, these are the correct grounded "
-                    "predicates for this image."
+                    "Example image. According to the definitions in the system "
+                    "prompt, this is the correct answer for this image, in the "
+                    "required format."
                 )
                 contents.append("\n".join(example_facts))
 

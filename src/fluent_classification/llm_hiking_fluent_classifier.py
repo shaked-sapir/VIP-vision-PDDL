@@ -17,6 +17,7 @@ class LLMHikingFluentClassifier(LLMFluentClassifier):
             self,
             llm_backend: ImageLLMBackend,
             init_state_image_path: Path,
+            example_dir: Path | None = None,
             type_to_objects: dict[str, list[str]] = None,
             temperature: float = None,
             use_uncertain: bool = True
@@ -27,7 +28,8 @@ class LLMHikingFluentClassifier(LLMFluentClassifier):
             llm_backend=llm_backend,
             type_to_objects=type_to_objects,
             temperature=temperature,
-            init_state_image_path=init_state_image_path
+            init_state_image_path=init_state_image_path,
+            example_dir=example_dir,
         )
 
         # Mapping from LLM-detected object names to gym object names
@@ -36,7 +38,7 @@ class LLMHikingFluentClassifier(LLMFluentClassifier):
             f"c{i}_r{j}": f"c{i}_r{j}" for i in range(0,30) for j in range(0,30) # positions up to 5x5
         }
 
-        self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
+        self.fewshot_examples = [(self.example_image_path, self.extract_predicates_from_gt_state())]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""
