@@ -123,6 +123,7 @@ def test_a_corpus_writes_both_trees_and_the_manifest(tmp_path):
     corpus = _corpus(tmp_path)
     assert corpus.num_problems == 5
     assert corpus.trajectories_dir == tmp_path / "training" / "trajectories"
+    assert corpus.image_trajectories_dir is None
     assert corpus.info_file == tmp_path / "generation_info.json"
     assert corpus.info_file.exists()
 
@@ -288,7 +289,10 @@ def test_replayed_frames_are_copied_out_as_state_images(tmp_path):
     problem = corpus.problems[0]
     assert problem.rendered is True
     assert problem.length == 17
-    assert len(list(problem.problem_dir.glob("state_*.png"))) == 18
+    assert corpus.image_trajectories_dir == tmp_path / "training" / "image_trajectories"
+    assert problem.image_dir == corpus.image_trajectories_dir / "problem0"
+    assert len(list(problem.image_dir.glob("state_*.png"))) == 18
+    assert not list(problem.problem_dir.glob("state_*.png"))
 
 
 def test_frames_are_not_copied_unless_rendering_is_asked_for(tmp_path):

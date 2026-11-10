@@ -1,8 +1,8 @@
 """Base class for image trajectory handlers — inference pipeline only.
 
 This module contains only the shared inference logic (classify images → .trajectory + .masking_info).
-PDDLGym-specific logic lives in pddlgym_trajectory_handler.py.
-External-source logic lives in external_trajectory_handler.py.
+Reading a problem folder (frames + GT) lives in external_trajectory_handler.py;
+producing one lives in src/trace_generation/.
 """
 
 import os
@@ -37,12 +37,12 @@ class ImageTrajectoryHandler(ABC):
         run_pipeline — single entry point that produces .trajectory + .masking_info
                         from whatever source the handler uses (gym, external files, etc.).
 
-    The two concrete subclass families are:
-        PDDLGymImageTrajectoryHandler — generates images via PDDLGym, then runs inference.
-        ExternalImageTrajectoryHandler — reads pre-existing images + GT files, then runs inference.
+    The concrete subclass family is ExternalImageTrajectoryHandler, which reads a
+    problem folder (state_*.png + GT) and runs inference over it. Frames are
+    produced upstream by src/trace_generation (RenderedSource).
 
     To add a new domain:
-        1. Choose the right base (PDDLGym or External).
+        1. Subclass ExternalImageTrajectoryHandler (or LLMExternalImageTrajectoryHandler).
         2. Implement init_visual_components (or use LLMVisualComponentsMixin).
         3. Override hooks as needed (_rename_ground_action, _pre_init_hook, etc.).
         4. run_pipeline is inherited — no need to override unless the domain
@@ -79,17 +79,14 @@ class ImageTrajectoryHandler(ABC):
         This is the single entry point callers should use. Each subclass family
         defines what "end-to-end" means:
 
-        - **PDDLGym handlers**: generate images from the gym environment, produce a
-          GT trajectory JSON, then run LLM/deterministic inference to create
-          .trajectory + .masking_info files.
         - **External handlers**: read pre-existing images and GT files from disk,
           auto-detect the image naming format, then run inference to create
           .trajectory + .masking_info files.
 
         Args:
             problem_name: PDDL problem identifier (e.g. "problem0").
-            images_path: Directory for images — written to (gym) or read from (external).
-            **kwargs: Handler-specific options (e.g. num_steps, planner for gym).
+            images_path: Directory holding the frames and GT files.
+            **kwargs: Handler-specific options.
 
         Returns:
             The inferred trajectory as a list of step dicts.

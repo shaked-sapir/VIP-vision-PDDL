@@ -41,6 +41,7 @@ from benchmark.experiment_running_helpers.resume import (
     try_load_fold_result,
 )
 from src.observation_degradation.masking import MaskingType
+from src.utils.corpus_layout import IMAGE_POOL_SUBPATH, POOL_SUBPATH
 from src.observation_degradation.noising import NoisingType
 from src.plan_denoising.milp_denoiser.config import PisamMilpConfig
 from src.utils.atomic_json import read_json_or_none, write_json_atomic
@@ -62,9 +63,14 @@ def _resolve_experiment_paths(
     experiment_name: Optional[str],
     domain_name: str,
     default_evaluation_results_dir: Optional[Path],
+    pool_subpath: Path,
 ) -> tuple[Path, Path, Path, Optional[Path]]:
-    """Return (data_dir, trajectories_dir, testing_dir, evaluation_results_dir)."""
-    trajectories_dir = data_dir / 'training' / 'trajectories'
+    """Return (data_dir, trajectories_dir, testing_dir, evaluation_results_dir).
+
+    ``pool_subpath`` is the pool the data source reads: ``IMAGE_POOL_SUBPATH``
+    for an image run, ``POOL_SUBPATH`` for a simulated one.
+    """
+    trajectories_dir = data_dir / pool_subpath
 
     if experiment_name:
         experiment_root = benchmark_path / 'running_results' / domain_name / experiment_name
@@ -232,8 +238,10 @@ def main(
         evaluation_results_dir = benchmark_path / 'data' / 'evaluation_results'
         evaluation_results_dir.mkdir(parents=True, exist_ok=True)
 
+    pool_subpath = IMAGE_POOL_SUBPATH if isinstance(data_source, ImageDataSource) else POOL_SUBPATH
     data_dir_resolved, trajectories_dir, testing_dir, evaluation_results_dir = \
-        _resolve_experiment_paths(data_dir, experiment_name, display_domain_name, evaluation_results_dir)
+        _resolve_experiment_paths(data_dir, experiment_name, display_domain_name,
+                                  evaluation_results_dir, pool_subpath)
 
     # Use normalized trajectories dir if available
     if norm_trajs_dir is not None:
