@@ -40,6 +40,7 @@ from src.milp.rosame26_emitter import (
     DELETE_EFFECT_CLASS,
     DegenerateModelError,
     check_not_degenerate,
+    empty_schema_fraction,
     effect_counts,
     emit_pddl,
     format_signature,
@@ -644,3 +645,15 @@ class TestReferenceSpelling:
         reference = _reference_domain("gripper")
         with pytest.raises(ValueError, match="no counterpart"):
             emit_pddl(model, "depot", reference)
+
+
+class TestEmptySchemaFraction:
+    def test_no_empty_schema_reads_zero(self) -> None:
+        assert empty_schema_fraction({"a": 2, "b": 1}) == 0.0
+
+    def test_the_collapse_reads_one(self) -> None:
+        assert empty_schema_fraction({"a": 0, "b": 0}) == 1.0
+        assert empty_schema_fraction({}) == 1.0
+
+    def test_a_partial_collapse_is_the_share(self) -> None:
+        assert empty_schema_fraction({"a": 0, "b": 3, "c": 0, "d": 1}) == 0.5

@@ -41,6 +41,10 @@ from src.milp.rosame26_training import (
     mip_epoch_count,
     resolve_batch_size,
     select_device,
+    CONVERGED,
+    EPOCHS_EXHAUSTED,
+    MIN_SOLVE_SECONDS,
+    TIMEOUT,
 )
 from src.milp.trace_tensors import PaddedTraces
 
@@ -227,6 +231,7 @@ class RecordingRepairer:
     clears: int = 0
     updates: List[int] = field(default_factory=list)
     solves: List[int] = field(default_factory=list)
+    time_limits: List[float] = field(default_factory=list)
 
     @property
     def epoch(self) -> int:
@@ -240,6 +245,7 @@ class RecordingRepairer:
 
     def run_fixer(self, time_limit: float) -> Optional[float]:
         self.solves.append(self.epoch)
+        self.time_limits.append(time_limit)
         return self.distance
 
 
@@ -486,3 +492,82 @@ def test_dump_actions_is_refused(assets: Path) -> None:
     trainer = make_trainer(assets, "dump")
     with pytest.raises(NotImplementedError, match="emit_pddl"):
         trainer.dump_actions()
+
+
+# --------------------------------------------------------------------------- #
+# the wall clock                                                               #
+# --------------------------------------------------------------------------- #
+
+
+def _clocked_trainer(assets: Path, name: str, **hooks) -> Rosame26Trainer:
+    parameters = default_parameters(
+        domain=DOMAIN, domain_assets_root=assets, epoch=4, pre_mip_epoch=4,
+        device="cpu", seed=0,
+    )
+    return Rosame26Trainer(assets / name, parameters, **hooks)
+
+
+def test_a_full_run_reports_epochs_exhausted(assets: Path, fold: PaddedTraces) -> None:
+    trainer = _clocked_trainer(assets, "exhausted")
+    history = trainer.train(fold)
+    assert len(history) == 4
+    assert trainer.stop_reason == EPOCHS_EXHAUSTED
+    assert not trainer.stopped_early
+
+
+def test_the_wall_clock_stops_the_run_between_epochs(
+    assets: Path, fold: PaddedTraces
+) -> None:
+    """The check runs before each epoch, so a budget that ends after the second
+    epoch leaves exactly two records and names the reason."""
+    calls = {"n": 0}
+
+    def timeout_check() -> bool:
+        calls["n"] += 1
+        return calls["n"] > 2
+
+    trainer = _clocked_trainer(assets, "timed_out", timeout_check=timeout_check)
+    history = trainer.train(fold)
+    assert len(history) == 2
+    assert trainer.stop_reason == TIMEOUT
+    assert trainer.stopped_early
+
+
+def test_convergence_names_its_reason(assets: Path, fold: PaddedTraces) -> None:
+    trainer = _clocked_trainer(
+        assets, "converged", stop_check=lambda history: len(history) >= 1
+    )
+    history = trainer.train(fold)
+    assert len(history) == 1
+    assert trainer.stop_reason == CONVERGED
+
+
+def test_seconds_left_caps_the_solve_time_limit(assets: Path, fold: PaddedTraces) -> None:
+    """``mip_time_limit`` is the cap only while the fold has that much time left;
+    a smaller remainder is what the solver gets, never below the floor."""
+    repairer = RecordingRepairer()
+    parameters = default_parameters(
+        domain=DOMAIN, domain_assets_root=assets, epoch=3, pre_mip_epoch=0,
+        device="cpu", seed=0,
+    )
+    parameters["mip_time_limit"] = 60.0
+    remaining = iter([100.0, 7.5, 0.0])
+    trainer = Rosame26Trainer(
+        assets / "capped", parameters, mip_repairer=repairer,
+        seconds_left=lambda: next(remaining),
+    )
+    trainer.train(fold)
+    assert repairer.time_limits == [60.0, 7.5, MIN_SOLVE_SECONDS]
+
+
+def test_without_seconds_left_the_limit_passes_as_is(
+    assets: Path, fold: PaddedTraces
+) -> None:
+    repairer = RecordingRepairer()
+    parameters = default_parameters(
+        domain=DOMAIN, domain_assets_root=assets, epoch=2, pre_mip_epoch=0,
+        device="cpu", seed=0,
+    )
+    parameters["mip_time_limit"] = 12.0
+    Rosame26Trainer(assets / "uncapped", parameters, mip_repairer=repairer).train(fold)
+    assert repairer.time_limits == [12.0, 12.0]

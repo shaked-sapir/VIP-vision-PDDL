@@ -30,6 +30,7 @@ from torchvision import transforms
 from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker
 from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner, TrainingReport
 from src.milp.loss_convergence import CONVERGED, TIMEOUT
+from src.utils.torch_device import resolve_device
 
 
 # Paper synth/resnet preprocessing. ICAPS-24 ``train.py:211/226/237`` uses
@@ -78,14 +79,13 @@ def build_image_tf(
 
 
 def _resolve_device(device: Optional[str | torch.device]) -> torch.device:
-    """Autodetect cuda > mps > cpu, or honour an explicit override."""
-    if device is not None:
-        return torch.device(device)
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
+    """Autodetect cuda > mps > cpu, or honour an explicit override.
+
+    Raises:
+        RuntimeError: if the override names a device this host cannot use.
+    """
+    requested = None if device is None else str(device)
+    return torch.device(resolve_device(requested, prefer_mps=True))
 
 
 def _set_seed(seed: int) -> None:

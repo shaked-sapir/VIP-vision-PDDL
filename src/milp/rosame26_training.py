@@ -77,8 +77,10 @@ import src.milp  # noqa: F401  (vendor sys.path bootstrap)
 
 from dl.util.dataset import TraceDataset
 
+from src.milp.loss_convergence import CONVERGED, EPOCHS_EXHAUSTED, TIMEOUT
 from src.milp.rosame26_model import Rosame26Goal
 from src.milp.trace_tensors import PaddedTraces
+from src.utils.torch_device import resolve_device
 
 
 UPSTREAM_PARAMETERS: Dict[str, Any] = {
@@ -118,9 +120,14 @@ DEVIATING_PARAMETERS: Dict[str, str] = {
 """The four starred rows of §6, each mapped to why it is starred."""
 
 
+#: Floor on a solve's time limit once the wall clock caps it; below this the
+#: solver returns nothing useful and the epoch is better spent stopping.
+MIN_SOLVE_SECONDS: float = 1.0
+
+
 def select_device() -> str:
     """``"cuda"`` when available, else ``"cpu"``. MPS is excluded (§1.3)."""
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    return resolve_device(None)
 
 
 def default_parameters(
@@ -160,7 +167,7 @@ def default_parameters(
         pre_mip_epoch=pre_mip_epoch,
         MIP_to_DL=["state", "model"],
         cp_type="cp-sat",
-        device=device if device is not None else select_device(),
+        device=resolve_device(device),
         seed=seed,
         num_workers=num_workers,
     )
@@ -256,6 +263,8 @@ class Rosame26Trainer(Rosame26Goal):
         mip_repairer: Optional[MipRepairer] = None,
         stop_check: Optional[Callable[[List[Dict[str, float]]], bool]] = None,
         on_built: Optional[Callable[["Rosame26Trainer"], None]] = None,
+        timeout_check: Optional[Callable[[], bool]] = None,
+        seconds_left: Optional[Callable[[], float]] = None,
     ) -> None:
         """
         Args:
@@ -271,13 +280,20 @@ class Rosame26Trainer(Rosame26Goal):
                 first epoch. ``domain_model`` and ``net`` exist only from that
                 point, so a collaborator that needs either is constructed here
                 rather than at ``__init__``.
+            timeout_check: Called before each epoch; a truthy result ends the
+                run with ``stop_reason == "timeout"``. ``None`` never times out.
+            seconds_left: The fold's remaining wall clock, which caps every
+                solve's time limit. ``None`` passes ``mip_time_limit`` as is.
         """
         super().__init__(str(path), parameters)
         self.mip_repairer = mip_repairer
         self.stop_check = stop_check
         self.on_built = on_built
+        self.timeout_check = timeout_check
+        self.seconds_left = seconds_left
         self.history: List[Dict[str, float]] = []
         self.stopped_early: bool = False
+        self.stop_reason: str = EPOCHS_EXHAUSTED
 
     def train(self, train_data: PaddedTraces) -> List[Dict[str, float]]:
         """Build, then run the loop. Returns the per-epoch record.
@@ -324,6 +340,13 @@ class Rosame26Trainer(Rosame26Goal):
         """
         raise NotImplementedError("Rosame26Trainer does not support resume()")
 
+    def _solve_time_limit(self) -> float:
+        """``mip_time_limit``, capped by the fold's remaining wall clock."""
+        limit = float(self.parameters["mip_time_limit"])
+        if self.seconds_left is None:
+            return limit
+        return max(MIN_SOLVE_SECONDS, min(limit, float(self.seconds_left())))
+
     def _pseudo_labels(self) -> Optional[Any]:
         """The repairer's label store, or ``None`` on a DL-only run.
 
@@ -365,7 +388,12 @@ class Rosame26Trainer(Rosame26Goal):
 
         self.history = []
         self.stopped_early = False
+        self.stop_reason = EPOCHS_EXHAUSTED
         for epoch in range(parameters["epoch"]):
+            if self.timeout_check is not None and self.timeout_check():
+                self.stopped_early = True
+                self.stop_reason = TIMEOUT
+                break
             self.net.train()
             solving = is_mip_epoch(epoch, parameters)
             if self.mip_repairer is not None:
@@ -406,7 +434,7 @@ class Rosame26Trainer(Rosame26Goal):
             }
             record["epoch"] = epoch
             if solving:
-                distance = self.mip_repairer.run_fixer(parameters["mip_time_limit"])
+                distance = self.mip_repairer.run_fixer(self._solve_time_limit())
                 if distance is not None:
                     record["mip_gt_dist"] = distance
             self.history.append(record)
@@ -414,6 +442,7 @@ class Rosame26Trainer(Rosame26Goal):
 
             if self.stop_check is not None and self.stop_check(self.history):
                 self.stopped_early = True
+                self.stop_reason = CONVERGED
                 break
 
         return self.history

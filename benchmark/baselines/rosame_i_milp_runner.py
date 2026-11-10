@@ -81,10 +81,11 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         milp_solver: str = "cp-sat-observed",
         resize: ResizeSpec = _RESIZE_FROM_TABLE,
         rosame_convergence: Optional[Mapping[str, object]] = None,
+        epochs: Optional[int] = None,
     ) -> None:
         super().__init__(
             n_seeds=n_seeds, device=device, base_seed=base_seed, resize=resize,
-            rosame_convergence=rosame_convergence,
+            rosame_convergence=rosame_convergence, epochs=epochs,
         )
         self.psi = psi
         self.pre_mip_epochs = pre_mip_epochs
@@ -230,7 +231,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         timeout_seconds: int = 60,
     ) -> Tuple[Optional[str], Dict]:
         bench, partial_domain = self._bench_and_domain(domain_path)
-        hp = _HYPERPARAMS.get(bench, _DEFAULT_HYPERPARAMS)
+        hp = dict(_HYPERPARAMS.get(bench, _DEFAULT_HYPERPARAMS), epochs=self._epochs(bench))
         augment = bench in _AUGMENT_DOMAINS
         resize = self._resolve_resize(bench)
 
@@ -251,6 +252,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
             "mip_traces": self.mip_traces,
             "n_seeds": self.n_seeds,
             "resize": resize,
+            "epochs": self._epochs(bench),
         }
         try:
             ps_domain = build_ps_domain(partial_domain)
