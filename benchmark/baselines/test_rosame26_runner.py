@@ -19,6 +19,7 @@ from benchmark.baselines import BASELINE_REGISTRY, get_baselines
 from benchmark.baselines.base_runner import BaselineRunner
 from src.milp.rosame26_budget import BudgetMode
 from benchmark.baselines.rosame26_runner import (
+    choose_seed,
     _BestModelTracker,
     _EPOCH_DEFAULT,
     _PROBE_EPOCHS,
@@ -294,9 +295,18 @@ class TestBestModelTracker:
 
 
 class TestSeedSelection:
-    def test_it_trains_several_seeds_by_default(self) -> None:
-        """The 24 arm's rule: n independent models, keep the lowest final loss."""
-        assert Rosame26BaselineRunner().n_seeds == 3
+    def test_it_trains_one_seed_by_default(self) -> None:
+        """Upstream trains once; the whole budget goes to that one model."""
+        assert Rosame26BaselineRunner().n_seeds == 1
+
+    def test_the_lowest_loss_seed_is_chosen(self) -> None:
+        assert choose_seed({1: 0.5, 2: 0.2, 3: 0.9}, {}) == 2
+
+    def test_a_degenerate_seed_never_beats_a_usable_one(self) -> None:
+        assert choose_seed({1: 0.5, 2: 0.1}, {2: "collapsed"}) == 1
+
+    def test_when_every_seed_collapsed_the_lowest_loss_one_is_returned(self) -> None:
+        assert choose_seed({1: 0.5, 2: 0.1}, {1: "c", 2: "c"}) == 2
 
     def test_seeds_are_derived_from_the_base(self) -> None:
         runner = Rosame26BaselineRunner(n_seeds=3, base_seed=100)

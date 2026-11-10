@@ -215,7 +215,8 @@ class DegenerateModelError(RuntimeError):
     Such a model is not a weak model, it is an empty one: no action changes any
     state, so every plan of length > 0 is unsound and every solving score is 0.
     The ICAPS-24 arm reached exactly this on several cells and it went unnoticed
-    for a whole grid, so the ICAPS-26 arm raises instead of reporting a row.
+    for a whole grid, so the ICAPS-26 arm names it: the runner prefers any
+    non-degenerate seed and marks the row ``degenerate`` when none exists.
     """
 
 
@@ -253,6 +254,17 @@ def _top_level_literals(conjunction: str) -> int:
         elif character == ")":
             depth -= 1
     return literals
+
+
+def empty_schema_fraction(counts: Dict[str, int]) -> float:
+    """The share of learned schemas whose effect block is empty (gate 4's degree).
+
+    ``1.0`` is the collapse :func:`check_not_degenerate` raises on; anything
+    below it is a model with some actions that change nothing.
+    """
+    if not counts:
+        return 1.0
+    return sum(1 for count in counts.values() if count == 0) / len(counts)
 
 
 def check_not_degenerate(text: str) -> Dict[str, int]:

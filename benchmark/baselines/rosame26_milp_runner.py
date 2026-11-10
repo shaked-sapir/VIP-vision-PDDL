@@ -52,7 +52,7 @@ class Rosame26MilpRunner(Rosame26BaselineRunner):
 
     def __init__(
         self,
-        n_seeds: int = 3,
+        n_seeds: int = 1,
         device: Optional[str] = None,
         base_seed: int = 8800,
         resize: ResizeSpec = _RESIZE_FROM_TABLE,

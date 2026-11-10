@@ -1322,8 +1322,10 @@ whole point of the exercise.
 **Algorithmic**
 
 1. Actions observed, not predicted (option B) — *the* deviation; state it first. It carries three
-   sub-deviations (§0): `loss_pseudo_a` retargeted from the self-distilled `pseudo_label()` argmax
-   to the observed action; `MIP_to_DL` drops `action` while `DL_to_MIP` keeps it; the action
+   sub-deviations (§0): the observed one-hot replaces the softmax `a` (`loss_pseudo_a` itself still
+   self-distils from `pseudo_label()` exactly as upstream — an earlier draft of this entry claimed
+   it was retargeted; the code was audited on 2026-11-07 and is faithful); `MIP_to_DL` drops
+   `action` while `DL_to_MIP` keeps it; the action
    channel is a hard constraint rather than an objective term.
 2. **Training budget.** `epoch: 5000` is the code default; the grid runs a calibrated value inside
    a 600 s cell budget, with one 5000-epoch control cell per domain outside it (§1.2). Report the
@@ -1354,7 +1356,24 @@ whole point of the exercise.
    rather than switched off (§3). Upstream therefore trains its `blocks` / `gripper` / `logistics`
    runs with a label-preserving data multiplier we do not have. State it when reporting the 26
    arm against upstream-26 numbers; it is not a factor against our own 24 arm (§5.1).
-6. `n_seeds` runs per cell where upstream runs once (§1.3).
+6. `n_seeds` is a knob where upstream runs once (§1.3). **Since 2026-11-11 the default is 1 for
+   every pixel arm** (24 and 26, with and without the MILP): three seeds under one cell budget cut
+   the epochs three-fold and added a min-of-three selection upstream never had. Rows written before
+   that date carry `n_seeds: 3` in `algorithm_specific`.
+6a. **Checkpoint and stop rules upstream does not have** (audit of 2026-11-07): `budget_mode:
+   converge` emits the lowest-training-loss checkpoint where upstream emits the last epoch (its
+   `best_model.pth` is saved and never loaded); the plateau early stop is ours; `pre_mip_epoch`
+   is `min(50, epochs - 1)` so a budget-shortened run still solves at least once.
+6b. **The fold's wall clock is enforced inside the training loop** (B3(b), 2026-11-11): the run
+   stops between epochs when the cell's `timeout_seconds` is spent, every solve's time limit is
+   capped by the seconds left (floor 1 s), and the row records `stop_reason` in the shared
+   vocabulary (`converged` | `epochs_exhausted` | `timeout`) plus `skipped_seeds_timeout`.
+   Upstream has no budget at all.
+6c. **Gate 4 marks, it no longer drops** (B3(d), 2026-11-11): a seed whose model has no effect
+   anywhere is still emitted; a seed that passed the gate is preferred, and when none did the
+   row carries `degenerate: true`. Every row records `empty_schema_fraction` (share of schemas
+   with an empty effect block) beside `effect_counts`, so a collapsed cell is a scored row, not a
+   hole in the table.
 
 **Data**
 
@@ -1377,8 +1396,11 @@ whole point of the exercise.
     Consequence: `state_acc` is measured against filler and is not reported as accuracy (§4.3).
 11. Proposition space follows upstream's `Instance` (no repeated args), so the 26 arm's `n_props`
     differs from our other arms' — report it alongside them (§4.2).
-11a. **One `Instance` over the whole `data_dir` object union** (§4.2a, Phase 1½), as upstream,
-    where the 24 arm grounds per problem and then drops the surplus union columns. On our
+11a. **One head grounding over the whole `data_dir` object union** (§4.2a, Phase 1½), as upstream.
+    The CP `Instance` handed to the solver is per problem (`rosame26_milp_runner._contexts`),
+    and `Rosame26MipRepairer` maps between the two — the solutions are equivalent, an earlier
+    draft of this entry said one `Instance` per run. The 24 arm grounds per problem too and
+    then drops the surplus union columns. On our
     object-heterogeneous corpora that means a trace from a 4-block problem carries live CP
     variables for propositions over objects it never mentions. Measured inert on a clean
     blocksworld trace — identical lifted model, identical repaired live states, no phantom true at
@@ -1412,7 +1434,10 @@ whole point of the exercise.
 **Operational (footnotes, no algorithmic content)**
 
 13. DataLoader workers sized from the fold rather than upstream's `num_workers=64` (§1.1).
-14. Device pinned to cuda-else-cpu; MPS excluded (§1.3).
+14. Device autodetects cuda-else-cpu; MPS excluded (§1.3). `backfill_baseline.py --device`
+    names one explicitly for every pixel arm, and a device the host cannot use fails at
+    start-up rather than training on the CPU for the whole budget (B2, 2026-11-11).
+15. CP-SAT runs with one worker (cpmpy's default is 8); it matters only when a solve hits the cap.
 
 Everything *not* on this list is pinned verbatim — see the ✅ rows in §1.
 

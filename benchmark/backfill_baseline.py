@@ -404,6 +404,8 @@ def _runner_kwargs(args: argparse.Namespace) -> dict:
     kwargs: dict = {}
     if args.epochs is not None:
         kwargs["epochs"] = args.epochs
+    if getattr(args, "device", None) is not None:
+        kwargs["device"] = args.device
     if args.n_seeds is not None:
         kwargs["n_seeds"] = args.n_seeds
     if getattr(args, "batch_size", None) is not None:
@@ -567,6 +569,11 @@ def main() -> None:
                          "at the grid budget' and 'undertrained at it' stay "
                          "distinguishable. Not for grid cells. Superseded by "
                          "--budget-mode fixed, which it is now an alias for.")
+    ap.add_argument("--device", type=str, default=None,
+                    help="Torch device for the pixel arms (ROSAME-I 24/26 and "
+                         "their MILP arms), e.g. cuda, cuda:0, cpu. Omitted = "
+                         "cuda when available, else cpu. A device that is not "
+                         "available on this host fails at start-up.")
     ap.add_argument("--resize", type=_parse_resize, default=RESIZE_FROM_TABLE,
                     metavar="N|H,W|native",
                     help="Override the per-domain image resize for the pixel "
