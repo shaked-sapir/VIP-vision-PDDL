@@ -11,6 +11,7 @@ import pytest
 
 from benchmark.algorithm_adapters.lamanna.realised_rates import (
     gt_trajectory_lookup,
+    realised_corruption,
     realised_rates,
 )
 
@@ -44,6 +45,19 @@ DEGRADED = """(
 """
 # The typed spelling ``save_masking_info`` writes.
 MASKING_INFO = "\n\n(not (clear b - block))\n"
+
+# Frame 0: (clear a) flipped to false. State 1: (holding a) flipped to false,
+# (clear a) flipped to true. State 2: (holding a) flipped to true (GT: false),
+# (clear b) hidden. So (clear a) is flipped in frames 0 and 1 and (holding a)
+# in frames 1 and 2: of the three flips with a next frame, two persist.
+PERSISTING = """(
+(:init (clear b) (ontable a) (ontable b) (handempty))
+(operator: (pick_up a))
+(:state (clear b) (clear a) (ontable b))
+(operator: (stack a b))
+(:state (clear a) (ontable b) (on a b) (handempty) (holding a))
+)
+"""
 
 N_ATOMS = 11
 N_STATES = 3
@@ -119,3 +133,67 @@ def test_as_dict_carries_counts_and_rates(layout):
     data_dir, prepared = layout
     payload = realised_rates(prepared, BLOCKS_DOMAIN, gt_trajectory_lookup(data_dir)).as_dict()
     assert set(payload) == {"n_states", "n_atoms", "n_masked", "n_flipped", "mask_rate", "noise_rate"}
+
+
+class TestRealisedCorruption:
+    def test_the_totals_are_what_realised_rates_returns(self, layout):
+        data_dir, prepared = layout
+        lookup = gt_trajectory_lookup(data_dir)
+        corruption = realised_corruption(prepared, BLOCKS_DOMAIN, lookup)
+        assert corruption.total == realised_rates(prepared, BLOCKS_DOMAIN, lookup)
+
+    def test_frame0_is_split_from_the_later_frames(self, layout):
+        data_dir, prepared = layout
+        corruption = realised_corruption(prepared, BLOCKS_DOMAIN, gt_trajectory_lookup(data_dir))
+        assert (corruption.frame0.n_states, corruption.later_frames.n_states) == (1, 2)
+        assert corruption.frame0.n_atoms == N_ATOMS
+        assert (corruption.frame0.n_masked, corruption.frame0.n_flipped) == (0, 0)
+        assert (corruption.later_frames.n_masked, corruption.later_frames.n_flipped) == (1, 2)
+        assert corruption.later_frames.noise_rate == pytest.approx(2 / 21)
+
+    def test_a_flip_that_vanishes_in_the_next_frame_does_not_persist(self, layout):
+        data_dir, prepared = layout
+        corruption = realised_corruption(prepared, BLOCKS_DOMAIN, gt_trajectory_lookup(data_dir))
+        # Both state-1 flips have a next frame (state 2), where neither is flipped.
+        assert (corruption.n_flipped_with_next, corruption.n_flip_persisted) == (2, 0)
+        assert corruption.flip_persistence == 0.0
+
+    def test_persistence_counts_the_same_atom_flipped_in_consecutive_frames(self, layout):
+        data_dir, prepared = layout
+        traj, masking, problem, gt = prepared[0]
+        traj.write_text(PERSISTING)
+        corruption = realised_corruption(
+            [(traj, masking, problem, gt)], BLOCKS_DOMAIN, gt_trajectory_lookup(data_dir)
+        )
+        assert corruption.frame0.n_flipped == 1
+        assert corruption.later_frames.n_flipped == 3
+        assert (corruption.n_flipped_with_next, corruption.n_flip_persisted) == (3, 2)
+        assert corruption.flip_persistence == pytest.approx(2 / 3)
+
+    def test_a_clean_fold_has_no_persistence_to_speak_of(self, layout):
+        data_dir, prepared = layout
+        traj, masking, problem, gt = prepared[0]
+        traj.write_text(GT)
+        masking.write_text("\n\n\n")
+        corruption = realised_corruption(
+            [(traj, masking, problem, gt)], BLOCKS_DOMAIN, gt_trajectory_lookup(data_dir)
+        )
+        assert corruption.flip_persistence is None
+        assert corruption.as_dict()["flip_persistence"] is None
+
+    def test_as_dict_nests_the_frame_groups(self, layout):
+        data_dir, prepared = layout
+        payload = realised_corruption(prepared, BLOCKS_DOMAIN, gt_trajectory_lookup(data_dir)).as_dict()
+        assert set(payload) >= {"n_atoms", "mask_rate", "noise_rate", "frame0", "later_frames",
+                                "n_flipped_with_next", "n_flip_persisted", "flip_persistence"}
+        assert payload["frame0"]["n_states"] == 1
+
+
+def test_a_gt_in_the_corpus_raw_dialect_is_read_in_the_domains_spelling(layout):
+    """gt_trajectories/ keeps hyphens where a normalized cell's domain has
+    underscores (depot's at-crane, gripper's at-robby); the GT must still match."""
+    data_dir, prepared = layout
+    gt_path = gt_trajectory_lookup(data_dir)["problem7"]
+    gt_path.write_text(GT.replace("pick_up", "pick-up"))
+    rates = realised_rates(prepared, BLOCKS_DOMAIN, gt_trajectory_lookup(data_dir))
+    assert (rates.n_masked, rates.n_flipped) == (1, 2)

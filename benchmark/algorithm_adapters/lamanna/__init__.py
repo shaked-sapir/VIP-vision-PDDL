@@ -9,8 +9,10 @@ rates of a fold (:mod:`realised_rates`).
 """
 
 from benchmark.algorithm_adapters.lamanna.realised_rates import (
+    RealisedCorruption,
     RealisedRates,
     gt_trajectory_lookup,
+    realised_corruption,
     realised_rates,
 )
 from benchmark.algorithm_adapters.lamanna.subprocess_learn import (
@@ -31,9 +33,11 @@ __all__ = [
     "ERROR",
     "TIMEOUT",
     "LearnOutcome",
+    "RealisedCorruption",
     "RealisedRates",
     "format_trajectory",
     "gt_trajectory_lookup",
+    "realised_corruption",
     "realised_rates",
     "run_learner",
     "state_literals",

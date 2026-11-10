@@ -82,6 +82,36 @@ results_dashboard:
       modes: [image]
     - key: ROSAME-I_MILP_24__res=224
       modes: [image]
+    # Labels the imaged week-1 runs produce (docs/image-experiments-week1-plan.md
+    # §2 track C2), registered before their first row exists:
+    #   __res=native    the per-domain resolution tag when a domain runs at its
+    #                   native frame size (rosame_i_runner._resize_tag(None));
+    #   __mode=converge the 26 arms stopping on the loss plateau instead of the
+    #                   pre-flight epoch count (BudgetMode.CONVERGE);
+    #   __anchor=init   C3's parity row, the 24 arm with its anchor on frame 0.
+    # Any further ``__k=v`` variant of a registered arm inherits that arm's
+    # modes in the builder (build_dashboard.inherit_modes), so an unlisted
+    # suffix is never shown in the wrong tab. ``__fs=shared`` is a corpus-name
+    # tag written by data_generator (the held-out example protocol), not a row
+    # label, so it has no entry here.
+    - key: ROSAME-I_24__res=native
+      modes: [image]
+    - key: ROSAME-I_MILP_24__res=native
+      modes: [image]
+    - key: ROSAME-I_26__res=native
+      modes: [image]
+    - key: ROSAME-I_MILP_26__res=native
+      modes: [image]
+    - key: ROSAME-I_26__mode=converge
+      modes: [image]
+    - key: ROSAME-I_MILP_26__mode=converge
+      modes: [image]
+    - key: ROSAME-I_26__res=native__mode=converge
+      modes: [image]
+    - key: ROSAME-I_MILP_26__res=native__mode=converge
+      modes: [image]
+    - key: ROSAME-I_24__anchor=init
+      modes: [image]
 
   # Baselines present in fold_result.json but omitted from learning-curve plots,
   # legend, and Δ tables. Keys must match the "algorithm" field exactly. A plain
@@ -160,6 +190,15 @@ results_dashboard:
     PISAM_MILP_LOOP__schema=pre_and_add__m=4__solve=60: "NPI-SAM +schema (init GT)"
     PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__solve=60: "NPI-SAM +schema (no GT)"
     PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__m=4__solve=60: "NPI-SAM +schema (no GT)"
+    ROSAME-I_24__res=native: "ROSAME-I (native res)"
+    ROSAME-I_MILP_24__res=native: "ROSAME-I+MILP (native res)"
+    ROSAME-I_26__res=native: "ROSAME-I 26 (native res)"
+    ROSAME-I_MILP_26__res=native: "ROSAME-I 26+MILP (native res)"
+    ROSAME-I_26__mode=converge: "ROSAME-I 26 (converge)"
+    ROSAME-I_MILP_26__mode=converge: "ROSAME-I 26+MILP (converge)"
+    ROSAME-I_26__res=native__mode=converge: "ROSAME-I 26 (native res, converge)"
+    ROSAME-I_MILP_26__res=native__mode=converge: "ROSAME-I 26+MILP (native res, converge)"
+    ROSAME-I_24__anchor=init: "ROSAME-I (init anchor)"
 
   # ── Selector labels ──────────────────────────────────────────────────
   # The dashboard exposes two independent selectors. `mode` is what used to be

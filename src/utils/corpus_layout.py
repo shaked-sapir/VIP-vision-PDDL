@@ -40,3 +40,17 @@ def frames_dir(image_problem_dir: Path) -> Path:
 def problem_files(problem_name: str) -> tuple[str, str]:
     """The two files a problem folder is defined by: its pddl and its GT json."""
     return f"{problem_name}.pddl", f"{problem_name}_trajectory.json"
+
+
+def corpus_root(problem_dir: Path) -> Path:
+    """The corpus a problem folder belongs to: ``<corpus>/training/<pool>/problemN`` → ``<corpus>``.
+
+    Any pool directly under ``training/`` qualifies, the normalized copies
+    included. Raises ``ValueError`` for a folder that is not laid out that way,
+    so a caller never silently measures against the wrong ``gt_trajectories/``.
+    """
+    problem_dir = Path(problem_dir)
+    pool = problem_dir.parent
+    if pool.parent.name != POOL_SUBPATH.parent.name:
+        raise ValueError(f"{problem_dir} is not a problem folder under a corpus's training/ pool")
+    return pool.parent.parent

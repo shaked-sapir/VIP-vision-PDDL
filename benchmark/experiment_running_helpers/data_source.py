@@ -43,6 +43,7 @@ from benchmark.experiment_running_helpers.trajectory_utils import (
 )
 from src.observation_degradation.masking import MaskingType
 from src.observation_degradation.noising import NoisingType
+from src.utils.corpus_layout import GT_SUBPATH, corpus_root
 
 # Type alias: (trajectory_path, masking_path, problem_pddl_path, gt_state_indices)
 PreparedTrajectory = Tuple[Path, Path, Path, Set[int]]
@@ -93,13 +94,33 @@ class DataSource(ABC):
                 prepared_trajectories in the learning helper.
         """
 
+    @property
+    def gt_lookup(self) -> Optional[Dict[str, Path]]:
+        """``{problem: GT .trajectory}`` a fold's observations are measured against.
+
+        ``None`` when the source records no realised corruption per fold. The
+        image source does: its folds carry no nominal rate, so the measured one
+        is what ``fold_info.json`` records (see ``fold_corruption.py``).
+        """
+        return None
+
+    @property
+    def gt_root(self) -> Optional[Path]:
+        """The ``gt_trajectories/`` folder behind :attr:`gt_lookup`, or ``None``."""
+        return None
+
 
 class ImageDataSource(DataSource):
     """Reads pre-generated trajectory files produced by the image pipeline.
 
-    setup() pre-generates all GT + frame-axiom files on disk (once).
-    prepare() loads the correct subset for a given fold/gt_rate.
+    setup() pre-generates all GT + frame-axiom files on disk (once) and binds
+    the corpus's ``gt_trajectories/`` so each fold's realised corruption can
+    be measured. prepare() loads the correct subset for a given fold/gt_rate.
     """
+
+    def __init__(self) -> None:
+        self._gt_root: Optional[Path] = None
+        self._gt_lookup: Optional[Dict[str, Path]] = None
 
     def setup(
         self,
@@ -111,6 +132,19 @@ class ImageDataSource(DataSource):
         pregenerate_all_gt_frame_axiom_files(
             problem_dirs, domain_ref_path, gt_rate_percentages, frame_axiom_mode,
         )
+        if problem_dirs:
+            self._gt_root = corpus_root(problem_dirs[0]) / GT_SUBPATH
+            self._gt_lookup = build_gt_trajectory_lookup(
+                sorted(self._gt_root.glob("*/*.trajectory"))
+            )
+
+    @property
+    def gt_lookup(self) -> Optional[Dict[str, Path]]:
+        return self._gt_lookup
+
+    @property
+    def gt_root(self) -> Optional[Path]:
+        return self._gt_root
 
     def prepare(
         self,
