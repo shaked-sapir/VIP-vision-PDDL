@@ -149,7 +149,9 @@ class Rosame26MilpRunner(Rosame26BaselineRunner):
         """``{batch row: TraceContext}``, keyed as the fold's tensors are.
 
         Both endpoints come from the GT trajectory, never from the degraded
-        states: the same anchors every imaged arm uses (§4.3).
+        states: the same anchors every imaged arm uses (§4.3). Everything is
+        spelled as the head spells its keys; the repairer's ``CpSpelling``
+        rewrites it into the CP domain's dialect.
         """
         from src.milp.converter import build_ps_instance
         from src.milp.rosame26_repairer import TraceContext
