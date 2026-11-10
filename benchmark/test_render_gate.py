@@ -53,7 +53,7 @@ def _assert_identical(domain: str, results) -> None:
 
 def _gym_references(domain: str) -> List[Path]:
     return _existing([
-        DATA / domain / "render_gate_reference_n3" / "training" / "trajectories" / f"problem{i}"
+        DATA / domain / "render_gate_reference_n3" / "training" / "image_trajectories" / f"problem{i}"
         for i in range(3)])
 
 

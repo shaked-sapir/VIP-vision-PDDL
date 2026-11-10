@@ -1,5 +1,5 @@
 #!/bin/bash
-# Render state_*.png frames into the symbolic large corpora: one array task =
+# Render the image pool (training/image_trajectories/) of the symbolic large corpora: one array task =
 # one (domain, chunk) row of render_manifest.csv, CPU only.
 #
 # Usage (from the project root on the cluster, corpora already rsynced under

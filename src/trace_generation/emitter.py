@@ -1,11 +1,12 @@
 """Write a cut window out as one problem folder, and the corpus manifest.
 
-Layout produced, which is what a simulated experiment consumes:
+Layout produced (``src/utils/corpus_layout.py``):
 
-    <corpus>/training/trajectories/problemN/problemN.pddl   pool + test problems
+    <corpus>/training/trajectories/problemN/problemN.pddl   the symbolic pool
     <corpus>/training/trajectories/problemN/plan.txt
     <corpus>/training/trajectories/problemN/problemN_trajectory.json
-    <corpus>/training/trajectories/problemN/state_*.png     only when rendering
+    <corpus>/training/image_trajectories/problemN/          the image pool, only when
+        problemN.pddl, problemN_trajectory.json, state_*.png    rendering
     <corpus>/gt_trajectories/problemN/problemN.trajectory   discovered by the runner
     <corpus>/gt_trajectories/problemN/problemN_trajectory.json
     <corpus>/generation_info.json
@@ -23,11 +24,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.trace_generation.cutter import Window
+from src.utils.corpus_layout import GT_SUBPATH, IMAGE_POOL_SUBPATH, POOL_SUBPATH, problem_files
 from src.utils.pddl_gym import parse_gym_to_pddl_ground_action, parse_gym_to_pddl_literal
 from src.utils.pddl_trajectory import export_gt_trajectory
 
-POOL_SUBPATH = Path("training") / "trajectories"
-GT_SUBPATH = Path("gt_trajectories")
 GENERATION_INFO_NAME = "generation_info.json"
 FRAME_INDEX_FORMAT = "06d"
 
@@ -53,6 +53,7 @@ class EmittedProblem:
     gt_dir: Optional[Path] = None
     source: Optional[str] = None
     rendered: bool = False
+    image_dir: Optional[Path] = None
 
 
 def emit_window(
@@ -77,7 +78,8 @@ def emit_window(
         corpus_root: The corpus directory; both trees are created under it.
         export_gt: Write ``gt_trajectories/`` too. Turn off for sources whose
             states need schema translation before they can be called GT.
-        render: Copy the window's frames as ``state_*.png``.
+        render: Also write the image-pool folder: the problem files plus the
+            window's frames as ``state_*.png``.
         frame_index_format: Format spec for the ``state_*.png`` index.
         source: The input file this window came from, recorded in the manifest.
 
@@ -99,9 +101,11 @@ def emit_window(
         gt_dir = export_gt_trajectory(
             steps_json, problem_name, corpus_root / GT_SUBPATH / problem_name)
 
-    rendered = False
+    image_dir: Optional[Path] = None
     if render:
-        rendered = write_window_frames(window, problem_dir, frame_index_format)
+        image_dir = corpus_root / IMAGE_POOL_SUBPATH / problem_name
+        if not write_image_problem(window, problem_dir, image_dir, frame_index_format):
+            image_dir = None
 
     return EmittedProblem(
         name=problem_name,
@@ -111,7 +115,8 @@ def emit_window(
         objects=window.objects,
         gt_dir=gt_dir,
         source=source,
-        rendered=rendered,
+        rendered=image_dir is not None,
+        image_dir=image_dir,
     )
 
 
@@ -182,6 +187,26 @@ def _write_plan(window: Window, problem_dir: Path) -> Path:
 
 
 # ── Images ───────────────────────────────────────────────────────────────
+
+def write_image_problem(window: Window, problem_dir: Path, image_dir: Path,
+                        frame_index_format: str = FRAME_INDEX_FORMAT) -> bool:
+    """Write the image-pool folder for an emitted problem. False when the window has no frames.
+
+    Copies the problem's pddl and GT json from ``problem_dir`` and writes the
+    frames beside them, so the folder is self-contained.
+    """
+    if not all(step.has_frames for step in window.steps):
+        return False
+    image_dir.mkdir(parents=True, exist_ok=True)
+    copy_problem_files(problem_dir, image_dir)
+    return write_window_frames(window, image_dir, frame_index_format)
+
+
+def copy_problem_files(src_dir: Path, dst_dir: Path) -> None:
+    """Copy a problem's pddl and GT json from one of its pool folders to the other."""
+    for name in problem_files(src_dir.name):
+        shutil.copy(src_dir / name, dst_dir / name)
+
 
 def write_window_frames(window: Window, problem_dir: Path,
                         frame_index_format: str = FRAME_INDEX_FORMAT) -> bool:

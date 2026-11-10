@@ -161,7 +161,7 @@ def test_the_emitter_writes_the_rendered_frames(tmp_path):
                           domain_name="blocks", corpus_root=tmp_path / "corpus",
                           render=True)
     assert emitted.rendered
-    frames = sorted(emitted.problem_dir.glob("state_*.png"))
+    frames = sorted(emitted.image_dir.glob("state_*.png"))
     assert [f.name for f in frames] == ["state_000000.png", "state_000001.png",
                                         "state_000002.png"]
     assert Image.open(frames[0]).tobytes() != Image.open(frames[1]).tobytes()
@@ -177,4 +177,5 @@ def test_without_render_the_emitter_writes_no_frames(tmp_path):
                           domain_name="blocks", corpus_root=tmp_path / "corpus",
                           render=False)
     assert not emitted.rendered
-    assert not list(emitted.problem_dir.glob("state_*.png"))
+    assert emitted.image_dir is None
+    assert not list((tmp_path / "corpus").rglob("state_*.png"))

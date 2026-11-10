@@ -1,10 +1,11 @@
-"""Render ``state_*.png`` frames into an existing symbolic corpus, problem by problem.
+"""Render the image pool of an existing symbolic corpus, problem by problem.
 
 Each ``training/trajectories/problemN/`` is replayed from its GT trajectory
 (``gt_trajectories/problemN/problemN.trajectory``) through the domain's
-renderer and gets one frame per state. GT files are never touched. A folder
-that already holds the right number of frames is skipped, so a run can be
-resumed or split into chunks:
+renderer, and ``training/image_trajectories/problemN/`` gets the problem's
+pddl and GT json plus one ``state_*.png`` per state. The symbolic pool and the
+GT files are never touched. An image folder that already holds the right
+number of frames is skipped, so a run can be resumed or split into chunks:
 
     python benchmark/render_corpus.py --domain hanoi \\
         --corpus benchmark/data/hanoi/large_corpus_n2500 --domain-file src/domains/hanoi/hanoi.pddl
@@ -26,10 +27,11 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.trace_generation.cutter import CutMode, cut
-from src.trace_generation.emitter import GT_SUBPATH, POOL_SUBPATH, write_window_frames
+from src.trace_generation.emitter import write_image_problem
 from src.trace_generation.frame_renderer import FrameRenderer, RenderedSource
 from src.trace_generation.renderer_registry import build_renderer
-from src.trace_generation.sources import FRAME_GLOB, TrajectorySource
+from src.trace_generation.sources import TrajectorySource
+from src.utils.corpus_layout import FRAME_GLOB, GT_SUBPATH, IMAGE_POOL_SUBPATH, POOL_SUBPATH
 
 
 @dataclass(frozen=True)
@@ -69,14 +71,14 @@ def expected_frames(trajectory_file: Path) -> int:
     return text.count("(operator:") + 1
 
 
-def frames_present(problem_dir: Path) -> int:
-    """How many ``state_*.png`` the folder already holds."""
-    return len(list(problem_dir.glob(FRAME_GLOB)))
+def frames_present(image_dir: Path) -> int:
+    """How many ``state_*.png`` the image folder already holds."""
+    return len(list(image_dir.glob(FRAME_GLOB)))
 
 
-def render_problem(problem_dir: Path, gt_trajectory: Path, domain_file: Path,
-                   renderer: FrameRenderer) -> int:
-    """Render one problem's frames into its folder; returns the frame count.
+def render_problem(problem_dir: Path, image_dir: Path, gt_trajectory: Path,
+                   domain_file: Path, renderer: FrameRenderer) -> int:
+    """Write one problem's image folder; returns the frame count.
 
     Frames are rendered into a scratch directory and copied in one go, so a
     folder with a wrong frame count always means an interrupted run.
@@ -92,9 +94,9 @@ def render_problem(problem_dir: Path, gt_trajectory: Path, domain_file: Path,
         windows = cut(source.steps(), mode=CutMode.NONE)
         if not windows:
             raise ValueError(f"{gt_trajectory} yielded no window.")
-        for stale in problem_dir.glob(FRAME_GLOB):
+        for stale in image_dir.glob(FRAME_GLOB):
             stale.unlink()
-        write_window_frames(windows[0], problem_dir)
+        write_image_problem(windows[0], problem_dir, image_dir)
         return windows[0].length + 1
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -104,7 +106,7 @@ def render_corpus(corpus: Path, domain: str, domain_file: Path, *,
                   chunk: int = 0, num_chunks: int = 1, limit: Optional[int] = None,
                   visualizer_root: Optional[Path] = None,
                   force: bool = False) -> List[RenderOutcome]:
-    """Render every selected problem of ``corpus`` that is not already complete."""
+    """Render every selected problem of ``corpus`` whose image folder is not complete."""
     corpus = Path(corpus)
     selected = select(problem_dirs(corpus), chunk=chunk, num_chunks=num_chunks, limit=limit)
     renderer = build_renderer(domain, visualizer_root=visualizer_root)
@@ -112,12 +114,13 @@ def render_corpus(corpus: Path, domain: str, domain_file: Path, *,
     try:
         for index, problem_dir in enumerate(selected):
             name = problem_dir.name
+            image_dir = corpus / IMAGE_POOL_SUBPATH / name
             gt = corpus / GT_SUBPATH / name / f"{name}.trajectory"
             wanted = expected_frames(gt)
-            if not force and frames_present(problem_dir) == wanted:
+            if not force and frames_present(image_dir) == wanted:
                 outcomes.append(RenderOutcome(name, wanted, skipped=True))
                 continue
-            frames = render_problem(problem_dir, gt, domain_file, renderer)
+            frames = render_problem(problem_dir, image_dir, gt, domain_file, renderer)
             outcomes.append(RenderOutcome(name, frames, skipped=False))
             if (index + 1) % 50 == 0 or index + 1 == len(selected):
                 print(f"  {index + 1}/{len(selected)} problems done "

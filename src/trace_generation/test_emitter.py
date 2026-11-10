@@ -211,18 +211,29 @@ def test_render_copies_one_frame_per_state(tmp_path):
     window = _window(_framed_trace(source))
     emitted = _emit(tmp_path / "corpus", window=window, render=True)
 
-    pool = emitted.problem_dir
-    assert sorted(p.name for p in pool.glob("state_*.png")) == [
+    image_dir = emitted.image_dir
+    assert image_dir == tmp_path / "corpus" / "training" / "image_trajectories" / "problem0"
+    assert sorted(p.name for p in image_dir.glob("state_*.png")) == [
         "state_000000.png", "state_000001.png", "state_000002.png"]
-    assert (pool / "state_000000.png").read_bytes() == b"png-0"
-    assert (pool / "state_000002.png").read_bytes() == b"png-2"
+    assert (image_dir / "state_000000.png").read_bytes() == b"png-0"
+    assert (image_dir / "state_000002.png").read_bytes() == b"png-2"
     assert emitted.rendered is True
+    assert list(emitted.problem_dir.glob("state_*.png")) == []
+
+
+def test_the_image_folder_carries_the_problem_files(tmp_path):
+    source = tmp_path / "src"
+    source.mkdir()
+    emitted = _emit(tmp_path / "corpus", window=_window(_framed_trace(source)), render=True)
+    for name in ("problem0.pddl", "problem0_trajectory.json"):
+        assert (emitted.image_dir / name).read_bytes() == (emitted.problem_dir / name).read_bytes()
 
 
 def test_render_on_a_symbolic_window_writes_no_images(tmp_path):
     emitted = _emit(tmp_path, render=True)
-    assert list(emitted.problem_dir.glob("state_*.png")) == []
+    assert not list(tmp_path.rglob("state_*.png"))
     assert emitted.rendered is False
+    assert emitted.image_dir is None
 
 
 def test_frames_are_not_copied_unless_render_is_asked_for(tmp_path):

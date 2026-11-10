@@ -48,11 +48,11 @@ from src.milp.trace_tensors import (
 
 from benchmark.algorithm_adapters.rosame_i_runner import build_image_tf
 from benchmark.baselines.image_fold_inputs import (
-    TRAJECTORY_DIR_NAMES,
     ResolvedTrace,
     parse_problem_normalized,
     resolve_images,
 )
+from src.utils.corpus_layout import IMAGE_POOL_DIR_NAMES
 from benchmark.baselines.rosame_i_runner import ResizeSpec, _resize_tag
 
 from dl.util.ROSAME.rosame import get_domain_model
@@ -137,7 +137,7 @@ def corpus_dir(traces: Sequence[ResolvedTrace]) -> Path:
     Raises:
         ValueError: if ``traces`` is empty, if they span more than one staging
             directory, or if that directory is not one of
-            :data:`~benchmark.baselines.image_fold_inputs.TRAJECTORY_DIR_NAMES`.
+            :data:`~src.utils.corpus_layout.IMAGE_POOL_DIR_NAMES`.
     """
     if not traces:
         raise ValueError("no resolved traces, so there is no corpus to ground over")
@@ -151,10 +151,10 @@ def corpus_dir(traces: Sequence[ResolvedTrace]) -> Path:
         )
 
     staging = dirs[0]
-    if staging.name not in TRAJECTORY_DIR_NAMES:
+    if staging.name not in IMAGE_POOL_DIR_NAMES:
         raise ValueError(
-            f"'{staging}' is not a trajectory staging directory; expected one of "
-            f"{sorted(TRAJECTORY_DIR_NAMES)}"
+            f"'{staging}' is not an image pool directory; expected one of "
+            f"{sorted(IMAGE_POOL_DIR_NAMES)}"
         )
     return staging
 
@@ -256,7 +256,7 @@ def build_grounding(
     )
 
 
-def corpus_frame_paths(staging_dir: Path, bench: str) -> List[Path]:
+def corpus_frame_paths(staging_dir: Path) -> List[Path]:
     """Every ``state_*.png`` of the corpus, in problem order then frame order.
 
     Endpoint frames are included: the statistic is a property of the corpus, not
@@ -268,13 +268,11 @@ def corpus_frame_paths(staging_dir: Path, bench: str) -> List[Path]:
     """
     frames: List[Path] = []
     for problem_pddl in corpus_problem_pddls(staging_dir):
-        frames.extend(
-            resolve_images(problem_pddl.parent, bench, problem_pddl.stem)
-        )
+        frames.extend(resolve_images(problem_pddl.parent))
     if not frames:
         raise FileNotFoundError(
-            f"no 'state_*.png' under any problem of '{staging_dir}' nor under "
-            f"src/domains/{bench}/problems/, so there are no images to normalise"
+            f"no 'state_*.png' under any problem of '{staging_dir}', so there "
+            f"are no images to normalise"
         )
     return frames
 
@@ -319,7 +317,7 @@ def normalisation_stats(
     one frame is loaded to check that, rather than the whole corpus.
     """
     cache_path = staging_dir / f".rosame26_norm__{bench}__res={_resize_tag(resize)}.pt"
-    paths = corpus_frame_paths(staging_dir, bench)
+    paths = corpus_frame_paths(staging_dir)
 
     if cache_path.exists():
         cached = torch.load(cache_path, weights_only=True)

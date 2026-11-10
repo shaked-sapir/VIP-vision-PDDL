@@ -121,8 +121,8 @@ sbatch --array=7,19,31 scripts/cluster_large/run_cell.sbatch
 
 ## Rendering frames into the large corpora
 
-`render_corpus.sbatch` writes `state_*.png` into every
-`training/trajectories/problemN/` of a symbolic corpus from its
+`render_corpus.sbatch` writes every `training/image_trajectories/problemN/`
+(problem files plus `state_*.png`) of a symbolic corpus from its
 `gt_trajectories/`, one array task per `(domain, chunk)` row of
 `render_manifest.csv` (`make_render_manifest.py`, 10 chunks per domain by
 default, so `--array=0-29`). It is idempotent: a finished folder is skipped.

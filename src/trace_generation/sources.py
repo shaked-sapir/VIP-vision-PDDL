@@ -39,6 +39,7 @@ from src.trace_generation.up_bridge import (
     state_to_trace_state,
     typed_objects,
 )
+from src.utils.corpus_layout import FRAME_GLOB
 
 logger = logging.getLogger(__name__)
 
@@ -544,9 +545,6 @@ class ProblemWalkSource(TraceSource):
         self._problem = parse_problem(self.domain_file, self.problem_file)
         self._types = object_types(self._problem)
         self._objects = typed_objects(self._problem)
-
-
-FRAME_GLOB = "state_*.png"
 
 
 class TrajectorySource(TraceSource):

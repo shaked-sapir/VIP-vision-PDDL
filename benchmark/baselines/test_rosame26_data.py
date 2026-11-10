@@ -85,8 +85,8 @@ def _write_frames(problem_dir: Path, count: int, size=FRAME_SIZE) -> List[Path]:
 def _write_corpus(
     root: Path, problems: Dict[str, Sequence[str]], frames: Dict[str, int]
 ) -> Path:
-    """A ``<data>/training/trajectories/`` staging directory, frames included."""
-    staging = root / "training" / "trajectories"
+    """A ``<data>/training/image_trajectories/`` staging directory, frames included."""
+    staging = root / "training" / "image_trajectories"
     staging.mkdir(parents=True)
     for name, blocks in problems.items():
         problem_dir = staging / name
@@ -165,7 +165,7 @@ class TestCorpusDir:
         (stray / "problem1.pddl").write_text(_problem_pddl("problem1", ["a"]))
         trace = _trace(blocks_domain, corpus, "problem1")
         moved = ResolvedTrace(**{**vars(trace), "problem_dir": stray})
-        with pytest.raises(ValueError, match="not a trajectory staging directory"):
+        with pytest.raises(ValueError, match="not an image pool directory"):
             corpus_dir([moved])
 
 
@@ -187,7 +187,7 @@ class TestCorpusProblemPddls:
         assert len(corpus_problem_pddls(corpus)) == 3
 
     def test_an_empty_staging_directory_raises(self, tmp_path) -> None:
-        empty = tmp_path / "training" / "trajectories"
+        empty = tmp_path / "training" / "image_trajectories"
         empty.mkdir(parents=True)
         with pytest.raises(FileNotFoundError, match="no '<problem>/<problem>.pddl'"):
             corpus_problem_pddls(empty)
@@ -207,7 +207,7 @@ class TestCorpusObjectUnion:
             Path(load_config()["domains"]["gripper"]["domain_file"]),
             partial_parsing=True,
         ).parse_domain()
-        staging = tmp_path / "training" / "trajectories"
+        staging = tmp_path / "training" / "image_trajectories"
         for name, objects in [
             ("g1", "x - ball rooma - room left - gripper"),
             ("g2", "x - room ball1 - ball left - gripper"),
@@ -266,17 +266,17 @@ class TestBuildGrounding:
 
 class TestCorpusFramePaths:
     def test_every_frame_of_every_problem(self, corpus) -> None:
-        assert len(corpus_frame_paths(corpus, "blocksworld")) == 4 + 5 + 2
+        assert len(corpus_frame_paths(corpus)) == 4 + 5 + 2
 
     def test_a_corpus_without_frames_raises(self, tmp_path, blocks_domain) -> None:
         staging = _write_corpus(tmp_path, {"problem1": ["a"]}, {"problem1": 0})
         with pytest.raises(FileNotFoundError, match="no 'state_..png'"):
-            corpus_frame_paths(staging, "blocksworld")
+            corpus_frame_paths(staging)
 
 
 class TestLoadFrames:
     def test_the_frames_are_stacked(self, corpus) -> None:
-        paths = corpus_frame_paths(corpus, "blocksworld")
+        paths = corpus_frame_paths(corpus)
         frames = load_frames(paths, build_image_tf(RESIZE))
         assert tuple(frames.shape) == (len(paths), 3, RESIZE, RESIZE)
 
@@ -288,7 +288,7 @@ class TestLoadFrames:
         """An int resize preserves aspect, so two shapes stay two shapes."""
         odd = corpus / "problem1" / "state_9.png"
         Image.new("RGB", (32, 16), (1, 2, 3)).save(odd)
-        paths = corpus_frame_paths(corpus, "blocksworld")
+        paths = corpus_frame_paths(corpus)
         with pytest.raises(ValueError, match="transforms to"):
             load_frames(paths, build_image_tf(RESIZE))
 
@@ -313,7 +313,7 @@ class TestNormalisationStats:
         )
         assert bool((stats.std >= torch.tensor(STD_FLOOR, dtype=stats.std.dtype)).all())
         frames = load_frames(
-            corpus_frame_paths(corpus, "blocksworld"), build_image_tf(RESIZE)
+            corpus_frame_paths(corpus), build_image_tf(RESIZE)
         )
         assert bool(torch.isfinite(standardise(frames, stats)).all())
         assert float(standardise(frames, stats).abs().max()) < 1e3
@@ -355,7 +355,7 @@ class TestNormalisationStats:
 class TestStandardise:
     def test_it_centres_the_corpus(self, corpus) -> None:
         frames = load_frames(
-            corpus_frame_paths(corpus, "blocksworld"), build_image_tf(RESIZE)
+            corpus_frame_paths(corpus), build_image_tf(RESIZE)
         )
         stats = normalisation_stats(
             corpus, "blocksworld", RESIZE, build_image_tf(RESIZE)
@@ -364,7 +364,7 @@ class TestStandardise:
 
     def test_a_statistic_of_the_wrong_shape_raises(self, corpus) -> None:
         frames = load_frames(
-            corpus_frame_paths(corpus, "blocksworld"), build_image_tf(RESIZE)
+            corpus_frame_paths(corpus), build_image_tf(RESIZE)
         )
         stats = normalisation_stats(corpus, "blocksworld", None, build_image_tf(None))
         with pytest.raises(ValueError, match="different resize settings"):

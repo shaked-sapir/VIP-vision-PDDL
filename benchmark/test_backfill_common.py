@@ -33,7 +33,7 @@ def _make_data_dir(tmp_path: Path, *, with_normalized: bool) -> Path:
     (raw / "problem0.pddl").write_text("(:init (at-robby rooma))")
 
     if with_normalized:
-        norm = data_dir / "training" / "trajectories_normalized" / "problem0"
+        norm = data_dir / "training" / "image_trajectories_normalized" / "problem0"
         norm.mkdir(parents=True)
         (norm / "problem0.pddl").write_text("(:init (at_robby rooma))")
 
@@ -47,7 +47,7 @@ def test_normalized_experiment_resolves_to_normalized_dir(tmp_path):
     data_dir = _make_data_dir(tmp_path, with_normalized=True)
 
     assert resolve_problem_dir(exp_dir, data_dir) == (
-        data_dir / "training" / "trajectories_normalized"
+        data_dir / "training" / "image_trajectories_normalized"
     )
 
 
@@ -107,9 +107,9 @@ def test_resolved_root_yields_the_matching_dialect(
 
 
 def test_find_problem_pddl_handles_a_flat_trajectories_root(tmp_path):
-    """The normalized dir has no training/trajectories/ level beneath it."""
+    """The normalized dir has no training/image_trajectories/ level beneath it."""
     data_dir = _make_data_dir(tmp_path, with_normalized=True)
-    norm = data_dir / "training" / "trajectories_normalized"
+    norm = data_dir / "training" / "image_trajectories_normalized"
 
     assert find_problem_pddl(norm, "problem0") == norm / "problem0" / "problem0.pddl"
 
@@ -129,7 +129,7 @@ def test_data_dir_override_is_still_dialect_resolved(tmp_path):
     data_dir, src = resolve_data_dir(exp_dir, override)
     assert (data_dir, src) == (override, "override")
     assert resolve_problem_dir(exp_dir, data_dir) == (
-        override / "training" / "trajectories_normalized"
+        override / "training" / "image_trajectories_normalized"
     )
 
 

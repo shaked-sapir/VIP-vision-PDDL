@@ -18,6 +18,8 @@ import shutil
 from pathlib import Path
 from typing import Tuple
 
+from src.utils.corpus_layout import FRAME_GLOB, IMAGE_POOL_NORMALIZED_SUBPATH, IMAGE_POOL_SUBPATH
+
 
 # ── Pass 1: Hyphen normalization ─────────────────────────────────────────
 
@@ -173,7 +175,7 @@ def normalize_experiment_data(
         3. Typing validation.
 
     Args:
-        data_dir: Experiment data directory containing training/trajectories/.
+        data_dir: Experiment data directory containing training/image_trajectories/.
         domain_file: Path to the reference domain PDDL file.
         force: Re-normalize even if normalized copy already exists.
 
@@ -184,8 +186,8 @@ def normalize_experiment_data(
         ValueError: If typing validation fails.
         FileNotFoundError: If expected directories or files are missing.
     """
-    trajectories_dir = data_dir / 'training' / 'trajectories'
-    normalized_dir = data_dir / 'training' / 'trajectories_normalized'
+    trajectories_dir = data_dir / IMAGE_POOL_SUBPATH
+    normalized_dir = data_dir / IMAGE_POOL_NORMALIZED_SUBPATH
     normalized_domain = normalized_dir / '_domain.pddl'
 
     if not trajectories_dir.exists():
@@ -202,9 +204,9 @@ def normalize_experiment_data(
     if normalized_dir.exists() and force:
         shutil.rmtree(normalized_dir)
 
-    # Copy trajectories
+    # Copy the text files; frames stay in the image pool (corpus_layout.frames_dir).
     print(f"  Copying trajectories to normalized directory...")
-    shutil.copytree(trajectories_dir, normalized_dir)
+    shutil.copytree(trajectories_dir, normalized_dir, ignore=shutil.ignore_patterns(FRAME_GLOB))
 
     # Copy domain file
     shutil.copy(domain_file, normalized_domain)

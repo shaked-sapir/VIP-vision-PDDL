@@ -13,9 +13,11 @@ Modes:
     predefined  one walk per pre-authored problem folder, rendered and inferred;
                 external domains copy their shipped frames instead of walking
 
-Output structure:
+Output structure (``src/utils/corpus_layout.py``):
     benchmark/data/<domain>/<experiment>/training/trajectories/problemN/
-        problemN.pddl, plan.txt, problemN_trajectory.json, state_*.png,
+        problemN.pddl, plan.txt, problemN_trajectory.json          (symbolic pool)
+    benchmark/data/<domain>/<experiment>/training/image_trajectories/problemN/
+        problemN.pddl, problemN_trajectory.json, state_*.png,      (image pool)
         problemN.trajectory + .masking_info   (inferred, after inference)
     benchmark/data/<domain>/<experiment>/gt_trajectories/problemN/
     benchmark/data/<domain>/<experiment>/generation_info.json
@@ -52,22 +54,10 @@ from src.trace_generation.sources import (
     WalkConfig,
 )
 from src.utils.config import load_config
+from src.utils.corpus_layout import GT_SUBPATH, IMAGE_POOL_SUBPATH, POOL_SUBPATH
 
 if TYPE_CHECKING:
     from src.trace_generation.corpus import Corpus
-
-
-# ── External domain cleanup ─────────────────────────────────────────────
-
-def _cleanup_source_files(problem_dir: Path) -> None:
-    """Remove ``plan.txt`` from a problem dir after inference.
-
-    Keeps ``state_*.png``, the inferred ``.trajectory`` + ``.masking_info``, the
-    ``.pddl`` and the GT ``_trajectory.json`` (read by GT injection during
-    evaluation).
-    """
-    for plan_file in problem_dir.glob("plan.txt"):
-        plan_file.unlink()
 
 
 # ── Domain registry ──────────────────────────────────────────────────────
@@ -200,19 +190,19 @@ def _build_handler(domain: str, vendor: str, inference_workers: int):
     )
 
 
-def run_inference(domain: str, trajectories_dir: Path, *, vendor: str = "openai",
+def run_inference(domain: str, image_trajectories_dir: Path, *, vendor: str = "openai",
                   inference_workers: int = 1) -> List[Path]:
-    """Run VLM inference over every ``problemN/`` folder under ``trajectories_dir``.
+    """Run VLM inference over every ``problemN/`` folder of an image pool.
 
     Each folder must hold ``state_*.png``, its ``.pddl`` and its GT
-    ``_trajectory.json``, which is what the emitter writes with ``render=True``
-    and what an external problem folder ships. A folder whose inference fails
-    is reported and skipped.
+    ``_trajectory.json``, which is what the emitter writes with ``render=True``.
+    The inferred ``.trajectory`` and ``.masking_info`` land in the same folder.
+    A folder whose inference fails is reported and skipped.
 
     Returns:
         The folders inferred successfully.
     """
-    problem_dirs = _collect_problem_dirs(trajectories_dir)
+    problem_dirs = _collect_problem_dirs(image_trajectories_dir)
     done: List[Path] = []
     for index, problem_dir in enumerate(problem_dirs):
         name = problem_dir.name
@@ -220,7 +210,6 @@ def run_inference(domain: str, trajectories_dir: Path, *, vendor: str = "openai"
         try:
             handler = _build_handler(domain, vendor, inference_workers)
             handler.run_pipeline(problem_name=name, images_path=problem_dir)
-            _cleanup_source_files(problem_dir)
             done.append(problem_dir)
             print(f"  ✓ {name}\n")
         except Exception as e:
@@ -307,7 +296,9 @@ def _print_trace_summary(corpus: "Corpus") -> None:
     print("  Problems: "
           f"{_describe_problem_count(corpus.num_problems, corpus.problems_requested)}")
     print(f"  Trajectories: {corpus.trajectories_dir}")
-    print(f"  GT trajectories: {corpus.root / 'gt_trajectories'}")
+    if corpus.image_trajectories_dir is not None:
+        print(f"  Image trajectories: {corpus.image_trajectories_dir}")
+    print(f"  GT trajectories: {corpus.root / GT_SUBPATH}")
     print(f"  Manifest: {corpus.info_file}")
     print()
 
@@ -330,7 +321,7 @@ def generate_trajectories_via_trace(
     cut_seed: Optional[int] = None,
     problem_prefix: str = "problem",
     output_dir_name: Optional[str] = None,
-) -> Path:
+) -> "Corpus":
     """Build a corpus by cutting one trace into problem folders.
 
     Walks a PDDL problem or replays an existing ``.trajectory``, cuts the result
@@ -369,7 +360,7 @@ def generate_trajectories_via_trace(
         output_dir_name: Override for the output directory name.
 
     Returns:
-        Path to the trajectories directory.
+        The written corpus; ``image_trajectories_dir`` is set when rendering.
     """
     from src.trace_generation.corpus import SourceKind, build_source, generate_corpus
     from src.trace_generation.cutter import CutMode
@@ -416,7 +407,7 @@ def generate_trajectories_via_trace(
     )
 
     _print_trace_summary(corpus)
-    return corpus.trajectories_dir
+    return corpus
 
 
 # ── Generate mode: a rendered random walk, then inference ────────────────
@@ -456,7 +447,7 @@ def generate_trajectories_via_generation(
         visualizer_root: The planning-visualizer checkout, for depot and gripper.
 
     Returns:
-        Path to the trajectories directory.
+        Path to the image pool the inference ran over.
     """
     model_name = load_config()[vendor].get("fluent_classification_model", {}).get(
         "model_name", vendor)
@@ -464,7 +455,7 @@ def generate_trajectories_via_generation(
     auto_name = (f"multi_problem_{timestamp}__model={model_name}"
                  f"__gen__prob={Path(problem_file).stem}__len={length_min}-{length_max}")
 
-    trajectories_dir = generate_trajectories_via_trace(
+    corpus = generate_trajectories_via_trace(
         output_base_dir=output_base_dir,
         source_kind="problem",
         problem_file=Path(problem_file),
@@ -479,14 +470,16 @@ def generate_trajectories_via_generation(
         skip=skip,
         output_dir_name=output_dir_name or auto_name,
     )
+    image_dir = corpus.image_trajectories_dir
+    if image_dir is None:
+        raise ValueError(f"{corpus.root} was written without frames; nothing to infer.")
     if not run_inference_after:
         print("--no-inference: folders generated, LLM inference skipped.")
-        return trajectories_dir
+        return image_dir
 
-    run_inference(domain, trajectories_dir, vendor=vendor,
-                  inference_workers=inference_workers)
-    print(f"Experiment saved to: {trajectories_dir.parent.parent}")
-    return trajectories_dir
+    run_inference(domain, image_dir, vendor=vendor, inference_workers=inference_workers)
+    print(f"Experiment saved to: {corpus.root}")
+    return image_dir
 
 
 # ── Predefined mode: one walk (or copy) per pre-authored problem ─────────
@@ -517,15 +510,26 @@ def _emit_walked_problem(problem_name: str, index: int, problem_pddl: Path,
 
 
 def _copy_external_problem(source_problem_dir: Path, experiment_dir: Path) -> Path:
-    """Copy a shipped problem folder (frames, GT, pddl) into the experiment and export its GT."""
+    """Copy a shipped problem folder (frames, GT, pddl) into both pools and export its GT."""
     from benchmark.experiment_running_helpers.gt_builder import export_gt_from_problem_dir
+    from src.trace_generation.emitter import copy_problem_files
+    from src.utils.pddl_trajectory import ensure_trajectory_json
 
     name = source_problem_dir.name
-    output_problem_dir = experiment_dir / "training" / "trajectories" / name
-    shutil.copytree(source_problem_dir, output_problem_dir, dirs_exist_ok=True)
-    export_gt_from_problem_dir(output_problem_dir, experiment_dir / "gt_trajectories",
+    image_dir = experiment_dir / IMAGE_POOL_SUBPATH / name
+    shutil.copytree(source_problem_dir, image_dir, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("plan.txt"))
+    ensure_trajectory_json(image_dir)
+    export_gt_from_problem_dir(image_dir, experiment_dir / GT_SUBPATH,
                                name, needs_schema_translation=False)
-    return output_problem_dir
+
+    problem_dir = experiment_dir / POOL_SUBPATH / name
+    problem_dir.mkdir(parents=True, exist_ok=True)
+    copy_problem_files(image_dir, problem_dir)
+    plan = source_problem_dir / "plan.txt"
+    if plan.exists():
+        shutil.copy(plan, problem_dir / plan.name)
+    return image_dir
 
 
 def generate_trajectories(
@@ -565,7 +569,7 @@ def generate_trajectories(
         run_inference_after: If False, only generate folders (skip LLM).
 
     Returns:
-        Path to the trajectories directory.
+        Path to the image pool.
     """
     from src.trace_generation.emitter import build_generation_info, write_generation_info
 
@@ -592,8 +596,10 @@ def generate_trajectories(
     print()
 
     experiment_dir = output_base_dir / domain / experiment_name
-    trajectories_dir = experiment_dir / "training" / "trajectories"
+    trajectories_dir = experiment_dir / POOL_SUBPATH
+    image_trajectories_dir = experiment_dir / IMAGE_POOL_SUBPATH
     trajectories_dir.mkdir(parents=True, exist_ok=True)
+    image_trajectories_dir.mkdir(parents=True, exist_ok=True)
 
     problem_dirs = _collect_problem_dirs(problems_dir)
     print(f"Found {len(problem_dirs)} problems in {problems_dir}")
@@ -627,7 +633,7 @@ def generate_trajectories(
         write_generation_info(experiment_dir, info)
 
     if run_inference_after:
-        run_inference(domain, trajectories_dir, vendor=vendor,
+        run_inference(domain, image_trajectories_dir, vendor=vendor,
                       inference_workers=inference_workers)
 
     print()
@@ -636,11 +642,12 @@ def generate_trajectories(
     print("=" * 80)
     print(f"\nExperiment saved to: {experiment_dir}")
     print(f"  Trajectories: {trajectories_dir}")
-    print(f"  GT trajectories: {experiment_dir / 'gt_trajectories'}")
-    print(f"  Problems processed: {len(list(trajectories_dir.iterdir()))}")
+    print(f"  Image trajectories: {image_trajectories_dir}")
+    print(f"  GT trajectories: {experiment_dir / GT_SUBPATH}")
+    print(f"  Problems processed: {len(list(image_trajectories_dir.iterdir()))}")
     print()
 
-    return trajectories_dir
+    return image_trajectories_dir
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────

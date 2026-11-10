@@ -134,10 +134,15 @@ Independent of A1–A6 and doable by whoever is free (it needs no VLM):
 
   **All five large corpora rendered 2026-11-08** (laptop, one process,
   `scripts/cluster_large/render_local.sh all` equivalent, 1 h 40 min in all):
-  every `training/trajectories/problemN/` of the five corpora holds one
-  `state_NNNNNN.png` per GT state, checked against the operator count of
+  every problem of the five corpora holds one `state_NNNNNN.png` per GT
+  state, checked against the operator count of
   `gt_trajectories/problemN/problemN.trajectory` for all 2500 problems of each
-  corpus; GT and problem files untouched.
+  corpus; GT and problem files untouched. Since 2026-11-10 the frames live in
+  the image pool, `training/image_trajectories/problemN/` (with a copy of the
+  problem's pddl and GT json; the VLM output lands there too), and
+  `training/trajectories/` is the symbolic pool only; see
+  `src/utils/corpus_layout.py`. The ten existing corpora were moved over with
+  `scripts/migrate_image_pool.py`.
 
   | corpus | frames | wall time |
   |---|---|---|

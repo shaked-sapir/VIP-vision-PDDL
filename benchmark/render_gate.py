@@ -11,7 +11,7 @@ counts, per frame, the pixels that differ from the stored frame.
 Reference layouts understood:
 
     <dir>/state_*.png + <dir>/<name>.trajectory + <dir>/<name>.pddl
-    <corpus>/training/trajectories/<name>/ (frames, pddl)
+    <corpus>/training/image_trajectories/<name>/ (frames, pddl)
         + <corpus>/gt_trajectories/<name>/<name>.trajectory
 """
 
