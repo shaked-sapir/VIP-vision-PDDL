@@ -574,7 +574,7 @@ def gt_final_state_fluents(gt_trajectory_path: Path) -> Optional[Set[Tuple[str, 
 def find_gt_trajectory(problem_pddl_path: Path) -> Optional[Path]:
     """Locate a problem's GT trajectory relative to the standard data_dir layout.
 
-    Standard layout: ``<data_dir>/training/trajectories/<prob>/<prob>.pddl`` and
+    Standard layout: ``<data_dir>/training/<pool>/<prob>/<prob>.pddl`` and
     ``<data_dir>/gt_trajectories/<prob>/<prob>.trajectory``.
     """
     problem = problem_pddl_path.stem

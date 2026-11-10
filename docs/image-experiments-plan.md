@@ -361,28 +361,35 @@ our arms were already run with one clean state (`gt=init`) and with none
 | clean states per trajectory | our arms | pixel arms | two-stage symbolic arms |
 |---|---|---|---|
 | 0 | `PISAM__s0=noisy`, `PISAM_MILP_LOOP__gt=none__s0=noisy…` | **new** `ROSAME-I_24__anchor=vlm` (3.4.1) | `ROSAME_24__s0=noisy`, `ROSAME_MILP_24__gt=none__s0=noisy` |
-| 1 (init) | `PISAM`, `PISAM_MILP_LOOP__schema=…__solve=60` | **new** `ROSAME-I_24__anchor=init` (3.4.2) | `ROSAME_24`, `ROSAME_MILP_24__goal=none` |
-| 1 (final) | — | `ROSAME-I_24` (upstream: goal anchor) | — |
-| 2 (init + final) | **new** `PISAM_MILP_LOOP__gt=all…` (3.4.3) | `ROSAME-I_MILP_24` (upstream), `ROSAME-I_26`, `ROSAME-I_MILP_26` | `ROSAME_MILP_24` (`goal_mode gt`) |
+| 1 (init) | `PISAM`, `PISAM_MILP_LOOP__schema=…__solve=60` | **new** `ROSAME-I_24__anchor=init+vlm` (3.4.1: GT frame 0 + last state with VLM labels) | `ROSAME_24`, `ROSAME_MILP_24__goal=none` |
+| 1 (final) | — | `ROSAME-I_24` (upstream: GT last state) | — |
+| 2 (init + final) | **new** `PISAM_MILP_LOOP__gt=init_final…` (3.4.3) | `ROSAME-I_24__anchor=both`, `ROSAME-I_MILP_24` (ICAPS-24, as published); `ROSAME-I_26`, `ROSAME-I_MILP_26` (ICAPS-26 network, as published: it takes init and goal as hard inputs, so it has no other row) | `ROSAME_MILP_24` (`goal_mode gt`) |
 
 Proposal: present the comparison **row by row of this table**, and say in the
 text which row is which. Three additions make every row populated on both
 sides:
 
-1. **`ROSAME-I_24__anchor=vlm` (0 clean states).** The anchor target is the
-   VLM's own classification of the last frame instead of the GT final state;
-   atoms the VLM left `UNCERTAIN` drop out of the anchor loss. This is the
-   pixel arm with the same information our `gt=none` arms have: frames,
-   actions, and whatever the VLM pipeline produced. Code: `_prepare_trace`
-   reads the degraded trajectory's final state and its masking line instead of
-   `gt_final_predicates`; a masked-MSE in `_loss_from_predictions`.
-2. **`ROSAME-I_24__anchor=init` (1 clean state, same position as ours).** The
-   `gamma` anchor moves from `domain_preds[-1]` to `domain_preds[0]`
-   (`rosame_i_runner.py:320`); `ResolvedTrace.gt_init_predicates` is already
-   resolved for the 26 arms. This is the exact information NPI-SAM anchored
-   gets. Upstream anchored the goal because the ICAPS-24 problems came with a
-   known goal; anchoring the known initial state is the same assumption at the
-   other end, and it is what our arms assume.
+1. **One anchoring rule for the pixel arm, all rows.** Upstream's anchor,
+   `gamma * MSE(domain_preds[-1], label_T)` on the post-last-action state,
+   stays in every row; its label is whatever the data copy holds for state T
+   (GT in the Final and Init+final rows, the VLM's classification in the
+   No-GT and Init rows, atoms left `UNCERTAIN` dropped from the term). In the
+   rows whose copy has GT at state 0 (Init, Init+final) a second, direct term
+   `gamma * MSE(preds[0], gt_init)` anchors frame 0. So the pixel arm anchors
+   exactly the states the symbolic MILP fixes, plus upstream's final anchor
+   fed from the same copy the symbolic arms read; the loss structure never
+   changes between rows, only the information source. The Final row is
+   upstream verbatim. An anchor is unavoidable: without one nothing ties the
+   CV head's output slots to named predicates and the constant-state
+   solution minimises the loss. Labels: `__anchor=vlm` (No GT),
+   `__anchor=init+vlm` (Init), bare (Final), `__anchor=both` (Init+final).
+   Code: `_prepare_trace` takes the state-T vector and its mask from the copy
+   and an optional GT init vector; `_loss_from_predictions` gains the masked
+   final term and the optional frame-0 term. Each row records the VLM
+   anchor's coverage (atoms not masked).
+2. **`ROSAME-I_MILP_24` follows the same rule** for its loss, and its MILP
+   fixes the copy's GT states (`--milp-gt-anchoring` for state 0,
+   `--goal-mode` for state T): nothing / init only / final only / both.
 3. **`PISAM_MILP_LOOP` with init and final fixed (2 clean states).** The data
    prep exists (`cdps_anchored`'s `anchor_endpoints=True` →
    `inject_gt_states_by_percentage(..., anchor_final=True)`) and the encoder

@@ -28,7 +28,7 @@ from benchmark.baselines.image_fold_inputs import (
 )
 
 
-def _make_cell(root: Path, staging: str = "trajectories") -> Path:
+def _make_cell(root: Path, staging: str = "image_trajectories") -> Path:
     """A ``<data_dir>/training/<staging>/problem1/`` tree; returns the problem dir."""
     problem_dir = root / "training" / staging / "problem1"
     problem_dir.mkdir(parents=True)
@@ -50,7 +50,7 @@ class TestResolveGtTrajectoryPath:
         assert resolve_gt_trajectory_path(problem_dir, "problem1") == gt_path
 
     def test_normalized_staging_dir_resolves_too(self, tmp_path: Path) -> None:
-        problem_dir = _make_cell(tmp_path, staging="trajectories_normalized")
+        problem_dir = _make_cell(tmp_path, staging="image_trajectories_normalized")
         gt_path = _write_gt(tmp_path)
 
         assert resolve_gt_trajectory_path(problem_dir, "problem1") == gt_path
@@ -235,14 +235,23 @@ class TestResolveImages:
         for i in (0, 2, 10):
             (tmp_path / f"state_{i}.png").write_bytes(b"")
 
-        assert [p.name for p in resolve_images(tmp_path, "blocksworld", "problem1")] == [
+        assert [p.name for p in resolve_images(tmp_path)] == [
             "state_0.png",
             "state_2.png",
             "state_10.png",
         ]
 
-    def test_no_frames_anywhere_is_an_empty_list(self, tmp_path: Path) -> None:
-        assert resolve_images(tmp_path, "blocksworld", "no_such_problem") == []
+    def test_no_frames_is_an_empty_list(self, tmp_path: Path) -> None:
+        assert resolve_images(tmp_path / "no_such_problem") == []
+
+    def test_a_normalized_folder_reads_its_twin_in_the_image_pool(self, tmp_path: Path) -> None:
+        image_dir = tmp_path / "training" / "image_trajectories" / "problem1"
+        normalized_dir = tmp_path / "training" / "image_trajectories_normalized" / "problem1"
+        image_dir.mkdir(parents=True)
+        normalized_dir.mkdir(parents=True)
+        (image_dir / "state_0.png").write_bytes(b"")
+
+        assert resolve_images(normalized_dir) == [image_dir / "state_0.png"]
 
 
 # ── the walk itself ─────────────────────────────────────────────────────
@@ -257,7 +266,7 @@ def _real_fold():
     """``(domain, prepared_trajectories)`` for a checked-in blocksworld cell."""
     from src.utils.config import load_config
 
-    staging = _REAL_CELL / "training" / "trajectories"
+    staging = _REAL_CELL / "training" / "image_trajectories"
     domain = DomainParser(
         Path(load_config()["domains"]["blocksworld"]["domain_file"]),
         partial_parsing=True,

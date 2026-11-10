@@ -3,7 +3,8 @@
 This is the only place the three pieces meet, and it stays source-agnostic: it
 sees a :class:`TraceSource`, a cut policy and a destination.
 
-    <corpus>/training/trajectories/problemN/    the pool a fold trains on
+    <corpus>/training/trajectories/problemN/    the symbolic pool a fold trains on
+    <corpus>/training/image_trajectories/problemN/  the image pool, when rendering
     <corpus>/gt_trajectories/problemN/          the matching ground truth
     <corpus>/generation_info.json               source + cut parameters
 """
@@ -18,6 +19,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from src.trace_generation.cutter import CutMode, cut
 from src.trace_generation.emitter import (
+    IMAGE_POOL_SUBPATH,
     POOL_SUBPATH,
     EmittedProblem,
     build_generation_info,
@@ -53,6 +55,7 @@ class Corpus:
     info: Dict[str, Any]
     info_file: Path
     problems_requested: Optional[int] = None
+    image_trajectories_dir: Optional[Path] = None
 
     @property
     def num_problems(self) -> int:
@@ -181,6 +184,8 @@ def generate_corpus(
         info=info,
         info_file=write_generation_info(corpus_root, info),
         problems_requested=num_problems,
+        image_trajectories_dir=(corpus_root / IMAGE_POOL_SUBPATH
+                                if any(p.rendered for p in problems) else None),
     )
 
 

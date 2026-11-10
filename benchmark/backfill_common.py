@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
 from benchmark.experiment_running_helpers.resume import fold_shared_dir
+from src.utils.corpus_layout import IMAGE_POOL_NORMALIZED_SUBPATH, IMAGE_POOL_SUBPATH, POOL_SUBPATH
 
 _CELL_RE = re.compile(r"^fold(\d+)_numtrajs(\d+)_gtrate(\d+)$")
 
@@ -78,13 +79,15 @@ def find_problem_pddl(search_root: Path, problem_name: str) -> Optional[Path]:
     ``search_root`` is what :func:`resolve_problem_dir` returns — either the
     experiment's data_dir or its normalized trajectories dir — never assumed to
     be the data_dir. Covers the known layouts:
-      <root>/training/trajectories/<problem>/<problem>.pddl  (standard data_dir)
-      <root>/<problem>/<problem>.pddl                        (trajectories dir)
+      <root>/training/image_trajectories/<problem>/<problem>.pddl  (image data_dir)
+      <root>/training/trajectories/<problem>/<problem>.pddl        (simulated data_dir)
+      <root>/<problem>/<problem>.pddl                              (a pool dir)
       <root>/problems/<problem>/<problem>.pddl
       <root>/<problem>.pddl
     """
+    pools = (search_root / IMAGE_POOL_SUBPATH, search_root / POOL_SUBPATH)
     candidates = [
-        search_root / "training" / "trajectories" / problem_name / f"{problem_name}.pddl",
+        *(pool / problem_name / f"{problem_name}.pddl" for pool in pools),
         search_root / problem_name / f"{problem_name}.pddl",
         search_root / "problems" / problem_name / f"{problem_name}.pddl",
         search_root / f"{problem_name}.pddl",
@@ -92,7 +95,7 @@ def find_problem_pddl(search_root: Path, problem_name: str) -> Optional[Path]:
     for c in candidates:
         if c.exists():
             return c
-    for parent in (search_root / "training" / "trajectories", search_root, search_root / "problems"):
+    for parent in (*pools, search_root, search_root / "problems"):
         problem_dir = parent / problem_name
         if problem_dir.is_dir():
             pddl_files = sorted(problem_dir.glob("*.pddl"))
@@ -226,13 +229,13 @@ def resolve_problem_dir(exp_dir: Path, data_dir: Path) -> Path:
 
     ``normalize_experiment_data`` rewrites hyphens to underscores in PDDL
     identifiers. It runs for image experiments only, writes its output to
-    ``<data_dir>/training/trajectories_normalized``, and its ``_domain.pddl``
+    ``<data_dir>/training/image_trajectories_normalized``, and its ``_domain.pddl``
     becomes every cell's ``domain_reference.pddl``. Simulated experiments never
     normalize, so their cells keep the raw hyphenated dialect — and both modes
     can point at the same ``data_dir``, so the directory alone does not say which
     dialect a cell speaks. ``run_params.json``'s ``normalized`` field does.
 
-    Reading the raw ``training/trajectories`` for a normalized experiment pairs a
+    Reading the raw ``training/image_trajectories`` for a normalized experiment pairs a
     hyphenated problem with an underscored domain; parsing the two together
     raises ``Received illegal state component``.
 
@@ -243,7 +246,7 @@ def resolve_problem_dir(exp_dir: Path, data_dir: Path) -> Path:
     if not (params and params.get("normalized")):
         return data_dir
 
-    normalized = data_dir / "training" / "trajectories_normalized"
+    normalized = data_dir / IMAGE_POOL_NORMALIZED_SUBPATH
     if normalized.is_dir():
         return normalized
 

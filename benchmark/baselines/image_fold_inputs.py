@@ -28,6 +28,7 @@ from pddl_plus_parser.lisp_parsers import ProblemParser, TrajectoryParser
 from pddl_plus_parser.models import Domain, Observation, Problem, State
 
 from benchmark.experiment_running_helpers.normalize import _normalize_hyphens
+from src.utils.corpus_layout import FRAME_GLOB, IMAGE_POOL_DIR_NAMES, frames_dir
 
 #: PDDL domain name / path part -> bench key, for domains whose names differ.
 DOMAIN_ALIASES: Dict[str, str] = {
@@ -43,9 +44,6 @@ DOMAIN_ALIASES: Dict[str, str] = {
 
 #: The bench keys :data:`DOMAIN_ALIASES` can resolve to.
 BENCH_KEYS = frozenset(DOMAIN_ALIASES.values())
-
-#: Staging directory names that sit one level above a problem's trajectory dir.
-TRAJECTORY_DIR_NAMES = frozenset({"trajectories", "trajectories_normalized"})
 
 
 @dataclass(frozen=True)
@@ -86,7 +84,7 @@ def resolve_fold_inputs(
         problem_dir = problem_pddl_path.parent
         problem_name = problem_pddl_path.stem
 
-        image_paths = resolve_images(problem_dir, bench, problem_name)
+        image_paths = resolve_images(problem_dir)
         if not image_paths:
             continue
 
@@ -119,24 +117,14 @@ def resolve_fold_inputs(
     return resolved
 
 
-def resolve_images(problem_dir: Path, bench: str, problem_name: str) -> List[Path]:
-    """Numerically-sorted ``state_*.png`` frames for one trajectory.
+def resolve_images(problem_dir: Path) -> List[Path]:
+    """Numerically-sorted ``state_*.png`` frames for one image problem folder.
 
-    Looks next to the problem PDDL first (PDDLGym-generated domains keep frames
-    in the data dir), then falls back to the external-image domain layout
-    ``src/domains/<bench>/problems/<problem>/`` (e.g. depot, gripper), whose
-    frames never get copied into ``benchmark/data``.
+    Frames live in the image pool; a folder under the normalized pool reads its
+    twin's (``corpus_layout.frames_dir``).
     """
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates = [
-        problem_dir,
-        repo_root / "src" / "domains" / bench / "problems" / problem_name,
-    ]
-    for cand in candidates:
-        images = list(cand.glob("state_*.png"))
-        if images:
-            return sorted(images, key=lambda p: int(re.search(r"\d+", p.stem).group()))
-    return []
+    images = list(frames_dir(problem_dir).glob(FRAME_GLOB))
+    return sorted(images, key=lambda p: int(re.search(r"\d+", p.stem).group()))
 
 
 def resolve_gt_trajectory_path(problem_dir: Path, problem_name: str) -> Path:
@@ -148,13 +136,13 @@ def resolve_gt_trajectory_path(problem_dir: Path, problem_name: str) -> Path:
 
     Raises:
         FileNotFoundError: if ``problem_dir`` is not in the
-            ``<data_dir>/training/<staging_dir>/<problem>/`` layout, or the GT
+            ``<data_dir>/training/<image pool>/<problem>/`` layout, or the GT
             trajectory is absent.
     """
-    if problem_dir.parent.name not in TRAJECTORY_DIR_NAMES:
+    if problem_dir.parent.name not in IMAGE_POOL_DIR_NAMES:
         raise FileNotFoundError(
             f"cannot locate gt_trajectories/ for '{problem_name}': expected "
-            f"'{problem_dir}' to sit under one of {sorted(TRAJECTORY_DIR_NAMES)}"
+            f"'{problem_dir}' to sit under one of {sorted(IMAGE_POOL_DIR_NAMES)}"
         )
     data_dir = problem_dir.parents[2]
     gt_path = data_dir / "gt_trajectories" / problem_name / f"{problem_name}.trajectory"

@@ -31,7 +31,7 @@ def _resolve_gt_json_path(prob_dir: Path, problem_name: str) -> Path:
     generate-mode datasets, holds the classifier's noisy states). Falls back to
     the in-dir JSON for legacy datasets that predate the gt_trajectories/ split.
 
-    ``prob_dir`` is ``<data_dir>/training/trajectories/<problem>``, so the
+    ``prob_dir`` is ``<data_dir>/training/image_trajectories/<problem>``, so the
     experiment/data root is ``prob_dir.parents[2]``.
     """
     in_dir = prob_dir / f"{problem_name}_trajectory.json"

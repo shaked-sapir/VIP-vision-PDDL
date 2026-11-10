@@ -16,8 +16,8 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 |---|---|
 | `src/object_detection/` | Detect objects in a single image frame. Input: image. Output: list of `BoundedObject`. |
 | `src/fluent_classification/` | Classify PDDL fluents from a single image frame. Input: image. Output: `Dict[str, PredicateTruthValue]`. LLM path uses `ImageLLMBackend` protocol + `ImageLLMBackendFactory` (OpenAI/Gemini). |
-| `src/trajectory_handlers/` | Image→trajectory pipeline per domain. Split into inference base, PDDLGym source, external source, LLM mixin layers, `frame_classification.py` (`FrameClassifier` protocol: sequential or concurrent per-frame VLM calls, results always in frame order), and `pddlgym_problem_generator.py` (ROSAME-style problem generation). |
-| `src/trace_generation/` | Source-agnostic **symbolic** corpus generation (no images, no LLM). `sources.py` (`TraceSource`: walk a problem or replay a `.trajectory`; `up_bridge.py` / `pddl_bridge.py` spell both into `eval_schema.py`) → `cutter.py` (pure windows) → `emitter.py` (problemN folders). `corpus.py` composes the three. Driven by `benchmark/data_generator.py --gen-mode trace`. |
+| `src/trajectory_handlers/` | Image→trajectory **inference** per domain: `ImageTrajectoryHandler` (classify frames → `.trajectory` + `.masking_info`) ← `ExternalImageTrajectoryHandler` (reads a problem folder's `state_*.png` + GT) ← `LLMExternalImageTrajectoryHandler` (+ `LLMVisualComponentsMixin`) ← one class per domain. `frame_classification.py` (`FrameClassifier` protocol: sequential or concurrent per-frame VLM calls, results always in frame order). No handler walks or renders anything; frames come from `src/trace_generation/`. |
+| `src/trace_generation/` | Source-agnostic corpus generation (no LLM). `sources.py` (`TraceSource`: walk a problem or replay a `.trajectory`; `up_bridge.py` / `pddl_bridge.py` spell both into `eval_schema.py`) → `cutter.py` (pure windows) → `emitter.py` (problemN folders in the symbolic pool, plus `write_image_problem` for the image pool when rendering; the pools are named in `src/utils/corpus_layout.py`). `corpus.py` composes the three. Rendering is a strategy on the source: `frame_renderer.py` (`FrameRenderer` protocol, `RenderedSource` decorator that fills `frame_before`/`frame_after`, one render per distinct state), `pddlgym_renderer.py` (blocksworld/hanoi/npuzzle via `pddlgym.rendering.*`, fed from eval-schema states through a per-domain `GymSchema`), `visualizer_renderer.py` (depot/gripper via `../planning-visualizer`: Python `RendererFactory` layout in-process, frames drawn by its Node canvas worker `backend/api/render_states.ts`), `renderer_registry.py` (`build_renderer(domain)`). Driven by `benchmark/data_generator.py` (`--render`) and `benchmark/render_corpus.py` (the image pool of an existing corpus); `benchmark/render_gate.py` is the pixel-diff feasibility gate. |
 | `src/pi_sam/` | PI-SAM itself (`pi_sam_learning.py`): observations in, action model out. It takes what it is given at face value — deciding which observations to believe is not its job. |
 | `src/observation_degradation/` | Deliberate corruption of otherwise-clean observations, applied *before* any learner sees them. `masking/` — masking strategies (random, percentage, uncertain); `noising/` — noising strategies (random, percentage) for flipping unmasked predicate polarity; `predicate_masking.py` / `predicate_noising.py` — the `PredicateMasker` / `PredicateNoiser` drivers. Nothing here imports a learner, and no learner imports it. |
 | `src/plan_denoising/` | Conflict-Directed Patch Search (CDPS): `conflict_search.py`, `conflict_search_config.py` (`CDPSConfig`), `frontier.py` (search mode / node / conflict-group / fluent-branch strategies). GT-aware via `gt_states_by_obs` (init state always GT). `typings.py` holds the shared repair vocabulary — `Conflict`, `ModelLevelPatch`, `FluentLevelPatch`, `NodeExpansionEvent`; import these from here, not from whichever module happens to re-export them. `noisy_learner_mixin.py` is the learner-side half of the protocol (report conflicts, accept patches) and is abstract over the SAM family; `noisy_pisam_learning.py` binds it to PI-SAM, and `conflict_search_pisam.py` (`ConflictDrivenPatchSearchPISAM`) binds the search to that learner. Those bindings live here, not in `src/pi_sam/`, so the dependency stays one-way. They are two files, not one: `conflict_search.py` names no concrete learner, and `milp_denoiser/` builds a `NoisyPisamLearner` directly, so it must be able to import the learner without importing the search it replaces. Also `evaluator.py` — `observations_reconstruction_score`, a **ground-truth-free** model score (effect mismatches + inapplicability events, rollout and one-step, against the frozen original observations). Use it for online selection; **never** `benchmark/experiment_running_helpers/evaluation.py:evaluate_model`, which needs GT and is for offline reporting only. And `patch_accounting.py` — the one rule for counting *realized* fluent edits (odd parity over normalized keys, because patches are toggles); every consumer comparing repair magnitudes must use it. |
@@ -78,8 +78,8 @@ class ImageTrajectoryHandler(ABC):
 - Base class owns the **inference pipeline only**: classify images → `.trajectory` + `.masking_info`.
 - Inherited helpers: `construct_trajectory_from_images`, `image_trajectory_pipeline`, `create_masking_info`, `create_trajectory_and_masks`.
 - `__init__(domain_name, frame_classifier=None)` — default `SequentialFrameClassifier`; pass `ConcurrentFrameClassifier` to classify a window's frames together. Either way the result is one predicate dict per frame, in frame order.
-- Override `_rename_ground_action` for domain-specific action name transforms.
-- **Entry point for callers is `run_pipeline`**, not the old gym-only methods directly.
+- Override `_rename_ground_action` for domain-specific action name transforms (the eval-schema actions in a problem folder usually need none).
+- **Entry point for callers is `run_pipeline`**; every handler reads a problem folder (frames + GT), none produces one.
 
 ### Frame Classifier
 ```python
@@ -92,16 +92,11 @@ class FrameClassifier(Protocol):
 - Do not put this in `FluentClassifier` — that class classifies a single image.
 
 ```python
-# src/trajectory_handlers/pddlgym_trajectory_handler.py
-class PDDLGymImageTrajectoryHandler(ImageTrajectoryHandler):
-    # Adds gym rendering, stepping, GT trajectory JSON generation.
-    # run_pipeline: create_trajectory_from_gym → create_trajectory_and_masks
-```
-
-```python
 # src/trajectory_handlers/external_trajectory_handler.py
 class ExternalImageTrajectoryHandler(ImageTrajectoryHandler):
-    # Reads pre-existing state_*.png + .trajectory files from disk.
+    # Reads a problem folder: state_*.png + .trajectory/_trajectory.json + .pddl,
+    # whether shipped with the domain (depot, gripper) or emitted by
+    # src/trace_generation with rendering on (every other domain).
     # run_pipeline: ensure_trajectory_json → extract actions → create_trajectory_and_masks
 ```
 
@@ -118,17 +113,24 @@ class LLMVisualComponentsMixin:
 ```
 
 ```python
-# Concrete LLM combos (pass-through classes in dedicated files — set class attrs + hooks in domain file):
-# src/trajectory_handlers/llm_image_trajectory_handler.py
-class LLMImageTrajectoryHandler(LLMVisualComponentsMixin, PDDLGymImageTrajectoryHandler): ...
+# The one concrete LLM combo (pass-through class; domain files set class attrs + hooks):
 # src/trajectory_handlers/llm_external_trajectory_handler.py
 class LLMExternalImageTrajectoryHandler(LLMVisualComponentsMixin, ExternalImageTrajectoryHandler): ...
 ```
 
-**Choosing a base when adding a domain:**
-- Images generated by PDDLGym → subclass `PDDLGymImageTrajectoryHandler` (deterministic) or `LLMImageTrajectoryHandler` (LLM).
-- Images come from external files → subclass `ExternalImageTrajectoryHandler` or `LLMExternalImageTrajectoryHandler`.
-- Domain handlers are named `llm_{domain}_trajectory_handler.py` (LLM) or `{domain}_image_trajectory_handler.py` (deterministic).
+**Adding a domain:** subclass `LLMExternalImageTrajectoryHandler` (LLM) or `ExternalImageTrajectoryHandler` (deterministic) in `llm_{domain}_trajectory_handler.py` / `{domain}_image_trajectory_handler.py`. If its frames are rendered rather than shipped, add a `FrameRenderer` to `src/trace_generation/renderer_registry.py`.
+
+### Frame rendering (`src/trace_generation/frame_renderer.py`)
+```python
+class FrameRenderer(Protocol):
+    def render(self, state: TraceState, *, step: int, action: Optional[str]) -> Image.Image: ...
+    def frame_key(self, state: TraceState, *, step: int, action: Optional[str]) -> Hashable: ...
+    def describe(self) -> Dict[str, Any]: ...
+
+class RenderedSource(TraceSource):   # wraps any TraceSource; steps() carry frame_before/frame_after
+```
+- `frame_key` is the cache key: equal keys never render twice. A renderer whose image depends on the state alone returns `state_key(state)`.
+- `PDDLGymRenderer(render_fn, GymSchema)` primes block colours in sorted name order (the map `LLMBlocksFluentClassifier` hardcodes); `VisualizerRenderer.use_problem(pddl)` takes the visualizer's declared object order. Both are what makes a re-render reproduce stored frames; see `docs/image-experiments-week1-plan.md` A7.
 
 ### Masking Strategy
 ```python
@@ -192,6 +194,7 @@ Every utility function that is not domain-specific belongs in `src/utils/`. Befo
 | `utils/pddl_naming.py` | `canonical`, `spelling_map`, `rewrite_symbols` — hyphen vs underscore PDDL identifier dialects |
 | `utils/prompt_cache.py` | `prompt_cache_key` — stable LLM prompt-prefix routing key (`"<task>_<12 hex>"`) |
 | `utils/atomic_json.py` | `write_json_atomic`, `read_json_or_none` — crash- and concurrency-safe JSON (temp file + rename; truncated files read as absent) |
+| `utils/corpus_layout.py` | `POOL_SUBPATH`, `IMAGE_POOL_SUBPATH`, `IMAGE_POOL_NORMALIZED_SUBPATH`, `GT_SUBPATH`, `FRAME_GLOB`, `frames_dir`, `problem_files` — the three pools of a corpus and where an image folder's frames are |
 
 `utils/pddl.py` is a re-export hub for backward compatibility — prefer importing from the specific module directly.
 
@@ -232,10 +235,8 @@ Checklist when adding support for a new planning domain:
 1. `src/domains/{domain}/` — PDDL domain file + `problems/problemN/` folders (each with `{problem}.pddl`; external domains also ship `state_*.png` + GT `.trajectory`)
 2. `src/object_detection/{domain}_object_detector.py` or `llm_{domain}_object_detector.py`
 3. `src/fluent_classification/{domain}_fluent_classifier.py` or `llm_{domain}_fluent_classifier.py`
-4. `src/trajectory_handlers/` — pick the right handler base:
-   - PDDLGym images: `{domain}_image_trajectory_handler.py` → `PDDLGymImageTrajectoryHandler`, or `llm_{domain}_trajectory_handler.py` → `LLMImageTrajectoryHandler`
-   - External images: `llm_{domain}_trajectory_handler.py` → `LLMExternalImageTrajectoryHandler`
-   - Set `detector_class` / `classifier_class` for LLM handlers; override `_rename_ground_action`, `_manipulate_trajectory_json`, or `_pre_init_hook` as needed
+4. `src/trajectory_handlers/llm_{domain}_trajectory_handler.py` → `LLMExternalImageTrajectoryHandler`; set `detector_class` / `classifier_class`; override `_rename_ground_action` or `_pre_init_hook` as needed
+   - Rendered frames: a `FrameRenderer` in `src/trace_generation/` registered in `renderer_registry.py`
 5. `src/llms/domains/{domain}/` — constants, prompts, ground-truth files (if LLM-based)
 6. `config.yaml` — add domain entry with problem paths and parameters
 7. `benchmark/data/{domain}/` — trajectory data directory
@@ -248,11 +249,11 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 ## Key Architectural Patterns
 
 - **Template Method** — base classes define the pipeline; subclasses fill in domain-specific steps via hooks.
-- **Handler Layering** — `ImageTrajectoryHandler` (inference) ← `PDDLGymImageTrajectoryHandler` / `ExternalImageTrajectoryHandler` (data source) ← domain concrete class. LLM domains add `LLMVisualComponentsMixin` via multiple inheritance.
+- **Handler Layering** — `ImageTrajectoryHandler` (inference) ← `ExternalImageTrajectoryHandler` (reads a problem folder) ← domain concrete class. LLM domains add `LLMVisualComponentsMixin` via multiple inheritance. Producing the folder is `src/trace_generation`'s job.
 - **Mixin Composition** — noise handling (`NoisyLearnerMixin`) and LLM wiring (`LLMVisualComponentsMixin`) are mixins, not deep subclass chains.
 - **Strategy** — masking via `MaskingStrategy`; noising via `NoisingStrategy`; per-window frame classification via `FrameClassifier`; trace generation via `TraceSource`. Algorithm selection via `benchmark/algorithms.py` (`cdps` / `cdps_anchored` / `pisam_milp_single_round` / `pisam_milp_loop` + baseline keys from `benchmark/baselines/`).
-- **Trace pipeline** — `TraceSource` → `cutter.cut` → `emitter.emit_window`, composed only in `corpus.generate_corpus`. A new walk/replay backend is a new `TraceSource`; cutting and emission stay shared.
-- **DataSource** — `ImageDataSource` vs `SimulatedDataSource` in `benchmark/experiment_running_helpers/data_source.py` decouple observation preparation from fold execution.
+- **Trace pipeline** — `TraceSource` → `cutter.cut` → `emitter.emit_window`, composed only in `corpus.generate_corpus`. A new walk/replay backend is a new `TraceSource`; rendering is `RenderedSource` around any of them with a `FrameRenderer`; cutting and emission stay shared.
+- **DataSource** — `ImageDataSource` vs `SimulatedDataSource` in `benchmark/experiment_running_helpers/data_source.py` decouple observation preparation from fold execution. Each reads its own pool of the data dir (`src/utils/corpus_layout.py`): an image run `training/image_trajectories/` (pddl, GT json, frames, inferred `.trajectory` + `.masking_info`; normalized to `training/image_trajectories_normalized/`, frames excluded), a simulated run `training/trajectories/` (pddl, plan, GT json) plus `gt_trajectories/`. Neither reads across. `scripts/migrate_image_pool.py` moved the existing corpora to this layout.
 - **CDPSConfig** — immutable dataclass in `conflict_search_config.py` bundles search *shape* (`search_mode`, `node_choosing_strategy`, `conflict_group_strategy`, `fluent_branch_mode`, patch costs/weights, `negative_precondition_policy`, `seed`); runtime timeout and `gt_states_by_obs` are passed separately to `ConflictDrivenPatchSearchBase.run`.
 - **GT-aware CDPS** — search always respects `gt_states_by_obs` (init state is GT; never fluent-patch GT states; reject GT-refuted model constraints). The anchored variant (`cdps_anchored`) differs in **data prep** (also inject final state as GT via `trajectory_utils` / `inject_gt_states_by_percentage(..., anchor_final=True)`), not search shape.
 - **Result schema** — per-cell results live in `testing/.../fold_result.json`; `collect_results.py` + `result_schema.py` flatten them for reports (no per-experiment CSVs).
@@ -271,7 +272,8 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - Entry points:
   - `benchmark/benchmark_runner.py` — config-driven batch runner (`benchmark/run_config.yaml`); delegates each cell to `experiment_runner`
   - `benchmark/experiment_runner.py` — single experiment (one domain, one data source); `--algorithms cdps rosame_24` (default)
-  - `benchmark/data_generator.py` — multi-problem trajectory generation via `_DOMAIN_REGISTRY`; `--gen-mode predefined` (existing problems) / `generate` (PDDLGym walk + LLM inference) / `trace` (`src/trace_generation/` symbolic corpus)
+  - `benchmark/data_generator.py` — one generation path over `src/trace_generation/` via `_DOMAIN_REGISTRY`: `--gen-mode trace` (cut one trace; `--render` wraps the source in the domain's renderer) / `generate` (random walk + render + inference, a thin alias) / `predefined` (one walk per pre-authored problem, or a copy of the shipped folder for depot/gripper, then inference). `run_inference()` is the external-style VLM step every mode ends with
+  - `benchmark/render_corpus.py` — resumable, idempotent rendering of an existing corpus's image pool (`--chunk/--num-chunks` for the SLURM array `scripts/cluster_large/render_corpus.sbatch`; depot/gripper locally via `scripts/cluster_large/render_local.sh`); `benchmark/render_gate.py` + `test_render_gate.py` — the pixel-diff gate against stored frames
   - `benchmark/generate_gt_trajectories.py` — GT backfill/validation CLI (`gt_builder.py`)
   - `benchmark/simulated_version/run_simulated_experiment.py` — standalone simulated runs
   - `benchmark/backfill_baseline.py` — retrofit baseline results into existing cells (`original_observations/`, loose or packed → learn → evaluate → merge into `fold_result.json`); supports `--workers N` for parallel cells. `--out-root` writes rows, models and work files to a mirrored tree (`<out-root>/<domain>/<experiment>/testing/<cell>/`) and only reads the source; cluster template `scripts/cluster_large/baseline_out_root_fold.sbatch` (arms in `$VIP_BL_BASELINES`)
@@ -295,7 +297,7 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - Configuration: `config.yaml` at project root; batch runs via `benchmark/run_config.yaml` (`shared` search/resume/algorithm knobs; `simulation` mask/noise grid; `domains` list); large-corpora sweep via `benchmark/run_config_large.yaml`
 - Activate environment: `source venv11/bin/activate`
 
-**Supported domains (config keys):** `blocksworld`, `hanoi`, `hiking`, `maze`, `npuzzle` (PDDLGym / generated); `depot`, `gripper` (external images). Deterministic blocksworld inference uses `BlocksContourFluentClassifier` + `ColorObjectDetector` via `blocks_image_trajectory_handler.py`.
+**Supported domains (config keys):** `blocksworld`, `hanoi`, `npuzzle` (rendered by `PDDLGymRenderer`); `depot`, `gripper` (shipped frames, or rendered by `VisualizerRenderer`); `hiking`, `maze` (inference handlers only, no renderer registered). Deterministic blocksworld inference uses `BlocksContourFluentClassifier` + `ColorObjectDetector` via `blocks_image_trajectory_handler.py`.
 
 ---
 

@@ -23,6 +23,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from pddl_plus_parser.lisp_parsers import DomainParser, TrajectoryParser
 
 from benchmark.experiment_running_helpers.simulated_data_utils import build_gt_trajectory_lookup
+from src.utils.corpus_layout import IMAGE_POOL_SUBPATH
 from src.utils.pddl_state import state_positive_set
 
 ORIGINAL_OBS_PREFIX = "original_observation_"
@@ -87,9 +88,7 @@ def _build_gt100_lookup(experiment_dir: Path, run_params: dict) -> Dict[str, Pat
         )
 
     data_dir_name = data_dirs[0]
-    training_root = (
-        _benchmark_root() / "data" / domain_key / data_dir_name / "training" / "trajectories"
-    )
+    training_root = _benchmark_root() / "data" / domain_key / data_dir_name / IMAGE_POOL_SUBPATH
     if not training_root.exists():
         raise FileNotFoundError(f"Training trajectories directory not found: {training_root}")
 

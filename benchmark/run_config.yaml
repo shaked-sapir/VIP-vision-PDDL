@@ -102,8 +102,8 @@ simulation:
     masking_ps: [0.0, 0.01, 0.1]
     noising_ps: [0.0, 0.1, 0.2]             # list of floats in [0, 1]
 
-# Per-domain: only domain_key + data_dir. data_dir must contain
-# training/trajectories/ (for imaged version) and gt_trajectories/ (for simulated version).
+# Per-domain: only domain_key + data_dir. data_dir must contain gt_trajectories/, plus
+# training/image_trajectories/ (imaged version) or training/trajectories/ (simulated version).
 
 domains:
   # - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version"}

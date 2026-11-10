@@ -117,3 +117,26 @@ re-submitting skips folds that already wrote a `fold_result.json`:
 ```bash
 sbatch --array=7,19,31 scripts/cluster_large/run_cell.sbatch
 ```
+
+
+## Rendering frames into the large corpora
+
+`render_corpus.sbatch` writes every `training/image_trajectories/problemN/`
+(problem files plus `state_*.png`) of a symbolic corpus from its
+`gt_trajectories/`, one array task per `(domain, chunk)` row of
+`render_manifest.csv` (`make_render_manifest.py`, 10 chunks per domain by
+default, so `--array=0-29`). It is idempotent: a finished folder is skipped.
+
+Only blocksworld, hanoi and npuzzle are in the manifest; they render with
+pddlgym + matplotlib inside `vip_venv11`. depot and gripper render through
+planning-visualizer's Node canvas worker and run on the laptop with
+`render_local.sh` (about 15 frames/s; one 2500-problem corpus takes well under
+an hour). The same script with `all` renders all five locally, which is also
+within an afternoon, so the cluster path is optional.
+
+```bash
+rsync -a benchmark/data/{blocksworld,hanoi,npuzzle}/large_corpus_* <cluster>:.../benchmark/data/...
+python scripts/cluster_large/make_render_manifest.py
+mkdir -p logs
+sbatch --array=0-29 scripts/cluster_large/render_corpus.sbatch
+```
