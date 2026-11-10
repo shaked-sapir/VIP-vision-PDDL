@@ -27,6 +27,7 @@ from pddl_plus_parser.models import Domain
 from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker
 from benchmark.baselines.base_runner import BaselineRunner
 from src.milp.loss_convergence import LossConvergenceRule
+from src.utils.torch_device import resolve_device
 from benchmark.baselines.image_fold_inputs import (
     ResolvedTrace,
     infer_bench_key,
@@ -119,16 +120,27 @@ class RosameIBaselineRunner(BaselineRunner):
 
     def __init__(
         self,
-        n_seeds: int = 3,
+        n_seeds: int = 1,
         device: Optional[str] = None,
         base_seed: int = 8800,
         resize: ResizeSpec = _RESIZE_FROM_TABLE,
         rosame_convergence: Optional[Mapping[str, object]] = None,
+        epochs: Optional[int] = None,
     ) -> None:
+        """
+        Args:
+            n_seeds: Independent models trained under the one budget; the lowest
+                final training loss is kept. Upstream trains once.
+            device: Torch device; ``None`` autodetects. A named device that this
+                host cannot use raises here, before any data is prepared.
+            epochs: Overrides the per-domain ICAPS-24 epoch count. ``None``
+                keeps the paper's table; an off-default value labels the row.
+        """
         self.n_seeds = n_seeds
-        self.device = device
+        self.device = None if device is None else resolve_device(device, prefer_mps=True)
         self.base_seed = base_seed
         self.resize = resize
+        self.epochs = epochs
         self.convergence_rule = LossConvergenceRule.from_config(rosame_convergence)
         self._bench_cache: Dict[Path, Tuple[str, Domain]] = {}
 
@@ -180,10 +192,21 @@ class RosameIBaselineRunner(BaselineRunner):
             return ""
         return f"__res={tag}"
 
+    def _epochs(self, bench: str) -> int:
+        """The epoch count this domain trains for: the override, else the table."""
+        if self.epochs is not None:
+            return self.epochs
+        return int(_HYPERPARAMS.get(bench, _DEFAULT_HYPERPARAMS)["epochs"])
+
+    def _epoch_suffix(self, bench: str) -> str:
+        """``__ep=<n>`` when this domain's epoch count is off the paper's table."""
+        table = int(_HYPERPARAMS.get(bench, _DEFAULT_HYPERPARAMS)["epochs"])
+        return "" if self._epochs(bench) == table else f"__ep={self._epochs(bench)}"
+
     def row_name(self, domain_path: Path) -> str:
-        """Row label for this domain, carrying an off-default resize."""
+        """Row label for this domain, carrying an off-default resize or epoch count."""
         bench, _ = self._bench_and_domain(domain_path)
-        return f"{self._base_name}{self._resize_suffix(bench)}"
+        return f"{self._base_name}{self._resize_suffix(bench)}{self._epoch_suffix(bench)}"
 
     @property
     def name(self) -> str:
@@ -255,7 +278,7 @@ class RosameIBaselineRunner(BaselineRunner):
                 )
                 final_loss = runner.learn_full(
                     prepared_problems,
-                    epochs=int(hp["epochs"]),
+                    epochs=self._epochs(bench),
                     gamma=float(hp["gamma"]),
                     lambda_=float(hp["lambda_"]),
                     augment=augment,
@@ -296,6 +319,8 @@ class RosameIBaselineRunner(BaselineRunner):
             # schedule was removed, which carry "train_per_trajectory": true.
             "schedule": "pooled",
             "resize": resize,
+            "epochs": self._epochs(bench),
+            "n_seeds": self.n_seeds,
             **self.run_params(),
             **seed_stops[chosen],
             "seed_stops": seed_stops,

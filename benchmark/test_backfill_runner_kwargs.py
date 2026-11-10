@@ -23,6 +23,7 @@ def _args(**overrides) -> argparse.Namespace:
     return argparse.Namespace(
         **{
             "epochs": None,
+            "device": None,
             "n_seeds": None,
             "ignore_budget": False,
             "budget_mode": None,
@@ -107,3 +108,42 @@ class TestTheOptionsReachOnlyTheArmsThatTakeThem:
         assert runner.epochs is None
         assert runner._resolve_epochs("blocksworld") == _EPOCH_DEFAULT
         assert runner.budget_mode.value == "preflight"
+
+
+class TestDeviceAndEpochsReachThePixelArms:
+    def test_a_device_is_forwarded(self) -> None:
+        assert _runner_kwargs(_args(device="cpu")) == {"device": "cpu"}
+
+    @pytest.mark.parametrize("key", ["rosame_i_24", "rosame_i_milp_24", "rosame_i_26", "rosame_i_milp_26"])
+    def test_the_device_reaches_every_pixel_arm(self, key) -> None:
+        runner = resolve_baselines([key], **_runner_kwargs(_args(device="cpu")))[0]
+        assert runner.device == "cpu"
+
+    @pytest.mark.parametrize("key", ["rosame_i_24", "rosame_i_milp_24"])
+    def test_epochs_reach_the_24_pixel_arms(self, key) -> None:
+        runner = resolve_baselines([key], **_runner_kwargs(_args(epochs=7)))[0]
+        assert runner.epochs == 7
+
+    def test_the_default_leaves_the_papers_table_in_place(self) -> None:
+        runner = resolve_baselines(["rosame_i_24"], **_runner_kwargs(_args()))[0]
+        assert runner.epochs is None
+        assert runner._epochs("blocksworld") == 100
+        assert runner._epoch_suffix("blocksworld") == ""
+
+    def test_an_off_table_epoch_count_labels_the_row(self) -> None:
+        runner = resolve_baselines(["rosame_i_24"], **_runner_kwargs(_args(epochs=7)))[0]
+        assert runner._epoch_suffix("blocksworld") == "__ep=7"
+
+    @pytest.mark.parametrize("key", ["rosame_i_24", "rosame_i_26"])
+    def test_an_unavailable_device_fails_at_construction(self, key, monkeypatch) -> None:
+        from src.utils import torch_device
+
+        monkeypatch.setattr(torch_device, "device_available", lambda name: name == "cpu")
+        with pytest.raises(RuntimeError, match="'cuda' was requested"):
+            resolve_baselines([key], **_runner_kwargs(_args(device="cuda")))
+
+
+class TestOneSeedPerBudget:
+    @pytest.mark.parametrize("key", ["rosame_i_24", "rosame_i_milp_24", "rosame_i_26", "rosame_i_milp_26"])
+    def test_every_pixel_arm_trains_once_by_default(self, key) -> None:
+        assert resolve_baselines([key])[0].n_seeds == 1

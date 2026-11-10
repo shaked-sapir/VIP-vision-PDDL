@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 
 from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain
@@ -41,6 +41,7 @@ from benchmark.baselines.rosame_i_runner import (
     _resize_tag,
 )
 from src.milp.rosame26_budget import PER_EPOCH_DL_SECONDS, BudgetMode
+from src.utils.torch_device import resolve_device
 
 #: Epochs per domain, before the §1.2 pre-flight is allowed to lower it. 5000 is
 #: the ICAPS-26 code default and is what gate 7 measures against *outside* the
@@ -80,6 +81,18 @@ _RESIZE: Dict[str, ResizeSpec] = {
 _UNSOLVED_ROUND_STATUSES = frozenset({"NO_TRACES", "NO_SOLUTION"})
 
 
+def choose_seed(losses: Mapping[int, float], degenerate: Mapping[int, str]) -> int:
+    """The lowest-loss seed, preferring any seed that passed gate 4.
+
+    A collapsed model is never chosen over a usable one, whatever its loss; when
+    every seed collapsed the lowest-loss one is returned and the caller marks
+    the row.
+    """
+    usable = [seed for seed in losses if seed not in degenerate]
+    pool = usable or list(losses)
+    return min(pool, key=lambda seed: losses[seed])
+
+
 def _has_successful_round(mip_repairer) -> bool:
     """Whether the repairer has solved at least once; ``False`` for the DL-only arm."""
     rounds = getattr(mip_repairer, "rounds", None) or []
@@ -94,7 +107,7 @@ class Rosame26BaselineRunner(BaselineRunner):
 
     def __init__(
         self,
-        n_seeds: int = 3,
+        n_seeds: int = 1,
         device: Optional[str] = None,
         base_seed: int = 8800,
         resize: ResizeSpec = _RESIZE_FROM_TABLE,
@@ -104,10 +117,12 @@ class Rosame26BaselineRunner(BaselineRunner):
     ) -> None:
         """
         Args:
-            n_seeds: Independent models trained; the one with the lowest final
+            n_seeds: Independent models trained under the one budget; upstream
+                trains once. The one with the lowest final
                 training loss is kept, as the 24 arm does. It multiplies the
                 §1.2 projection, so the pre-flight sees it.
-            device: Torch device; defaults to cuda when available.
+            device: Torch device; defaults to cuda when available. A named
+                device this host cannot use raises here, before any data.
             base_seed: Seeds weight init and the loader's shuffle; seed ``i`` is
                 ``base_seed + i``.
             resize: Explicit override, else the per-domain table.
@@ -133,7 +148,7 @@ class Rosame26BaselineRunner(BaselineRunner):
                 f"{[m.value for m in BudgetMode]}"
             ) from None
         self.n_seeds = n_seeds
-        self.device = device
+        self.device = None if device is None else resolve_device(device)
         self.base_seed = base_seed
         self.resize = resize
         self.epochs = epochs
@@ -415,8 +430,11 @@ class Rosame26BaselineRunner(BaselineRunner):
 
         Returns:
             ``(pddl string | None, report)``. ``None`` on a simulation-mode cell,
-            a budget that fits no epoch at all, or a degenerate model. All three
-            are reported rather than raised, so one bad cell does not kill a grid.
+            a budget that fits no epoch at all, or when every seed's training
+            failed; all are reported rather than raised, so one bad cell does not
+            kill a grid. A model that fails gate 4 is still returned, with
+            ``degenerate`` set on the report, so the cell scores a row rather
+            than leaving a hole; a seed that passed the gate is preferred.
         """
         bench, partial_domain = self._bench_and_domain(domain_path)
         resolved = resolve_fold_inputs(partial_domain, prepared_trajectories, bench)
@@ -429,7 +447,9 @@ class Rosame26BaselineRunner(BaselineRunner):
         from src.milp.rosame26_emitter import (
             DegenerateModelError,
             check_not_degenerate,
+            effect_counts,
             emit_pddl,
+            empty_schema_fraction,
         )
         from src.milp.rosame26_training import Rosame26Trainer, default_parameters
 
@@ -442,6 +462,13 @@ class Rosame26BaselineRunner(BaselineRunner):
             return None, {"budget": budget}
 
         start = time.perf_counter()
+
+        def timeout_check() -> bool:
+            return (time.perf_counter() - start) > timeout_seconds
+
+        def seconds_left() -> float:
+            return max(0.0, timeout_seconds - (time.perf_counter() - start))
+
         fold = build_fold_batch(
             resolved,
             partial_domain,
@@ -478,9 +505,13 @@ class Rosame26BaselineRunner(BaselineRunner):
         seed_stops: Dict[int, Dict] = {}
         seed_rounds: Dict[int, List[Dict]] = {}
         degenerate: Dict[int, str] = {}
+        skipped_seeds: List[int] = []
 
         for index in range(self.n_seeds):
             seed = self.base_seed + index
+            if seed_models and timeout_check():
+                skipped_seeds.append(seed)
+                continue
             parameters = default_parameters(
                 domain=bench,
                 domain_assets_root=fold.grounding.assets_root,
@@ -498,6 +529,8 @@ class Rosame26BaselineRunner(BaselineRunner):
                 parameters,
                 mip_repairer=None,
                 stop_check=self._stop_check(tracker, trainer_ref),
+                timeout_check=timeout_check,
+                seconds_left=seconds_left,
             )
             trainer_ref["trainer"] = trainer
             trainer.on_built = lambda built: setattr(
@@ -514,13 +547,13 @@ class Rosame26BaselineRunner(BaselineRunner):
             tracker.restore(trainer.domain_model)
             model = emit_pddl(trainer.domain_model, bench, partial_domain)
             (run_dir / f"seed_{seed}" / "model.pddl").write_text(model)
+            seed_counts[seed] = effect_counts(model)
             try:
-                seed_counts[seed] = check_not_degenerate(model)
+                check_not_degenerate(model)
             except DegenerateModelError as error:
-                # Gate 4, per seed. The collapsed model stays on disk above.
+                # Gate 4, per seed: recorded, not dropped.
                 print(f"  [ROSAME-I 26] seed {seed} gate 4: {error}")
                 degenerate[seed] = str(error)
-                continue
 
             seed_losses[seed] = (
                 tracker.best_loss
@@ -532,14 +565,14 @@ class Rosame26BaselineRunner(BaselineRunner):
             rounds = getattr(trainer.mip_repairer, "rounds", None)
             if rounds:
                 seed_rounds[seed] = rounds
-            if trainer.stopped_early or tracker.best_epoch is not None:
-                seed_stops[seed] = {
-                    "stopped_early": trainer.stopped_early,
-                    "ran_epochs": len(history),
-                    "emitted_epoch": tracker.best_epoch
-                    if tracker.best_epoch is not None
-                    else len(history) - 1,
-                }
+            seed_stops[seed] = {
+                "stop_reason": trainer.stop_reason,
+                "stopped_early": trainer.stopped_early,
+                "ran_epochs": len(history),
+                "emitted_epoch": tracker.best_epoch
+                if tracker.best_epoch is not None
+                else len(history) - 1,
+            }
 
         report["training_seconds"] = time.perf_counter() - start
         report["device"] = default_parameters(
@@ -550,12 +583,14 @@ class Rosame26BaselineRunner(BaselineRunner):
         )["device"]
         if degenerate:
             report["degenerate_seeds"] = degenerate
+        if skipped_seeds:
+            report["skipped_seeds_timeout"] = skipped_seeds
 
         if not seed_models:
-            print("  [ROSAME-I 26] no seed produced a usable model")
+            print("  [ROSAME-I 26] no seed produced a model")
             return None, report
 
-        chosen = min(seed_losses, key=seed_losses.get)
+        chosen = choose_seed(seed_losses, degenerate)
         history = seed_histories[chosen]
         losses = [float(record["total_loss"]) for record in history]
         best = min(losses)
@@ -564,9 +599,12 @@ class Rosame26BaselineRunner(BaselineRunner):
             chosen_seed=chosen,
             chosen_final_loss=seed_losses[chosen],
             effect_counts=seed_counts[chosen],
+            empty_schema_fraction=empty_schema_fraction(seed_counts[chosen]),
+            degenerate=chosen in degenerate,
             loss_history=history,
             best_loss=best,
             best_loss_epoch=losses.index(best),
+            stop_reason=seed_stops[chosen]["stop_reason"],
         )
         if seed_stops:
             report["early_stopping"] = seed_stops
