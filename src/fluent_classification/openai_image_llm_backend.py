@@ -12,10 +12,26 @@ from src.utils.visualize import encode_image_to_base64
 class OpenAIImageLLMBackend(ImageLLMBackend, ABC):
     system_prompt: str
 
-    def __init__(self, api_key: str, model: str, temperature: float = 0.0):
-        self.client = OpenAI(api_key=api_key)
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        temperature: float = 0.0,
+        base_url: str | None = None,
+        request_extras: dict | None = None,
+    ) -> None:
+        """
+        Args:
+            base_url: An OpenAI-compatible server to send requests to instead of
+                api.openai.com, such as a vLLM server serving an open VLM.
+                ``None`` is the OpenAI API.
+            request_extras: Extra fields merged into every chat request, such
+                as vLLM's ``chat_template_kwargs`` or ``reasoning_effort``.
+        """
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         self.temperature = temperature
+        self.request_extras = dict(request_extras or {})
         self.prompt_tokens_total = 0
         self.prompt_tokens_cached = 0
         # One backend serves every worker of a window under concurrent
@@ -64,9 +80,9 @@ class OpenAIImageLLMBackend(ImageLLMBackend, ABC):
                             {
                                 "type": "text",
                                 "text": (
-                                    "Example image. According to the predicate "
-                                    "definitions in the system prompt, these are "
-                                    "the correct grounded predicates for this image."
+                                    "Example image. According to the definitions "
+                                    "in the system prompt, this is the correct "
+                                    "answer for this image, in the required format."
                                 ),
                             },
                         ],
@@ -107,6 +123,7 @@ class OpenAIImageLLMBackend(ImageLLMBackend, ABC):
         }
         if cache_key is not None:
             request["prompt_cache_key"] = cache_key
+        request.update(self.request_extras)
 
         response = self.client.chat.completions.create(**request)
         self._record_cache_usage(response)

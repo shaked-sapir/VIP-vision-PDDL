@@ -5,6 +5,8 @@ This centralizes backend creation logic to avoid code duplication across traject
 Loads configuration from config.yaml to determine API keys, models, and temperatures.
 """
 
+import os
+
 from src.fluent_classification.gemini_image_llm_backend import GeminiImageLLMBackend
 from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.fluent_classification.openai_image_llm_backend import OpenAIImageLLMBackend
@@ -43,7 +45,15 @@ class ImageLLMBackendFactory:
         Create an ImageLLMBackend instance based on the vendor and model type.
 
         Args:
-            vendor: LLM vendor ("openai" or "google")
+            vendor: A vendor block of config.yaml. Its optional ``api`` field
+                names the client protocol ("openai" or "google"; default: the
+                vendor name itself) and its optional ``base_url`` redirects the
+                OpenAI client to a compatible server, so a vLLM-served open
+                model is one more vendor block, not a new backend class. The
+                ``VIP_LLM_BASE_URL`` environment variable overrides the block's
+                ``base_url``, which is how a cluster job names the serving node.
+                An optional ``request_extras`` mapping is merged into every
+                request (vLLM's ``chat_template_kwargs``, ``reasoning_effort``).
             model_type: Task type for the model ("object_detection" or "fluent_classification")
 
         Returns:
@@ -75,18 +85,22 @@ class ImageLLMBackendFactory:
                 f"Missing configuration key for vendor '{vendor}' and model_type '{model_type}': {e}"
             )
 
-        # Create the appropriate backend
-        if vendor == "google":
+        api = config[vendor].get("api", vendor)
+        if api == "google":
             return GeminiImageLLMBackend(
                 api_key=api_key,
                 model=model,
                 temperature=temperature
             )
-        elif vendor == "openai":
+        elif api == "openai":
             return OpenAIImageLLMBackend(
                 api_key=api_key,
                 model=model,
-                temperature=temperature
+                temperature=temperature,
+                base_url=os.environ.get("VIP_LLM_BASE_URL", config[vendor].get("base_url")),
+                request_extras=config[vendor].get("request_extras"),
             )
         else:
-            raise ValueError(f"Unsupported vendor: {vendor}. Must be 'openai' or 'google'.")
+            raise ValueError(
+                f"Unsupported api '{api}' for vendor '{vendor}'. Must be 'openai' or 'google'."
+            )

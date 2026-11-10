@@ -24,6 +24,7 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
             self,
             llm_backend: ImageLLMBackend,
             init_state_image_path: Path,
+            example_dir: Path | None = None,
             type_to_objects: dict[str, list[str]] = None,
             temperature: float = None,
             use_uncertain: bool = True
@@ -34,7 +35,8 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
             llm_backend=llm_backend,
             type_to_objects=type_to_objects,
             temperature=temperature,
-            init_state_image_path=init_state_image_path
+            init_state_image_path=init_state_image_path,
+            example_dir=example_dir,
         )
 
         # Mapping from LLM-detected object names to gym object names
@@ -72,7 +74,7 @@ class LLMHanoiFluentClassifier(LLMFluentClassifier):
                 pred = pred.replace("on", "on-disc").replace("default", "disc")
             updated_preds.append(f"{pred}: 2")
 
-        self.fewshot_examples = [(init_state_image_path, updated_preds)]
+        self.fewshot_examples = [(self.example_image_path, updated_preds)]
 
     def set_type_to_objects(self, type_to_objects: dict[str, list[str]]) -> None:
         """Sets the type_to_objects mapping and regenerates possible predicates."""

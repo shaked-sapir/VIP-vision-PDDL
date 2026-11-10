@@ -115,9 +115,10 @@ def _parse_trajectory_file(trajectory_path: Path) -> tuple[List[str], List[str],
     text = trajectory_path.read_text().strip()
 
     # Extract all predicate blocks: (:init ...) and (:state ...)
-    # Each block contains nested parens like (:init (clear a) (on a b) ...),
-    # so we match one-or-more (...) groups inside.
-    state_pattern = re.compile(r'\(:(init|state)\s+((?:\([^)]+\)\s*)+)\)', re.DOTALL)
+    # Each block contains nested parens like (:init (clear a) (on a b) ...);
+    # zero groups is a state with no positive literal (every fluent masked or
+    # false), which must still count as a state.
+    state_pattern = re.compile(r'\(:(init|state)\s*((?:\([^)]+\)\s*)*)\)', re.DOTALL)
     # Extract all action blocks: (operator: (action_name args...))
     action_pattern = re.compile(r'\(operator:\s*\(([^)]+)\)\)')
 

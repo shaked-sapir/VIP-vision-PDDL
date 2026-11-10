@@ -379,3 +379,101 @@ the two doc errors; retract the failure doc's §2; re-run every
 Week 2 then is: the remaining parity rows, the renderer in production, the
 large corpora, and the fluent-classification variants (zero-shot; the init
 image as the example).
+
+---
+
+## 5. Pre-check results, 2026-11-08 (A3 + A4, run on the cluster)
+
+Both models classified the **same frames**: five fresh PDDLGym problems per gym
+domain (`benchmark/data/<domain>/precheck_frames__seed7/`, `--gen-mode generate
+--no-inference --seed 7`) and the first five of `src/domains/{depot,gripper}/problems`.
+Driver: `python -m benchmark.vlm_precheck`; cluster job
+`scripts/cluster_image/precheck.sbatch` (one CPU task per domain, the model
+remote); Qwen served by `scripts/cluster_image/serve_vlm.sbatch` on one
+rtx_4090 (`vllm 0.33.0`, `Qwen/Qwen3-VL-8B-Instruct` bf16, 12k context — a
+24 GB card leaves 1.8 GB of KV cache after the 8B weights). Protocol: the
+existing one-shot (frame 0 of the same problem with its GT facts), one call
+in flight per task, five tasks sharing the one GPU.
+
+| domain | model | frames | s/frame | tokens/frame | cache hit | mask rate | flip rate |
+|---|---|---|---|---|---|---|---|
+| blocksworld | gpt-5.2 | 73 | 3.1 | 1109 | 0.00 | 0.007 | 0.012 |
+| blocksworld | qwen3-vl-8b | 73 | 1.2 | 1216 | 0.00 | 0.609 | 0.151 |
+| depot | gpt-5.2 | 47 | 6.2 | 1983 | 0.16 | 0.000 | 0.016 |
+| depot | qwen3-vl-8b | 47 | 4.3 | 1818 | 0.00 | 0.478 | 0.119 |
+| gripper | gpt-5.2 | 65 | 4.3 | 1828 | 0.13 | 0.049 | 0.040 |
+| gripper | qwen3-vl-8b | 65 | 2.4 | 1758 | 0.00 | 0.629 | 0.138 |
+| hanoi | gpt-5.2 | 73 | 4.8 | 2084 | 0.66 | 0.162 | 0.020 |
+| hanoi | qwen3-vl-8b | 73 | 5.1 | 1995 | 0.00 | 0.401 | 0.093 |
+| npuzzle | gpt-5.2 | 73 | 29.1 | 1310 | 0.00 | 0.050 | 0.002 |
+| npuzzle | qwen3-vl-8b | 73 | 27.3 | 1391 | 0.00 | 0.700 | 0.129 |
+
+The existing small corpora (gpt-5.2, same protocol, ten problems) for scale:
+blocksworld 0.000 / 0.016, depot 0.006 / 0.033, gripper 0.003 / 0.024,
+hanoi 0.134 / 0.052, npuzzle 0.452 / 0.000 (mask / flip).
+
+What the numbers say:
+
+- **Qwen3-VL-8B is not a drop-in replacement under this protocol.** Mask
+  40–70 %, flip 9–15 %, against gpt-5.2's 0–16 % and 0.2–4 %. Per frame it is
+  about twice as fast on the small domains and no faster on hanoi/npuzzle,
+  with five tasks sharing one card.
+- **Half of Qwen's masking is a format failure, the rest is vision.** The
+  rejected replies are bare fact lists copied from the example turn's format
+  (`ontable(red:block) on(cyan:block,red:block) ...`, no `: <score>`), which
+  the parser cannot read, so the whole frame is UNCERTAIN. A probe that
+  rewrites the example turn as a complete scored list
+  (`scripts/cluster_image/probe_scored_example.py`) brings the mask rate to
+  0–12 % on depot/gripper but leaves the flip rate at 15 %. The model copies
+  the example rather than reading the frame.
+- **The in-context example contradicts the system prompt for every model:**
+  the prompt asks for a 0/1/2 score on every grounded predicate, the example
+  turn lists only the true facts. gpt-5.2 follows the prompt; an 8B model
+  follows the example. A1's shared-example protocol should make the example
+  turn a complete scored answer.
+- **npuzzle under gpt-5.2 is a different corpus today** than the one on disk:
+  mask 0.05 vs 0.45, and 29 s/frame. The time is output length, not
+  reasoning: a measured npuzzle call returns 2,700 completion tokens and 0
+  reasoning tokens (blocksworld: 234 and 0). gpt-5.2 ran with **no
+  reasoning** in every run here: the backend sends no `reasoning_effort`,
+  and the model's default is none (snapshot `gpt-5.2-2025-12-11`).
+  Regenerated small corpora will not reproduce the old npuzzle profile.
+- **Prompt caching mostly misses:** two domains never reach the 1024-token
+  cacheable prefix, only hanoi exceeds half. A1's usage log matters.
+- **Cluster facts (B1):** compute nodes reach api.openai.com and huggingface.co;
+  rtx_4090 is the GPU to pin (30 nodes × 3, four idle, the ICAPS-26 card);
+  `~/.config/pip/pip.conf` carries an unresolvable NVIDIA index that stalls
+  every pip install unless `PIP_CONFIG_FILE=/dev/null`. The image-track
+  checkout on the cluster is `~/projects/VIP-image` (rsync of the working
+  tree, not a git clone); `vip_venv11` runs the pipeline as is.
+- **A pipeline fix fell out of it:** a frame where nothing parsed is written as
+  `(:state )`, and `trajectory_json_converter._parse_trajectory_file` dropped
+  such states (its regex required one literal), so the problem failed with an
+  action/state mismatch. Fixed, with a test; `llm_fluent_classifier` now logs
+  an excerpt of a rejected reply.
+
+Open for A5 (Wednesday): if an open model is still wanted, the next candidate
+is a larger Qwen3-VL (32B on an rtx_6000 48 GB, or a 72B-class model on an
+rtx_pro_6000 96 GB), with the scored-example protocol; the 8B result says the
+one-shot protocol as it stands is the wrong test for small open models.
+
+### 5.1 Protocol fixes landed on 2026-11-10 (A1 + the scored example)
+
+- **Scored example.** `LLMFluentClassifier._scored_examples` renders the
+  one-shot example's assistant turn as the full predicate universe (`: 2` for
+  the frame's true facts, `: 0` for every other grounded predicate) at send
+  time; `fewshot_examples` still stores bare facts. On Qwen3.8-27B this took
+  the mask rate from 0.17 to 0.00 on blocksworld/depot problem0 with the flip
+  rate unchanged; gpt-5.2 is unaffected.
+- **Held-out example (A1).** `domains.<d>.example_dir` in `config.yaml` names
+  `src/domains/<d>/example/` (one frame, its `*_trajectory.json`, its problem):
+  blocksworld/hanoi/npuzzle from one generated problem at seed 1000,
+  depot/gripper from problem9 (so their corpora run with `--problem-end 8`).
+  With it set, the handler classifies frame 0 like every other frame, so
+  state 0 is inferred; the GT trajectory beside it still carries the true
+  state 0 for the "1 clean state" rows via GT injection. Output names carry
+  `__fs=shared`. Unset, the old protocol (own frame 0, not classified) is
+  reproduced exactly. Checked on all five domains with gpt-5.2: hanoi and
+  gripper state 0 now differ from GT, as an inferred state should.
+- Both are in the working tree, uncommitted; the cluster checkout
+  `~/projects/VIP-image` has them.

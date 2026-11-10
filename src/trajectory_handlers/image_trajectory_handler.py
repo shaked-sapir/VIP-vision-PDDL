@@ -127,16 +127,23 @@ class ImageTrajectoryHandler(ABC):
                                          ground_actions: List[str]) -> List[dict]:
         """Classify each image frame and build an inferred trajectory.
 
-        First state uses few-shot GT examples; subsequent states are LLM-classified.
+        With the problem's own frame 0 as the example, state 0 is that frame's GT
+        facts and frames 1..T are classified. With an external example
+        (``example_dir``), frame 0 is classified like every other frame.
         """
+        external_example = getattr(self.fluent_classifier, "example_dir", None) is not None
+        first_frame = 0 if external_example else 1
+
         # Phase 1: every frame's predicates, in frame order. classify(frame_i)
         # reads only frame i, so this is where the strategy applies.
         frame_paths = [
-            self.get_image_path_by_index(images_path, i + 1)
-            for i in range(len(ground_actions))
+            self.get_image_path_by_index(images_path, i)
+            for i in range(first_frame, len(ground_actions) + 1)
         ]
-        frame_predicates = self.frame_classifier.classify_frames(
+        classified = self.frame_classifier.classify_frames(
             self.fluent_classifier, frame_paths)
+        initial_predicates = classified[0] if external_example else None
+        frame_predicates = classified[1:] if external_example else classified
 
         # Phase 2: assembly. Indexed, so completion order cannot reach the
         # trajectory even when phase 1 ran concurrently.
@@ -146,7 +153,11 @@ class ImageTrajectoryHandler(ABC):
         for i, action in enumerate(ground_actions):
             next_state_predicates = frame_predicates[i]
 
-            if i == 0:
+            if i == 0 and initial_predicates is not None:
+                current_literals = [
+                    parse_image_predicate_to_gym(pred, val)
+                    for pred, val in initial_predicates.items()]
+            elif i == 0:
                 current_literals = [
                     multi_replace_predicate(p, self.fluent_classifier.imaged_obj_to_gym_obj_name)
                     for p in self.fluent_classifier.fewshot_examples[0][1]]

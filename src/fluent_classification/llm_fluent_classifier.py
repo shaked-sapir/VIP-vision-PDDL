@@ -20,8 +20,15 @@ class LLMFluentClassifier(FluentClassifier, ABC):
             llm_backend: ImageLLMBackend,
             type_to_objects: dict[str, list[str]],
             init_state_image_path: Path,
-            temperature: float = None
+            temperature: float = None,
+            example_dir: Path | None = None,
     ):
+        """
+        Args:
+            example_dir: A folder holding one frame and its ``*_trajectory.json``,
+                used as the one-shot example instead of the problem's own frame 0.
+                ``None`` keeps the problem's frame 0 as the example.
+        """
         self.backend = llm_backend
         self.type_to_objects = type_to_objects
         self.temperature = temperature if temperature is not None else llm_backend.temperature
@@ -35,13 +42,30 @@ class LLMFluentClassifier(FluentClassifier, ABC):
         self.result_regex = self._get_result_regex()
         self.llm_result_parse_func = self._parse_llm_predicate_relevance
 
-        # Find trajectory JSON in the same directory as the image
-        trajectory_files = list(init_state_image_path.parent.glob("*_trajectory.json"))
+        # The example's facts come from the trajectory JSON beside its frame:
+        # the problem's own frame 0, or the external example folder.
+        self.example_dir = Path(example_dir) if example_dir else None
+        source_dir = self.example_dir or Path(init_state_image_path).parent
+        trajectory_files = list(source_dir.glob("*_trajectory.json"))
+        if not trajectory_files:
+            raise FileNotFoundError(f"no *_trajectory.json beside the example in {source_dir}")
         self.gt_json_trajectory_path: Path = trajectory_files[0]
+        self.example_image_path: Path = self._example_image(Path(init_state_image_path))
         self.gt_json_trajectory = json.loads(self.gt_json_trajectory_path.read_text())
         self.fewshot_examples = []
 
         self.user_instruction = self._get_user_instruction()
+
+    def _example_image(self, init_state_image_path: Path) -> Path:
+        """The frame shown as the example: the external folder's one frame, else frame 0."""
+        if self.example_dir is None:
+            return init_state_image_path
+        frames = sorted(self.example_dir.glob("*.png"))
+        if len(frames) != 1:
+            raise FileNotFoundError(
+                f"an example folder holds exactly one .png frame; {self.example_dir} has {len(frames)}"
+            )
+        return frames[0]
 
     @abstractmethod
     def _get_system_prompt(self) -> str:
@@ -112,7 +136,7 @@ class LLMFluentClassifier(FluentClassifier, ABC):
                 user_instruction=self.user_instruction,
                 image_path=image_path,
                 temperature=self.temperature,
-                examples=examples,
+                examples=self._scored_examples(examples),
                 cache_key=prompt_cache_key(
                     "fluent_classification", self.system_prompt
                 ),
@@ -127,9 +151,29 @@ class LLMFluentClassifier(FluentClassifier, ABC):
                 if attempt < max_retries - 1:
                     print(f"  ⚠️  Warning: LLM did not return facts in expected format (attempt {attempt + 1}/{max_retries}), retrying...")
                 else:
-                    print(f"  ⚠️  Warning: LLM did not return facts in expected format after {max_retries} attempts for image {str(image_path).split('/')[-1]}")
+                    excerpt = " ".join(text.split())[:200]
+                    print(f"  ⚠️  Warning: LLM did not return facts in expected format after {max_retries} attempts for image {str(image_path).split('/')[-1]}; last reply: {excerpt!r}")
 
         return {self.llm_result_parse_func(f) for f in facts}
+
+    def _scored_examples(
+            self, examples: list[tuple[Path | str, list[str]]]
+    ) -> list[tuple[Path | str, list[str]]]:
+        """Each example's facts as the complete scored list the system prompt asks for.
+
+        An example is stored as the true facts of its frame; the model is asked
+        for ``<predicate>: <score>`` over every grounded predicate, so the turn it
+        sees scores the true facts 2 and every other predicate of the universe 0.
+        A fact outside the universe is kept, scored 2.
+        """
+        universe = sorted(self._generate_all_possible_predicates())
+        rendered = []
+        for image, facts in examples:
+            true_facts = set(facts)
+            lines = [f"{p}: {2 if p in true_facts else 0}" for p in universe]
+            lines += [f"{p}: 2" for p in sorted(true_facts.difference(universe))]
+            rendered.append((image, lines))
+        return rendered
 
     def simulate_relevance_judgement(self, image_path: Path | str,
                                      examples: list[tuple[Path | str, list[str]]]) -> Dict[str, int]:

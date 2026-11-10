@@ -7,7 +7,9 @@ Covers:
      never read.
   2. Interior rows carry the clamped CV probabilities, column-mapped by name.
   3. A proposition the CV head has no column for gets the neutral 0.5.
-  4. A CV column with no instance counterpart is dropped, not misaligned.
+  4. A CV column over an object the instance lacks is dropped, not misaligned;
+     one naming a predicate the domain lacks raises, as does any anchor fluent
+     with no grounding.
   5. A soft goal drops the row at T+1 rather than inventing one.
   6. Shape mismatches and ungroundable action calls raise.
   7. It agrees with `observation_to_trace` on the propositions they share.
@@ -125,6 +127,57 @@ def test_unknown_cv_column_is_dropped_without_shifting():
     interior = _probs_by_name(instance, trace.obs_p[2])
     assert interior == {"at_r1": 0.1, "at_r2": 0.7}, interior
     print("PASS  an unmappable CV column is dropped, columns stay aligned")
+
+
+def _hyphenated_world():
+    """``at-robby`` over two rooms: the spelling the project's PDDL declares."""
+    domain = PSDomain(
+        [("room", None)],
+        [("at-robby", ["room"])],
+        [("move", ["room", "room"])],
+        name="hyphenated",
+    )
+    return domain, PSInstance(domain, [("r1", "room"), ("r2", "room")])
+
+
+def test_a_column_over_an_undeclared_predicate_raises():
+    """An underscored column against a hyphenated domain is a misspelling, not
+    a phantom: it must not be dropped as if its object were missing."""
+    _domain, instance = _hyphenated_world()
+    probs = [[0.0, 1.0], [0.2, 0.8], [0.0, 1.0]]
+    calls = [("move", ["r1", "r2"]), ("move", ["r2", "r1"])]
+
+    try:
+        cv_predictions_to_trace(
+            instance, ["at_robby r1", "at_robby r2"], probs, calls,
+            init_fluents={("at-robby", ("r1",))},
+        )
+    except ValueError as error:
+        assert "at_robby" in str(error), error
+    else:
+        raise AssertionError("expected ValueError for an undeclared predicate")
+    print("PASS  a CV column naming an undeclared predicate raises")
+
+
+def test_an_anchor_with_no_grounding_raises():
+    """A GT anchor is a fact about the trace's own problem; one that does not
+    resolve is a bug in the caller, never something to drop."""
+    _domain, instance = _hyphenated_world()
+    probs = [[0.0, 1.0], [0.2, 0.8], [0.0, 1.0]]
+    calls = [("move", ["r1", "r2"]), ("move", ["r2", "r1"])]
+    names = ["at-robby r1", "at-robby r2"]
+
+    for anchor, why in [
+        ({("at_robby", ("r1",))}, "misspelled predicate"),
+        ({("at-robby", ("r9",))}, "object outside the instance"),
+    ]:
+        try:
+            cv_predictions_to_trace(instance, names, probs, calls, init_fluents=anchor)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected ValueError for an anchor with a {why}")
+    print("PASS  an anchor fluent with no grounding raises")
 
 
 def test_soft_goal_drops_the_final_row():
@@ -269,6 +322,8 @@ if __name__ == "__main__":
     test_interior_rows_are_clamped_cv_values()
     test_missing_cv_column_is_neutral()
     test_unknown_cv_column_is_dropped_without_shifting()
+    test_a_column_over_an_undeclared_predicate_raises()
+    test_an_anchor_with_no_grounding_raises()
     test_soft_goal_drops_the_final_row()
     test_shape_and_grounding_guards()
     test_parity_with_observation_to_trace_on_the_shared_subset()

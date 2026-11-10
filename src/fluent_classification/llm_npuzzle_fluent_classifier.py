@@ -18,6 +18,7 @@ class LLMNpuzzleFluentClassifier(LLMFluentClassifier):
             self,
             llm_backend: ImageLLMBackend,
             init_state_image_path: Path,
+            example_dir: Path | None = None,
             type_to_objects: dict[str, list[str]] = None,
             temperature: float = None,
             use_uncertain: bool = True
@@ -28,7 +29,8 @@ class LLMNpuzzleFluentClassifier(LLMFluentClassifier):
             llm_backend=llm_backend,
             type_to_objects=type_to_objects,
             temperature=temperature,
-            init_state_image_path=init_state_image_path
+            init_state_image_path=init_state_image_path,
+            example_dir=example_dir,
         )
 
         # Mapping from LLM-detected object names to gym object names
@@ -38,7 +40,7 @@ class LLMNpuzzleFluentClassifier(LLMFluentClassifier):
             **{f"p_{i}_{j}": f"p_{i}_{j}" for i in range(1,6) for j in range(1,6)} # positions up to 5x5
         }
 
-        self.fewshot_examples = [(init_state_image_path, self.extract_predicates_from_gt_state())]
+        self.fewshot_examples = [(self.example_image_path, self.extract_predicates_from_gt_state())]
 
     def extract_predicates_from_gt_state(self, state_index: int = 0) -> list[str]:
         """Return GT init-state predicates translated to the typed n_puzzle schema.

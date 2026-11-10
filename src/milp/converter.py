@@ -269,18 +269,78 @@ def _positive_propositions(entries: List[ObservationP]) -> List:
     return [op.proposition for op in entries if op.prob > 0.5]
 
 
+def _unresolved_fluent_reason(
+    instance: PSInstance, name: str, arg_names: Sequence[str]
+) -> str:
+    """Why :func:`proposition_of` came back empty, in the caller's terms."""
+    if instance.domain.get_predicate(name) is None:
+        declared = sorted(p.name for p in instance.domain.predicates)
+        return f"the domain declares no predicate '{name}' (it declares {declared})"
+    missing = [n for n in arg_names if instance.get_object(n) is None]
+    if missing:
+        return f"the instance was not grounded on object(s) {missing}"
+    return f"no grounded proposition for {name}{list(arg_names)}"
+
+
 def _resolve_fluents(
     instance: PSInstance, fluents: Optional[Set[Tuple[str, Tuple[str, ...]]]]
 ) -> Optional[List]:
-    """``(name, args)`` fluent tuples -> instance Propositions; None stays None."""
+    """``(name, args)`` fluent tuples -> instance Propositions; None stays None.
+
+    Raises:
+        ValueError: on a fluent with no grounding. These are GT anchors over the
+            trace's own problem, so an unresolved one is a caller's defect.
+    """
     if fluents is None:
         return None
     resolved = []
     for name, arg_names in fluents:
         prop = proposition_of(instance, name, arg_names)
-        if prop is not None:
-            resolved.append(prop)
+        if prop is None:
+            raise ValueError(
+                f"anchor fluent ({name} {' '.join(arg_names)}) has no grounding — "
+                f"{_unresolved_fluent_reason(instance, name, arg_names)}"
+            )
+        resolved.append(prop)
     return resolved
+
+
+def proposition_columns(
+    instance: PSInstance, proposition_names: Sequence[str]
+) -> Dict[Any, int]:
+    """``{instance Proposition: column}`` for a head's ``"name arg1 arg2"`` keys.
+
+    A column over an object the instance was not grounded on has no counterpart
+    and is left out: the head is grounded over a corpus-wide object union, so
+    such columns are expected. A column naming a predicate the domain does not
+    declare is a spelling defect, not a phantom.
+
+    Raises:
+        ValueError: on an empty key, or one whose predicate the domain lacks.
+    """
+    columns: Dict[Any, int] = {}
+    phantom = 0
+    for index, key in enumerate(proposition_names):
+        parts = key.split()
+        if not parts:
+            raise ValueError(f"column {index} has an empty proposition key")
+        name, arg_names = parts[0], parts[1:]
+        if instance.domain.get_predicate(name) is None:
+            raise ValueError(
+                f"column {index} '{key}' has no counterpart in the instance grounding — "
+                f"{_unresolved_fluent_reason(instance, name, arg_names)}"
+            )
+        prop = proposition_of(instance, name, arg_names)
+        if prop is None:
+            phantom += 1
+            continue
+        columns[prop] = index
+    if phantom:
+        logger.debug(
+            "%d of %d columns name objects outside the instance grounding",
+            phantom, len(proposition_names),
+        )
+    return columns
 
 
 def _resolve_actions(
@@ -448,7 +508,8 @@ def cv_predictions_to_trace(
     hard rows built from ``init_fluents`` and ``goal_fluents``, so ``probs[0]``
     and ``probs[T]`` are never read. Every proposition of ``instance`` appears in
     every row; one the CV head has no column for gets ``0.5``, which carries zero
-    weight in the encoder's objective.
+    weight in the encoder's objective. A head column over an object the instance
+    lacks is skipped (see :func:`proposition_columns`).
 
     Args:
         proposition_names: the CV head's column order, as ``"name arg1 arg2"``
@@ -460,7 +521,8 @@ def cv_predictions_to_trace(
             final state soft and drops the hard row at ``T + 1``.
 
     Raises:
-        ValueError: on a shape mismatch, or an action call with no grounding.
+        ValueError: on a shape mismatch, an action call or anchor fluent with no
+            grounding, or a column naming a predicate the domain does not declare.
     """
     step = len(calls)
     if len(probs) != step + 1:
@@ -470,20 +532,7 @@ def cv_predictions_to_trace(
             f"prediction width {len(probs[0])} != {len(proposition_names)} proposition names"
         )
 
-    columns: Dict[Any, int] = {}
-    unmapped = 0
-    for index, key in enumerate(proposition_names):
-        parts = key.split()
-        prop = proposition_of(instance, parts[0], parts[1:]) if parts else None
-        if prop is None:
-            unmapped += 1
-            continue
-        columns[prop] = index
-    if unmapped:
-        logger.warning(
-            "%d of %d CV propositions have no counterpart in the instance grounding",
-            unmapped, len(proposition_names),
-        )
+    columns = proposition_columns(instance, proposition_names)
 
     obs_p: Dict[int, List[ObservationP]] = {}
     for t in range(2, step + 1):

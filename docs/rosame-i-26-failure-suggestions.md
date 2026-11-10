@@ -33,6 +33,18 @@ reported as MILP results.
 
 ## 2. The cause, isolated
 
+> **Retracted 2026-11-07.** The experiment below is reproducible but its
+> conclusion is wrong. The UNSAT is a spelling defect in our adapter, not
+> upstream's rule: `rosame26_milp_runner.py` handed the solver its anchors and
+> CV columns in the head's underscored dialect while the CP domain keeps the
+> PDDL hyphens, and `converter._resolve_fluents` dropped every miss silently.
+> Hanoi lost all 25 init anchors and gripper lost `at-robby`; with nothing
+> anchoring the hyphenated fluents, `add >= 1` had no model to find. Respelled,
+> `upstream()` is OPTIMAL in 0.3 s on both domains and the GT model is
+> feasible. The fix is the `CpSpelling` boundary in `src/milp/rosame26_repairer.py`
+> plus a raising converter; `schema_nonempty` stays as upstream has it. Audit
+> and evidence: `docs/image-experiments-week1-plan.md` §3.2b.
+
 Disabling each upstream rule in turn, on real gripper and hanoi folds:
 
 ```
@@ -283,6 +295,10 @@ of their network, so this confound applies to the DL-only pair.
 ---
 
 ## 4. Options for the UNSAT issue
+
+> **Retracted 2026-11-07** with §2: none of these options is needed. The arm
+> keeps `upstream()`; the affected `ROSAME-I_MILP_26` rows on gripper, hanoi
+> and depot are re-run after the spelling fix.
 
 Not a decision to take on fidelity grounds alone: the rule is not in the paper,
 so "upstream fidelity" here means fidelity to their *code*, not their method.

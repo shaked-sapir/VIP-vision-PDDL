@@ -17,6 +17,7 @@ key must differ on the four domains that reorder, and agree on blocksworld.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, List
 
 import pytest
@@ -54,8 +55,8 @@ _OBJECTS = {
 }
 
 
-def _head(domain_key: str, root: Path):
-    write_grounding_assets(domain_key, _OBJECTS[domain_key], root)
+def _head(domain_key: str, root: Path, objects: Dict[str, List[str]] | None = None):
+    write_grounding_assets(domain_key, objects or _OBJECTS[domain_key], root)
     return get_domain_model(domain_key, str(root))
 
 
@@ -105,7 +106,8 @@ class TestStateProbabilities:
 class TestStateLabels:
     def test_endpoints_are_dropped(self) -> None:
         """``repaired_states`` is per image; the endpoints are hard-fixed."""
-        label = state_labels_for(_FakeInstance(), [set()] * 5, {"p a": 0})
+        instance = _FakeInstance({("p", ("a",)): "P"})
+        label = state_labels_for(instance, [set()] * 5, {"p a": 0})
         assert label.shape == (3, 1)
 
     def test_a_true_proposition_sets_its_column(self) -> None:
@@ -121,12 +123,24 @@ class TestStateLabels:
         )
         assert label.tolist() == [[1.0, 0.0]]
 
+    def test_a_column_over_an_undeclared_predicate_raises(self) -> None:
+        """A missing object is a phantom; a missing predicate is a misspelling."""
+        instance = _FakeInstance({("p", ("a",)): "P"})
+        with pytest.raises(ValueError, match="no predicate 'q'"):
+            state_labels_for(instance, [set(), {"P"}, set()], {"p a": 0, "q a": 1})
+
 
 class _FakeInstance:
-    """Minimal stand-in: ``proposition_of`` resolves through its mapping."""
+    """Minimal stand-in: ``proposition_of`` resolves through its mapping, and
+    ``domain.get_predicate`` knows exactly the predicate names it mentions."""
 
     def __init__(self, mapping=None) -> None:
         self._mapping = mapping or {}
+        names = {name for name, _ in self._mapping}
+        self.domain = SimpleNamespace(
+            get_predicate=lambda name: name if name in names else None,
+            predicates=[SimpleNamespace(name=name) for name in sorted(names)],
+        )
 
     @property
     def propositions(self):
@@ -136,16 +150,16 @@ class _FakeInstance:
 @pytest.fixture(autouse=True)
 def _stub_proposition_of(monkeypatch, request):
     """Route ``proposition_of`` at :class:`_FakeInstance` only."""
-    from src.milp import rosame26_repairer
+    from src.milp import converter
 
-    original = rosame26_repairer.proposition_of
+    original = converter.proposition_of
 
     def routed(instance, name, args):
         if isinstance(instance, _FakeInstance):
             return instance._mapping.get((name, tuple(args)))
         return original(instance, name, args)
 
-    monkeypatch.setattr(rosame26_repairer, "proposition_of", routed)
+    monkeypatch.setattr(converter, "proposition_of", routed)
 
 
 # ── the model channel, through the alignment ────────────────────────────
@@ -564,3 +578,82 @@ class TestAgainstTheRealEncoder:
         assert set(labels) == {s.name for s in trainer.domain_model.action_schemas}
         for schema in trainer.domain_model.action_schemas:
             assert labels[schema.name].shape == (int(schema.randn.shape[0]), 4)
+
+
+# ── the spelling boundary: head dialect in, CP dialect out ──────────────
+
+
+_GRIPPER_OBJECTS = {"ball": ["b1"], "room": ["r1", "r2"], "gripper": ["g1"]}
+
+#: A canonical head index over the gripper micro-fold below.
+_GRIPPER_INDEX = {
+    "at_robby r1": 0, "at_robby r2": 1, "at b1 r1": 2,
+    "at b1 r2": 3, "free g1": 4, "carry b1 g1": 5,
+}
+
+
+def _gripper_context(ps_domain) -> TraceContext:
+    """pick, move, drop over one ball and two rooms, spelled as the head does."""
+    from planning_structs.instance import Instance as PSInstance
+
+    instance = PSInstance(
+        ps_domain,
+        [("b1", "ball"), ("r1", "room"), ("r2", "room"), ("g1", "gripper")],
+    )
+    return TraceContext(
+        instance=instance,
+        calls=[("pick", ["b1", "r1", "g1"]), ("move", ["r1", "r2"]), ("drop", ["b1", "r2", "g1"])],
+        init_fluents={("at_robby", ("r1",)), ("at", ("b1", "r1")), ("free", ("g1",))},
+        goal_fluents={("at_robby", ("r2",)), ("at", ("b1", "r2")), ("free", ("g1",))},
+    )
+
+
+class TestTheSpellingBoundary:
+    """The head is underscored by construction; the CP domain keeps the PDDL
+    hyphens. The repairer owns the one translation between them."""
+
+    def test_contexts_and_columns_arrive_in_the_cp_spelling(self, tmp_path) -> None:
+        ps_domain = build_domain("gripper")
+        repairer = Rosame26MipRepairer(
+            _head("gripper", tmp_path, _GRIPPER_OBJECTS), ps_domain,
+            {0: _gripper_context(ps_domain)}, _GRIPPER_INDEX,
+        )
+        assert ("at-robby", ("r1",)) in repairer.contexts[0].init_fluents
+        assert ("at-robby", ("r2",)) in repairer.contexts[0].goal_fluents
+        assert repairer.proposition_index["at-robby r2"] == 1
+        assert "at_robby r2" not in repairer.proposition_index
+
+    def test_a_name_the_domain_lacks_passes_through_unchanged(self, tmp_path) -> None:
+        """So the converter, not the respelling, reports it."""
+        ps_domain = build_domain("gripper")
+        repairer = Rosame26MipRepairer(
+            _head("gripper", tmp_path, _GRIPPER_OBJECTS), ps_domain,
+            {}, {"no_such_thing r1": 0},
+        )
+        assert repairer.proposition_index == {"no_such_thing r1": 0}
+
+    def test_a_hyphenated_fold_solves_and_labels_its_hyphenated_fluents(
+        self, tmp_path
+    ) -> None:
+        """Before the boundary existed every hyphenated anchor was dropped
+        silently and this fold was UNSAT (plan §3.2b of the week plan)."""
+        ps_domain = build_domain("gripper")
+        context = _gripper_context(ps_domain)
+        repairer = Rosame26MipRepairer(
+            _head("gripper", tmp_path, _GRIPPER_OBJECTS), ps_domain,
+            {0: context}, _GRIPPER_INDEX, mip_traces=1,
+        )
+        torch.manual_seed(0)
+        z = torch.rand(1, 2, len(_GRIPPER_INDEX))
+        repairer.update(
+            torch.tensor([0]), z, torch.zeros(1, 3, 3), torch.zeros(1, 6), torch.zeros(1, 6)
+        )
+        repairer.run_fixer(30.0)
+
+        assert repairer.rounds[-1]["status"] == "OK", repairer.rounds[-1]
+        _, label, _ = repairer.pseudo_labels.traces[0]
+        assert label.shape == (2, len(_GRIPPER_INDEX))
+        assert label[0, _GRIPPER_INDEX["carry b1 g1"]] == 1.0, "after pick"
+        assert label[0, _GRIPPER_INDEX["at_robby r1"]] == 1.0, "robby has not moved yet"
+        assert label[1, _GRIPPER_INDEX["at_robby r2"]] == 1.0, "after move"
+        assert label[1, _GRIPPER_INDEX["at_robby r1"]] == 0.0, "after move"

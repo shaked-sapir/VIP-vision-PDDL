@@ -23,9 +23,11 @@ class LLMVisualComponentsMixin:
     detector_class: Type[ObjectDetector]
     classifier_class: Type[FluentClassifier]
 
-    def __init__(self, *, pddl_domain_file: Path, vendor: str = "openai", **kwargs):
+    def __init__(self, *, pddl_domain_file: Path, vendor: str = "openai",
+                 example_dir: Path | None = None, **kwargs):
         super().__init__(**kwargs)
         self.vendor = vendor
+        self.example_dir = Path(example_dir) if example_dir else None
         self.domain = DomainParser(pddl_domain_file, partial_parsing=True).parse_domain()
 
     def _pre_init_hook(self, init_state_image_path: Path) -> None:
@@ -49,4 +51,5 @@ class LLMVisualComponentsMixin:
                 vendor=self.vendor, model_type="fluent_classification"),
             type_to_objects=detected_objects,
             init_state_image_path=init_state_image_path,
+            example_dir=self.example_dir,
         )

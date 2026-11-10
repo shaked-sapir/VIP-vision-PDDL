@@ -15,7 +15,7 @@ Every module under `src/` has a clear owner responsibility. Do not cross these b
 | Directory | Responsibility |
 |---|---|
 | `src/object_detection/` | Detect objects in a single image frame. Input: image. Output: list of `BoundedObject`. |
-| `src/fluent_classification/` | Classify PDDL fluents from a single image frame. Input: image. Output: `Dict[str, PredicateTruthValue]`. LLM path uses `ImageLLMBackend` protocol + `ImageLLMBackendFactory` (OpenAI/Gemini). |
+| `src/fluent_classification/` | Classify PDDL fluents from a single image frame. Input: image. Output: `Dict[str, PredicateTruthValue]`. LLM path uses `ImageLLMBackend` protocol + `ImageLLMBackendFactory`; a vendor block of `config.yaml` names its client `api` (`openai` / `google`) and may set `base_url` + `request_extras`, so an open VLM behind a vLLM server is one more block (`vllm`), not a backend class. The one-shot example is either the problem's own frame 0 (then frame 0 is not classified) or a held-out `example_dir` per domain (`src/domains/<d>/example/`, frame 0 classified like every frame, outputs tagged `__fs=shared`); the example turn is sent as the complete scored list the prompt asks for (`_scored_examples`). |
 | `src/trajectory_handlers/` | Image→trajectory **inference** per domain: `ImageTrajectoryHandler` (classify frames → `.trajectory` + `.masking_info`) ← `ExternalImageTrajectoryHandler` (reads a problem folder's `state_*.png` + GT) ← `LLMExternalImageTrajectoryHandler` (+ `LLMVisualComponentsMixin`) ← one class per domain. `frame_classification.py` (`FrameClassifier` protocol: sequential or concurrent per-frame VLM calls, results always in frame order). No handler walks or renders anything; frames come from `src/trace_generation/`. |
 | `src/trace_generation/` | Source-agnostic corpus generation (no LLM). `sources.py` (`TraceSource`: walk a problem or replay a `.trajectory`; `up_bridge.py` / `pddl_bridge.py` spell both into `eval_schema.py`) → `cutter.py` (pure windows) → `emitter.py` (problemN folders in the symbolic pool, plus `write_image_problem` for the image pool when rendering; the pools are named in `src/utils/corpus_layout.py`). `corpus.py` composes the three. Rendering is a strategy on the source: `frame_renderer.py` (`FrameRenderer` protocol, `RenderedSource` decorator that fills `frame_before`/`frame_after`, one render per distinct state), `pddlgym_renderer.py` (blocksworld/hanoi/npuzzle via `pddlgym.rendering.*`, fed from eval-schema states through a per-domain `GymSchema`), `visualizer_renderer.py` (depot/gripper via `../planning-visualizer`: Python `RendererFactory` layout in-process, frames drawn by its Node canvas worker `backend/api/render_states.ts`), `renderer_registry.py` (`build_renderer(domain)`). Driven by `benchmark/data_generator.py` (`--render`) and `benchmark/render_corpus.py` (the image pool of an existing corpus); `benchmark/render_gate.py` is the pixel-diff feasibility gate. |
 | `src/pi_sam/` | PI-SAM itself (`pi_sam_learning.py`): observations in, action model out. It takes what it is given at face value — deciding which observations to believe is not its job. |
@@ -106,8 +106,10 @@ class LLMVisualComponentsMixin:
     detector_class: Type[ObjectDetector]
     classifier_class: Type[FluentClassifier]
 
-    def __init__(self, *, pddl_domain_file: Path, vendor: str = "openai", **kwargs): ...
+    def __init__(self, *, pddl_domain_file: Path, vendor: str = "openai",
+                 example_dir: Path | None = None, **kwargs): ...
     # Cooperative init — parses domain via DomainParser(partial_parsing=True).
+    # example_dir: the held-out one-shot example folder, handed to the classifier.
     # init_visual_components: _pre_init_hook → detect objects → create classifier.
     # Override _pre_init_hook for domain prep (e.g. ensure trajectory JSON).
 ```
@@ -260,7 +262,7 @@ Do **not** duplicate inference, masking, or trajectory-file logic — inherit fr
 - **Resume** — `resume.py` skips completed folds and aborts on `run_params` mismatch when `resume: true` in `run_config.yaml`.
 - **Backfill** — `backfill_baseline.py` and `backfill_cdps.py` retrofit algorithm rows into existing cells using frozen `original_observations/` (shared helpers in `backfill_common.py`), without regenerating data.
 - **Cluster orchestration** — `scripts/cluster/` expands `run_config.yaml` into SLURM array jobs (`make_manifest.py` → `run_cell.sbatch` / `run_fold.sbatch` + `submit.sh`). `scripts/cluster_large/` is a separate tree for the large-corpora sweep (`benchmark/run_config_large.yaml`); it does not share files with `scripts/cluster/`.
-- **Factory** — LLM vendor/model selection via `ImageLLMBackendFactory.create(vendor, model_type)`; config loaded from `config.yaml`.
+- **Factory** — LLM vendor/model selection via `ImageLLMBackendFactory.create(vendor, model_type)`; config loaded from `config.yaml` (`vendor` is a config block; its `api` field picks the client, `base_url` redirects it).
 - **Domain assets** — ROSAME Convertor/DL vocabularies are generated from `src/domains/*.pddl` via `src/milp/domain_assets.py`, never maintained by hand in `vendor/`. Static specs (`planning_structs/specs/`, `vendor/pddl/`) are checked in; per-fold `domain_model.json` / `objects.json` are written at run time.
 - **Closed-World Assumption** — when a fluent is absent from a state, it is assumed false. `UNCERTAIN` breaks this assumption and triggers masking.
 - **Frame-Axiom Propagation** — unmasked fluents are propagated across states using frame axioms before trajectory files are written (`utils/pddl_trajectory.py`).

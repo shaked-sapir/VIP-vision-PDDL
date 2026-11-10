@@ -33,16 +33,17 @@ plan §0.1a is why identity does not.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from dataclasses import dataclass, field, replace
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 import torch
 
 import src.milp  # noqa: F401  (vendor sys.path bootstrap)
-from src.milp.converter import cv_predictions_to_trace, proposition_of
+from src.milp.converter import cv_predictions_to_trace, proposition_columns
 from src.milp.encoder import CPSATObservedActions
 from src.milp.encoding_config import MilpEncodingConfig
 from src.milp.schema_row_alignment import schema_row_keys
+from src.utils.pddl_naming import canonical, spelling_map
 
 from convertor.pseudo_label import PseudoLabels
 from planning_structs.traces import ObservationM, Traces
@@ -129,6 +130,58 @@ def model_labels_in_head_order(
     return labels
 
 
+@dataclass(frozen=True)
+class CpSpelling:
+    """The CP domain's spelling of every predicate and action schema, keyed by
+    :func:`canonical` form. The head's keys are canonical by construction
+    (:mod:`benchmark.baselines.rosame26_data`); the CP domain keeps whatever
+    ``src/domains/*.pddl`` declares, hyphens included."""
+
+    predicates: Mapping[str, str]
+    actions: Mapping[str, str]
+
+    @classmethod
+    def of(cls, ps_domain: Any) -> "CpSpelling":
+        return cls(
+            predicates=spelling_map(p.name for p in ps_domain.predicates),
+            actions=spelling_map(a.name for a in ps_domain.action_schemas),
+        )
+
+    def predicate(self, name: str) -> str:
+        """``name`` as the CP domain spells it; an unknown name is left alone."""
+        return self.predicates.get(canonical(name), name)
+
+    def action(self, name: str) -> str:
+        """``name`` as the CP domain spells it; an unknown name is left alone."""
+        return self.actions.get(canonical(name), name)
+
+    def fluents(
+        self, fluents: Optional[Set[Tuple[str, Tuple[str, ...]]]]
+    ) -> Optional[Set[Tuple[str, Tuple[str, ...]]]]:
+        if fluents is None:
+            return None
+        return {(self.predicate(name), args) for name, args in fluents}
+
+    def context(self, context: TraceContext) -> TraceContext:
+        """``context`` with its calls and anchors in the CP spelling."""
+        return replace(
+            context,
+            calls=[(self.action(name), args) for name, args in context.calls],
+            init_fluents=self.fluents(context.init_fluents),
+            goal_fluents=self.fluents(context.goal_fluents),
+        )
+
+    def index(self, proposition_index: Mapping[str, int]) -> Dict[str, int]:
+        """A ``{"name arg ...": column}`` map with every head rewritten."""
+        respelled: Dict[str, int] = {}
+        for key, column in proposition_index.items():
+            parts = key.split()
+            respelled[" ".join([self.predicate(parts[0]), *parts[1:]])] = column
+        if len(respelled) != len(proposition_index):
+            raise ValueError("respelling the proposition index collapsed two keys into one")
+        return respelled
+
+
 def state_labels_for(
     instance: Any, repaired: Sequence[Set[Any]], proposition_index: Dict[str, int]
 ) -> torch.Tensor:
@@ -137,7 +190,7 @@ def state_labels_for(
     ``repaired`` holds one set of true propositions per *image*; the endpoints
     are hard-fixed in the encoder and are dropped, leaving exactly ``T`` rows.
 
-    A head column with no counterpart in ``instance`` reads 0.0. That is a
+    A head column over an object ``instance`` lacks reads 0.0. That is a
     *supervised false*, not an abstention, and it is correct: the head is
     grounded over the corpus object union while each trace's instance covers only
     its own problem, so such a column names a proposition over an object this
@@ -146,16 +199,18 @@ def state_labels_for(
     benefit Phase 2 identified alongside the phantom columns' zero objective cost
     (process log §2.5, plan §4.2a′). The reverse direction, head → encoder, is
     where a phantom instead defaults to ``0.5`` and carries no weight.
+
+    Raises:
+        ValueError: on a column naming a predicate the domain does not declare
+            (:func:`~src.milp.converter.proposition_columns`); that would
+            otherwise be a supervised false on every row.
     """
     interior = list(repaired)[1:-1]
     width = len(proposition_index)
     label = torch.zeros(len(interior), width)
-    columns: Dict[Any, int] = {}
-    for key, column in proposition_index.items():
-        parts = key.split()
-        prop = proposition_of(instance, parts[0], parts[1:]) if parts else None
-        if prop is not None:
-            columns[prop] = column
+    names = sorted(proposition_index, key=proposition_index.get)
+    by_position = proposition_columns(instance, names)
+    columns = {prop: proposition_index[names[i]] for prop, i in by_position.items()}
     for row, frame in enumerate(interior):
         for prop in frame:
             if prop in columns:
@@ -242,7 +297,8 @@ class Rosame26MipRepairer:
     Args:
         domain_model: The grounded vendored ``Domain_Model`` being trained.
         ps_domain: The CP domain the encoder is built over.
-        contexts: ``{trace index: TraceContext}``, indexed as the fold's rows.
+        contexts: ``{trace index: TraceContext}``, indexed as the fold's rows,
+            spelled as the head spells its keys.
         proposition_index: ``{"on a b": head column}``, the run's shared map.
         config: The MILP rule set.
         mip_traces: How many traces one solve covers. Upstream's FIFO rule:
@@ -255,6 +311,10 @@ class Rosame26MipRepairer:
             re-derives it from the action count, which is the same number
             (``T = len(calls) - 1``) and is checked against ``lengths`` when both
             are available.
+
+    ``contexts`` and ``proposition_index`` arrive in the head's canonical
+    dialect and are stored here in the CP domain's: this is the one place the
+    two spellings meet (:class:`CpSpelling`).
     """
 
     def __init__(
@@ -270,8 +330,11 @@ class Rosame26MipRepairer:
     ) -> None:
         self.domain_model = domain_model
         self.ps_domain = ps_domain
-        self.contexts = contexts
-        self.proposition_index = proposition_index
+        spelling = CpSpelling.of(ps_domain)
+        self.contexts = {
+            index: spelling.context(context) for index, context in contexts.items()
+        }
+        self.proposition_index = spelling.index(proposition_index)
         self.config = config
         self.mip_traces = mip_traces
         self.gt_action_model = gt_action_model
