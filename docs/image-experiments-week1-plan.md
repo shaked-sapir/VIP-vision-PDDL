@@ -162,8 +162,8 @@ Independent of A1–A6 and doable by whoever is free (it needs no VLM):
 | Sun | **B1. GPU inventory.** `sinfo -o "%P %N %G %f %T" \| grep -i gpu`; pick the one type with the most idle nodes; on one node check `torch.version.cuda` in `vip_venv11` (plan §4.1). | the pinned GPU type and env |
 | Sun–Mon | **B2. Device plumbing. DONE 2026-11-11** (`--device`, forwarded to all four pixel arms; a device the host lacks raises at construction via `src/utils/torch_device.py`; `--epochs` now reaches the 24 arms and labels an off-table count `__ep=<n>`). Original item: `--device` is not a `backfill_baseline.py` flag (checked: the flag list has `--resize`, `--epochs`, `--n-seeds`, `--budget-mode`, `--goal-mode`, `--milp-gt-anchoring`, no device). Add it, and make every imaged runner raise when `cuda` is requested and unavailable. Add `epochs` to the 24 runners (today `_instantiate` drops it). | flags + fail-fast |
 | Mon–Tue | **B3. The 26 fixes**, in the order the audit (section 3.2b) ranks them. (a) **DONE 2026-11-07 on `milp-chain-probe`, re-run pending.** The spelling boundary lives in the repairer, not the runner: `CpSpelling` in `src/milp/rosame26_repairer.py` respells the contexts and the proposition index once, at construction, so anchors, the CV columns into the solver and the pseudo-label columns back out all cross in the CP dialect. `converter._resolve_fluents` raises on any unresolved anchor; `proposition_columns` (shared by `cv_predictions_to_trace` and `state_labels_for`) raises on a column naming an undeclared predicate and still skips one over an object the instance lacks. Tests: a gripper micro-fold through the real encoder in `test_rosame26_repairer.py` (before the fix it solved and wrote a wrong `carry` pseudo-label), plus raise cases in both test files. This was the real cause of the gripper/hanoi UNSAT, not `schema_nonempty`, which stays as upstream has it. (b) **DONE 2026-11-11.** Enforce the wall clock inside the 26 training loop (the preflight projects from a 0.3 s solve; a cap-hitting solve overruns the cell silently; the CPU rows ran to 4960 s). (c) **DONE 2026-11-11** (default 1 on all four pixel arms). `n_seeds`: upstream runs once; three seeds under one budget cut the epochs three-fold and add a min-of-three selection. Run one seed with the whole budget, same for the 24 arms. (d) **DONE 2026-11-11** (`empty_schema_fraction`, `degenerate` on the row; a gate-4 seed is preferred over, never dropped for, a collapsed one). Record the empty-schema fraction per row beside gate 4, and count a `check_not_degenerate` drop as a row, not a hole. | a branch; `test_vendor_net_contract.py` and the repairer tests green on a hyphenated domain |
-| Wed | **B4. Pilot, blocksworld small, one GPU node**, all four pixel arms, 300 s, `n_seeds` equal for 24 and 26. Read off: epochs reached vs the paper table, `learning_time_seconds`, VRAM and RSS, solve exit statuses per domain for both MILP arms, `n_gt_goals`. Then depot at native resolution to measure the 12× tensor. | the resource table for the sbatch templates (plan §4.3) |
-| Thu | **B5. Templates.** `scripts/cluster_image/`: `make_manifest.py`, `pixel_fold.sbatch` (GPU), `symbolic_fold.sbatch` (cpu256), reusing `pack_fold.sh`; separate out roots per family (`one-job-per-output-cell`). | ready to submit when A6 lands |
+| Wed | **B4. DONE 2026-11-11, results in §5.2.** Pilot, blocksworld small, one GPU node, all four pixel arms, 300 s, `n_seeds` equal for 24 and 26. Read off: epochs reached vs the paper table, `learning_time_seconds`, VRAM and RSS, solve exit statuses per domain for both MILP arms, `n_gt_goals`. Then depot at native resolution to measure the 12× tensor. | the resource table for the sbatch templates (plan §4.3) |
+| Thu | **B5. DONE 2026-11-11** (`pixel_fold.sbatch`, `make_pixel_manifest.py`, `deploy_pinned.sh`; the symbolic template is not written). **Templates.** `scripts/cluster_image/`: `make_manifest.py`, `pixel_fold.sbatch` (GPU), `symbolic_fold.sbatch` (cpu256), reusing `pack_fold.sh`; separate out roots per family (`one-job-per-output-cell`). | ready to submit when A6 lands |
 
 ### Track C: our arms, measurement, presentation
 
@@ -477,3 +477,43 @@ one-shot protocol as it stands is the wrong test for small open models.
   gripper state 0 now differ from GT, as an inferred state should.
 - Both are in the working tree, uncommitted; the cluster checkout
   `~/projects/VIP-image` has them.
+
+### 5.2 Pixel-arm GPU pilot, 2026-11-11 (B4) and the templates (B5)
+
+Blocksworld `TO=600__blocks_predefined_problems1-10_final-version`, fold 0, its
+six training sizes (3 to 8 traces), one rtx_4090 per job, one seed, code pinned
+at `e7f953bae` in `~/projects/VIP-pixel` (`scripts/cluster_image/deploy_pinned.sh`,
+`pixel_fold.sbatch`, `make_pixel_manifest.py`). Two jobs, two out roots:
+the 24 arms at the paper's 100 epochs, the 26 arms with `--epochs 5000
+--budget-mode fixed --learn-timeout 300`.
+
+| arm | epochs run | learning time | solves | GPU memory | precision / recall | test problems solved |
+|---|---|---|---|---|---|---|
+| ROSAME-I_24 | 100 of 100 | 5 to 13 s | none | 0.8 GB | 0.32 to 0.53 / 0.06 to 0.56 | 0 to 1 of 2 |
+| ROSAME-I_MILP_24 | 100 of 100 | 16 to 28 s | 51 per cell, all OPTIMAL | 0.8 GB | 0.53 to 0.67 / 0.14 to 0.56 | 0 to 2 of 2 |
+| ROSAME-I_26 | 2632 to 2669 of 5000 | 300.1 s (`stop_reason: timeout`) | none | 1.4 GB | 0.66 to 0.83 / 0.43 to 0.62 | 0 to 2 of 2 |
+| ROSAME-I_MILP_26 | 813 to 999 of 5000 | 300.0 to 300.5 s (`timeout`) | 763 to 949 per cell, all OK | 1.4 GB | 1.00 / 1.00 on four cells, 0.90 / 0.84 and 0.83 / 0.73 on the two largest | 2 of 2 on five cells, 1 of 2 on one |
+
+What it settles:
+
+- **The wall clock holds.** Every 26 row stopped within half a second of 300 s,
+  solves included; no row is degenerate and no schema is empty.
+- **Epochs per budget on a 4090.** The DL-only 26 arm runs about 0.11 s per
+  epoch on these folds, so the paper's 5000 epochs need about 570 s; the MILP
+  arm runs about 0.3 s per epoch with its solve, so 5000 need about 1500 s. At
+  300 s the two arms get 53 % and 16 to 20 % of the paper's schedule. The 24
+  arms finish the paper's schedule in under 30 s.
+- **`n_gt_goals` equals the trace count** on every 24 MILP row, and every solve
+  of both MILP arms returned a model.
+- **One job per array per out root works**: the whole fold took 3 min 15 s for
+  the two 24 arms and 60 min 33 s for the two 26 arms, which is the training
+  time itself (12 rows at 300 s); evaluation is negligible.
+- **A bad node.** `cs-4090-09` shows its card to `nvidia-smi` and fails CUDA
+  initialisation in torch; `--device cuda` failed the task in its first
+  seconds. Submit with `--exclude cs-4090-09`.
+- Peak host memory was not reported by `sacct` for these jobs.
+
+Open for the budget decision: 300 s cuts the 26 MILP arm to a fifth of its
+paper schedule and it still recovers blocksworld exactly on the small folds;
+600 s completes the DL-only schedule; the paper-recipe control (3.2a) needs
+about 1500 s per cell for the MILP arm on this domain.
