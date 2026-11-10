@@ -41,6 +41,15 @@ On the cluster, from `~/projects/VIP-pixel`:
 VIP_PX_BASELINES="rosame_i_24 rosame_i_milp_24 rosame_i_26 rosame_i_milp_26" VIP_PX_ARGS="--learn-timeout 300" sbatch --constraint rtx_4090 --array=0-24 scripts/cluster_image/pixel_fold.sbatch
 ```
 
+Add `--exclude cs-4090-09`: on 2026-11-11 that node reported an RTX 4090 to
+`nvidia-smi` but failed CUDA initialisation in torch, while other rtx_4090 and
+rtx_6000 nodes worked with the same environment. A task that lands on such a
+node fails in its first seconds (`--device cuda` is checked at start-up).
+
+`--epochs` reaches every pixel arm, so the 24 arms (paper epoch counts, no
+`--epochs`) and the 26 arms (`--epochs 5000 --budget-mode fixed`, stopped by
+the fold's wall clock) go in two arrays with two out roots.
+
 One task is one (domain, fold) over the fold's training-size sweep, the arms in
 sequence. Rows land under `$VIP_PX_OUT` (default
 `benchmark/running_results_image_pixel`), mirrored as
