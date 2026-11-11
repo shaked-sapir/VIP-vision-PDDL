@@ -176,6 +176,47 @@ Independent of A1–A6 and doable by whoever is free (it needs no VLM):
 
 C4 needs A6 and B5; everything else in track C is independent of A and B.
 
+**What landed (2026-11-11, C1 + C2, PR against `dev`).**
+
+- C1. `realised_rates.py` gained `realised_corruption`: the same measurement
+  as `realised_rates`, split into frame 0 and frames 1..T, plus flip
+  persistence (of the atoms flipped in a frame with a successor, the fraction
+  flipped again there; a hidden atom does not persist). The GT is read in the
+  cell's dialect (`gt_trajectories/` keeps `at-robby`, a normalized cell's
+  domain says `at_robby`). `experiment_running_helpers/fold_corruption.py`
+  writes it into `fold_info.json` as `realised_mask_rate`,
+  `realised_flip_rate` (over visible atoms), `flip_persistence`, `n_atoms`
+  and a `realised_corruption` block with the counts; `run_fold` records it for
+  every new image fold (`ImageDataSource.gt_lookup`), and
+  `benchmark/backfill_realised_corruption.py` wrote it into all 150 cells of
+  the five `TO=600__*` image experiments (depot's `run_params.json` names a
+  corpus path that no longer exists; it took `--data-dir`).
+- C2. `build_dashboard.py` reads the recorded block
+  (`image_corruption_summary`, counts pooled over folds) and the image section
+  shows it as a "Data corruption — realised" table under the heatmap. Labels
+  registered in `dashboard_config.yaml`: `__res=native` on all four imaged
+  arms, `__mode=converge` on the two 26 arms (with and without `__res=native`),
+  `ROSAME-I_24__anchor=init`; any further `__k=v` variant of a registered arm
+  inherits its modes (`inherit_modes`). `__fs=shared` is a corpus-name tag
+  from `data_generator`, not a row label, so it has no registry entry.
+  `image.large.experiment_dir` is still empty.
+- The five small image cells, pooled over their 30 folds each (frame 0 is GT
+  in all of them, so its flip rate is 0):
+
+  | domain | mask rate | flip rate (frames 1..T) | flip persistence | atoms / state |
+  |---|---|---|---|---|
+  | blocksworld | 0.0 % | 1.7 % | 28.7 % | 33.6 |
+  | depot | 0.7 % | 3.5 % | 50.6 % | 52.0 |
+  | gripper | 0.3 % | 2.5 % | 7.1 % | 28.0 |
+  | hanoi | 13.2 % | 5.2 % | 15.1 % | 63.0 |
+  | npuzzle | 45.4 % | 0.0 % | n/a | 162.0 |
+
+  So on the simulated grid the gpt-5.2 small cells sit at the lowest noise
+  column (p_n ≤ 0.05) and, except hanoi and npuzzle, at p_mask ≈ 0; npuzzle is
+  a pure-masking cell. Depot's flips persist in half the cases, which is the
+  pattern a per-frame classifier that misreads a stable object produces, not
+  the independent per-state draw the simulated noiser makes.
+
 ---
 
 ## 3. What to watch, per concern

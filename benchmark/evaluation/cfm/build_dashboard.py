@@ -12,12 +12,18 @@ Simulation section (per domain: a mask x noise grid-search):
     the shared-x plot copies so every cell shares an x-axis per domain.
 
 Image section (single experiment per domain):
-  - a summary heatmap row over domains (Best / Last), plus a per-domain chart row.
+  - a summary heatmap row over domains (Best / Last), plus a per-domain chart row;
+  - the realised corruption of each domain's folds (mask rate, flip rate with
+    frame 0 apart from frames 1..T, flip persistence), pooled over the folds.
 
 Numbers are derived, not guessed:
   best/last CFM  -> max/min and final of the padded-mean trend (per metric);
-  masked/state   -> avg predicates per line in .masking_info;
-  flipped/state  -> noise_ratio * unmasked-candidate pool (the percentage noiser).
+  masked/state   -> avg predicates per line in .masking_info (simulation);
+  flipped/state  -> noise_ratio * unmasked-candidate pool (the percentage noiser;
+                    simulation only -- an image cell has no nominal noise_ratio);
+  image rates    -> the ``realised_corruption`` block each fold's fold_info.json
+                    records, measured against the corpus gt_trajectories/
+                    (fold_corruption.py; backfill_realised_corruption.py for old cells).
 
 Usage:
     python -m benchmark.evaluation.cfm.build_dashboard          # HTML only (fast)
@@ -39,7 +45,7 @@ import os
 import re
 import statistics
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -56,6 +62,7 @@ from benchmark.evaluation.cfm.cfm_quality_analysis import (
     _apply_axis_scaling,
     _BOUNDED_METRICS,
 )
+from benchmark.experiment_running_helpers.fold_corruption import read_fold_corruption
 
 # Error band drawn around the mean in trend plots (see compute_padded_trend_band).
 # Overridden by the ``error_band`` key in dashboard_config.yaml.
@@ -587,6 +594,73 @@ def build_sim_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
     }
 
 
+# ── Image corruption (the recorded realised rates) ─────────────────────────
+
+def _ratio(numerator: int, denominator: int) -> Optional[float]:
+    return numerator / denominator if denominator else None
+
+
+def image_corruption_summary(instance_dirs: List[Path]) -> Optional[dict]:
+    """Pooled realised corruption over the instances whose fold_info.json records it.
+
+    Counts are summed across folds before dividing, so a fold with more atoms
+    weighs more; ``flip_rate`` is over visible (unmasked) atoms, as the
+    recorded block defines it. ``None`` when no instance was measured, which
+    the page reports as a prompt to run ``backfill_realised_corruption``.
+    """
+    blocks = [b for b in (read_fold_corruption(d) for d in instance_dirs) if b]
+    if not blocks:
+        return None
+
+    def pooled(group: Optional[str]) -> Dict[str, Optional[float]]:
+        parts = [b[group] if group else b for b in blocks]
+        atoms = sum(int(p.get("n_atoms", 0)) for p in parts)
+        masked = sum(int(p.get("n_masked", 0)) for p in parts)
+        flipped = sum(int(p.get("n_flipped", 0)) for p in parts)
+        return {"mask_rate": _ratio(masked, atoms), "flip_rate": _ratio(flipped, atoms - masked)}
+
+    total, frame0, later = pooled(None), pooled("frame0"), pooled("later_frames")
+    n_states = sum(int(b.get("n_states", 0)) for b in blocks)
+    n_atoms = sum(int(b.get("n_atoms", 0)) for b in blocks)
+    return {
+        "n_instances": len(blocks),
+        "n_atoms_per_state": round(n_atoms / n_states, 1) if n_states else None,
+        "mask_rate": total["mask_rate"],
+        "flip_rate": total["flip_rate"],
+        "frame0_mask_rate": frame0["mask_rate"],
+        "frame0_flip_rate": frame0["flip_rate"],
+        "later_mask_rate": later["mask_rate"],
+        "later_flip_rate": later["flip_rate"],
+        "flip_persistence": _ratio(
+            sum(int(b.get("n_flip_persisted", 0)) for b in blocks),
+            sum(int(b.get("n_flipped_with_next", 0)) for b in blocks),
+        ),
+    }
+
+
+def inherit_modes(alg_modes: Dict[str, List[str]], labels: Iterable[str]) -> Dict[str, List[str]]:
+    """The registry plus, for each unregistered label, the modes of its arm.
+
+    A label ``A__k=v`` is a variant of arm ``A`` (``__res=native``,
+    ``__mode=converge``, ``__anchor=init`` ...) and lives where its arm does.
+    The longest registered ``__``-prefix wins, so ``ROSAME-I_26__res=native``
+    inherits from ``ROSAME-I_26`` even though ``ROSAME-I_2`` is not a key.
+    Labels with no registered arm are left unlisted and keep the default of
+    both modes.
+    """
+    out = dict(alg_modes)
+    for label in labels:
+        if label in out:
+            continue
+        parts = label.split("__")
+        for cut in range(len(parts) - 1, 0, -1):
+            base = "__".join(parts[:cut])
+            if base in alg_modes:
+                out[label] = list(alg_modes[base])
+                break
+    return out
+
+
 def regenerate_image_thumbs(exp: Path, metrics: List[dict],
                             error_band: str = DEFAULT_ERROR_BAND) -> None:
     """Write lean trend thumbnails for one image experiment (own x-axis)."""
@@ -622,9 +696,13 @@ def build_image_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
         cfmq = exp / "evaluation_results" / SHARED_SUBDIR
         pngs = {mk["key"]: img_src(cfmq / f'{mk["key"]}_trend.png', out_dir, embed)
                 for mk in metrics if (cfmq / f'{mk["key"]}_trend.png').exists()}
+        corruption = image_corruption_summary(instance_dirs)
         out[domain] = {"stats": stats, "pngs": pngs, "n": instance_counts(instance_dirs),
-                       "curves": cell_learning_curves(testing, [mk["key"] for mk in metrics])}
-        print(f"  [img] {domain}: ok")
+                       "curves": cell_learning_curves(testing, [mk["key"] for mk in metrics]),
+                       "corruption": corruption}
+        measured = f"{corruption['n_instances']}/{len(instance_dirs)} folds measured" if corruption \
+            else "no realised rates recorded (run backfill_realised_corruption)"
+        print(f"  [img] {domain}: ok, {measured}")
     return {"domains_data": out}
 
 
@@ -672,6 +750,9 @@ def build(config_path: Path, regen: bool, refresh: bool,
         for mode, per_size in (("simulation", sim), ("image", img))
         for size, payload_part in per_size.items()
     }
+    # A variant label the config does not list (a new ``__k=v`` suffix) takes
+    # its arm's modes instead of defaulting to both tabs.
+    alg_modes = inherit_modes(alg_modes, {a for labels in alg_present.values() for a in labels})
     selectors = cfg.get("selectors") or {}
     exclude_algs = exclusions_by_size(cfg.get("exclude_algorithms"))
     display_names = {str(k): str(v) for k, v in (cfg.get("display_names") or {}).items()}
@@ -1214,13 +1295,28 @@ function simCharts(){
   const legend=`<span class="legkey"><span><i style="width:20px;height:3px;background:#1B6DB5;"></i> mean</span><span><i style="width:20px;height:12px;background:#B5D4F4;border-radius:2px;"></i> ${bandLabel()}</span></span>`;
   return `<div class="card"><div class="chdr">${tabbar}${legend}</div><div id="chgrid">${chartsBody()}</div></div>`;
 }
+function pct(v){return v==null?"–":(100*v).toFixed(1)+"%";}
+function imgCorrCard(have,dd){
+  // The realised corruption each fold recorded in fold_info.json, pooled per
+  // domain (fold_corruption.py). An image cell has no nominal p_mask / p_n;
+  // this is the row that places it on the simulated grid.
+  const rows=[["mask rate",c=>pct(c.mask_rate)],["flip rate (of visible atoms)",c=>pct(c.flip_rate)],
+   ["flip rate · frame 0",c=>pct(c.frame0_flip_rate)],["flip rate · frames 1..T",c=>pct(c.later_flip_rate)],
+   ["flip persistence (next frame)",c=>pct(c.flip_persistence)],["atoms / state",c=>c.n_atoms_per_state==null?"–":c.n_atoms_per_state],
+   ["folds measured",c=>c.n_instances]];
+  const any=have.some(d=>dd[d].corruption);
+  const head=`<tr><th></th>`+have.map(d=>`<th>${d}</th>`).join("")+`</tr>`;
+  const body=rows.map(([lab,f])=>`<tr><td class="dom">${lab}</td>`+have.map(d=>{const c=dd[d].corruption;return c?`<td class="hc" style="min-width:80px;">${f(c)}</td>`:`<td class="na">–</td>`;}).join("")+`</tr>`).join("");
+  const note=any?"":`<div class="note">No fold recorded its realised rates yet. Run <code>python -m benchmark.backfill_realised_corruption --from-dashboard-config</code>, then rebuild.</div>`;
+  return `<div class="card"><h4>Data corruption — realised, measured against gt_trajectories/ <span style="color:#7d828b;font-weight:400;font-size:11px;">(pooled over folds; flip rate = flipped / visible atoms; persistence = flipped atoms still flipped in the next frame)</span></h4><div class="twrap"><table class="heat"><thead>${head}</thead><tbody>${body}</tbody></table></div>${note}</div>`;
+}
 function imgView(){
   const dd=imgData().domains_data||{},ml=meta(S.metric).label;
   const have=DOMAINS.filter(d=>dd[d]);
   if(!have.length)return `<div class="card"><h4>Image · ${S.ds==="small"?"Small":"Large"} data</h4><div class="note">No experiments configured for this combination. Add paths under <code>image.${S.ds}.experiment_dir</code> in dashboard_config.yaml.</div></div>`;
   const head=`<tr><th></th>`+have.map(d=>`<th>${d}</th>`).join("")+`</tr>`;
   const row=(label,key)=>`<tr><td class="dom">${label}</td>`+have.map(d=>{const s=dd[d].stats[S.metric];return s?`<td class="hc" style="min-width:80px;background:${heat(s[key])}">${s[key].toFixed(2)}</td>`:`<td class="na">–</td>`;}).join("")+`</tr>`;
-  const table=`<div class="card"><h4>${ml} — image experiments</h4><div class="twrap"><table class="heat"><thead>${head}</thead><tbody>${row("best CFM","best")}${row("last CFM","last")}</tbody></table></div></div>`;
+  const table=`<div class="card"><h4>${ml} — image experiments</h4><div class="twrap"><table class="heat"><thead>${head}</thead><tbody>${row("best CFM","best")}${row("last CFM","last")}</tbody></table></div></div>`+imgCorrCard(have,dd);
   const guide=S.cmp?`<div class="grow">${lcExampleCard()}${lcExplainCard()}</div>`:`<div class="grow">${exampleCard()}${explainCard()}</div>`;
   if(S.cmp)return table+guide+imgCurvesCard();
   let charts=`<div class="card"><h4>${ml} — per domain (single config)<span class="legkey"><span><i style="width:20px;height:3px;background:#1B6DB5;"></i> mean</span><span><i style="width:20px;height:12px;background:#B5D4F4;border-radius:2px;"></i> ${bandLabel()}</span></span></h4>`;

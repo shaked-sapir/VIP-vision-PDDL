@@ -25,6 +25,7 @@ from benchmark.algorithms import (
 )
 from benchmark.experiment_running_helpers.cleaned_trajectories import save_patched_observations
 from benchmark.experiment_running_helpers.data_source import DataSource
+from benchmark.experiment_running_helpers.fold_corruption import record_fold_corruption
 from benchmark.experiment_running_helpers.post_process_gt_metrics import run_post_process_gt_metrics
 from benchmark.experiment_running_helpers.learning_helpers import (
     learn_cdps,
@@ -622,6 +623,14 @@ def run_single_fold(
 
         # Save fold metadata with test problem names
         save_fold_metadata(fold_work_dir, prepared_trajectories, fold, num_trajectories, gt_rate, test_problem_paths)
+
+        # An image fold carries no nominal mask/noise rate; measure the realised
+        # one against the corpus GT and record it beside the fold's metadata.
+        if data_source.gt_lookup is not None:
+            record_fold_corruption(
+                fold_work_dir, prepared_trajectories, domain_ref_path,
+                data_source.gt_lookup, gt_root=data_source.gt_root, tag=f"fold {fold}",
+            )
 
         # Count total transitions and GT transitions
         total_transitions, total_gt_transitions = count_total_transitions_and_gt(
