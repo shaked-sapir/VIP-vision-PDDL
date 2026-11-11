@@ -14,6 +14,10 @@ from src.utils.pddl import inject_gt_states_by_percentage, propagate_frame_axiom
 # propagated, truncated, or a final/anchored output) rather than the original.
 _DERIVED_TRAJ_MARKERS = ("truncated", "final", "frame_axioms", "gt", "gtrate")
 
+# Stem suffix of the intermediate file holding the inferred trajectory with its
+# initial state replaced by ground truth.
+_INIT_GT_SUFFIX = "_gtinit"
+
 
 def _original_trajectory_files(prob_dir: Path) -> List[Path]:
     """The original (pre-GT/pre-frame-axiom) .trajectory files in a problem dir."""
@@ -120,9 +124,10 @@ def pregenerate_all_gt_frame_axiom_files(
                         traj_path, masking_path, json_trajectory_path, domain_path, gt_rate
                     )
                 else:
-                    gt_traj_path = traj_path
-                    gt_masking_path = masking_path
-                    gt_state_indices = {0}
+                    gt_traj_path, gt_masking_path, gt_state_indices = inject_gt_states_by_percentage(
+                        traj_path, masking_path, json_trajectory_path, domain_path, 0,
+                        output_stem=f"{problem_name}{_INIT_GT_SUFFIX}",
+                    )
 
                 # Step 2: Frame axioms
                 final_traj_path, final_masking_path = propagate_frame_axioms_selective(
@@ -132,6 +137,9 @@ def pregenerate_all_gt_frame_axiom_files(
                 # Rename to standard naming convention
                 shutil.move(final_traj_path, output_traj)
                 shutil.move(final_masking_path, output_masking)
+                if gt_rate == 0:
+                    gt_traj_path.unlink(missing_ok=True)
+                    gt_masking_path.unlink(missing_ok=True)
 
                 # Persist GT state indices for downstream conflict search
                 _save_gt_indices(output_gt_indices, gt_state_indices)
@@ -163,11 +171,16 @@ def prepare_fold_trajectories(
 
     Returns:
         List of tuples: (trajectory_path, masking_path, problem_pddl_path, gt_state_indices)
+
+    Raises:
+        FileNotFoundError: if a selected problem lacks its prepared trajectory,
+            masking or problem file.
     """
     # Select only the first num_trajectories from the pool
     selected_dirs = selected_problem_dirs[:num_trajectories]
 
     prepared_trajectories = []
+    unprepared: List[str] = []
 
     for prob_dir in selected_dirs:
         # Find original trajectory to get problem name
@@ -175,6 +188,7 @@ def prepare_fold_trajectories(
 
         if not traj_files:
             print(f"  Warning: No trajectory file found in {prob_dir}")
+            unprepared.append(prob_dir.name)
             continue
 
         problem_name = traj_files[0].stem
@@ -189,19 +203,28 @@ def prepare_fold_trajectories(
         # Validate all required files exist
         if not final_traj_path.exists():
             print(f"  Warning: Pre-generated trajectory not found: {final_traj_path.name}")
+            unprepared.append(prob_dir.name)
             continue
 
         if not final_masking_path.exists():
             print(f"  Warning: Pre-generated masking not found: {final_masking_path.name}")
+            unprepared.append(prob_dir.name)
             continue
 
         if not problem_pddl_path.exists():
             print(f"  Warning: Problem PDDL not found for {prob_dir.name}")
+            unprepared.append(prob_dir.name)
             continue
 
         gt_indices = load_gt_indices(gt_indices_path)
         prepared_trajectories.append((final_traj_path, final_masking_path, problem_pddl_path, gt_indices))
 
+    if unprepared:
+        raise FileNotFoundError(
+            f"{len(unprepared)} of the {len(selected_dirs)} selected training problems have no "
+            f"prepared trajectory, so the cell would train on fewer than it is labelled with: "
+            f"{unprepared[:10]}"
+        )
     return prepared_trajectories
 
 

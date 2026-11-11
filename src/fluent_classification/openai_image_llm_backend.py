@@ -1,9 +1,10 @@
 import threading
+import time
 from abc import ABC
 from pathlib import Path
 
 from openai import OpenAI
-from typing import List
+from typing import Dict, List
 
 from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.utils.visualize import encode_image_to_base64
@@ -34,6 +35,9 @@ class OpenAIImageLLMBackend(ImageLLMBackend, ABC):
         self.request_extras = dict(request_extras or {})
         self.prompt_tokens_total = 0
         self.prompt_tokens_cached = 0
+        self.completion_tokens_total = 0
+        self.calls = 0
+        self.request_seconds_total = 0.0
         # One backend serves every worker of a window under concurrent
         # inference, and `+=` is not atomic: without this the ratio reads low,
         # which is the one number that says whether the caching works.
@@ -125,8 +129,10 @@ class OpenAIImageLLMBackend(ImageLLMBackend, ABC):
             request["prompt_cache_key"] = cache_key
         request.update(self.request_extras)
 
+        started = time.perf_counter()
         response = self.client.chat.completions.create(**request)
         self._record_cache_usage(response)
+        self._record_call(response, time.perf_counter() - started)
         return response.choices[0].message.content.strip()
 
     def _record_cache_usage(self, response) -> None:
@@ -144,6 +150,26 @@ class OpenAIImageLLMBackend(ImageLLMBackend, ABC):
         with self._usage_lock:
             self.prompt_tokens_total += total
             self.prompt_tokens_cached += cached
+
+    def _record_call(self, response, seconds: float) -> None:
+        """Accumulate the call count, completion tokens and request time."""
+        usage = getattr(response, "usage", None)
+        completion = getattr(usage, "completion_tokens", 0) or 0
+        with self._usage_lock:
+            self.calls += 1
+            self.completion_tokens_total += completion
+            self.request_seconds_total += seconds
+
+    def usage(self) -> Dict[str, float]:
+        """Token, call and request-time totals of this backend so far."""
+        with self._usage_lock:
+            return {
+                "calls": self.calls,
+                "prompt_tokens": self.prompt_tokens_total,
+                "cached_tokens": self.prompt_tokens_cached,
+                "completion_tokens": self.completion_tokens_total,
+                "request_seconds": round(self.request_seconds_total, 3),
+            }
 
     @property
     def cache_hit_ratio(self) -> float:

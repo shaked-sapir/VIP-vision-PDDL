@@ -41,7 +41,7 @@ from benchmark.experiment_running_helpers.resume import (
     try_load_fold_result,
 )
 from src.observation_degradation.masking import MaskingType
-from src.utils.corpus_layout import IMAGE_POOL_SUBPATH, POOL_SUBPATH
+from src.utils.corpus_layout import IMAGE_POOL_SUBPATH, POOL_SUBPATH, pool_problem_dirs
 from src.observation_degradation.noising import NoisingType
 from src.plan_denoising.milp_denoiser.config import PisamMilpConfig
 from src.utils.atomic_json import read_json_or_none, write_json_atomic
@@ -317,7 +317,7 @@ def main(
     # ── Validate problem directories ─────────────────────────────────────
     testing_dir.mkdir(parents=True, exist_ok=True)
 
-    problem_dirs = sorted([d for d in trajectories_dir.iterdir() if d.is_dir()])
+    problem_dirs = pool_problem_dirs(trajectories_dir)
     n_problems = len(problem_dirs)
 
     if n_problems < 2:

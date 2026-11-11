@@ -512,8 +512,12 @@ def inject_gt_states_by_percentage(
     domain_path: Union[str, Path],
     gt_rate: int,
     anchor_final: bool = False,
+    output_stem: Optional[str] = None,
 ) -> Tuple[Path, Path, Set[int]]:
     """Inject ground truth states at percentage-based intervals throughout the trajectory.
+
+    ``output_stem`` names the written ``.trajectory`` / ``.masking_info`` pair;
+    omitted, the name is derived from the problem, ``gt_rate`` and ``anchor_final``.
 
     Selective injection (single code path for plain AND anchored CDPS): keep
     the degraded (noisy) states everywhere and inject clean GT literals ONLY at
@@ -566,5 +570,7 @@ def inject_gt_states_by_percentage(
     out_name = f"{problem_name}_gtrate{gt_rate}" if gt_rate > 0 else problem_name
     if anchor_final:
         out_name = f"{out_name}_anchored"
+    if output_stem is not None:
+        out_name = output_stem
     traj_path, mask_path = _save_trajectory_and_return(new_trajectory_data, masking, out_name, trajectory_path.parent, masking_info_path.parent)
     return traj_path, mask_path, gt_state_indices
