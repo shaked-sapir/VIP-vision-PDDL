@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Sequence
 
+import os
 import torch
 from PIL import Image
 from pddl_plus_parser.models import Domain
@@ -330,7 +331,9 @@ def normalisation_stats(
         mean=frames.mean(dim=0),
         std=frames.std(dim=0, unbiased=False).clamp_min(STD_FLOOR),
     )
-    torch.save({"mean": stats.mean, "std": stats.std}, cache_path)
+    partial = cache_path.with_name(f"{cache_path.name}.{os.getpid()}.tmp")
+    torch.save({"mean": stats.mean, "std": stats.std}, partial)
+    os.replace(partial, cache_path)
     return stats
 
 
