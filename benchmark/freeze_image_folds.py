@@ -23,6 +23,7 @@ The split, the training order and the file contents are the ones
 from __future__ import annotations
 
 import argparse
+import contextlib
 import inspect
 import shutil
 from dataclasses import dataclass
@@ -181,6 +182,27 @@ def freeze_cell(
     )
 
 
+def write_test_states(
+    shared_dir: Path, domain_ref: Path, test_problems: Sequence[Path], fold: int
+) -> Path:
+    """Build one fold's S_test under ``shared_dir``, planning from inside it.
+
+    The planner writes its scratch files to the working directory, so each fold
+    plans in its own folder and concurrent freeze jobs do not share one.
+    """
+    shared_dir = shared_dir.resolve()
+    shared_dir.mkdir(parents=True, exist_ok=True)
+    domain_ref = Path(domain_ref).resolve()
+    problems = [str(Path(p).resolve()) for p in test_problems]
+    with contextlib.chdir(shared_dir):
+        return generate_predictive_power_test_states(
+            domain_ref_path=domain_ref,
+            test_problem_paths=problems,
+            output_dir=shared_dir / TEST_STATES_DIRNAME,
+            seed=42 + fold,
+        )
+
+
 def freeze_domain(
     domain_key: str,
     data_dir: Path,
@@ -241,11 +263,8 @@ def freeze_domain(
                             fold, num_trajectories, gt_rate)
                 written += 1
             if test_states:
-                generate_predictive_power_test_states(
-                    domain_ref_path=domain_ref,
-                    test_problem_paths=[str(p) for p in test_problems],
-                    output_dir=fold_shared_dir(testing_dir, fold, gt_rate) / TEST_STATES_DIRNAME,
-                    seed=42 + fold,
+                write_test_states(
+                    fold_shared_dir(testing_dir, fold, gt_rate), domain_ref, test_problems, fold
                 )
     return written, skipped
 
