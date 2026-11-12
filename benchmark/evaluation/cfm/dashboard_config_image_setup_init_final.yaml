@@ -1,0 +1,279 @@
+# The init_final setup of the image experiments (2026-11-12): every arm is given
+# the true initial and final state of each training trajectory.
+# A copy of dashboard_config.yaml with the image section repointed, the
+# simulation grids switched off, and the symbolic arms of an image run shown.
+#   python -m benchmark.evaluation.cfm.build_dashboard \
+#       --config benchmark/evaluation/cfm/dashboard_config_image_setup_init_final.yaml --regen-plots --refresh-stats
+#
+# Configuration for the results-dashboard generators
+# (benchmark/evaluation/cfm/build_sim_dashboard.py and build_image_dashboard.py).
+#
+# All paths are relative to the project root. Edit the values below and re-run
+# the generators; nothing here is auto-discovered except the grid cells found
+# under each simulation prefix.
+
+results_dashboard:
+
+  # Root folder holding one subfolder per domain of experiment results.
+  results_root: benchmark/running_results
+
+  # Single output page (simulation + image live in one HTML, behind a toggle).
+  output_html: benchmark/running_results/results_dashboard_image_setup_init_final.html
+
+  # Domains to include, in display order (used by both dashboards).
+  domains:
+    - blocksworld
+    - depot
+    - gripper
+    - hanoi
+    - npuzzle
+
+  # Error band drawn around the mean in the trend plots (for embedded mode):
+  #   std    — mean ± std across folds (historical default)
+  #   ci95   — t-based 95% confidence interval on the mean
+  #   minmax — min/max envelope across folds
+  # Applies when plots are (re)generated, i.e. with --regen-plots.
+  error_band: std
+
+  # Metrics to show (key must match the "<key>_trend.png" plot names;
+  # label is what appears in the metric nav / table headers).
+  metrics:
+    - key: pred_app_precision
+      label: "Predictive applicability precision"
+    - key: pred_app_recall
+      label: "Predictive applicability recall"
+    - key: pred_eff_precision
+      label: "Predicted effects precision"
+    - key: pred_eff_recall
+      label: "Predicted effects recall"
+    - key: solving_ratio
+      label: "Problem solving ratio"
+    - key: false_plans_ratio
+      label: "False Plans ratio"
+    - key: unsolvable_ratio
+      label: "Unsolvable ratio"
+    - key: fluent_patch_count
+      label: "Fluent patch count"
+
+  # Baseline / competitor registry. Declares which experiment modes each series
+  # belongs to, so a mode-only algorithm never shows in the wrong tab. The key
+  # must match the "algorithm" field in fold_result.json. Our own series (CDPS,
+  # its oracle) always appear in both modes and need no entry here. Any baseline
+  # NOT listed defaults to whichever mode it has data in.
+  algorithms:
+    - key: ROSAME_24    # two-stage ROSAME on the VLM trajectories
+      modes: [simulation, image]
+    - key: NOLAM        # simulation baseline, mask=0 row only (regime-gated)
+      modes: [simulation]
+    - key: OffLAM       # simulation baseline, noise=0 column only (regime-gated)
+      modes: [simulation]
+    - key: ROSAME-I_24  # image baseline (learned straight from visual traces)
+      modes: [image]
+    - key: ROSAME-I_MILP_24  # image baseline, ROSAME-I with MILP pseudo-labels
+      modes: [image]
+    - key: ROSAME-I_26  # image baseline, the ICAPS-26 network, DL-only
+      modes: [image]
+    - key: ROSAME-I_MILP_26  # image baseline, the ICAPS-26 network + its MILP
+      modes: [image]
+    # Gate 7's budget-control arm: the ICAPS-26 code default of 5000 epochs, run
+    # outside the cell timeout so "underperforms at the grid budget" and
+    # "undertrained at it" stay distinguishable
+    # (rosame_i_26_fixing_PROCESS.md §4, Phase 4).
+    - key: ROSAME-I_26__ep=5000
+      modes: [image]
+    # Off-default input resolution, emitted by --resize 224 on either image arm
+    # (see benchmark/baselines/rosame_i_runner.py:_resize_suffix). Registered
+    # ahead of the depot legibility ablation so the series renders the first
+    # time it has data. See docs/algorithm_comparison_analysis.md §5.1 / §7.
+    - key: ROSAME-I_24__res=224
+      modes: [image]
+    - key: ROSAME-I_MILP_24__res=224
+      modes: [image]
+    # Labels the imaged week-1 runs produce (docs/image-experiments-week1-plan.md
+    # §2 track C2), registered before their first row exists:
+    #   __res=native    the per-domain resolution tag when a domain runs at its
+    #                   native frame size (rosame_i_runner._resize_tag(None));
+    #   __mode=converge the 26 arms stopping on the loss plateau instead of the
+    #                   pre-flight epoch count (BudgetMode.CONVERGE);
+    #   __anchor=init   C3's parity row, the 24 arm with its anchor on frame 0.
+    # Any further ``__k=v`` variant of a registered arm inherits that arm's
+    # modes in the builder (build_dashboard.inherit_modes), so an unlisted
+    # suffix is never shown in the wrong tab. ``__fs=shared`` is a corpus-name
+    # tag written by data_generator (the held-out example protocol), not a row
+    # label, so it has no entry here.
+    - key: ROSAME-I_24__res=native
+      modes: [image]
+    - key: ROSAME-I_MILP_24__res=native
+      modes: [image]
+    - key: ROSAME-I_26__res=native
+      modes: [image]
+    - key: ROSAME-I_MILP_26__res=native
+      modes: [image]
+    - key: ROSAME-I_26__mode=converge
+      modes: [image]
+    - key: ROSAME-I_MILP_26__mode=converge
+      modes: [image]
+    - key: ROSAME-I_26__res=native__mode=converge
+      modes: [image]
+    - key: ROSAME-I_MILP_26__res=native__mode=converge
+      modes: [image]
+    - key: ROSAME-I_24__anchor=init
+      modes: [image]
+
+  # Baselines present in fold_result.json but omitted from learning-curve plots,
+  # legend, and Δ tables. Keys must match the "algorithm" field exactly. A plain
+  # list applies to both data sizes; the mapping form names the size (`all`,
+  # `small`, `large`). The paper's arm set (benchmark/paper_result_sources.yaml,
+  # `paper_arms`) is what survives these lists: the MILP arms are the 60 s
+  # capped ones, ROSAME and NPI-SAM alike.
+  exclude_algorithms:
+    all:
+      # Control arm of the forced-square resize A/B: Resize((64, 64)) against the
+      # default Resize(64). Refuted -- it moved nothing on hanoi, the one domain
+      # distorted enough to be a real test (docs/algorithm_comparison_analysis.md
+      # §5.3). Its 30 rows per domain sit inside the live image experiment dirs,
+      # so without this it plots as a competitor rather than as spent ablation.
+      - ROSAME-I_24__res=64x64
+      # Not in the paper: the search-based arms.
+      - CDPS_ANCHORED
+      # NPI-SAM rows whose MILP had no 60 s cap (superseded by the __solve=60 rows).
+      - PISAM_MILP_LOOP
+      - PISAM_MILP_LOOP__m=4
+      # Nothing fixed in the MILP but state 0 clean in the data; not a paper category.
+      - PISAM_MILP_LOOP__gt=none
+      - PISAM_MILP_LOOP__gt=none__m=4
+      # Single-round variants with state 0 clean but nothing fixed, and the
+      # eq. 16 ablation; the two single-round arms the small-data view shows
+      # (PISAM_MILP_SR, PISAM_MILP_SR__gt=none__s0=noisy) are excluded for the
+      # large data only, where they never ran.
+      - PISAM_MILP_SR__gt=none
+      - PISAM_MILP_SR__eq16=0.4
+      - ROSAME_MILP_24_TAG
+    small: []
+    large:
+      # Single-round NPI-SAM ran on the small corpora only (MILP uncapped).
+      - PISAM_MILP_SR
+      - PISAM_MILP_SR__gt=none__s0=noisy
+      # The released NOLAM has no model past a few hundred transitions per
+      # operator (264/625 and 268/625 rows); the large corpus reads the
+      # log-space rows (NOLAM__logspace, NOLAM__logspace__s0=noisy) instead.
+      - NOLAM
+      - NOLAM__s0=noisy
+
+  # Legend / selector text per algorithm key (the key itself when absent).
+  # "init GT" = the first state is clean (and fixed in the MILP where there is
+  # one); "no GT" = states 0 and 1 redrawn under the cell's masking and noise.
+  display_names:
+    ROSAME_24: "ROSAME (init+final GT)"
+    PISAM_MILP_LOOP__gt=all_gt_states__schema=pre_and_add: "NPI-SAM (init+final GT)"
+    ROSAME_MILP_24: "ROSAME+MILP (init+final GT)"
+    PISAM_MILP_LOOP__schema=pre_and_add: "NPI-SAM (init GT)"
+    PISAM_MILP_LOOP__schema=pre_and_add__m=4: "NPI-SAM (init GT)"
+    ROSAME-I_24: "ROSAME-I 24 (final GT, 64 px)"
+    ROSAME-I_MILP_24: "ROSAME-I 24+MILP (init+final GT, 64 px)"
+    ROSAME-I_26__ep=5000__mode=fixed: "ROSAME-I 26 (init+final GT, 64 px)"
+    ROSAME-I_MILP_26__ep=5000__mode=fixed: "ROSAME-I 26+MILP (init+final GT, 64 px)"
+    ROSAME-I_26__res=native__ep=5000__mode=fixed: "ROSAME-I 26 (init+final GT, native res)"
+    ROSAME-I_MILP_26__res=native__ep=5000__mode=fixed: "ROSAME-I 26+MILP (init+final GT, native res)"
+    ROSAME_24__s0=noisy: "ROSAME (no GT)"
+    ROSAME_MILP_24__goal=none: "ROSAME+MILP (init GT)"
+    ROSAME_MILP_24_TAG__goal=none: "ROSAME+MILP tag (init GT)"
+    ROSAME_MILP_24__gt=none__s0=noisy: "ROSAME+MILP (no GT)"
+    ROSAME_MILP_24_TAG__gt=none__s0=noisy: "ROSAME+MILP tag (no GT)"
+    PISAM: "PI-SAM (init+final GT)"
+    PISAM__s0=noisy: "PI-SAM (no GT)"
+    PISAM_MILP_LOOP__solve=60: "NPI-SAM (init GT)"
+    PISAM_MILP_LOOP__m=4__solve=60: "NPI-SAM (init GT)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy__solve=60: "NPI-SAM (no GT)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy__m=4__solve=60: "NPI-SAM (no GT)"
+    PISAM_MILP_SR: "NPI-SAM single round (init GT)"
+    PISAM_MILP_SR__gt=none__s0=noisy: "NPI-SAM single round (no GT)"
+    NOLAM: "NOLAM (init GT)"
+    NOLAM__logspace: "NOLAM (init GT)"
+    NOLAM__s0=noisy: "NOLAM (no GT)"
+    NOLAM__logspace__s0=noisy: "NOLAM (no GT)"
+    OffLAM: "OffLAM (init GT)"
+    OffLAM__s0=noisy: "OffLAM (no GT)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy: "NPI-SAM (no GT, uncapped)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy__m=4: "NPI-SAM (no GT, uncapped)"
+    ROSAME_MILP_24__gt=none__solve=300__s0=noisy: "ROSAME+MILP (no GT, uncapped)"
+    ROSAME_MILP_24_TAG__gt=none__solve=300__s0=noisy: "ROSAME+MILP tag (no GT, uncapped)"
+    ROSAME_MILP_24__gt=none__solve=3600__s0=noisy: "ROSAME+MILP (no GT, uncapped)"
+    ROSAME_MILP_24_TAG__gt=none__solve=3600__s0=noisy: "ROSAME+MILP tag (no GT, uncapped)"
+    PISAM_MILP_LOOP__schema=pre_and_add__solve=60: "NPI-SAM +schema (init GT)"
+    PISAM_MILP_LOOP__schema=pre_and_add__m=4__solve=60: "NPI-SAM +schema (init GT)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__solve=60: "NPI-SAM +schema (no GT)"
+    PISAM_MILP_LOOP__gt=none__s0=noisy__schema=pre_and_add__m=4__solve=60: "NPI-SAM +schema (no GT)"
+    ROSAME-I_24__res=native: "ROSAME-I 24 (final GT, native res)"
+    ROSAME-I_MILP_24__res=native: "ROSAME-I 24+MILP (init+final GT, native res)"
+    ROSAME-I_26__res=native: "ROSAME-I 26 (native res)"
+    ROSAME-I_MILP_26__res=native: "ROSAME-I 26+MILP (native res)"
+    ROSAME-I_26__mode=converge: "ROSAME-I 26 (converge)"
+    ROSAME-I_MILP_26__mode=converge: "ROSAME-I 26+MILP (converge)"
+    ROSAME-I_26__res=native__mode=converge: "ROSAME-I 26 (native res, converge)"
+    ROSAME-I_MILP_26__res=native__mode=converge: "ROSAME-I 26+MILP (native res, converge)"
+    ROSAME-I_24__anchor=init: "ROSAME-I (init anchor)"
+
+  # ── Selector labels ──────────────────────────────────────────────────
+  # The dashboard exposes two independent selectors. `mode` is what used to be
+  # the only toggle; `data_size` chooses which experiment set that mode reads.
+  # Every (mode, data_size) pair is configured separately below; a pair with no
+  # entries renders a note instead of an empty grid.
+  selectors:
+    mode:
+      label: Mode
+      options: {simulation: Simulation, image: Image}
+    data_size:
+      label: Data size
+      options: {small: Small data, large: Large data}
+    # view: baselines opens on the arm-comparison curves; this run has no search arm,
+    # so the CDPS-only view has nothing to draw.
+    default: {mode: image, data_size: small, view: baselines}
+
+  # ── Simulation section (mask x noise grid-search per domain) ──
+  # Keyed by data size. Each block keeps the shape it always had, so a prefix
+  # still globs "<results_root>/<domain>/<prefix>*mask=*noise=*".
+  simulation:
+    small:
+      # Per-domain experiment-name prefix of the grid-search runs.
+      prefix:
+        # blocksworld: sim_run
+        # depot: simulation-after-pred-fix 
+        # gripper: sim_run
+        # hanoi: simulation-checkup-after-gtfixed
+        # npuzzle: simulation-checkup-after-gtfixed
+        # blocksworld: simulation-cluster-run-cpu256-10min
+        # depot: simulation-cluster-run-cpu256-10min
+        # gripper: simulation-cluster-run-cpu256-10min
+        # hanoi: simulation-cluster-run-cpu256-10min
+        # npuzzle: simulation-cluster-run-cpu256-10min
+        blocksworld: __not-in-this-view__
+        depot: __not-in-this-view__
+        gripper: __not-in-this-view__
+        hanoi: __not-in-this-view__
+        npuzzle: __not-in-this-view__
+    large:
+      # The L sweep: training sizes 10/50/100/500/2000 inside each mask x noise
+      # cell. Same globbing, a different run_name.
+      prefix:
+        blocksworld: __not-in-this-view__
+        depot: __not-in-this-view__
+        gripper: __not-in-this-view__
+        hanoi: __not-in-this-view__
+        npuzzle: __not-in-this-view__
+
+  # ── Image section (single experiment per domain) ──
+  image:
+    small:
+      # Per-domain path to the single image-experiment result directory
+      # (each contains testing/ and evaluation_results/).
+      experiment_dir:
+        blocksworld: benchmark/running_results/blocksworld/TO=600__image-small__fs=shared__setup=init_final
+        depot: benchmark/running_results/depot/TO=600__image-small__fs=shared__setup=init_final
+        gripper: benchmark/running_results/gripper/TO=600__image-small__fs=shared__setup=init_final
+        hanoi: benchmark/running_results/hanoi/TO=600__image-small__fs=shared__setup=init_final
+        npuzzle: benchmark/running_results/npuzzle/TO=600__image-small__fs=shared__setup=init_final
+    large:
+      # The large-corpora mini-experiment: 100 training trajectories, 500 test
+      # problems per fold.
+      experiment_dir: {}
