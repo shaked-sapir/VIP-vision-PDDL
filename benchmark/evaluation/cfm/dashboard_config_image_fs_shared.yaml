@@ -168,10 +168,10 @@ results_dashboard:
     ROSAME_MILP_24: "ROSAME+MILP (init+final GT)"
     PISAM_MILP_LOOP__schema=pre_and_add: "NPI-SAM (init GT)"
     PISAM_MILP_LOOP__schema=pre_and_add__m=4: "NPI-SAM (init GT)"
-    ROSAME-I_24: "ROSAME-I 24 (final GT)"
-    ROSAME-I_MILP_24: "ROSAME-I 24+MILP (init+final GT)"
-    ROSAME-I_26__ep=5000__mode=fixed: "ROSAME-I 26 (init+final GT)"
-    ROSAME-I_MILP_26__ep=5000__mode=fixed: "ROSAME-I 26+MILP (init+final GT)"
+    ROSAME-I_24: "ROSAME-I 24 (final GT, 64 px)"
+    ROSAME-I_MILP_24: "ROSAME-I 24+MILP (init+final GT, 64 px)"
+    ROSAME-I_26__ep=5000__mode=fixed: "ROSAME-I 26 (init+final GT, 64 px)"
+    ROSAME-I_MILP_26__ep=5000__mode=fixed: "ROSAME-I 26+MILP (init+final GT, 64 px)"
     ROSAME-I_26__res=native__ep=5000__mode=fixed: "ROSAME-I 26 (init+final GT, native res)"
     ROSAME-I_MILP_26__res=native__ep=5000__mode=fixed: "ROSAME-I 26+MILP (init+final GT, native res)"
     ROSAME_24__s0=noisy: "ROSAME (no GT)"
@@ -271,6 +271,7 @@ results_dashboard:
         hanoi: benchmark/running_results/hanoi/TO=600__image-small__fs=shared
         npuzzle: benchmark/running_results/npuzzle/TO=600__image-small__fs=shared
     large:
-      # The imaged large-corpora runs, once they exist. Until then this pair
-      # renders a note rather than an empty grid.
-      experiment_dir: {}
+      # The large-corpora mini-experiment: 100 training trajectories, 500 test
+      # problems per fold.
+      experiment_dir:
+        blocksworld: benchmark/running_results/blocksworld/large-corpora__image-mini__N=100
