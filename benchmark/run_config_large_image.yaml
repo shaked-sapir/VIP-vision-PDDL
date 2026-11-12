@@ -1,0 +1,77 @@
+# Large-corpora image mini-experiment: blocksworld and hanoi, one training size.
+#
+# The `shared` block is run_config_large.yaml's with three differences: the
+# source is image, `num_trajectories` is [100], and the arms are the four
+# below. Only the 450 image folders in the union of the five folds' first-100
+# picks hold inferred files (benchmark/infer_image_subset.py), so no other
+# training size can run on these pools.
+#
+# Run with:
+#   python -m benchmark.benchmark_runner --config benchmark/run_config_large_image.yaml --dry-run
+#   python -m benchmark.benchmark_runner --config benchmark/run_config_large_image.yaml --domains hanoi --only-fold 0
+#
+# On the cluster: scripts/cluster_image/README.md, "Image experiments on the
+# cluster". Results land in benchmark/running_results/<domain>/<run_name>/.
+
+run_name: large-corpora__image-mini__N=100   # an image cell's experiment name is the run_name
+source: image
+
+shared:
+  n_folds: 5
+  cv_scheme: kfold                        # disjoint test stripes: 2000 train / 500 test of 2500
+  num_trajectories: [100]
+  gt_rates: [0]
+  learning_timeout_seconds: 3600
+  planning_timeout_seconds: 60
+  search_mode: dfs
+  node_choosing_strategy: model_patch_first
+  model_constraint_weight: 0.0
+  conflict_group_strategy: largest
+  fluent_branch_mode: single
+  events_tracing: false
+  normalize: false                        # cells read training/image_trajectories/ as it is
+  resume: true
+  algorithms: [pisam_milp_loop, pisam, rosame_24, rosame_milp_24]
+  baseline_regime_gate: strict
+  batch_size: 128
+  normalize_base_loss: true
+  rosame_seed: 8800
+  train_per_trajectory: false
+  epochs: 2000                            # a ceiling; the convergence rule or the timeout ends a run
+  agreement_stop:                         # blank = agreement is recorded, never a stop rule
+  rosame_convergence:
+    window: 10
+    min_improvement: 0.002
+    patience: 3
+    min_epochs: 50
+  mip_traces: 4
+
+  # benchmark/milp_configs/npisam_schema_nonempty_large.yaml with one solve
+  # capped at 60 s. The row is PISAM_MILP_LOOP__schema=pre_and_add__m=4.
+  pisam_milp:
+    eq16: off
+    lambda_pre: 0.4
+    gt_anchoring: init_only
+    schema_nonempty: pre_and_add
+    solver: cpsat
+    time_limit_seconds: 60                # cap for ONE solve
+    sampler: random
+    subset_size: 4
+    learner_input: subset_only
+    pool_policy: frozen
+    co_sample_conflicts: off
+    w_prior: tiebreak
+    seed: 42
+    stop:
+      budget_seconds:                     # blank = inherit learning_timeout_seconds
+      no_improvement_rounds: auto         # ceil(7 * ln C(100, 4)) = 107
+      stop_on_perfect_fit: true
+      max_rounds:
+      stop_on_fixpoint: true
+    eval:
+      effect_mismatch_weight: 1.0
+      inapplicability_weight: 1.0
+
+domains:
+  - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/large_corpus_L500_n2500"}
+  - {domain_key: hanoi,       data_dir: "benchmark/data/hanoi/large_corpus_n2500"}

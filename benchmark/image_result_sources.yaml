@@ -1,0 +1,40 @@
+# Where the pixel-arm rows of the image experiments come from.
+# Drives benchmark/merge_result_roots.py --config benchmark/image_result_sources.yaml:
+# the symbolic arms are already in `target`; each root below is a mirrored tree
+# of GPU rows pulled from the cluster.
+
+target: benchmark/running_results
+
+sources:
+  # blocksworld, hanoi, npuzzle: the 600 s GPU grid of 2026-11-11, restaged
+  # under the new experiment name (see the root's README.txt).
+  - root: benchmark/running_results_imgexp_pixel_reused
+    experiments: "TO=600__image-small__fs=shared"
+    labels:
+      - ROSAME-I_24
+      - ROSAME-I_MILP_24
+      - ROSAME-I_26__ep=5000__mode=fixed
+      - ROSAME-I_MILP_26__ep=5000__mode=fixed
+
+  # depot, gripper (native 600x800) and the large mini-experiment: ICAPS-24 arms.
+  - root: benchmark/running_results_imgexp_pixel_24
+    labels:
+      - ROSAME-I_24
+      - ROSAME-I_MILP_24
+      - ROSAME-I_24__res=native
+      - ROSAME-I_MILP_24__res=native
+
+  # depot, gripper at 64 px: ICAPS-26 arms (fallback while the 96 GB cards are busy).
+  - root: benchmark/running_results_imgexp_pixel_26_res64
+    experiments: "TO=600__image-small__fs=shared"
+    labels:
+      - ROSAME-I_26__ep=5000__mode=fixed
+      - ROSAME-I_MILP_26__ep=5000__mode=fixed
+
+  # depot, gripper (native 600x800) and the large mini-experiment: ICAPS-26 arms.
+  - root: benchmark/running_results_imgexp_pixel_26
+    labels:
+      - ROSAME-I_26__ep=5000__mode=fixed
+      - ROSAME-I_MILP_26__ep=5000__mode=fixed
+      - ROSAME-I_26__res=native__ep=5000__mode=fixed
+      - ROSAME-I_MILP_26__res=native__ep=5000__mode=fixed

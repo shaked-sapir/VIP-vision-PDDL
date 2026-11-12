@@ -35,10 +35,16 @@ from pddl_plus_parser.models import Domain
 from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker as _BestModelTracker
 from benchmark.baselines.base_runner import BaselineRunner
 from benchmark.baselines.image_fold_inputs import infer_bench_key, resolve_fold_inputs
+from benchmark.baselines.regime import DegradationRegime
 from benchmark.baselines.rosame_i_runner import (
     ResizeSpec,
     _RESIZE_FROM_TABLE,
     _resize_tag,
+)
+from benchmark.baselines.setup_option import (
+    GtSetupOption,
+    only_init_final,
+    runner_gt_setup,
 )
 from src.milp.rosame26_budget import PER_EPOCH_DL_SECONDS, BudgetMode
 from src.utils.torch_device import resolve_device
@@ -114,9 +120,14 @@ class Rosame26BaselineRunner(BaselineRunner):
         epochs: Optional[int] = None,
         batch_size: int = 128,
         budget_mode: str = BudgetMode.PREFLIGHT.value,
+        gt_setup: GtSetupOption = None,
     ) -> None:
         """
         Args:
+            gt_setup: The experiment's ground-truth setup. The network takes
+                both endpoint states as inputs, so the arm runs only under
+                ``init_final`` (or with no setup); :meth:`supports` gates it
+                out of any other and :meth:`learn` raises there.
             n_seeds: Independent models trained under the one budget; upstream
                 trains once. The one with the lowest final
                 training loss is kept, as the 24 arm does. It multiplies the
@@ -138,8 +149,9 @@ class Rosame26BaselineRunner(BaselineRunner):
                 the best-loss model rather than the final epoch's.
 
         Raises:
-            ValueError: on an unknown ``budget_mode``.
+            ValueError: on an unknown ``budget_mode`` or ``gt_setup``.
         """
+        self.gt_setup = runner_gt_setup(gt_setup)
         try:
             self.budget_mode = BudgetMode(budget_mode)
         except ValueError:
@@ -180,6 +192,13 @@ class Rosame26BaselineRunner(BaselineRunner):
     @property
     def color(self) -> str:
         return "#7b4fb5"
+
+    def supports(self, regime: DegradationRegime) -> Tuple[bool, str]:
+        """Whether the arm's ``gt_setup`` gives both endpoint states it needs."""
+        return only_init_final(self.gt_setup, self.name)
+
+    def run_params(self) -> Dict[str, object]:
+        return {} if self.gt_setup is None else {"gt_setup": self.gt_setup.value}
 
     def row_name(self, domain_path: Path) -> str:
         """Row label for this domain, carrying an off-default resize or budget."""
@@ -435,7 +454,13 @@ class Rosame26BaselineRunner(BaselineRunner):
             kill a grid. A model that fails gate 4 is still returned, with
             ``degenerate`` set on the report, so the cell scores a row rather
             than leaving a hole; a seed that passed the gate is preferred.
+
+        Raises:
+            ValueError: under a ``gt_setup`` other than ``init_final``.
         """
+        supported, reason = only_init_final(self.gt_setup, self.name)
+        if not supported:
+            raise ValueError(reason)
         bench, partial_domain = self._bench_and_domain(domain_path)
         resolved = resolve_fold_inputs(partial_domain, prepared_trajectories, bench)
         if not resolved:
@@ -574,6 +599,7 @@ class Rosame26BaselineRunner(BaselineRunner):
                 else len(history) - 1,
             }
 
+        report.update(self.run_params())
         report["training_seconds"] = time.perf_counter() - start
         report["device"] = default_parameters(
             domain=bench,

@@ -14,6 +14,10 @@ Both GT anchors are read from a single parse of
 only :attr:`ResolvedTrace.gt_final_predicates`; the 26 arms also need
 :attr:`ResolvedTrace.gt_init_predicates`, which the vendored network takes as a
 hard anchor (``docs/rosame-i-milp-26-implementation-plan.md`` §4.3).
+
+On request the walk also returns :attr:`ResolvedTrace.observed_final`: the last
+state of the prepared trajectory itself, with its masked atoms as unknown. It is
+the final-state anchor of a 24 arm in a setup that does not give the final state.
 """
 
 from __future__ import annotations
@@ -22,13 +26,14 @@ import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from pddl_plus_parser.lisp_parsers import ProblemParser, TrajectoryParser
-from pddl_plus_parser.models import Domain, Observation, Problem, State
+from pddl_plus_parser.models import Domain, GroundedPredicate, Observation, Problem, State
 
 from benchmark.experiment_running_helpers.normalize import _normalize_hyphens
 from src.utils.corpus_layout import FRAME_GLOB, IMAGE_POOL_DIR_NAMES, frames_dir
+from src.utils.masking import load_masking_info
 
 #: PDDL domain name / path part -> bench key, for domains whose names differ.
 DOMAIN_ALIASES: Dict[str, str] = {
@@ -47,11 +52,25 @@ BENCH_KEYS = frozenset(DOMAIN_ALIASES.values())
 
 
 @dataclass(frozen=True)
+class StateLabelling:
+    """A degraded state as an arm may read it.
+
+    Attributes:
+        positive: The atoms labelled true, as ``"on a b"`` strings.
+        unknown: The masked atoms; every atom in neither list is labelled false.
+    """
+
+    positive: List[str]
+    unknown: List[str]
+
+
+@dataclass(frozen=True)
 class ResolvedTrace:
     """One trajectory's inputs to an imaged ROSAME arm.
 
     ``gt_init_predicates`` / ``gt_final_predicates`` are untyped predicate
-    strings without parentheses, e.g. ``"on a b"``.
+    strings without parentheses, e.g. ``"on a b"``. ``observed_final`` is the
+    prepared trajectory's own last state, present only when asked for.
     """
 
     problem: Problem
@@ -62,25 +81,32 @@ class ResolvedTrace:
     gt_init_predicates: List[str]
     gt_final_predicates: List[str]
     gt_trajectory_path: Path
+    observed_final: Optional[StateLabelling] = None
 
 
 def resolve_fold_inputs(
     partial_domain: Domain,
     prepared_trajectories: Sequence[Tuple[Path, Path, Path]],
     bench: str,
+    with_observed_final: bool = False,
 ) -> List[ResolvedTrace]:
     """Resolve every trajectory in a fold that has images on disk.
 
     Trajectories with no frames are dropped; an empty result means a
     simulation-mode cell, which the caller is expected to report and skip.
 
+    Args:
+        with_observed_final: Also read each prepared trajectory's last state
+            and its masking info into :attr:`ResolvedTrace.observed_final`.
+
     Raises:
         FileNotFoundError: if a kept trajectory has no GT counterpart.
-        ValueError: if a GT trajectory parses to zero transitions.
+        ValueError: if a GT trajectory parses to zero transitions, or the
+            masking info asked for does not cover the trajectory's states.
     """
     resolved: List[ResolvedTrace] = []
 
-    for traj_path, _masking_path, problem_pddl_path, *_ in prepared_trajectories:
+    for traj_path, masking_path, problem_pddl_path, *_ in prepared_trajectories:
         problem_dir = problem_pddl_path.parent
         problem_name = problem_pddl_path.stem
 
@@ -90,7 +116,7 @@ def resolve_fold_inputs(
 
         problem = parse_problem_normalized(partial_domain, problem_pddl_path)
 
-        # Actions only — the states in this file are degraded and never read.
+        # The states of this file are degraded; only ``observed_final`` reads one.
         observation = parse_trajectory_normalized(partial_domain, problem, traj_path)
         action_strings = [
             str(component.grounded_action_call)[1:-1]
@@ -111,10 +137,75 @@ def resolve_fold_inputs(
                 gt_init_predicates=gt_init,
                 gt_final_predicates=gt_final,
                 gt_trajectory_path=gt_path,
+                observed_final=(
+                    observed_final_state(partial_domain, observation, masking_path)
+                    if with_observed_final else None
+                ),
             )
         )
 
     return resolved
+
+
+def observed_final_state(
+    partial_domain: Domain, observation: Observation, masking_path: Optional[Path]
+) -> StateLabelling:
+    """The last state of a prepared trajectory, its masked atoms as unknown.
+
+    Args:
+        observation: The parsed prepared trajectory.
+        masking_path: Its ``.masking_info`` file; ``None`` or absent means no
+            atom is masked.
+
+    Raises:
+        ValueError: if the trajectory holds no transition, or the masking info
+            does not have one line per state.
+    """
+    if not observation.components:
+        raise ValueError("a trajectory with no transition has no final state to read")
+    masked = last_state_masked_atoms(
+        partial_domain, masking_path, num_states=len(observation.components) + 1
+    )
+    return labelling_of(observation.components[-1].next_state, masked)
+
+
+def labelling_of(state: State, masked_atoms: Set[str]) -> StateLabelling:
+    """``state`` as a labelling: its unmasked positive atoms, and the masked ones."""
+    positive = sorted(
+        atom
+        for grounded_set in state.state_predicates.values()
+        for pred in grounded_set
+        if pred.is_positive and (atom := atom_string(pred)) not in masked_atoms
+    )
+    return StateLabelling(positive=positive, unknown=sorted(masked_atoms))
+
+
+def last_state_masked_atoms(
+    partial_domain: Domain, masking_path: Optional[Path], num_states: int
+) -> Set[str]:
+    """The atoms a ``.masking_info`` file masks in the last of ``num_states`` states.
+
+    Raises:
+        ValueError: if the file does not have one line per state.
+    """
+    if masking_path is None or not Path(masking_path).exists():
+        return set()
+    tmp_path = conformed_tempfile(Path(masking_path), ".masking_info", partial_domain)
+    try:
+        masking_info = load_masking_info(tmp_path, partial_domain)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    if len(masking_info) != num_states:
+        raise ValueError(
+            f"masking info '{masking_path}' covers {len(masking_info)} states, "
+            f"the trajectory has {num_states}"
+        )
+    return {atom_string(pred) for pred in masking_info[-1]}
+
+
+def atom_string(pred: GroundedPredicate) -> str:
+    """A grounded predicate as ``"name arg1 arg2"``, whatever its polarity."""
+    return " ".join([pred.name, *pred.object_mapping.values()])
 
 
 def resolve_images(problem_dir: Path) -> List[Path]:

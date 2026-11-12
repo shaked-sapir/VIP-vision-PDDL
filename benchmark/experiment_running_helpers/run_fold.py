@@ -368,6 +368,33 @@ def run_cdps_phase(
         )
 
 
+def select_training_pool(
+    train_problem_dirs: List[Path],
+    fold: int,
+    num_trajectories: int,
+    trajectory_seed: Optional[int] = None,
+) -> List[Path]:
+    """The fold's training problems in the order a cell takes its prefix from.
+
+    Args:
+        train_problem_dirs: The fold's training pool, as ``cv_split`` orders it.
+        fold: 0-based fold number; seeds the order as ``42 + fold`` when no
+            ``trajectory_seed`` is given.
+        num_trajectories: Sample size under an explicit ``trajectory_seed``.
+        trajectory_seed: An explicit seed; the sample is then exactly
+            ``num_trajectories`` problems rather than the whole pool.
+
+    Returns:
+        The whole pool in seeded order, or the seeded sample.
+    """
+    random.seed(trajectory_seed if trajectory_seed is not None else 42 + fold)
+    if trajectory_seed is not None:
+        return random.sample(
+            train_problem_dirs, min(num_trajectories, len(train_problem_dirs))
+        )
+    return random.sample(train_problem_dirs, len(train_problem_dirs))
+
+
 def cv_split(
     n_problems: int,
     fold: int,
@@ -562,14 +589,9 @@ def run_single_fold(
                 f"num_trajectories or generate a larger corpus."
             )
 
-        random.seed(trajectory_seed if trajectory_seed is not None else 42 + fold)
-        if trajectory_seed is not None:
-            selected_pool = random.sample(
-                train_problem_dirs,
-                min(num_trajectories, len(train_problem_dirs)),
-            )
-        else:
-            selected_pool = random.sample(train_problem_dirs, min(n_train, len(train_problem_dirs)))
+        selected_pool = select_training_pool(
+            train_problem_dirs, fold, num_trajectories, trajectory_seed
+        )
 
         # Prepare observations via the data source (file-based or simulated)
         prepared_trajectories, pre_built_observations, gt_source_indices = \

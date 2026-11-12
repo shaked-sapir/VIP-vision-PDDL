@@ -28,6 +28,7 @@ from PIL import Image
 from torchvision import transforms
 
 from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker
+from benchmark.algorithm_adapters.endpoint_anchors import EndpointAnchors, anchors_of
 from benchmark.algorithm_adapters.po_rosame_runner import PORosame_Runner, TrainingReport
 from src.milp.loss_convergence import CONVERGED, TIMEOUT
 from src.utils.torch_device import resolve_device
@@ -109,19 +110,29 @@ def _build_cv_model(n_props: int) -> nn.Module:
 
 
 class _PreparedTrace:
-    """Per-trajectory training tensors, all pinned to the model device."""
+    """Per-trajectory training tensors, all pinned to the model device.
+
+    ``final_state_mask`` is 1 on the propositions the final-state anchor
+    labels and 0 on its unknown ones; ``None`` means every proposition is
+    labelled. ``init_state_vec`` is the GT initial state, or ``None`` when the
+    initial state is not anchored.
+    """
 
     def __init__(
         self,
         images: torch.Tensor,          # (T+1, 3, H, W) -- H,W set by ``resize``
         action_indices: List[int],     # length T, ROSAME action indices
-        final_state_vec: torch.Tensor, # (n_props,) GT final state, {0,1}
+        final_state_vec: torch.Tensor, # (n_props,) final-state anchor, {0,1}
         name: str,
+        final_state_mask: Optional[torch.Tensor] = None,  # (n_props,) {0,1}
+        init_state_vec: Optional[torch.Tensor] = None,    # (n_props,) {0,1}
     ) -> None:
         self.images = images
         self.action_indices = action_indices
         self.final_state_vec = final_state_vec
         self.name = name
+        self.final_state_mask = final_state_mask
+        self.init_state_vec = init_state_vec
 
 
 class RosameI_Runner(PORosame_Runner):
@@ -217,12 +228,19 @@ class RosameI_Runner(PORosame_Runner):
         vec = [1.0 if p in matched else 0.0 for p in self.rosame.propositions]
         return torch.tensor(vec, dtype=torch.float32)
 
+    def _known_mask(self, unknown_predicates: Sequence[str]) -> Optional[torch.Tensor]:
+        """1 on every proposition except the unknown ones; ``None`` when none is unknown."""
+        if not unknown_predicates:
+            return None
+        return (1.0 - self._encode_state(unknown_predicates)).to(self.device)
+
     def _prepare_trace(
         self,
         image_paths: Sequence[Path],
         action_strings: Sequence[str],
         final_state_predicates: Sequence[str],
         name: str,
+        anchors: Optional[EndpointAnchors] = None,
     ) -> Optional[_PreparedTrace]:
         """Build a :class:`_PreparedTrace`, or ``None`` (skip) on any misalignment."""
         action_indices: List[int] = []
@@ -246,26 +264,36 @@ class RosameI_Runner(PORosame_Runner):
 
         images = torch.stack([self._load_image(p) for p in image_paths]).to(self.device)
         final_vec = self._encode_state(final_state_predicates).to(self.device)
-        return _PreparedTrace(images, action_indices, final_vec, name)
+        anchors = anchors or EndpointAnchors()
+        init_vec = None
+        if anchors.init_predicates is not None:
+            init_vec = self._encode_state(anchors.init_predicates).to(self.device)
+        return _PreparedTrace(
+            images, action_indices, final_vec, name,
+            final_state_mask=self._known_mask(anchors.final_unknown),
+            init_state_vec=init_vec,
+        )
 
     def prepare_traces(
         self,
-        prepared_problems: Sequence[Tuple[object, Sequence[Path], Sequence[str], Sequence[str]]],
+        prepared_problems: Sequence[Sequence[object]],
     ) -> List[_PreparedTrace]:
         """Union-ground on all problems, then build one trace per usable problem.
 
-        Traces are named after their image directory; image-mode problem PDDLs do
-        not carry unique ``(problem <name>)`` headers.
+        Each item is ``(problem, image_paths, action_strings,
+        final_state_predicates)``, optionally followed by an
+        :class:`EndpointAnchors`. Traces are named after their image directory;
+        image-mode problem PDDLs do not carry unique ``(problem <name>)`` headers.
         """
-        problems = [problem for problem, _images, _actions, _final in prepared_problems]
-        self.ground_union(problems)
+        self.ground_union([item[0] for item in prepared_problems])
 
         traces: List[_PreparedTrace] = []
-        for idx, (_problem, image_paths, action_strings, final_preds) in enumerate(
-            prepared_problems
-        ):
+        for idx, item in enumerate(prepared_problems):
+            _problem, image_paths, action_strings, final_preds = item[:4]
             name = image_paths[0].parent.name if image_paths else f"problem{idx}"
-            trace = self._prepare_trace(image_paths, action_strings, final_preds, name)
+            trace = self._prepare_trace(
+                image_paths, action_strings, final_preds, name, anchors_of(item)
+            )
             if trace is not None:
                 traces.append(trace)
         return traces
@@ -300,33 +328,52 @@ class RosameI_Runner(PORosame_Runner):
     ) -> torch.Tensor:
         """ROSAME-I loss for already-computed predictions.
 
-        Consistency (t=1..T-1) + gamma-anchored GT final state + applicability
+        Consistency (t=1..T-1) + gamma-anchored final state + applicability
         + lambda-weighted precondition prior. RAW logits, ``reduction='sum'``.
+        The final-state term reads only the propositions the anchor labels;
+        an anchored initial state stands in for the first frame's prediction.
         """
         pre, add, dele = self.rosame.build(trace.action_indices)  # CPU tensors
         pre = pre.to(self.device)
         add = add.to(self.device)
         dele = dele.to(self.device)
 
+        pre_states = self._pre_states(preds, trace)  # (T, n_props)
         # Predicted next state from each pre-state under the (soft) action model.
-        domain_preds = preds[:-1] * (1 - dele) + (1 - preds[:-1]) * add  # (T, n_props)
+        domain_preds = pre_states * (1 - dele) + (1 - pre_states) * add  # (T, n_props)
 
         if domain_preds.shape[0] > 1:  # consistency: domain_preds[0..T-2] vs preds[1..T-1]
             loss = F.mse_loss(domain_preds[:-1], preds[1:-1], reduction="sum")
         else:
             loss = torch.zeros((), device=self.device)
 
-        # gamma-anchor the LAST predicted state to the GT final state (decision #2).
-        loss = loss + gamma * F.mse_loss(
-            domain_preds[-1], trace.final_state_vec, reduction="sum"
-        )
+        # gamma-anchor the LAST predicted state to the final-state anchor (decision #2).
+        loss = loss + gamma * self._final_anchor_loss(domain_preds[-1], trace)
         # Applicability: a false pre-state fluent must not be a precondition.
         loss = loss + F.mse_loss(
-            (1 - preds[:-1]) * pre, torch.zeros_like(pre), reduction="sum"
+            (1 - pre_states) * pre, torch.zeros_like(pre), reduction="sum"
         )
         # Precondition prior (pushes preconditions toward 1).
         loss = loss + lambda_ * F.mse_loss(pre, torch.ones_like(pre), reduction="sum")
         return loss
+
+    @staticmethod
+    def _pre_states(preds: torch.Tensor, trace: _PreparedTrace) -> torch.Tensor:
+        """The ``T`` pre-states of a trace: frame predictions, the first one GT when anchored."""
+        if trace.init_state_vec is None:
+            return preds[:-1]
+        return torch.cat([trace.init_state_vec.unsqueeze(0), preds[1:-1]], dim=0)
+
+    @staticmethod
+    def _final_anchor_loss(last_pred: torch.Tensor, trace: _PreparedTrace) -> torch.Tensor:
+        """Summed squared error of the last predicted state on the labelled propositions."""
+        if trace.final_state_mask is None:
+            return F.mse_loss(last_pred, trace.final_state_vec, reduction="sum")
+        return F.mse_loss(
+            last_pred * trace.final_state_mask,
+            trace.final_state_vec * trace.final_state_mask,
+            reduction="sum",
+        )
 
     def _total_loss(
         self, traces: Sequence[_PreparedTrace], gamma: float, lambda_: float
@@ -400,7 +447,7 @@ class RosameI_Runner(PORosame_Runner):
 
     def learn_full(
         self,
-        prepared_problems: Sequence[Tuple[object, Sequence[Path], Sequence[str], Sequence[str]]],
+        prepared_problems: Sequence[Sequence[object]],
         epochs: int,
         gamma: float,
         lambda_: float,
@@ -412,7 +459,8 @@ class RosameI_Runner(PORosame_Runner):
         """Ground, prepare all traces, and train them pooled.
 
         ``prepared_problems`` items are
-        ``(problem, image_paths, action_strings, final_state_predicates)``.
+        ``(problem, image_paths, action_strings, final_state_predicates)``,
+        optionally followed by an :class:`EndpointAnchors`.
         Returns the final total training loss, or ``None`` if no trace is usable.
         """
         _set_seed(self.seed)

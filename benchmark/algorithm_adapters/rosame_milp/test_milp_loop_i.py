@@ -302,7 +302,29 @@ def test_a_single_step_trace_contributes_no_state_term():
     print("PASS  a single-step trace contributes no state term")
 
 
+def test_label_first_frame_scores_frame_zero_too():
+    harness = _Harness(["a"], n_frames=5)
+    harness.label_first_frame = True
+    trace = harness._traces[0]
+    harness.set_state_labels({"a": torch.ones(4, _N_PROPS)})
+
+    ce = harness._state_ce(harness._params["a"], trace)
+
+    expected = 4 * _N_PROPS * -torch.log(torch.tensor(0.5)) / _N_PROPS
+    assert torch.isclose(ce, expected, atol=1e-6), (ce, expected)
+
+    harness.set_state_labels(_labels_for(harness))  # interior-only labels
+    try:
+        harness._state_ce(harness._params["a"], trace)
+    except ValueError as error:
+        assert "expected (4, 4)" in str(error), error
+    else:
+        raise AssertionError("interior-only labels must not pass under label_first_frame")
+    print("PASS  label_first_frame scores frame 0 as well as the interior frames")
+
+
 if __name__ == "__main__":
+    test_label_first_frame_scores_frame_zero_too()
     test_solve_epochs_follow_warmup_and_interval()
     test_state_term_is_summed_over_frames_and_averaged_over_props()
     test_psi_decays_the_state_term_and_relabelling_resets_it()

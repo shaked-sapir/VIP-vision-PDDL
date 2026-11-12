@@ -144,15 +144,19 @@ def extract_model_labels(runner, ps_domain: PSDomain, sol: ObservationM) -> Dict
 
 
 def extract_state_labels(
-    instance, repaired_states: List[set], proposition_names: Sequence[str]
+    instance,
+    repaired_states: List[set],
+    proposition_names: Sequence[str],
+    include_first: bool = False,
 ) -> "object":
-    """Binary interior-frame state labels aligned with a CV head's columns.
+    """Binary state labels aligned with a CV head's columns.
 
     ``repaired_states`` holds one set of true Propositions per frame (``T + 1``
     of them, as :meth:`CPSATObservedActions.repaired_states` returns). The result
     is a ``(T - 1, len(proposition_names))`` FloatTensor covering the interior
-    frames only; the endpoints are hard-fixed in the MILP. A column with no
-    counterpart in ``instance`` is 0.0, under the encoder's closed-world reading.
+    frames, or ``(T, ...)`` with frame 0 first under ``include_first``. The last
+    frame is never labelled. A column with no counterpart in ``instance`` is
+    0.0, under the encoder's closed-world reading.
     """
     import torch
 
@@ -163,7 +167,7 @@ def extract_state_labels(
         parts = key.split()
         props.append(proposition_of(instance, parts[0], parts[1:]) if parts else None)
 
-    interior = repaired_states[1:-1]
+    interior = repaired_states[(0 if include_first else 1):-1]
     rows = [
         [1.0 if prop is not None and prop in frame else 0.0 for prop in props]
         for frame in interior
