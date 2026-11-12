@@ -7,7 +7,9 @@ The target's image pool holds, per problem, the source's ``state_*.png``, its
 ``.pddl`` and the clean ``_trajectory.json`` of the source's
 ``gt_trajectories/``; the target's ``gt_trajectories/`` is a copy of the
 source's. Inferred files are not copied, so the target can be classified under
-another protocol (``benchmark/infer_image_subset.py --all``).
+another protocol (``benchmark/infer_image_subset.py --all``). With
+``--with-inferred`` they are copied and the prepared files are not, which is
+a copy of the corpus for another ``gt_setup``.
 """
 
 from __future__ import annotations
@@ -27,7 +29,8 @@ from src.utils.corpus_layout import (
 from src.utils.trajectory_json_converter import convert_trajectory_to_json
 
 
-def stage_problem(source_dir: Path, source_gt: Path, target_dir: Path, target_gt: Path) -> int:
+def stage_problem(source_dir: Path, source_gt: Path, target_dir: Path, target_gt: Path,
+                  with_inferred: bool = False) -> int:
     """Copy one problem's frames, pddl and GT into the target; return the frame count.
 
     A GT folder holding only the ``.trajectory`` gets its ``_trajectory.json``
@@ -55,10 +58,16 @@ def stage_problem(source_dir: Path, source_gt: Path, target_dir: Path, target_gt
             output_path=target_gt / gt_json_name,
         )
     shutil.copy2(target_gt / gt_json_name, target_dir / gt_json_name)
+    if with_inferred:
+        for name_ in (f"{name}.trajectory", f"{name}.masking_info"):
+            if not (source_dir / name_).exists():
+                raise FileNotFoundError(f"{name}: no inferred {name_} to copy")
+            shutil.copy2(source_dir / name_, target_dir / name_)
     return len(frames)
 
 
-def stage_corpus(source: Path, target: Path, exclude: Iterable[str] = ()) -> List[str]:
+def stage_corpus(source: Path, target: Path, exclude: Iterable[str] = (),
+                 with_inferred: bool = False) -> List[str]:
     """Stage every problem of ``source`` not named in ``exclude``; return their names.
 
     Raises:
@@ -74,7 +83,7 @@ def stage_corpus(source: Path, target: Path, exclude: Iterable[str] = ()) -> Lis
         if name in excluded:
             continue
         stage_problem(source_dir, source / GT_SUBPATH / name,
-                      target_pool / name, target / GT_SUBPATH / name)
+                      target_pool / name, target / GT_SUBPATH / name, with_inferred)
         staged.append(name)
     return staged
 
@@ -84,8 +93,10 @@ def main() -> None:
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--exclude", nargs="*", default=[], help="problem folder names to leave out")
+    parser.add_argument("--with-inferred", action="store_true",
+                        help="also copy each problem's inferred .trajectory and .masking_info")
     args = parser.parse_args()
-    staged = stage_corpus(args.source, args.target, args.exclude)
+    staged = stage_corpus(args.source, args.target, args.exclude, args.with_inferred)
     print(f"staged {len(staged)} problems into {args.target}")
 
 

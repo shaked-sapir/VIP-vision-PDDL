@@ -45,13 +45,29 @@ class GtAnchoring(Enum):
       project). Matches plain ``cdps``.
     - ``ALL_GT_STATES``: every state in ``gt_state_indices``. Matches
       ``cdps_anchored``, whose data prep injects the final state as GT too.
+    - ``GT_STATES_ONLY``: exactly the states in ``gt_state_indices``; the
+      initial state only when index 0 is among them.
     - ``NONE``: nothing is hard-fixed. Every state including the initial one is
       repairable, and ``gt_state_indices`` is ignored. No CDPS variant matches.
     """
 
     INIT_ONLY = "init_only"
     ALL_GT_STATES = "all_gt_states"
+    GT_STATES_ONLY = "gt_states_only"
     NONE = "none"
+
+    def anchors_init(self, gt_state_indices: Optional[Set[int]]) -> bool:
+        """Whether the initial state is hard-fixed under this mode."""
+        if self is GtAnchoring.NONE:
+            return False
+        if self is GtAnchoring.GT_STATES_ONLY:
+            return 0 in (gt_state_indices or ())
+        return True
+
+    @property
+    def anchors_listed_states(self) -> bool:
+        """Whether the states in ``gt_state_indices`` are hard-fixed."""
+        return self in (GtAnchoring.ALL_GT_STATES, GtAnchoring.GT_STATES_ONLY)
 
 
 _STATE_BLOCK_RE = re.compile(r"\((?::init|:state)((?:\s*\([^()]*\))*)\s*\)")
@@ -400,7 +416,7 @@ def observation_to_trace(
             soft (no hard goal constraints — encoder skips paper eqs. 21–22).
         gt_state_indices: 0-based STATE indices known to be ground truth (the
             CDPS ``gt_states_by_obs`` convention). Read only when
-            ``gt_anchoring`` is ``ALL_GT_STATES``.
+            ``gt_anchoring`` is ``ALL_GT_STATES`` or ``GT_STATES_ONLY``.
         gt_anchoring: which of those states to hard-fix (see :class:`GtAnchoring`).
     """
     components = observation.components
@@ -438,7 +454,7 @@ def observation_to_trace(
     # extra hard-fixed states: the injected-GT ones are clean and unmasked, so
     # their positive fluents read straight off obs_p (state idx s -> time s+1).
     hard_states: Dict[int, Set] = {}
-    if gt_anchoring is GtAnchoring.ALL_GT_STATES and gt_state_indices:
+    if gt_anchoring.anchors_listed_states and gt_state_indices:
         for state_idx in gt_state_indices:
             if 0 <= state_idx <= step:
                 hard_states[state_idx + 1] = set(_positive_propositions(obs_p[state_idx + 1]))
@@ -459,7 +475,7 @@ def observation_to_trace(
         goal,
         actions,
         hard_states,
-        anchor_init=gt_anchoring is not GtAnchoring.NONE,
+        anchor_init=gt_anchoring.anchors_init(gt_state_indices),
     )
 
 

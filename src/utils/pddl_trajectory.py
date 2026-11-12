@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import List, Set, Union, Tuple, Optional
 
+from src.utils.gt_setup import GtSetup
+
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser, TrajectoryParser
 from pddl_plus_parser.models import Observation, GroundedPredicate, State, Domain, PDDLObject
 
@@ -534,37 +536,9 @@ def inject_gt_states_by_percentage(
     files never collide with the plain-CDPS files).
     """
     trajectory_path, masking_info_path = Path(trajectory_path), Path(masking_info_path)
-    json_trajectory_path, domain_path = Path(json_trajectory_path), Path(domain_path)
-
-    obs, masking = _load_trajectory_context(trajectory_path, masking_info_path, domain_path)
-    num_steps = len(obs.components)
-
-    with open(json_trajectory_path, 'r') as f:
-        gt_trajectory = json.load(f)
-
-    gt_state_indices = _compute_gt_indices(num_steps + 1, gt_rate, anchor_final=anchor_final)
-    n = min(num_steps, len(gt_trajectory))
-
-    gt_states = _gt_state_literals(gt_trajectory, n)
-    degraded_states = _degraded_state_literals(obs, n)
-    state_literals = [
-        gt_states[idx] if idx in gt_state_indices else degraded_states[idx]
-        for idx in range(n + 1)
-    ]
-    if 0 in gt_state_indices and len(masking) > 0:
-        masking[0] = set()
-
-    new_trajectory_data = []
-    for i in range(n):
-        state_idx = i + 1
-        if state_idx in gt_state_indices and state_idx < len(masking):
-            masking[state_idx] = set()
-        new_trajectory_data.append({
-            'step': state_idx,
-            'current_state': {'literals': sorted(state_literals[i])},
-            'ground_action': gt_trajectory[i]['ground_action'],
-            'next_state': {'literals': sorted(state_literals[i + 1])},
-        })
+    obs, masking, gt_trajectory = _load_injection_inputs(
+        trajectory_path, masking_info_path, json_trajectory_path, domain_path)
+    gt_state_indices = _compute_gt_indices(len(obs.components) + 1, gt_rate, anchor_final=anchor_final)
 
     problem_name = trajectory_path.stem.split('_gtrate')[0]
     out_name = f"{problem_name}_gtrate{gt_rate}" if gt_rate > 0 else problem_name
@@ -572,5 +546,79 @@ def inject_gt_states_by_percentage(
         out_name = f"{out_name}_anchored"
     if output_stem is not None:
         out_name = output_stem
-    traj_path, mask_path = _save_trajectory_and_return(new_trajectory_data, masking, out_name, trajectory_path.parent, masking_info_path.parent)
+    traj_path, mask_path = _write_injected_states(
+        obs, masking, gt_trajectory, gt_state_indices, out_name,
+        trajectory_path.parent, masking_info_path.parent)
     return traj_path, mask_path, gt_state_indices
+
+
+def inject_gt_endpoint_states(
+    trajectory_path: Union[str, Path],
+    masking_info_path: Union[str, Path],
+    json_trajectory_path: Union[str, Path],
+    domain_path: Union[str, Path],
+    setup: GtSetup,
+    output_stem: str,
+) -> Tuple[Path, Path, Set[int]]:
+    """Write the trajectory with the setup's endpoint states replaced by ground truth.
+
+    Every other state keeps its degraded literals and masking. Under
+    ``GtSetup.NONE`` the output equals the input.
+
+    Returns:
+        The written ``.trajectory`` and ``.masking_info`` paths and the 0-based
+        indices of the ground-truth states.
+    """
+    trajectory_path, masking_info_path = Path(trajectory_path), Path(masking_info_path)
+    obs, masking, gt_trajectory = _load_injection_inputs(
+        trajectory_path, masking_info_path, json_trajectory_path, domain_path)
+    num_states = min(len(obs.components), len(gt_trajectory)) + 1
+    gt_state_indices = setup.state_indices(num_states)
+    traj_path, mask_path = _write_injected_states(
+        obs, masking, gt_trajectory, gt_state_indices, output_stem,
+        trajectory_path.parent, masking_info_path.parent)
+    return traj_path, mask_path, gt_state_indices
+
+
+def _load_injection_inputs(
+    trajectory_path: Path, masking_info_path: Path,
+    json_trajectory_path: Union[str, Path], domain_path: Union[str, Path],
+) -> Tuple[Observation, List[Set[GroundedPredicate]], List[dict]]:
+    """The degraded observation, its masking and the clean GT steps."""
+    obs, masking = _load_trajectory_context(trajectory_path, masking_info_path, Path(domain_path))
+    with open(json_trajectory_path, 'r') as f:
+        gt_trajectory = json.load(f)
+    return obs, masking, gt_trajectory
+
+
+def _write_injected_states(
+    obs: Observation,
+    masking: List[Set[GroundedPredicate]],
+    gt_trajectory: List[dict],
+    gt_state_indices: Set[int],
+    out_name: str,
+    traj_dir: Path,
+    masking_dir: Path,
+) -> Tuple[Path, Path]:
+    """Save ``obs`` with the listed states taken from ``gt_trajectory`` and unmasked."""
+    n = min(len(obs.components), len(gt_trajectory))
+    gt_states = _gt_state_literals(gt_trajectory, n)
+    degraded_states = _degraded_state_literals(obs, n)
+    state_literals = [
+        gt_states[idx] if idx in gt_state_indices else degraded_states[idx]
+        for idx in range(n + 1)
+    ]
+    for state_idx in gt_state_indices:
+        if 0 <= state_idx <= n and state_idx < len(masking):
+            masking[state_idx] = set()
+
+    steps = [
+        {
+            'step': i + 1,
+            'current_state': {'literals': sorted(state_literals[i])},
+            'ground_action': gt_trajectory[i]['ground_action'],
+            'next_state': {'literals': sorted(state_literals[i + 1])},
+        }
+        for i in range(n)
+    ]
+    return _save_trajectory_and_return(steps, masking, out_name, traj_dir, masking_dir)

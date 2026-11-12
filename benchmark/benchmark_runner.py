@@ -69,6 +69,7 @@ from benchmark.evaluation.cfm.cfm_quality_analysis import generate_cfm_quality_a
 from benchmark.evaluation.cfm.cfm_quality_table import generate_cfm_quality_table
 from benchmark.evaluation.experiment_report import generate_experiment_report
 from benchmark.experiment_running_helpers.data_source import ImageDataSource, SimulatedDataSource
+from src.utils.gt_setup import GtSetup
 from src.observation_degradation.masking import MaskingType
 from src.observation_degradation.noising import NoisingType
 from src.plan_denoising.milp_denoiser.config import (
@@ -274,10 +275,11 @@ def _cell_experiment_paths(run_name: str, cell: dict) -> Tuple[str, str]:
 # Data source construction
 # ---------------------------------------------------------------------------
 
-def _build_data_source(source: str, sim_cfg: dict, data_dir: Path, cell: dict):
-    """Construct the DataSource for a cell."""
+def _build_data_source(source: str, sim_cfg: dict, data_dir: Path, cell: dict,
+                       gt_setup: GtSetup = GtSetup.INIT):
+    """Construct the DataSource for a cell; ``gt_setup`` applies to an image source."""
     if source == "image":
-        return ImageDataSource()
+        return ImageDataSource(gt_setup=gt_setup)
 
     gt_paths = _discover_gt_trajectories(data_dir)
     return SimulatedDataSource(
@@ -334,7 +336,9 @@ _RUNNER_KWARG_KEYS = {
 # Shared-config keys read by this runner itself, never forwarded to main().
 _GATE_KEY = "baseline_regime_gate"
 _GATE_MODES = ("strict", "off")
-_RUN_LEVEL_KEYS = {_GATE_KEY}
+#: The GT setup of an image run's data (src/utils/gt_setup.py); builds the data source.
+_GT_SETUP_KEY = "gt_setup"
+_RUN_LEVEL_KEYS = {_GATE_KEY, _GT_SETUP_KEY}
 
 
 def _gate_is_strict(shared: dict) -> bool:
@@ -649,7 +653,10 @@ def execute_run(
             if not data_dir.exists():
                 raise FileNotFoundError(f"data_dir not found: {data_dir}")
 
-            data_source = _build_data_source(source, simulation_config, data_dir, cell)
+            data_source = _build_data_source(
+                source, simulation_config, data_dir, cell,
+                gt_setup=GtSetup.parse(shared.get(_GT_SETUP_KEY)),
+            )
 
             regime = _cell_regime(source, cell, data_dir)
             cell_kwargs = _gate_cell_baselines(shared_experiment_kwargs, regime, gate_strict)

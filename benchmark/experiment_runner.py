@@ -21,7 +21,7 @@ import time
 from concurrent.futures import as_completed, ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from amlgym.metrics import print_metrics
 
@@ -42,7 +42,9 @@ from benchmark.experiment_running_helpers.resume import (
 )
 from src.observation_degradation.masking import MaskingType
 from src.utils.corpus_layout import IMAGE_POOL_SUBPATH, POOL_SUBPATH, pool_problem_dirs
+from src.utils.gt_setup import GtSetup
 from src.observation_degradation.noising import NoisingType
+from src.milp.converter import GtAnchoring
 from src.plan_denoising.milp_denoiser.config import PisamMilpConfig
 from src.utils.atomic_json import read_json_or_none, write_json_atomic
 from src.utils.config import load_config
@@ -119,6 +121,37 @@ def _resolve_domain_config(domain_key: str) -> dict:
 # =============================================================================
 # MAIN EXPERIMENT LOOP
 # =============================================================================
+#: The MILP anchoring modes that fix exactly the states a setup gives.
+MILP_ANCHORING_BY_SETUP = {
+    GtSetup.NONE: (GtAnchoring.NONE,),
+    GtSetup.INIT: (GtAnchoring.INIT_ONLY,),
+    GtSetup.FINAL: (GtAnchoring.GT_STATES_ONLY,),
+    GtSetup.INIT_FINAL: (GtAnchoring.ALL_GT_STATES, GtAnchoring.GT_STATES_ONLY),
+}
+
+
+def _gt_setup_params(
+    data_source: DataSource, pisam_milp_configs: Optional[List[PisamMilpConfig]]
+) -> Dict[str, str]:
+    """The ``gt_setup`` run parameter of a non-default setup; empty under ``init``.
+
+    Raises:
+        ValueError: if a MILP arm's ``gt_anchoring`` fixes other states than
+            the setup gives.
+    """
+    gt_setup = getattr(data_source, "gt_setup", GtSetup.INIT)
+    if gt_setup is GtSetup.INIT:
+        return {}
+    allowed = MILP_ANCHORING_BY_SETUP[gt_setup]
+    for config in pisam_milp_configs or []:
+        if config.gt_anchoring not in allowed:
+            raise ValueError(
+                f"gt_setup '{gt_setup.value}' needs pisam_milp.gt_anchoring in "
+                f"{[a.value for a in allowed]}; got '{config.gt_anchoring.value}'"
+            )
+    return {"gt_setup": gt_setup.value}
+
+
 def main(
     domain_key: str,
     data_dir: Path,
@@ -284,6 +317,7 @@ def main(
         ) + [r.row_name(domain_ref_path) for r in (baselines or [])],
         "normalized": norm_trajs_dir is not None,
         "data_source_type": type(data_source).__name__,
+        **_gt_setup_params(data_source, pisam_milp_configs),
         "baseline_params": {
             r.row_name(domain_ref_path): r.run_params() for r in (baselines or [])
         },

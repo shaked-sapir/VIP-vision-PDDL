@@ -16,6 +16,7 @@ from benchmark.experiment_running_helpers.trajectory_utils import (
     prepare_fold_trajectories,
 )
 from src.utils.corpus_layout import GT_SUBPATH, IMAGE_POOL_SUBPATH
+from src.utils.gt_setup import GtSetup
 from src.utils.masking import save_masking_info
 from src.utils.pddl_trajectory import build_trajectory_file
 
@@ -66,6 +67,7 @@ def problem_dir(tmp_path: Path) -> Path:
 
     steps = _gt_steps()
     steps[0]["current_state"]["literals"] = steps[0]["current_state"]["literals"][1:]
+    steps[-1]["next_state"]["literals"] = steps[-1]["next_state"]["literals"][1:]
     build_trajectory_file(steps, NAME, folder)
     save_masking_info(folder, NAME, [set() for _ in range(len(steps) + 1)])
     return folder
@@ -89,7 +91,7 @@ def test_gt_rate_zero_keeps_the_inferred_file_and_leaves_no_intermediate(problem
     pregenerate_all_gt_frame_axiom_files([problem_dir], DOMAIN, [0], "after_gt_only")
 
     assert (problem_dir / f"{NAME}.trajectory").read_text() == inferred
-    assert not list(problem_dir.glob("*_gtinit*"))
+    assert not list(problem_dir.glob("*_gtends*"))
     assert load_gt_indices(problem_dir / f"{NAME}_gtrate0_frame_axioms.gt_indices") == {0}
 
 
@@ -105,3 +107,44 @@ def test_a_prepared_problem_is_returned(problem_dir: Path) -> None:
 
     assert len(prepared) == 1
     assert prepared[0][3] == {0}
+
+
+def _prepared_states(problem_dir: Path) -> List[List[str]]:
+    text = (problem_dir / f"{NAME}_gtrate0_frame_axioms.trajectory").read_text()
+    return [_positive_literals(text, i) for i in range(len(_STATES))]
+
+
+def _true_states(problem_dir: Path) -> List[List[str]]:
+    build_trajectory_file(_gt_steps(), "truth", problem_dir)
+    text = (problem_dir / "truth.trajectory").read_text()
+    return [_positive_literals(text, i) for i in range(len(_STATES))]
+
+
+@pytest.mark.parametrize("setup, true_states", [
+    (GtSetup.NONE, []),
+    (GtSetup.INIT, [0]),
+    (GtSetup.FINAL, [2]),
+    (GtSetup.INIT_FINAL, [0, 2]),
+])
+def test_a_setup_writes_exactly_its_endpoint_states(
+    problem_dir: Path, setup: GtSetup, true_states: List[int]
+) -> None:
+    pregenerate_all_gt_frame_axiom_files([problem_dir], DOMAIN, [0], "after_gt_only", gt_setup=setup)
+
+    prepared, truth = _prepared_states(problem_dir), _true_states(problem_dir)
+    for index in (0, 2):
+        assert (prepared[index] == truth[index]) is (index in true_states)
+    assert load_gt_indices(problem_dir / f"{NAME}_gtrate0_frame_axioms.gt_indices") == set(true_states)
+
+
+def test_a_pool_prepared_for_one_setup_refuses_another(problem_dir: Path) -> None:
+    pregenerate_all_gt_frame_axiom_files([problem_dir], DOMAIN, [0], "after_gt_only", gt_setup=GtSetup.FINAL)
+
+    with pytest.raises(ValueError, match="prepared for gt_setup 'final'"):
+        pregenerate_all_gt_frame_axiom_files([problem_dir], DOMAIN, [0], "after_gt_only")
+
+
+def test_a_setup_other_than_init_refuses_a_gt_rate(problem_dir: Path) -> None:
+    with pytest.raises(ValueError, match="gt_rate 0 only"):
+        pregenerate_all_gt_frame_axiom_files(
+            [problem_dir], DOMAIN, [0, 25], "after_gt_only", gt_setup=GtSetup.INIT_FINAL)

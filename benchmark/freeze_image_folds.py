@@ -42,6 +42,7 @@ from benchmark.experiment_running_helpers.normalize import normalize_experiment_
 from benchmark.experiment_running_helpers.resume import fold_instance_dir, fold_shared_dir
 from benchmark.experiment_running_helpers.run_fold import cv_split, select_training_pool
 from benchmark.experiment_running_helpers.trajectory_utils import save_fold_metadata
+from src.utils.gt_setup import GtSetup
 from src.utils.atomic_json import write_json_atomic
 from src.utils.corpus_layout import IMAGE_POOL_SUBPATH, pool_problem_dirs
 from src.utils.masking import load_masked_observation
@@ -69,6 +70,7 @@ class FoldPlan:
     frame_axiom_mode: str
     normalize: bool
     force_normalize: bool
+    gt_setup: GtSetup = GtSetup.INIT
 
     @classmethod
     def from_shared(cls, shared: Dict[str, Any]) -> "FoldPlan":
@@ -81,6 +83,7 @@ class FoldPlan:
             frame_axiom_mode=shared.get("frame_axiom_mode", _runner_default("frame_axiom_mode")),
             normalize=bool(shared.get("normalize", _runner_default("normalize"))),
             force_normalize=bool(shared.get("force_normalize", _runner_default("force_normalize"))),
+            gt_setup=GtSetup.parse(shared.get("gt_setup")),
         )
 
 
@@ -226,7 +229,7 @@ def freeze_domain(
         raise FileNotFoundError(f"image pool not found: {pool}")
     problem_dirs = pool_problem_dirs(pool)
 
-    data_source = ImageDataSource()
+    data_source = ImageDataSource(gt_setup=plan.gt_setup)
     data_source.setup(problem_dirs, domain_ref, list(plan.gt_rates), plan.frame_axiom_mode)
 
     experiment_dir = out_root / domain_info["display_name"] / experiment_name
@@ -244,6 +247,7 @@ def freeze_domain(
         "normalized": normalized,
         "data_source_type": type(data_source).__name__,
         "frozen_by": "benchmark.freeze_image_folds",
+        **({} if plan.gt_setup is GtSetup.INIT else {"gt_setup": plan.gt_setup.value}),
     })
 
     written = skipped = 0

@@ -1,0 +1,68 @@
+# Small image experiment on the held-out-example corpora (`__fs=shared`), the
+# three domains whose corpus holds 10 problems. Depot and gripper hold 9 and
+# read run_config_small_image_n9.yaml, which differs from this file only in
+# `num_trajectories` and `domains` (benchmark/test_image_run_configs.py checks it).
+#
+# Run with:
+#   python -m benchmark.benchmark_runner --config benchmark/run_config_small_image.yaml --dry-run
+#   python -m benchmark.benchmark_runner --config benchmark/run_config_small_image.yaml --domains hanoi --only-fold 0
+#
+# On the cluster: scripts/cluster_image/README.md, "Image experiments on the
+# cluster". Results land in benchmark/running_results/<domain>/<run_name>/.
+
+run_name: TO=600__image-small__fs=shared__setup=init_final   # an image cell's experiment name is the run_name
+source: image
+
+shared:
+  gt_setup: init_final                    # states 0 and final are ground truth in the data
+  n_folds: 5
+  cv_scheme: montecarlo                 # an independent 80/20 split per fold: 8 train / 2 test of 10
+  num_trajectories: [3, 4, 5, 6, 7, 8]
+  gt_rates: [0]
+  learning_timeout_seconds: 600
+  planning_timeout_seconds: 60
+  search_mode: dfs
+  node_choosing_strategy: model_patch_first
+  model_constraint_weight: 0.0
+  conflict_group_strategy: largest
+  fluent_branch_mode: single
+  events_tracing: false
+  normalize: false                      # cells read training/image_trajectories/ as it is
+  resume: true
+  # Symbolic ROSAME arms: the small-data settings of run_config.yaml.
+  batch_size: 0                         # one optimizer step per trace
+  normalize_base_loss: false
+  rosame_seed: 8800
+  algorithms: [pisam_milp_loop, pisam, rosame_24, rosame_milp_24]
+  baseline_regime_gate: strict
+
+  # benchmark/milp_configs/npisam_schema_nonempty_small.yaml with one solve
+  # capped at 60 s. The row is PISAM_MILP_LOOP__schema=pre_and_add.
+  pisam_milp:
+    eq16: off
+    lambda_pre: 0.4
+    gt_anchoring: all_gt_states
+    schema_nonempty: pre_and_add
+    solver: cpsat
+    time_limit_seconds: 60              # cap for ONE solve
+    sampler: random
+    subset_size: half
+    learner_input: subset_only
+    pool_policy: frozen
+    co_sample_conflicts: off
+    w_prior: tiebreak
+    seed: 42
+    stop:
+      budget_seconds:                   # blank = inherit learning_timeout_seconds
+      no_improvement_rounds:            # blank = off
+      stop_on_perfect_fit: true
+      max_rounds:
+      stop_on_fixpoint: true
+    eval:
+      effect_mismatch_weight: 1.0
+      inapplicability_weight: 1.0
+
+domains:
+  - {domain_key: blocksworld, data_dir: "benchmark/data/blocksworld/blocks_predefined_problems1-10_final-version__fs=shared__setup=init_final"}
+  - {domain_key: hanoi,       data_dir: "benchmark/data/hanoi/hanoi_generated_problem1__final-version_fixed__fs=shared__setup=init_final"}
+  - {domain_key: npuzzle,     data_dir: "benchmark/data/npuzzle/npuzzle_prob0_6-10steps_generate__fs=shared__setup=init_final"}
