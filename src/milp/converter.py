@@ -510,19 +510,62 @@ def _hard_row(instance: PSInstance, fluents: Set[Tuple[str, Tuple[str, ...]]]) -
     ]
 
 
+def _cv_row(
+    instance: PSInstance, columns: Mapping[Any, int], row: Sequence[float]
+) -> List[ObservationP]:
+    """Every instance proposition at its clamped head value; ``0.5`` without a column."""
+    return [
+        ObservationP(
+            prop,
+            min(max(float(row[columns[prop]]), _EPS), 1.0 - _EPS)
+            if prop in columns else 0.5,
+        )
+        for prop in instance.propositions
+    ]
+
+
+def _grounded_fluents(instance: PSInstance, fluents: Set[Tuple[str, Tuple[str, ...]]]) -> Set:
+    """The instance Propositions of ``fluents``; one with no grounding is left out."""
+    props = (proposition_of(instance, name, arg_names) for name, arg_names in fluents)
+    return {prop for prop in props if prop is not None}
+
+
+def _labelled_row(
+    instance: PSInstance,
+    true_fluents: Set[Tuple[str, Tuple[str, ...]]],
+    unknown_fluents: Set[Tuple[str, Tuple[str, ...]]],
+) -> List[ObservationP]:
+    """Every instance proposition at ``0.5`` if unknown, else ``1 - eps`` if true, else ``eps``."""
+    true_props = _grounded_fluents(instance, true_fluents)
+    unknown_props = _grounded_fluents(instance, unknown_fluents)
+    return [
+        ObservationP(
+            prop,
+            0.5 if prop in unknown_props else (1.0 - _EPS if prop in true_props else _EPS),
+        )
+        for prop in instance.propositions
+    ]
+
+
 def cv_predictions_to_trace(
     instance: PSInstance,
     proposition_names: Sequence[str],
     probs: Sequence[Sequence[float]],
     calls: Sequence[Tuple[str, Sequence[str]]],
-    init_fluents: Set[Tuple[str, Tuple[str, ...]]],
+    init_fluents: Optional[Set[Tuple[str, Tuple[str, ...]]]],
     goal_fluents: Optional[Set[Tuple[str, Tuple[str, ...]]]] = None,
+    final_observed: Optional[
+        Tuple[Set[Tuple[str, Tuple[str, ...]]], Set[Tuple[str, Tuple[str, ...]]]]
+    ] = None,
 ) -> Optional[ObservationT]:
     """A CV head's per-frame proposition probabilities -> vendored ObservationT.
 
-    The soft rows cover the interior frames ``t = 2 .. T``; the two endpoints are
-    hard rows built from ``init_fluents`` and ``goal_fluents``, so ``probs[0]``
-    and ``probs[T]`` are never read. Every proposition of ``instance`` appears in
+    The soft rows cover the interior frames ``t = 2 .. T``. An endpoint given as
+    ground truth (``init_fluents``, ``goal_fluents``) is a hard row and is fixed,
+    and the head's own row for that frame is not read. Without ``init_fluents``
+    state 1 is the head's soft row ``probs[0]``; without ``goal_fluents`` state
+    ``T + 1`` is the soft row of ``final_observed``, or carries no row at all.
+    ``probs[T]`` is never read. Every proposition of ``instance`` appears in
     every row; one the CV head has no column for gets ``0.5``, which carries zero
     weight in the encoder's objective. A head column over an object the instance
     lacks is skipped (see :func:`proposition_columns`).
@@ -532,13 +575,19 @@ def cv_predictions_to_trace(
             strings (ROSAME's ``rosame.propositions`` keys).
         probs: ``(T + 1, n_props)`` values, clamped here to ``[eps, 1 - eps]``.
         calls: ``T`` observed grounded action calls as ``(name, args)``.
-        init_fluents: positive fluents of the GT initial state.
+        init_fluents: positive fluents of the GT initial state; ``None`` leaves
+            the initial state soft and unfixed.
         goal_fluents: positive fluents of the GT final state; ``None`` leaves the
             final state soft and drops the hard row at ``T + 1``.
+        final_observed: ``(true fluents, unknown fluents)`` of a labelling of
+            the final state that is not ground truth; a soft row at ``T + 1``
+            with the unknown fluents at ``0.5``. A fluent with no grounding is
+            left out.
 
     Raises:
         ValueError: on a shape mismatch, an action call or anchor fluent with no
-            grounding, or a column naming a predicate the domain does not declare.
+            grounding, a column naming a predicate the domain does not declare,
+            or both ``goal_fluents`` and ``final_observed`` given.
     """
     step = len(calls)
     if len(probs) != step + 1:
@@ -547,29 +596,31 @@ def cv_predictions_to_trace(
         raise ValueError(
             f"prediction width {len(probs[0])} != {len(proposition_names)} proposition names"
         )
+    if goal_fluents is not None and final_observed is not None:
+        raise ValueError("the final state is either fixed (goal_fluents) or observed, not both")
 
     columns = proposition_columns(instance, proposition_names)
 
     obs_p: Dict[int, List[ObservationP]] = {}
     for t in range(2, step + 1):
-        row = probs[t - 1]
-        obs_p[t] = [
-            ObservationP(
-                prop,
-                min(max(float(row[columns[prop]]), _EPS), 1.0 - _EPS)
-                if prop in columns else 0.5,
-            )
-            for prop in instance.propositions
-        ]
+        obs_p[t] = _cv_row(instance, columns, probs[t - 1])
 
-    obs_p[1] = _hard_row(instance, init_fluents)
+    if init_fluents is not None:
+        obs_p[1] = _hard_row(instance, init_fluents)
+    elif step:
+        obs_p[1] = _cv_row(instance, columns, probs[0])
     if goal_fluents is not None:
         obs_p[step + 1] = _hard_row(instance, goal_fluents)
+    elif final_observed is not None:
+        obs_p[step + 1] = _labelled_row(instance, *final_observed)
 
     init = _resolve_fluents(instance, init_fluents) or []
     goal = _resolve_fluents(instance, goal_fluents)
     actions = _resolve_actions(instance, calls)
-    return _assemble_trace(instance, step, init, obs_p, goal, actions, hard_states={})
+    return _assemble_trace(
+        instance, step, init, obs_p, goal, actions, hard_states={},
+        anchor_init=init_fluents is not None,
+    )
 
 
 def gt_final_state_fluents(gt_trajectory_path: Path) -> Optional[Set[Tuple[str, Tuple[str, ...]]]]:

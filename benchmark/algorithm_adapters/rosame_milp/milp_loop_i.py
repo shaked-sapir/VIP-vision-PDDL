@@ -14,7 +14,6 @@ pseudo-term scaling.
 from __future__ import annotations
 
 import random
-from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import torch
@@ -54,9 +53,22 @@ MilpRoundFn = Callable[
 class MilpRosameI(RosameI_Runner):
     """ROSAME-I with MILP pseudo-labels on the model and state channels."""
 
-    def __init__(self, *args, psi: float = 0.99, **kwargs) -> None:
+    #: Whether the state labels cover frame 0 as well as the interior frames.
+    label_first_frame: bool = False
+
+    def __init__(
+        self, *args, psi: float = 0.99, label_first_frame: bool = False, **kwargs
+    ) -> None:
+        """
+        Args:
+            psi: Per-epoch decay of a trace's state-label weight.
+            label_first_frame: Whether the MILP's state labels cover frame 0 as
+                well as the interior frames; set when the MILP repairs the
+                initial state instead of fixing it.
+        """
         super().__init__(*args, **kwargs)
         self.psi = psi
+        self.label_first_frame = label_first_frame
         self._model_labels: Optional[Dict[str, torch.Tensor]] = None
         self._state_labels: Dict[str, torch.Tensor] = {}
         self._epochs_since_label: Dict[str, int] = {}
@@ -83,19 +95,19 @@ class MilpRosameI(RosameI_Runner):
     def _state_ce(
         self, preds: torch.Tensor, trace: _PreparedTrace
     ) -> Optional[torch.Tensor]:
-        """psi-decayed BCE of the interior frames against the MILP's repaired states.
+        """psi-decayed BCE of the labelled frames against the MILP's repaired states.
 
         ``preds`` are raw logits over ``T + 1`` frames; the labels cover the
-        ``T - 1`` interior ones, the endpoints being hard-fixed GT in the MILP.
+        ``T - 1`` interior ones, preceded by frame 0 under ``label_first_frame``.
         Summed over frames and averaged over propositions, which puts the term at
         the same scale as the sum-reduced base loss.
 
-        A single-step trace has no interior frame, so it contributes no term.
+        A trace with no labelled frame contributes no term.
         """
         label = self._state_labels.get(trace.name)
         if label is None or label.shape[0] == 0:
             return None
-        interior = preds[1:-1]
+        interior = preds[(0 if self.label_first_frame else 1):-1]
         if interior.shape != label.shape:
             raise ValueError(
                 f"state labels for trace '{trace.name}' have shape "
@@ -175,7 +187,7 @@ class MilpRosameI(RosameI_Runner):
 
     def learn_pooled_with_milp(
         self,
-        prepared_problems: Sequence[Tuple[object, Sequence[Path], Sequence[str], Sequence[str]]],
+        prepared_problems: Sequence[Sequence[object]],
         milp_round: MilpRoundFn,
         epochs: int,
         gamma: float,
@@ -195,7 +207,8 @@ class MilpRosameI(RosameI_Runner):
 
         Args:
             prepared_problems: ``(problem, image_paths, action_strings,
-                final_state_predicates)`` per trajectory.
+                final_state_predicates)`` per trajectory, optionally followed
+                by an ``EndpointAnchors``.
             milp_round: solves one MILP over the traces it is given.
             pre_mip_epochs: warmup epochs before the first solve.
             mip_interval: solve every this many epochs after warmup.

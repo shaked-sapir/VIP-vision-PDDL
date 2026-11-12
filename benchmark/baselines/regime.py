@@ -26,6 +26,11 @@ _SOURCES = (SIMULATED, IMAGE)
 _SIMULATED_SOURCE_TYPE = "SimulatedDataSource"
 
 
+def is_simulated_run(run_params: dict) -> bool:
+    """Whether a finished experiment's ``run_params.json`` records a simulated source."""
+    return run_params.get("data_source_type") == _SIMULATED_SOURCE_TYPE
+
+
 @dataclass(frozen=True)
 class DegradationRegime:
     """How one cell's observations were degraded.
@@ -73,7 +78,7 @@ class DegradationRegime:
         Raises:
             KeyError: If a simulated run lacks ``p_mask`` / ``p_noise``.
         """
-        if run_params.get("data_source_type") == _SIMULATED_SOURCE_TYPE:
+        if is_simulated_run(run_params):
             return cls.simulated(run_params["p_mask"], run_params["p_noise"], data_dir)
         return cls.image(data_dir)
 

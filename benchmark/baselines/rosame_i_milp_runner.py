@@ -10,6 +10,11 @@ Each MILP round turns the CV head's current per-frame predictions into vendored
 traces (:func:`cv_predictions_to_trace`), solves once, and returns both the
 4-way action-model labels and the repaired interior states as CV targets.
 
+Under a ``gt_setup`` the MILP fixes exactly the endpoint states the setup
+gives. An initial state it does not fix enters as the CV head's own soft row
+and is relabelled like the interior frames; a final state it does not fix
+enters as the soft row of the degraded trajectory's last state.
+
 See ``docs/rosame-i-milp-implementation-plan.md``. On simulation-mode cells (no
 images on disk) the runner skips exactly as ``rosame_i`` does.
 """
@@ -39,7 +44,9 @@ from benchmark.baselines.rosame_i_runner import (
     ResizeSpec,
     RosameIBaselineRunner,
 )
-from benchmark.baselines.rosame_milp_runner import goal_fluents_from_trajectory
+from benchmark.algorithm_adapters.endpoint_anchors import EndpointAnchors, anchors_of
+from benchmark.baselines.rosame_milp_runner import FREE_GOAL_MODE, GT_GOAL_MODE
+from benchmark.baselines.setup_option import GtSetupOption, reject_explicit_switches
 
 from constraint_opt.factory import resolve as resolve_encoder
 from planning_structs.traces import Traces
@@ -49,15 +56,27 @@ _OBJECTIVES = {"state", "model"}
 Fluents = Set[Tuple[str, Tuple[str, ...]]]
 
 
-class _TraceContext:
-    """Everything a trace needs to become a MILP trace, keyed by its name."""
+def as_fluents(predicates: Sequence[str]) -> Fluents:
+    """``"name arg1 arg2"`` strings as ``(name, args)`` pairs."""
+    return {(parts[0], tuple(parts[1:])) for parts in (p.split() for p in predicates) if parts}
 
-    def __init__(self, instance, calls, init_fluents: Fluents,
-                 goal_fluents: Optional[Fluents]) -> None:
+
+class _TraceContext:
+    """Everything a trace needs to become a MILP trace, keyed by its name.
+
+    ``init_fluents`` / ``goal_fluents`` are the endpoint states the MILP fixes,
+    ``None`` for one it does not. ``final_observed`` is the ``(true, unknown)``
+    labelling of an unfixed final state, or ``None`` when it has none.
+    """
+
+    def __init__(self, instance, calls, init_fluents: Optional[Fluents],
+                 goal_fluents: Optional[Fluents],
+                 final_observed: Optional[Tuple[Fluents, Fluents]] = None) -> None:
         self.instance = instance
         self.calls = calls
         self.init_fluents = init_fluents
         self.goal_fluents = goal_fluents
+        self.final_observed = final_observed
 
 
 class RosameIMilpRunner(RosameIBaselineRunner):
@@ -77,16 +96,28 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         mip_time_limit: float = 60.0,
         agreement_stop: Optional[float] = 1.0,
         encoding_config: Optional[MilpEncodingConfig] = None,
-        goal_mode: str = "gt",
+        goal_mode: Optional[str] = None,
         milp_solver: str = "cp-sat-observed",
         resize: ResizeSpec = _RESIZE_FROM_TABLE,
         rosame_convergence: Optional[Mapping[str, object]] = None,
         epochs: Optional[int] = None,
+        gt_setup: GtSetupOption = None,
     ) -> None:
+        """
+        Args:
+            goal_mode: ``gt`` fixes each trace's final state in the MILP,
+                ``none`` leaves it free; ``None`` is ``gt``.
+            gt_setup: The experiment's ground-truth setup. Given, it decides
+                which endpoint states the CV loss anchors and the MILP fixes.
+
+        Raises:
+            ValueError: if ``gt_setup`` is combined with ``goal_mode``.
+        """
         super().__init__(
             n_seeds=n_seeds, device=device, base_seed=base_seed, resize=resize,
-            rosame_convergence=rosame_convergence, epochs=epochs,
+            rosame_convergence=rosame_convergence, epochs=epochs, gt_setup=gt_setup,
         )
+        reject_explicit_switches(self.gt_setup, goal_mode=goal_mode)
         self.psi = psi
         self.pre_mip_epochs = pre_mip_epochs
         self.mip_interval = mip_interval
@@ -94,8 +125,22 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         self.mip_time_limit = mip_time_limit
         self.agreement_stop = agreement_stop
         self.encoding_config = encoding_config or MilpEncodingConfig.upstream()
-        self.goal_mode = goal_mode
+        if self.gt_setup is None:
+            self.goal_mode = GT_GOAL_MODE if goal_mode is None else goal_mode
+        else:
+            self.goal_mode = GT_GOAL_MODE if self.gt_setup.gives_final else FREE_GOAL_MODE
         self.milp_solver = milp_solver
+
+    @property
+    def milp_fixes_init(self) -> bool:
+        """Whether the MILP fixes each trace's initial state; always, without a setup."""
+        return self.gt_setup is None or self.gt_setup.gives_init
+
+    def _setup_stats(self) -> Dict[str, object]:
+        """The setup and what it makes the MILP fix, for the result row; empty without one."""
+        if self.gt_setup is None:
+            return {}
+        return {"gt_setup": self.gt_setup.value, "milp_fixes_init": self.milp_fixes_init}
 
     @property
     def display_name(self) -> str:
@@ -127,7 +172,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         self,
         ps_domain,
         partial_domain: Domain,
-        prepared_problems: Sequence[Tuple[object, Sequence[Path], Sequence[str], Sequence[str]]],
+        prepared_problems: Sequence[Sequence[object]],
         gt_paths: Sequence[Path],
     ) -> Tuple[Dict[str, _TraceContext], int]:
         """``trace name -> _TraceContext`` plus the count with a GT-anchored goal.
@@ -136,15 +181,17 @@ class RosameIMilpRunner(RosameIBaselineRunner):
         """
         contexts: Dict[str, _TraceContext] = {}
         n_gt_goals = 0
-        for idx, (problem, image_paths, action_strings, final_preds) in enumerate(prepared_problems):
+        for idx, item in enumerate(prepared_problems):
+            problem, image_paths, action_strings, final_preds = item[:4]
+            anchors = anchors_of(item) or EndpointAnchors()
             name = image_paths[0].parent.name if image_paths else f"problem{idx}"
             calls = []
             for action_str in action_strings:
                 parts = action_str.split()
                 calls.append((parts[0], parts[1:]))
 
-            # ``final_preds`` is the GT final state already resolved by
-            # RosameIBaselineRunner._resolve_final_state — parsed, and conformed to
+            # ``final_preds`` is the final-state anchor already resolved by
+            # RosameIBaselineRunner._resolve_inputs — parsed, and conformed to
             # the reference domain's dialect. Re-reading the GT trajectory here would
             # be a *second* lookup with its own dialect policy (the hazard called out
             # in docs/rosame-i-milp-implementation-plan.md §7.7): the raw-text reader
@@ -153,16 +200,20 @@ class RosameIMilpRunner(RosameIBaselineRunner):
             # empty set, and the encoder's closed-world hard state then forces every
             # proposition false at step+1 — infeasible on every round.
             goal = None
-            if self.goal_mode == "gt" and final_preds:
-                goal = {(p[0], tuple(p[1:])) for p in (s.split() for s in final_preds)}
+            final_observed = None
+            if self.goal_mode == GT_GOAL_MODE and final_preds:
+                goal = as_fluents(final_preds)
+            elif self.goal_mode != GT_GOAL_MODE and self.gt_setup is not None:
+                final_observed = (as_fluents(final_preds), as_fluents(anchors.final_unknown))
             if goal is not None:
                 n_gt_goals += 1
 
             contexts[name] = _TraceContext(
                 instance=build_ps_instance(ps_domain, partial_domain, problem),
                 calls=calls,
-                init_fluents=self._init_fluents(problem),
+                init_fluents=self._init_fluents(problem) if self.milp_fixes_init else None,
                 goal_fluents=goal,
+                final_observed=final_observed,
             )
         return contexts, n_gt_goals
 
@@ -188,6 +239,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
                 built = cv_predictions_to_trace(
                     context.instance, names, rosame.predict_frames(trace),
                     context.calls, context.init_fluents, context.goal_fluents,
+                    final_observed=context.final_observed,
                 )
                 if built is None:
                     continue
@@ -212,7 +264,8 @@ class RosameIMilpRunner(RosameIBaselineRunner):
             model_labels = extract_model_labels(rosame, ps_domain, solution)
             state_labels = {
                 name: extract_state_labels(
-                    context.instance, encoder.repaired_states(i + 1), names
+                    context.instance, encoder.repaired_states(i + 1), names,
+                    include_first=context.init_fluents is None,
                 )
                 for i, (name, context) in enumerate(solved)  # traces are 1-indexed
             }
@@ -243,6 +296,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
             return None, {}
 
         extra: Dict = {
+            **self._setup_stats(),
             "goal_mode": self.goal_mode,
             "milp_solver": self.milp_solver,
             "encoding_config": self.encoding_config.as_stats(),
@@ -307,7 +361,7 @@ class RosameIMilpRunner(RosameIBaselineRunner):
             try:
                 rosame = MilpRosameI(
                     str(domain_path), device=self.device, seed=seed, psi=self.psi,
-                    resize=resize,
+                    resize=resize, label_first_frame=not self.milp_fixes_init,
                 )
                 report = rosame.learn_pooled_with_milp(
                     prepared_problems,

@@ -41,6 +41,11 @@ Options:
     --dry-run   List what would run without learning/writing anything.
     --force     Re-run and replace rows even if the algorithm already has one.
     --cells     Restrict to cell dirs whose name contains this substring.
+    --gt-setup  The GT setup the runners anchor under (none | init | final |
+                init_final), or ``legacy`` for each arm's own anchors as before
+                setups. Default: the experiment's ``run_params.json`` value; an
+                image experiment that records none is ``init``, a simulated one
+                is ``legacy``.
 """
 
 from __future__ import annotations
@@ -75,12 +80,16 @@ from benchmark.backfill_nogt_s0 import (
     staged_observations_dir,
 )
 from benchmark.baselines import RESIZE_FROM_TABLE, ResizeSpec, resolve_baselines
-from benchmark.baselines.regime import DegradationRegime, gate_baselines
+from benchmark.baselines.regime import DegradationRegime, gate_baselines, is_simulated_run
 from benchmark.baselines.rosame_milp_runner import FREE_GOAL_MODE, GT_GOAL_MODE
 from benchmark.experiment_running_helpers.result_builders import evaluate_and_build_result
 from benchmark.experiment_running_helpers.resume import FOLD_RESULT_FILENAME
 from benchmark.experiment_running_helpers.statistics import count_total_transitions_and_gt
 from src.milp.converter import GtAnchoring
+from src.utils.gt_setup import GtSetup
+
+#: ``--gt-setup`` value that hands the runners no setup.
+LEGACY_GT_SETUP = "legacy"
 
 
 def _build_prepared_trajectories(
@@ -127,6 +136,48 @@ def _experiment_regime(exp_dir: Path, data_dir: Path) -> Optional[DegradationReg
     except KeyError as err:
         print(f"[WARN] {exp_dir.name}: run_params.json lacks {err}; baselines are not regime-gated")
         return None
+
+
+def experiment_gt_setup(
+    run_params: Optional[dict], override: Optional[str] = None
+) -> Optional[GtSetup]:
+    """The GT setup an experiment's baselines run under; ``None`` hands them none.
+
+    Args:
+        run_params: The experiment's parsed ``run_params.json``, or ``None``.
+        override: A ``--gt-setup`` value; ``legacy`` forces ``None``.
+
+    Returns:
+        The override when given; else the recorded ``gt_setup``; else ``init``
+        for an image experiment and ``None`` for a simulated one or one with no
+        ``run_params.json``.
+
+    Raises:
+        ValueError: on an unknown setup value.
+    """
+    if override == LEGACY_GT_SETUP:
+        return None
+    if override is not None:
+        return GtSetup.parse(override)
+    if run_params is None:
+        return None
+    recorded = run_params.get("gt_setup")
+    if recorded is None and is_simulated_run(run_params):
+        return None
+    return GtSetup.parse(recorded)
+
+
+def explicit_endpoint_flags(args: argparse.Namespace) -> List[str]:
+    """The flags the operator passed that a GT setup decides by itself."""
+    flags = {"--goal-mode": "goal_mode", "--milp-gt-anchoring": "milp_gt_anchoring"}
+    return [flag for flag, dest in flags.items() if getattr(args, dest, None) is not None]
+
+
+def with_gt_setup(runner_kwargs: dict, gt_setup: Optional[GtSetup]) -> dict:
+    """``runner_kwargs`` plus the setup; unchanged when there is none."""
+    if gt_setup is None:
+        return dict(runner_kwargs)
+    return {**runner_kwargs, "gt_setup": gt_setup}
 
 
 def _copy_shared_fields(fold_result_path: Path) -> dict:
@@ -508,6 +559,20 @@ def main() -> None:
                          "initial state in the MILP, 'none' leaves it free. "
                          "With --goal-mode none as well the row is labelled "
                          "<arm>__gt=none. Default: the runner's own (init_only).")
+    ap.add_argument("--gt-setup", default=None,
+                    choices=[setup.value for setup in GtSetup] + [LEGACY_GT_SETUP],
+                    help="The GT setup the runners anchor under: which endpoint "
+                         "states their CV loss anchors and their MILP fixes. "
+                         "Row labels do not carry it. Default: the gt_setup in "
+                         "each experiment's run_params.json; an image experiment "
+                         "that records none is 'init', a simulated one is "
+                         "'legacy'. 'legacy' hands the runners no setup (the 24 "
+                         "pixel arm anchors the GT final state, the MILP arms "
+                         "fix both ends unless --goal-mode / "
+                         "--milp-gt-anchoring say otherwise). A setup cannot "
+                         "be combined with those two flags. Forwarded only to "
+                         "baselines that accept it; the ICAPS-26 arms are "
+                         "gated out of every setup but init_final.")
     ap.add_argument("--mip-time-limit", type=int, default=None,
                     help="ROSAME+MILP arms: seconds one MILP solve may take "
                          "(always also bounded by the fold's remaining learning "
@@ -623,7 +688,7 @@ def main() -> None:
     # *_fixed); --data-dir, when given, overrides this for every experiment. The
     # problem_dir is then resolved from it so the problem PDDLs match the cells'
     # predicate dialect.
-    tasks: List[Tuple[str, Path, Path, Optional[DegradationRegime]]] = []
+    tasks: List[Tuple[str, Path, Path, Optional[DegradationRegime], Optional[GtSetup]]] = []
     for exp_dir in args.experiment_dir:
         exp_dir = exp_dir.resolve()
         testing = exp_dir / "testing"
@@ -648,11 +713,19 @@ def main() -> None:
 
         problem_dir = resolve_problem_dir(exp_dir, data_dir)
         regime = _experiment_regime(exp_dir, data_dir)
+        gt_setup = experiment_gt_setup(read_run_params(exp_dir), args.gt_setup)
+        if gt_setup is not None and explicit_endpoint_flags(args):
+            raise SystemExit(
+                f"{exp_dir.name}: gt_setup '{gt_setup.value}' decides the endpoint states; "
+                f"drop {' / '.join(explicit_endpoint_flags(args))} or pass "
+                f"--gt-setup {LEGACY_GT_SETUP}"
+            )
         dialect_note = "" if problem_dir == data_dir else f", problems from {problem_dir.name}/"
         regime_note = f", {regime.describe()}" if regime is not None else ""
+        setup_note = f", gt_setup={LEGACY_GT_SETUP if gt_setup is None else gt_setup.value}"
         print(f"[{bench_name}] {exp_dir.name}: {len(cells)} cells "
-              f"(data_dir from {src}: {data_dir}{dialect_note}{regime_note})")
-        tasks.extend((bench_name, cell, problem_dir, regime) for cell in cells)
+              f"(data_dir from {src}: {data_dir}{dialect_note}{regime_note}{setup_note})")
+        tasks.extend((bench_name, cell, problem_dir, regime, gt_setup) for cell in cells)
 
     if not tasks:
         print("Nothing to do.")
@@ -661,14 +734,16 @@ def main() -> None:
     workers = 1 if args.dry_run else min(args.workers, len(tasks))
 
     if workers == 1:
-        # Sequential — identical to the original behavior.
-        baselines = resolve_baselines(
-            args.baselines, train_per_trajectory=args.train_per_trajectory,
-            resize=args.resize, **_runner_kwargs(args),
-        )
-        for bench_name, cell, problem_dir, regime in tasks:
+        # Sequential; the runners are built once per GT setup among the experiments.
+        runners_by_setup: dict = {}
+        for bench_name, cell, problem_dir, regime, gt_setup in tasks:
+            if gt_setup not in runners_by_setup:
+                runners_by_setup[gt_setup] = resolve_baselines(
+                    args.baselines, train_per_trajectory=args.train_per_trajectory,
+                    resize=args.resize, **with_gt_setup(_runner_kwargs(args), gt_setup),
+                )
             backfill_cell(
-                cell, problem_dir, bench_name, baselines,
+                cell, problem_dir, bench_name, runners_by_setup[gt_setup],
                 planning_timeout=args.planning_timeout,
                 learn_timeout=args.learn_timeout,
                 force=args.force, dry_run=args.dry_run, regime=regime,
@@ -686,10 +761,11 @@ def main() -> None:
                 _backfill_cell_worker,
                 str(cell), str(problem_dir), bench_name, args.baselines,
                 args.planning_timeout, args.learn_timeout, args.force,
-                args.train_per_trajectory, args.resize, _runner_kwargs(args),
+                args.train_per_trajectory, args.resize,
+                with_gt_setup(_runner_kwargs(args), gt_setup),
                 regime, out_root, staged_root,
             ): cell
-            for bench_name, cell, problem_dir, regime in tasks
+            for bench_name, cell, problem_dir, regime, gt_setup in tasks
         }
         for i, future in enumerate(as_completed(futures), start=1):
             try:

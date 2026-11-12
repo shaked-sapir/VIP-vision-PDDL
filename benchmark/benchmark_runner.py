@@ -330,6 +330,10 @@ _RUNNER_KWARG_KEYS = {
     # NOLAM: the flip probability it is given ("oracle" = the fold's realised
     # rate, or a pinned float), its negative-precondition variant, and its seed.
     "nolam_noise", "nolam_allow_neg_precs", "nolam_seed", "nolam_log_space",
+    # The run's GT setup (src/utils/gt_setup.py): the endpoint states the arms
+    # that fix states of their own (a MILP, a CV anchor) fix. Absent = each
+    # arm's own anchors, as before setups.
+    "gt_setup",
 }
 
 
