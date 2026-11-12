@@ -225,7 +225,9 @@ results_dashboard:
     data_size:
       label: Data size
       options: {small: Small data, large: Large data}
-    default: {mode: simulation, data_size: small}
+    # view: baselines opens on the arm-comparison curves; this run has no search arm,
+    # so the CDPS-only view has nothing to draw.
+    default: {mode: image, data_size: small, view: baselines}
 
   # ── Simulation section (mask x noise grid-search per domain) ──
   # Keyed by data size. Each block keeps the shape it always had, so a prefix

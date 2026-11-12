@@ -936,7 +936,7 @@ function algAllowed(a){
   return !present||!present.length||present.indexOf(a)>=0;
 }
 const SEL=DATA.selectors||{};
-const S={et:(((SEL.default||{}).mode==="image")?"img":"sim"),ds:((SEL.default||{}).data_size||"small"),metric:METRICS[0].key,stat:"last",tab:"all",ltab:"all",cmp:false,band:DATA.error_band||"ci95",off:{},base:null};
+const S={et:(((SEL.default||{}).mode==="image")?"img":"sim"),ds:((SEL.default||{}).data_size||"small"),metric:METRICS[0].key,stat:"last",tab:"all",ltab:"all",cmp:((SEL.default||{}).view==="baselines"),band:DATA.error_band||"ci95",off:{},base:null};
 const $=id=>document.getElementById(id);
 const meta=k=>METRICS.find(m=>m.key===k)||{};
 const CONFIGS=[]; for(const m of masksOf())for(const n of noisesOf())CONFIGS.push([m,n]);
