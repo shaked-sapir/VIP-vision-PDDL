@@ -249,8 +249,13 @@ results_dashboard:
   # ── Image section (single experiment per domain) ──
   image:
     small:
-      # Per-domain path to the single image-experiment result directory
-      # (each contains testing/ and evaluation_results/).
+      # The image variants (classifier x GT setup), one entry of the page's
+      # "Image variant" selector each. Written from the experiments' variant
+      # records by `python -m benchmark.image_dashboard`.
+      variants_file: benchmark/evaluation/cfm/generated/image_variants_small.yaml
+      # The original image experiments (own frame 0 as the example), shown as
+      # the selector's last entry.
+      experiment_dir_label: "gpt-5.2 · own-frame-0 example · init GT (original run)"
       experiment_dir:
         blocksworld: benchmark/running_results/blocksworld/TO=600__blocks_predefined_problems1-10_final-version
         depot: benchmark/running_results/depot/TO=600__depot_data_from_PV__groundfix
@@ -258,6 +263,6 @@ results_dashboard:
         hanoi: benchmark/running_results/hanoi/TO=600__hanoi_generated_problem1__final-version_fixed
         npuzzle: benchmark/running_results/npuzzle/TO=600__npuzzle_prob0_6-10steps_generate  
     large:
-      # The imaged large-corpora runs, once they exist. Until then this pair
-      # renders a note rather than an empty grid.
+      # The imaged large-corpora runs; same generated list as above.
+      variants_file: benchmark/evaluation/cfm/generated/image_variants_large.yaml
       experiment_dir: {}

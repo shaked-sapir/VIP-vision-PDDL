@@ -13,6 +13,7 @@ and neither reads across. Normalizing an image pool writes its text files to
 from __future__ import annotations
 
 from pathlib import Path
+from typing import List
 
 POOL_SUBPATH = Path("training") / "trajectories"
 IMAGE_POOL_SUBPATH = Path("training") / "image_trajectories"
@@ -35,6 +36,11 @@ def frames_dir(image_problem_dir: Path) -> Path:
     if image_problem_dir.parent.name == IMAGE_POOL_NORMALIZED_SUBPATH.name:
         return image_problem_dir.parent.parent / IMAGE_POOL_SUBPATH.name / image_problem_dir.name
     return image_problem_dir
+
+
+def pool_problem_dirs(pool: Path) -> List[Path]:
+    """The problem folders of a pool in the order fold splits index them."""
+    return sorted(d for d in Path(pool).iterdir() if d.is_dir())
 
 
 def problem_files(problem_name: str) -> tuple[str, str]:

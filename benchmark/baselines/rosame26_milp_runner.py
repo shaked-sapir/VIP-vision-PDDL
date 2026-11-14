@@ -30,6 +30,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from benchmark.baselines.rosame26_data import canonical
 from benchmark.baselines.rosame26_runner import Rosame26BaselineRunner
 from benchmark.baselines.rosame_i_runner import ResizeSpec, _RESIZE_FROM_TABLE
+from benchmark.baselines.setup_option import GtSetupOption
 
 from src.milp.encoding_config import MilpEncodingConfig
 from src.milp.rosame26_budget import BudgetMode
@@ -63,9 +64,12 @@ class Rosame26MilpRunner(Rosame26BaselineRunner):
         mip_traces: int = MIP_TRACES,
         mip_time_limit: float = MIP_TIME_LIMIT,
         encoding_config: Optional[MilpEncodingConfig] = None,
+        gt_setup: GtSetupOption = None,
     ) -> None:
         """
         Args:
+            gt_setup: The experiment's ground-truth setup; only ``init_final``
+                (or none) is supported, as for the DL-only arm.
             pre_mip_epochs: Epochs of DL-only warm-up before the first solve.
             mip_traces: Traces per solve; the FIFO selector takes the first this
                 many offered in an epoch.
@@ -80,6 +84,7 @@ class Rosame26MilpRunner(Rosame26BaselineRunner):
             epochs=epochs,
             batch_size=batch_size,
             budget_mode=budget_mode,
+            gt_setup=gt_setup,
         )
         self.pre_mip_epochs = pre_mip_epochs
         self.mip_traces = mip_traces

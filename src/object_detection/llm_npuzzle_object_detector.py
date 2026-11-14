@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import List
 
 from src.fluent_classification.image_llm_backend_protocol import ImageLLMBackend
 from src.llms.domains.n_puzzle.prompts import npuzzle_object_detection_prompt
@@ -34,17 +35,24 @@ class LLMNpuzzleObjectDetector(LLMObjectDetector):
             **{f"p_{i}_{j}": f"p_{i}_{j}" for i in range(1, 6) for j in range(1, 6)}  # positions up to 5x5
         }
 
-        current_objects = self.extract_objects_from_gt_state()
-        new_objects = []
+        self.fewshot_examples = [
+            (init_state_image_path, self._typed_objects(self.extract_objects_from_gt_state()))
+        ]
 
-        grid_dim_objects = sorted(obj.split(":")[0] for obj in current_objects if obj.startswith('x'))
-        grid_dim = int(grid_dim_objects[-1][1:])
-        for i in range(1, grid_dim + 1):
-            for j in range(1, grid_dim + 1):
-                new_objects.append(f"p_{i}_{j}:position")
-        tile_objects = sorted(obj for obj in current_objects if obj.startswith('t'))
-        new_objects.extend(["t_" + obj.split(":")[0][1:] + ":tile" for obj in tile_objects])
-        self.fewshot_examples = [(init_state_image_path, new_objects)]
+    @staticmethod
+    def _typed_objects(objects: List[str]) -> List[str]:
+        """The GT state's objects in the typed n_puzzle naming (``p_i_j:position``, ``t_k:tile``).
+
+        Accepts the typed naming as is and translates the untyped slidetile
+        naming (``x1``, ``y1``, ``t1``).
+        """
+        columns = sorted(obj.split(":")[0] for obj in objects if obj.startswith('x'))
+        if not columns:
+            return sorted(objects)
+        grid_dim = int(columns[-1][1:])
+        typed = [f"p_{i}_{j}:position" for i in range(1, grid_dim + 1) for j in range(1, grid_dim + 1)]
+        tiles = sorted(obj for obj in objects if obj.startswith('t'))
+        return typed + ["t_" + obj.split(":")[0][1:] + ":tile" for obj in tiles]
 
     def _get_system_prompt(self) -> str:
         """Returns the system prompt for Hanoi object detection."""

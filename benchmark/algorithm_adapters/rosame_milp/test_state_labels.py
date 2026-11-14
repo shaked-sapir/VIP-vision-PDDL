@@ -73,3 +73,25 @@ def test_a_single_step_trace_has_no_interior_frames():
     labels = extract_state_labels(instance, states, ["at r1", "at r2"])
 
     assert labels.shape == (0, 2)
+
+
+def test_include_first_adds_frame_zero_and_never_the_last():
+    instance = _world()
+    at_r1 = _prop(instance, "at", ["r1"])
+    at_r2 = _prop(instance, "at", ["r2"])
+    states = [{at_r2}, {at_r1}, {at_r2}, {at_r1, at_r2}]
+
+    labels = extract_state_labels(instance, states, ["at r1", "at r2"], include_first=True)
+
+    assert labels.shape == (3, 2)
+    assert torch.equal(labels, torch.tensor([[0.0, 1.0], [1.0, 0.0], [0.0, 1.0]]))
+
+
+def test_include_first_labels_the_one_pre_state_of_a_single_step_trace():
+    instance = _world()
+    at_r1 = _prop(instance, "at", ["r1"])
+    states = [{at_r1}, set()]
+
+    labels = extract_state_labels(instance, states, ["at r1", "at r2"], include_first=True)
+
+    assert torch.equal(labels, torch.tensor([[1.0, 0.0]]))

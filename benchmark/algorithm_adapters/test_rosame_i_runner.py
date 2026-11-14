@@ -20,6 +20,7 @@ import torch
 from PIL import Image
 from pddl_plus_parser.lisp_parsers import DomainParser, ProblemParser
 
+from benchmark.algorithm_adapters.endpoint_anchors import EndpointAnchors
 from benchmark.algorithm_adapters.rosame_i_runner import RosameI_Runner
 
 _DOMAIN = """(define (domain micro)
@@ -174,9 +175,116 @@ def test_trajectory_loss_is_its_two_halves_composed():
     print("PASS  _trajectory_loss is exactly its two halves composed")
 
 
+def _with_anchors(prepared, anchors: EndpointAnchors):
+    """The two-step micro trace ``a`` with a fifth :class:`EndpointAnchors` element."""
+    return [(*prepared[0], anchors), prepared[1]]
+
+
+def test_a_four_element_problem_carries_no_endpoint_anchors():
+    """The shape every existing caller passes: full final-state mask, no init anchor."""
+    with tempfile.TemporaryDirectory() as tmp:
+        domain_path, prepared = _prepare(Path(tmp))
+        for trace in _seeded_runner(domain_path).prepare_traces(prepared):
+            assert trace.final_state_mask is None
+            assert trace.init_state_vec is None
+    print("PASS  a four-element problem carries no endpoint anchors")
+
+
+def test_default_anchors_leave_the_loss_unchanged():
+    with tempfile.TemporaryDirectory() as tmp:
+        domain_path, prepared = _prepare(Path(tmp))
+        runner = _seeded_runner(domain_path)
+        plain_trace, anchored_trace = runner.prepare_traces(
+            [prepared[0], (*prepared[0], EndpointAnchors())]
+        )
+        preds = torch.rand(3, len(runner.rosame.propositions))
+        with torch.no_grad():
+            assert torch.equal(
+                runner._loss_from_predictions(preds, plain_trace, 10.0, 0.2),
+                runner._loss_from_predictions(preds, anchored_trace, 10.0, 0.2),
+            )
+    print("PASS  default anchors leave the loss unchanged")
+
+
+def test_an_unknown_final_atom_is_left_out_of_the_final_state_term():
+    """The loss is the same whichever value the anchor gives an unknown atom."""
+    with tempfile.TemporaryDirectory() as tmp:
+        domain_path, prepared = _prepare(Path(tmp))
+        runner = _seeded_runner(domain_path)
+        problem, images, actions, final = prepared[0]
+        unknown = EndpointAnchors(final_unknown=("visited r2",))
+        as_true, as_false = runner.prepare_traces([
+            (problem, images, actions, final, unknown),
+            (problem, images, actions, [p for p in final if p != "visited r2"], unknown),
+        ])
+        props = list(runner.rosame.propositions.keys())
+        assert as_true.final_state_mask[props.index("visited r2")].item() == 0.0
+        assert as_true.final_state_mask.sum().item() == len(props) - 1
+        assert not torch.equal(as_true.final_state_vec, as_false.final_state_vec)
+
+        preds = torch.rand(3, len(props))
+        with torch.no_grad():
+            masked_true = runner._loss_from_predictions(preds, as_true, 10.0, 0.2)
+            masked_false = runner._loss_from_predictions(preds, as_false, 10.0, 0.2)
+            as_true.final_state_mask = None
+            unmasked = runner._loss_from_predictions(preds, as_true, 10.0, 0.2)
+        assert torch.equal(masked_true, masked_false)
+        assert unmasked.item() > masked_true.item()
+    print("PASS  an unknown final atom is left out of the final-state term")
+
+
+def test_an_anchored_initial_state_stands_in_for_the_first_frame():
+    """With the GT init given, frame 0's prediction is not read by the loss."""
+    with tempfile.TemporaryDirectory() as tmp:
+        domain_path, prepared = _prepare(Path(tmp))
+        runner = _seeded_runner(domain_path)
+        anchors = EndpointAnchors(init_predicates=("at r1",))
+        trace = runner.prepare_traces(_with_anchors(prepared, anchors))[0]
+        props = list(runner.rosame.propositions.keys())
+        assert {props[i] for i, v in enumerate(trace.init_state_vec) if v == 1.0} == {"at r1"}
+
+        preds = torch.rand(3, len(props))
+        other_first = preds.clone()
+        other_first[0] = torch.rand(len(props))
+        as_init = preds.clone()
+        as_init[0] = trace.init_state_vec
+        with torch.no_grad():
+            anchored = runner._loss_from_predictions(preds, trace, 10.0, 0.2)
+            assert torch.equal(
+                anchored, runner._loss_from_predictions(other_first, trace, 10.0, 0.2)
+            )
+            trace.init_state_vec = None
+            assert torch.equal(
+                anchored, runner._loss_from_predictions(as_init, trace, 10.0, 0.2)
+            )
+            assert not torch.equal(
+                anchored, runner._loss_from_predictions(preds, trace, 10.0, 0.2)
+            )
+    print("PASS  an anchored initial state stands in for the first frame")
+
+
+def test_a_single_step_trace_takes_an_initial_state_anchor():
+    with tempfile.TemporaryDirectory() as tmp:
+        domain_path, prepared = _prepare(Path(tmp))
+        runner = _seeded_runner(domain_path)
+        problem, images, actions, final = prepared[1]
+        anchors = EndpointAnchors(init_predicates=("at r2",))
+        trace = runner.prepare_traces([prepared[0], (problem, images, actions, final, anchors)])[1]
+        preds = torch.rand(2, len(runner.rosame.propositions))
+        with torch.no_grad():
+            loss = runner._loss_from_predictions(preds, trace, 10.0, 0.2)
+        assert torch.isfinite(loss) and loss.item() > 0.0
+    print("PASS  a single-step trace takes an initial-state anchor")
+
+
 if __name__ == "__main__":
     test_grounding_covers_every_problems_objects()
     test_a_trace_from_the_smaller_problem_is_encoded_full_width()
     test_a_predicate_outside_the_grounding_is_dropped_not_raised()
     test_trajectory_loss_is_its_two_halves_composed()
+    test_a_four_element_problem_carries_no_endpoint_anchors()
+    test_default_anchors_leave_the_loss_unchanged()
+    test_an_unknown_final_atom_is_left_out_of_the_final_state_term()
+    test_an_anchored_initial_state_stands_in_for_the_first_frame()
+    test_a_single_step_trace_takes_an_initial_state_anchor()
     print("ALL TESTS PASSED")

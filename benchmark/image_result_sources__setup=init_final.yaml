@@ -1,0 +1,17 @@
+# Pixel-arm rows of the init_final image experiment.
+#   python -m benchmark.merge_result_roots --config "benchmark/image_result_sources__setup=init_final.yaml"
+# The symbolic arms are already in `target`; the root below holds the pixel rows
+# that were learned with both endpoint states given (see its README.txt).
+
+target: benchmark/running_results
+
+sources:
+  - root: benchmark/running_results_imgexp_pixel_initfinal_staged
+    experiments: "TO=600__image-small__fs=shared__setup=init_final"
+    labels:
+      - ROSAME-I_MILP_24
+      - ROSAME-I_MILP_24__res=native
+      - ROSAME-I_26__ep=5000__mode=fixed
+      - ROSAME-I_MILP_26__ep=5000__mode=fixed
+      - ROSAME-I_26__res=native__ep=5000__mode=fixed
+      - ROSAME-I_MILP_26__res=native__ep=5000__mode=fixed

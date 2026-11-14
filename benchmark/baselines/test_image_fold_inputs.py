@@ -21,7 +21,11 @@ from benchmark.baselines.image_fold_inputs import (
     domain_uses_hyphens,
     gt_anchors_from_observation,
     infer_bench_key,
+    labelling_of,
+    last_state_masked_atoms,
+    observed_final_state,
     parse_problem_normalized,
+    parse_trajectory_normalized,
     resolve_fold_inputs,
     resolve_gt_trajectory_path,
     resolve_images,
@@ -322,3 +326,130 @@ class TestResolveFoldInputs:
         )
 
         assert resolved == []
+
+
+# ── the prepared trajectory's own last state ────────────────────────────
+
+_TWO_PREDICATE_DOMAIN = """(define (domain toy)
+  (:requirements :strips :typing)
+  (:types disc)
+  (:predicates (clear ?x - disc) (big ?x - disc))
+  (:action move
+    :parameters (?x - disc)
+    :precondition (clear ?x)
+    :effect (not (clear ?x)))
+)
+"""
+
+_TWO_DISC_PROBLEM = """(define (problem problem1) (:domain toy)
+  (:objects d1 d2 - disc)
+  (:init (clear d1) (big d2))
+  (:goal (and (big d2)))
+)
+"""
+
+_PREPARED_TRAJECTORY = """(
+(:init (clear d1) (big d2))
+(operator: (move d1))
+(:state (big d2) (clear d2))
+)
+"""
+
+_GT_TRAJECTORY = """(
+(:init (clear d1) (big d2))
+(operator: (move d1))
+(:state (big d2))
+)
+"""
+
+# One line per state: nothing masked in state 0, two atoms in the last state.
+_MASKING_INFO = "\n(clear d2 - disc), (not (big d1 - disc))\n"
+
+
+def _two_predicate_fold(root: Path, masking: str = _MASKING_INFO):
+    """A one-trajectory image fold over the two-predicate toy domain."""
+    domain_path = root / "domain.pddl"
+    domain_path.write_text(_TWO_PREDICATE_DOMAIN)
+    domain = DomainParser(domain_path, partial_parsing=True).parse_domain()
+
+    problem_dir = _make_cell(root)
+    (problem_dir / "problem1.pddl").write_text(_TWO_DISC_PROBLEM)
+    (problem_dir / "problem1.trajectory").write_text(_PREPARED_TRAJECTORY)
+    (problem_dir / "problem1.masking_info").write_text(masking)
+    for i in range(2):
+        (problem_dir / f"state_{i}.png").write_bytes(b"")
+    _write_gt(root).write_text(_GT_TRAJECTORY)
+    prepared = [(
+        problem_dir / "problem1.trajectory",
+        problem_dir / "problem1.masking_info",
+        problem_dir / "problem1.pddl",
+    )]
+    return domain, prepared
+
+
+class TestObservedFinalState:
+    def test_the_walk_leaves_it_out_unless_asked(self, tmp_path: Path) -> None:
+        domain, prepared = _two_predicate_fold(tmp_path)
+
+        (trace,) = resolve_fold_inputs(domain, prepared, "toy")
+
+        assert trace.observed_final is None
+
+    def test_masked_atoms_are_unknown_whatever_their_polarity(self, tmp_path: Path) -> None:
+        domain, prepared = _two_predicate_fold(tmp_path)
+
+        (trace,) = resolve_fold_inputs(domain, prepared, "toy", with_observed_final=True)
+
+        assert trace.observed_final.positive == ["big d2"]
+        assert trace.observed_final.unknown == ["big d1", "clear d2"]
+
+    def test_it_is_the_prepared_trajectory_not_the_gt_one(self, tmp_path: Path) -> None:
+        domain, prepared = _two_predicate_fold(tmp_path, masking="\n\n")
+
+        (trace,) = resolve_fold_inputs(domain, prepared, "toy", with_observed_final=True)
+
+        assert trace.observed_final.positive == ["big d2", "clear d2"]
+        assert trace.observed_final.unknown == []
+        assert [p.strip() for p in trace.gt_final_predicates] == ["big d2"]
+
+    def test_no_masking_file_means_nothing_is_unknown(self, tmp_path: Path) -> None:
+        domain, prepared = _two_predicate_fold(tmp_path)
+        traj, _masking, problem_pddl = prepared[0]
+
+        for masking_path in (None, tmp_path / "absent.masking_info"):
+            (trace,) = resolve_fold_inputs(
+                domain, [(traj, masking_path, problem_pddl)], "toy", with_observed_final=True
+            )
+            assert trace.observed_final.unknown == []
+
+    def test_masking_info_that_does_not_cover_the_states_raises(self, tmp_path: Path) -> None:
+        domain, prepared = _two_predicate_fold(tmp_path, masking="\n\n\n")
+
+        with pytest.raises(ValueError, match="covers 3 states, the trajectory has 2"):
+            resolve_fold_inputs(domain, prepared, "toy", with_observed_final=True)
+
+    def test_a_trajectory_without_a_transition_has_no_final_state(self, tmp_path: Path) -> None:
+        domain, _prepared = _two_predicate_fold(tmp_path)
+
+        with pytest.raises(ValueError, match="no final state"):
+            observed_final_state(domain, _Observation([]), None)
+
+    def test_a_negative_state_atom_is_not_labelled_true(self, tmp_path: Path) -> None:
+        domain, prepared = _two_predicate_fold(tmp_path)
+        traj, _masking, problem_pddl = prepared[0]
+        problem = parse_problem_normalized(domain, problem_pddl)
+        state = parse_trajectory_normalized(domain, problem, traj).components[-1].next_state
+        for grounded in state.state_predicates.values():
+            for pred in grounded:
+                if pred.name == "clear":
+                    pred.is_positive = False
+
+        assert labelling_of(state, set()).positive == ["big d2"]
+
+    def test_masked_atoms_follow_the_domains_dialect(self, tmp_path: Path) -> None:
+        masking = tmp_path / "problem1.masking_info"
+        masking.write_text("(clear-disc d1 - disc)\n")
+
+        masked = last_state_masked_atoms(_domain(tmp_path, "clear_disc"), masking, num_states=1)
+
+        assert masked == {"clear_disc d1"}

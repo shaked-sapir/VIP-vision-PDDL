@@ -85,3 +85,29 @@ class TestDegenerateResponses:
 
     def test_ratio_before_any_call(self):
         assert _backend().cache_hit_ratio == 0.0
+
+
+class TestCallAccounting:
+    def _backend(self):
+        backend = _backend()
+        backend.completion_tokens_total = 0
+        backend.calls = 0
+        backend.request_seconds_total = 0.0
+        return backend
+
+    def test_calls_completion_tokens_and_seconds_accumulate(self):
+        backend = self._backend()
+        response = SimpleNamespace(usage=SimpleNamespace(completion_tokens=340))
+        backend._record_call(response, 4.5)
+        backend._record_call(response, 1.5)
+
+        assert backend.usage() == {
+            "calls": 2, "prompt_tokens": 0, "cached_tokens": 0,
+            "completion_tokens": 680, "request_seconds": 6.0}
+
+    def test_a_response_without_usage_still_counts_the_call(self):
+        backend = self._backend()
+        backend._record_call(SimpleNamespace(usage=None), 2.0)
+
+        assert backend.usage()["calls"] == 1
+        assert backend.usage()["completion_tokens"] == 0

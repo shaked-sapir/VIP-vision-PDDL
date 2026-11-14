@@ -14,6 +14,10 @@ Covers:
   6. Shape mismatches and ungroundable action calls raise.
   7. It agrees with `observation_to_trace` on the propositions they share.
   8. The encoder solves a trace built this way and recovers the GT model.
+  9. An initial state that is not given is the head's own soft row, unfixed.
+ 10. A final state that is observed, not given, is a soft row with its unknown
+     fluents neutral; it cannot be combined with a fixed goal.
+ 11. The encoder repairs both endpoints of a trace that fixes neither.
 """
 
 from __future__ import annotations
@@ -317,7 +321,110 @@ def test_encoder_recovers_gt_model_from_cv_trace():
     print("PASS  encoder solves a CV-derived trace and recovers the GT model")
 
 
+def test_an_initial_state_not_given_is_the_heads_soft_row():
+    _domain, instance = _micro_world()
+    probs = [[0.9, -2.0], [0.2, 0.8], [0.0, 1.0]]
+    calls = [("move", ["r1", "r2"]), ("move", ["r2", "r1"])]
+
+    trace = cv_predictions_to_trace(
+        instance, _NAMES, probs, calls,
+        init_fluents=None,
+        goal_fluents={("at", ("r1",))},
+    )
+
+    first = _probs_by_name(instance, trace.obs_p[1])
+    assert first == {"at_r1": 0.9, "at_r2": _EPS}, first
+    assert trace.anchor_init is False
+    assert trace.init == []
+    enc = CPSATObservedActions(
+        instance.domain, Traces(instance=None, obs_m=None, obs_t=[trace]), {"state"}
+    )
+    assert set(enc.hard_states(1)) == {3}, enc.hard_states(1)
+    print("PASS  an initial state not given is the head's soft row, unfixed")
+
+
+def test_an_empty_initial_state_is_still_a_fixed_one():
+    _domain, instance = _micro_world()
+    probs = [[0.9, 0.9], [0.2, 0.8]]
+    trace = cv_predictions_to_trace(
+        instance, _NAMES, probs, [("move", ["r1", "r2"])], init_fluents=set(),
+    )
+    assert trace.anchor_init is True
+    assert _probs_by_name(instance, trace.obs_p[1]) == {"at_r1": _EPS, "at_r2": _EPS}
+    print("PASS  an empty initial state is fixed, not left free")
+
+
+def test_an_observed_final_state_is_a_soft_row_with_unknowns_neutral():
+    _domain, instance = _micro_world(n_rooms=3)
+    names = ["at r1", "at r2", "at r3"]
+    probs = [[0.0] * 3, [0.2, 0.8, 0.1], [0.7, 0.7, 0.7]]
+    calls = [("move", ["r1", "r2"]), ("move", ["r2", "r1"])]
+
+    trace = cv_predictions_to_trace(
+        instance, names, probs, calls,
+        init_fluents={("at", ("r1",))},
+        final_observed=({("at", ("r1",)), ("at", ("r9",))}, {("at", ("r3",))}),
+    )
+
+    last = _probs_by_name(instance, trace.obs_p[3])
+    assert last == {"at_r1": 1 - _EPS, "at_r2": _EPS, "at_r3": 0.5}, last
+    assert trace.goal is None
+    enc = CPSATObservedActions(
+        instance.domain, Traces(instance=None, obs_m=None, obs_t=[trace]), {"state"}
+    )
+    assert set(enc.hard_states(1)) == {1}, enc.hard_states(1)
+    print("PASS  an observed final state is a soft row; unknown fluents are neutral")
+
+
+def test_a_final_state_cannot_be_both_fixed_and_observed():
+    _domain, instance = _micro_world()
+    probs = [[0.0, 0.0], [0.0, 0.0]]
+    try:
+        cv_predictions_to_trace(
+            instance, _NAMES, probs, [("move", ["r1", "r2"])],
+            init_fluents={("at", ("r1",))},
+            goal_fluents={("at", ("r2",))},
+            final_observed=({("at", ("r2",))}, set()),
+        )
+    except ValueError as error:
+        assert "not both" in str(error), error
+    else:
+        raise AssertionError("a fixed and an observed final state must not combine")
+    print("PASS  a final state is either fixed or observed")
+
+
+def test_encoder_repairs_both_endpoints_of_an_unfixed_trace():
+    domain, instance = _micro_world()
+    # r1 -> r2 -> r1. The head has frame 0 wrong; the final labelling has at(r2) wrong.
+    probs = [[0.3, 0.6], [0.1, 0.9], [0.0, 0.0]]
+    calls = [("move", ["r1", "r2"]), ("move", ["r2", "r1"])]
+    free = cv_predictions_to_trace(
+        instance, _NAMES, probs, calls,
+        init_fluents=None,
+        final_observed=({("at", ("r1",)), ("at", ("r2",))}, set()),
+    )
+    anchor = cv_predictions_to_trace(
+        instance, _NAMES, [[0.0, 0.0], [0.1, 0.9], [0.0, 0.0]], calls,
+        init_fluents={("at", ("r1",))}, goal_fluents={("at", ("r1",))},
+    )
+
+    enc = CPSATObservedActions(
+        domain, Traces(instance=None, obs_m=None, obs_t=[free, anchor]), {"state"}
+    )
+    assert enc.solve(time_limit=30), "an unfixed trace must be solvable"
+    at_r1 = instance.get_proposition(domain.get_predicate("at"), (instance.get_object("r1"),))
+    repaired = enc.repaired_states(1)
+    assert repaired[0] == {at_r1}, repaired[0]
+    assert repaired[2] == {at_r1}, repaired[2]
+    print("PASS  the encoder repairs both endpoints of a trace that fixes neither")
+
+
 if __name__ == "__main__":
+    test_an_initial_state_not_given_is_the_heads_soft_row()
+    test_an_empty_initial_state_is_still_a_fixed_one()
+    test_an_observed_final_state_is_a_soft_row_with_unknowns_neutral()
+    test_a_final_state_cannot_be_both_fixed_and_observed()
+    test_encoder_repairs_both_endpoints_of_an_unfixed_trace()
     test_endpoints_are_hard_and_cv_endpoints_unread()
     test_interior_rows_are_clamped_cv_values()
     test_missing_cv_column_is_neutral()

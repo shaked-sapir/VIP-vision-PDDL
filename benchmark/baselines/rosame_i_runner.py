@@ -6,6 +6,11 @@ state as supervision — never the (VLM-inferred / degraded) trajectory states.
 This is the ICAPS-24 ROSAME-I baseline; see
 ``docs/rosame-i-implementation-plan.md`` for the full design.
 
+Under a ``gt_setup`` the endpoint anchors follow the setup instead
+(:func:`as_prepared_problem`): the final-state anchor is the GT final state
+when the setup gives it and the degraded trajectory's own last state otherwise,
+and the GT initial state is anchored when the setup gives it.
+
 Traces are trained pooled, one shuffled pass over all of them per epoch, as in
 ICAPS-24 ``train.py``. To mitigate small-data variance, ``n_seeds`` independent
 models are trained and the one with the lowest final training loss is kept (a
@@ -25,7 +30,10 @@ from pddl_plus_parser.lisp_parsers import DomainParser
 from pddl_plus_parser.models import Domain
 
 from benchmark.algorithm_adapters.best_checkpoint import BestModelTracker
+from benchmark.algorithm_adapters.endpoint_anchors import EndpointAnchors
 from benchmark.baselines.base_runner import BaselineRunner
+from benchmark.baselines.setup_option import GtSetupOption, runner_gt_setup
+from src.utils.gt_setup import GtSetup
 from src.milp.loss_convergence import LossConvergenceRule
 from src.utils.torch_device import resolve_device
 from benchmark.baselines.image_fold_inputs import (
@@ -126,6 +134,7 @@ class RosameIBaselineRunner(BaselineRunner):
         resize: ResizeSpec = _RESIZE_FROM_TABLE,
         rosame_convergence: Optional[Mapping[str, object]] = None,
         epochs: Optional[int] = None,
+        gt_setup: GtSetupOption = None,
     ) -> None:
         """
         Args:
@@ -135,7 +144,10 @@ class RosameIBaselineRunner(BaselineRunner):
                 host cannot use raises here, before any data is prepared.
             epochs: Overrides the per-domain ICAPS-24 epoch count. ``None``
                 keeps the paper's table; an off-default value labels the row.
+            gt_setup: The experiment's ground-truth setup; ``None`` anchors the
+                GT final state only. The row label does not carry it.
         """
+        self.gt_setup = runner_gt_setup(gt_setup)
         self.n_seeds = n_seeds
         self.device = None if device is None else resolve_device(device, prefer_mps=True)
         self.base_seed = base_seed
@@ -145,9 +157,12 @@ class RosameIBaselineRunner(BaselineRunner):
         self._bench_cache: Dict[Path, Tuple[str, Domain]] = {}
 
     def run_params(self) -> Dict[str, object]:
-        if self.convergence_rule is None:
-            return {}
-        return {"rosame_convergence": self.convergence_rule.as_stats()}
+        params: Dict[str, object] = {}
+        if self.convergence_rule is not None:
+            params["rosame_convergence"] = self.convergence_rule.as_stats()
+        if self.gt_setup is not None:
+            params["gt_setup"] = self.gt_setup.value
+        return params
 
     def _stop_check(self) -> Optional[Callable[[List[float]], bool]]:
         """The loop's stop hook: the plateau rule, or ``None`` when it is off."""
@@ -336,30 +351,61 @@ class RosameIBaselineRunner(BaselineRunner):
         partial_domain: Domain,
         prepared_trajectories: List[Tuple[Path, Path, Path]],
         bench: str,
-    ) -> Tuple[List[Tuple[object, List[Path], List[str], List[str]]], List[Path]]:
-        """The fold walk, in the 4-tuple shape ``RosameI_Runner`` consumes.
+    ) -> Tuple[List[Tuple[object, ...]], List[Path]]:
+        """The fold walk, in the tuple shape ``RosameI_Runner`` consumes.
 
         Returns:
             ``(prepared_problems, gt_trajectory_paths)``, the latter positionally
-            aligned with the former and holding the GT trajectory each final-state
-            anchor was read from. The GT *init* state that
-            :func:`resolve_fold_inputs` also returns is dropped: the ICAPS-24
-            network takes only a goal anchor.
+            aligned with the former and holding each trace's GT trajectory.
+            Without a ``gt_setup`` the GT *init* state that
+            :func:`resolve_fold_inputs` also returns is dropped.
         """
-        resolved = resolve_fold_inputs(partial_domain, prepared_trajectories, bench)
+        resolved = resolve_fold_inputs(
+            partial_domain, prepared_trajectories, bench,
+            with_observed_final=reads_observed_final(self.gt_setup),
+        )
         return (
-            [as_prepared_problem(trace) for trace in resolved],
+            [as_prepared_problem(trace, self.gt_setup) for trace in resolved],
             [trace.gt_trajectory_path for trace in resolved],
         )
 
 
+def reads_observed_final(gt_setup: Optional[GtSetup]) -> bool:
+    """Whether a setup's final-state anchor is the degraded trajectory's own last state."""
+    return gt_setup is not None and not gt_setup.gives_final
+
+
 def as_prepared_problem(
-    trace: ResolvedTrace,
-) -> Tuple[object, List[Path], List[str], List[str]]:
-    """A :class:`ResolvedTrace` in the positional shape the ICAPS-24 adapter takes."""
+    trace: ResolvedTrace, gt_setup: Optional[GtSetup] = None
+) -> Tuple[object, ...]:
+    """A :class:`ResolvedTrace` in the positional shape the ICAPS-24 adapter takes.
+
+    Without a setup: ``(problem, image_paths, action_strings, GT final atoms)``.
+    Under a setup the fourth element is the final-state anchor's true atoms —
+    the GT final state when the setup gives it, the trajectory's own last state
+    otherwise — and a fifth :class:`EndpointAnchors` carries that state's
+    unknown atoms and, when the setup gives it, the GT initial state.
+
+    Raises:
+        ValueError: if the setup needs the trajectory's own last state and the
+            trace was resolved without it.
+    """
+    head = (trace.problem, trace.image_paths, trace.action_strings)
+    if gt_setup is None:
+        return (*head, trace.gt_final_predicates)
+
+    init = tuple(trace.gt_init_predicates) if gt_setup.gives_init else None
+    if gt_setup.gives_final:
+        return (*head, trace.gt_final_predicates, EndpointAnchors(init_predicates=init))
+    if trace.observed_final is None:
+        raise ValueError(
+            f"gt_setup '{gt_setup.value}' anchors the trajectory's own last state, "
+            f"which '{trace.problem_name}' was resolved without"
+        )
     return (
-        trace.problem,
-        trace.image_paths,
-        trace.action_strings,
-        trace.gt_final_predicates,
+        *head,
+        trace.observed_final.positive,
+        EndpointAnchors(
+            final_unknown=tuple(trace.observed_final.unknown), init_predicates=init
+        ),
     )

@@ -62,7 +62,14 @@ from benchmark.baselines.rosame_runner import (
     _setup_rosame_workspace,
     write_training_series,
 )
+from benchmark.baselines.setup_option import (
+    GtSetupOption,
+    reject_explicit_switches,
+    runner_gt_setup,
+)
 from benchmark.experiment_running_helpers.normalize import _normalize_hyphens
+
+from src.utils.gt_setup import GtSetup
 
 from constraint_opt.factory import resolve as resolve_encoder
 from planning_structs.traces import Traces
@@ -113,6 +120,32 @@ GT_GOAL_MODE = "gt"
 FREE_GOAL_MODE = "none"
 
 
+def milp_switches_for(
+    gt_setup: Optional[GtSetup],
+    goal_mode: Optional[str] = None,
+    gt_anchoring: Optional[GtAnchoring] = None,
+) -> Tuple[str, GtAnchoring]:
+    """The ``(goal_mode, gt_anchoring)`` the MILP of a symbolic arm solves under.
+
+    Without a setup the explicit switches apply, each defaulting to its fixed
+    form (final state fixed, initial state fixed). With a setup the MILP fixes
+    the endpoint states the setup gives and no explicit switch may be passed.
+
+    Raises:
+        ValueError: if a setup is combined with an explicit switch.
+    """
+    reject_explicit_switches(gt_setup, goal_mode=goal_mode, gt_anchoring=gt_anchoring)
+    if gt_setup is None:
+        return (
+            GT_GOAL_MODE if goal_mode is None else goal_mode,
+            GtAnchoring.INIT_ONLY if gt_anchoring is None else gt_anchoring,
+        )
+    return (
+        GT_GOAL_MODE if gt_setup.gives_final else FREE_GOAL_MODE,
+        GtAnchoring.INIT_ONLY if gt_setup.gives_init else GtAnchoring.NONE,
+    )
+
+
 def goal_fluents_for(
     problem_pddl_path: Optional[Path],
     goal_mode: str = GT_GOAL_MODE,
@@ -147,15 +180,29 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         epochs: int = 100,
         mip_time_limit: int = DEFAULT_MIP_TIME_LIMIT,
         encoding_config: Optional[MilpEncodingConfig] = None,
-        goal_mode: str = GT_GOAL_MODE,
+        goal_mode: Optional[str] = None,
         milp_solver: str = "cp-sat-observed",
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
         normalize_base_loss: bool = True,
         rosame_seed: Optional[int] = 8800,
         rosame_convergence: Optional[Mapping[str, object]] = None,
-        gt_anchoring: GtAnchoring = GtAnchoring.INIT_ONLY,
+        gt_anchoring: Optional[GtAnchoring] = None,
+        gt_setup: GtSetupOption = None,
     ) -> None:
+        """
+        Args:
+            goal_mode: ``gt`` fixes each trace's final state in the MILP,
+                ``none`` leaves it free; ``None`` is ``gt``.
+            gt_anchoring: Whether the MILP fixes each trace's initial state;
+                ``None`` is ``INIT_ONLY``.
+            gt_setup: The experiment's ground-truth setup. Given, it decides
+                both switches above and the row keeps the plain arm label.
+
+        Raises:
+            ValueError: if ``gt_setup`` is combined with ``goal_mode`` or
+                ``gt_anchoring``.
+        """
         super().__init__(
             train_per_trajectory=train_per_trajectory,
             snapshot_interval=snapshot_interval,
@@ -167,9 +214,11 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         self.normalize_base_loss = normalize_base_loss
         self.mip_time_limit = mip_time_limit
         self.encoding_config = encoding_config or MilpEncodingConfig.upstream()
-        self.goal_mode = goal_mode
+        self.gt_setup = runner_gt_setup(gt_setup)
+        self.goal_mode, self.gt_anchoring = milp_switches_for(
+            self.gt_setup, goal_mode, gt_anchoring
+        )
         self.milp_solver = milp_solver
-        self.gt_anchoring = gt_anchoring
 
     def row_name(self, domain_path: Path) -> str:
         """``name``, suffixed with whichever endpoint states the MILP does not fix and a non-default solve cap.
@@ -177,19 +226,24 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
         ``__goal=<mode>`` when only the final state is free, ``__init=none`` when
         only the initial state is, ``__gt=none`` when neither is fixed;
         ``__solve=<n>`` when one solve may take other than the default seconds.
+        Under a ``gt_setup`` the endpoint suffixes are dropped.
         """
-        goal_fixed = self.goal_mode == GT_GOAL_MODE
-        init_fixed = self.gt_anchoring is not GtAnchoring.NONE
-        parts = []
-        if init_fixed and not goal_fixed:
-            parts.append(f"goal={self.goal_mode}")
-        elif goal_fixed and not init_fixed:
-            parts.append(f"init={GtAnchoring.NONE.value}")
-        elif not goal_fixed and not init_fixed:
-            parts.append(f"gt={GtAnchoring.NONE.value}")
+        parts = self._free_endpoint_parts()
         if self.mip_time_limit != DEFAULT_MIP_TIME_LIMIT:
             parts.append(f"solve={self.mip_time_limit}")
         return self.name + "".join(f"__{part}" for part in parts)
+
+    def _free_endpoint_parts(self) -> List[str]:
+        """The label part naming the endpoint states the MILP leaves free; none under a setup."""
+        goal_fixed = self.goal_mode == GT_GOAL_MODE
+        init_fixed = self.gt_anchoring is not GtAnchoring.NONE
+        if self.gt_setup is not None or (goal_fixed and init_fixed):
+            return []
+        if init_fixed:
+            return [f"goal={self.goal_mode}"]
+        if goal_fixed:
+            return [f"init={GtAnchoring.NONE.value}"]
+        return [f"gt={GtAnchoring.NONE.value}"]
 
     def run_params(self) -> Dict[str, object]:
         params = {
@@ -203,6 +257,8 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
             params["gt_anchoring"] = self.gt_anchoring.value
         if self.mip_time_limit != DEFAULT_MIP_TIME_LIMIT:
             params["mip_time_limit"] = self.mip_time_limit
+        if self.gt_setup is not None:
+            params["gt_setup"] = self.gt_setup.value
         return params
 
     # ------------------------------------------------------------ MILP plumbing
@@ -284,6 +340,7 @@ class RosameMilpBaseRunner(RosameBaselineRunner):
 
         extra: Dict = {
             "train_per_trajectory": self.train_per_trajectory,
+            **({} if self.gt_setup is None else {"gt_setup": self.gt_setup.value}),
             "goal_mode": self.goal_mode,
             "gt_anchoring": self.gt_anchoring.value,
             "mip_time_limit": self.mip_time_limit,
@@ -365,14 +422,15 @@ class RosameMilpRunner(RosameMilpBaseRunner):
         agreement_stop: Optional[float] = LEGACY_AGREEMENT_STOP,
         mip_time_limit: int = DEFAULT_MIP_TIME_LIMIT,
         encoding_config: Optional[MilpEncodingConfig] = None,
-        goal_mode: str = GT_GOAL_MODE,
+        goal_mode: Optional[str] = None,
         milp_solver: str = "cp-sat-observed",
         snapshot_interval: Optional[int] = None,
         batch_size: Optional[int] = None,
         normalize_base_loss: bool = True,
         rosame_seed: Optional[int] = 8800,
         rosame_convergence: Optional[Mapping[str, object]] = None,
-        gt_anchoring: GtAnchoring = GtAnchoring.INIT_ONLY,
+        gt_anchoring: Optional[GtAnchoring] = None,
+        gt_setup: GtSetupOption = None,
     ) -> None:
         super().__init__(
             train_per_trajectory=False,
@@ -387,6 +445,7 @@ class RosameMilpRunner(RosameMilpBaseRunner):
             rosame_seed=rosame_seed,
             rosame_convergence=rosame_convergence,
             gt_anchoring=gt_anchoring,
+            gt_setup=gt_setup,
         )
         self.pre_mip_epochs = pre_mip_epochs
         self.mip_interval = mip_interval

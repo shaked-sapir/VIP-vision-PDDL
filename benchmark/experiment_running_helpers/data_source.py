@@ -43,6 +43,7 @@ from benchmark.experiment_running_helpers.trajectory_utils import (
 )
 from src.observation_degradation.masking import MaskingType
 from src.observation_degradation.noising import NoisingType
+from src.utils.gt_setup import GtSetup
 from src.utils.corpus_layout import GT_SUBPATH, corpus_root
 
 # Type alias: (trajectory_path, masking_path, problem_pddl_path, gt_state_indices)
@@ -118,7 +119,12 @@ class ImageDataSource(DataSource):
     be measured. prepare() loads the correct subset for a given fold/gt_rate.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, gt_setup: GtSetup = GtSetup.INIT) -> None:
+        """Args:
+            gt_setup: Which endpoint states of each trajectory are prepared as
+                ground truth.
+        """
+        self.gt_setup = gt_setup
         self._gt_root: Optional[Path] = None
         self._gt_lookup: Optional[Dict[str, Path]] = None
 
@@ -131,6 +137,7 @@ class ImageDataSource(DataSource):
     ) -> None:
         pregenerate_all_gt_frame_axiom_files(
             problem_dirs, domain_ref_path, gt_rate_percentages, frame_axiom_mode,
+            gt_setup=self.gt_setup,
         )
         if problem_dirs:
             self._gt_root = corpus_root(problem_dirs[0]) / GT_SUBPATH
