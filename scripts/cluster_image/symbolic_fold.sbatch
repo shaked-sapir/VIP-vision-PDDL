@@ -83,7 +83,7 @@ RUN_RC=0
 python -m benchmark.benchmark_runner \
     --config "$CONFIG" \
     --domains "$DOMAIN" \
-    --only-fold "$FOLD" || RUN_RC=$?
+    --only-fold "$FOLD" ${VIP_VARIANT_ARGS:-} || RUN_RC=$?
 
 # The ROSAME arms leave a copy of the fold's trajectories in each finished cell.
 for INSTANCE in "${LIVE_EXP}/testing/fold${FOLD}"_numtrajs*_gtrate*; do

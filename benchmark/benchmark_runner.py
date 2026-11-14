@@ -69,6 +69,7 @@ from benchmark.evaluation.cfm.cfm_quality_analysis import generate_cfm_quality_a
 from benchmark.evaluation.cfm.cfm_quality_table import generate_cfm_quality_table
 from benchmark.evaluation.experiment_report import generate_experiment_report
 from benchmark.experiment_running_helpers.data_source import ImageDataSource, SimulatedDataSource
+from benchmark.image_variant_config import add_variant_arguments, apply_variant, requested_variant
 from src.utils.gt_setup import GtSetup
 from src.observation_degradation.masking import MaskingType
 from src.observation_degradation.noising import NoisingType
@@ -727,12 +728,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--domains", nargs="*", default=None, metavar="DOMAIN_KEY",
                         help="Subset of domain_keys to run (space-separated). "
                              "Omit to run all domains in the config.")
+    add_variant_arguments(parser)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
     config = _load_config(args.config)
+    variant = requested_variant(args)
+    if variant is not None:
+        config = apply_variant(config, variant, domains=args.domains)
     if args.only_fold is not None:
         config.setdefault("shared", {})["folds"] = args.only_fold
     results = execute_run(

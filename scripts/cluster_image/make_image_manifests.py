@@ -21,10 +21,16 @@ from __future__ import annotations
 import argparse
 import csv
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import Optional, List, Sequence, Tuple
 
 import yaml
 
+from benchmark.image_variant_config import (
+    RunVariant,
+    add_variant_arguments,
+    apply_variant,
+    requested_variant,
+)
 from scripts.cluster_image.make_pixel_manifest import HEADER, write_manifest
 
 OUT_DIR = Path("scripts/cluster_image")
@@ -34,8 +40,11 @@ DEFAULT_N_FOLDS = 5
 SymbolicRow = Tuple[str, str, str, int, str]
 
 
-def config_rows(config_path: Path) -> List[SymbolicRow]:
+def config_rows(config_path: Path, variant: Optional[RunVariant] = None,
+                domains: Optional[Sequence[str]] = None) -> List[SymbolicRow]:
     """``(domain, data_dir, experiment, fold, config)`` for every fold of one config.
+
+    With ``variant`` the data folders and the experiment are that variant's.
 
     Raises:
         ValueError: if the config is not an image config, names no run, or
@@ -44,6 +53,14 @@ def config_rows(config_path: Path) -> List[SymbolicRow]:
     config = yaml.safe_load(config_path.read_text())
     if config.get("source") != "image":
         raise ValueError(f"{config_path}: source must be 'image', got {config.get('source')!r}")
+    known = {d["domain_key"] for d in config.get("domains") or []}
+    kept = [d for d in (domains or []) if d in known] or None
+    if domains and kept is None:
+        return []
+    if variant is not None:
+        config = apply_variant(config, variant, domains=kept)
+    elif kept:
+        config = {**config, "domains": [d for d in config["domains"] if d["domain_key"] in kept]}
     run_name = config.get("run_name")
     if not run_name:
         raise ValueError(f"{config_path}: run_name is required")
@@ -61,7 +78,8 @@ def config_rows(config_path: Path) -> List[SymbolicRow]:
     return rows
 
 
-def manifest_rows(config_paths: Sequence[Path]) -> List[SymbolicRow]:
+def manifest_rows(config_paths: Sequence[Path], variant: Optional[RunVariant] = None,
+                  domains: Optional[Sequence[str]] = None) -> List[SymbolicRow]:
     """The rows of every config, in the order given.
 
     Raises:
@@ -70,7 +88,7 @@ def manifest_rows(config_paths: Sequence[Path]) -> List[SymbolicRow]:
     rows: List[SymbolicRow] = []
     seen = set()
     for config_path in config_paths:
-        for row in config_rows(config_path):
+        for row in config_rows(config_path, variant, domains):
             cell = row[0], row[2], row[3]
             if cell in seen:
                 raise ValueError(f"{row[0]} fold {row[3]} of {row[2]} appears in two configs")
@@ -92,9 +110,11 @@ def main() -> None:
     parser.add_argument("--name", required=True, help="Stem of the two manifest files.")
     parser.add_argument("--config", type=Path, nargs="+", required=True)
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
+    parser.add_argument("--domains", nargs="*", default=None, metavar="DOMAIN_KEY")
+    add_variant_arguments(parser)
     args = parser.parse_args()
 
-    rows = manifest_rows(args.config)
+    rows = manifest_rows(args.config, requested_variant(args), args.domains)
     symbolic = args.out_dir / f"{args.name}_symbolic_manifest.csv"
     pixel = args.out_dir / f"{args.name}_pixel_manifest.csv"
     write_symbolic_manifest(rows, symbolic)

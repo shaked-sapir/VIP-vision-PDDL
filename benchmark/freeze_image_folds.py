@@ -43,6 +43,7 @@ from benchmark.experiment_running_helpers.resume import fold_instance_dir, fold_
 from benchmark.experiment_running_helpers.run_fold import cv_split, select_training_pool
 from benchmark.experiment_running_helpers.trajectory_utils import save_fold_metadata
 from src.utils.corpus_variant import write_experiment_variant
+from benchmark.image_variant_config import add_variant_arguments, apply_variant, requested_variant
 from src.utils.gt_setup import GtSetup
 from src.utils.atomic_json import write_json_atomic
 from src.utils.corpus_layout import IMAGE_POOL_SUBPATH, pool_problem_dirs
@@ -289,9 +290,13 @@ def main() -> None:
                         help="Also generate each fold's predictive-power test states.")
     parser.add_argument("--force", action="store_true",
                         help="Rewrite cells that are already frozen.")
+    add_variant_arguments(parser)
     args = parser.parse_args()
 
     config = load_image_config(args.config)
+    variant = requested_variant(args)
+    if variant is not None:
+        config = apply_variant(config, variant, domains=args.domains)
     plan = FoldPlan.from_shared(config.get("shared") or {})
     out_root = args.out_root if args.out_root.is_absolute() else PROJECT_ROOT / args.out_root
     wanted = set(args.domains) if args.domains else None
