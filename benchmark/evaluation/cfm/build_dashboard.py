@@ -676,9 +676,36 @@ def regenerate_image_thumbs(exp: Path, metrics: List[dict],
         _plot_trend_thumb(sol, center, lower, upper, key, out_dir / f"{key}_trend.png", None)  # own x
 
 
+DEFAULT_IMAGE_VARIANT = "default"
+
+
+def image_variants(cfg: dict, data_size: str) -> List[dict]:
+    """The image variants of one data size, in display order.
+
+    ``image.<size>.variants`` lists them, or ``variants_file`` names a YAML file
+    holding that list: ``key``, ``label``, ``experiment_dir`` and optional
+    ``display_names`` / ``include_algorithms`` / ``exclude_algorithms``. A bare
+    ``experiment_dir`` is one more variant keyed ``default``, listed last when
+    other variants exist and labelled by ``experiment_dir_label``.
+    """
+    block = mode_block(cfg, "image", data_size)
+    listed = [dict(variant) for variant in block.get("variants") or []]
+    variants_file = block.get("variants_file")
+    if variants_file and (_PROJECT_ROOT / variants_file).exists():
+        listed.extend(yaml.safe_load((_PROJECT_ROOT / variants_file).read_text()) or [])
+    bare = block.get("experiment_dir") or {}
+    if bare or not listed:
+        listed.append({"key": DEFAULT_IMAGE_VARIANT, "experiment_dir": bare,
+                       "label": block.get("experiment_dir_label", "" if not listed else "original run")})
+    return listed
+
+
 def build_image_data(cfg: dict, root: Path, out_dir: Path, metrics: List[dict],
-                     regen: bool, embed: bool, data_size: str = "small") -> dict:
-    dirs = mode_block(cfg, "image", data_size).get("experiment_dir", {})
+                     regen: bool, embed: bool, data_size: str = "small",
+                     experiment_dirs: Optional[Dict[str, str]] = None) -> dict:
+    """One image variant's payload; ``experiment_dirs`` overrides the size's bare ``experiment_dir``."""
+    dirs = (experiment_dirs if experiment_dirs is not None
+            else mode_block(cfg, "image", data_size).get("experiment_dir", {}))
     out: Dict[str, dict] = {}
     for domain in cfg["domains"]:
         rel = dirs.get(domain)
@@ -733,9 +760,12 @@ def build(config_path: Path, regen: bool, refresh: bool,
         print(f"Assembling simulation data ({size})...")
         sim[size] = build_sim_data(
             cfg, root, out_dir, metrics, regen, refresh, embed, data_size=size)
-        print(f"Assembling image data ({size})...")
-        img[size] = build_image_data(
-            cfg, root, out_dir, metrics, regen, embed, data_size=size)
+        img[size] = {}
+        for variant in image_variants(cfg, size):
+            print(f"Assembling image data ({size}, {variant['key']})...")
+            img[size][variant["key"]] = build_image_data(
+                cfg, root, out_dir, metrics, regen, embed, data_size=size,
+                experiment_dirs=variant.get("experiment_dir") or {})
 
     # Baseline registry → {algorithm: [modes]}. Unlisted baselines default to
     # both modes (they still only render where they actually have data).
@@ -745,10 +775,18 @@ def build(config_path: Path, regen: bool, refresh: bool,
     # built from this rather than from `alg_modes` alone: the two data sizes ran
     # different arm sets, so a mode-only filter would list CDPS under a sweep
     # that never ran it.
-    alg_present = {
-        f"{mode}:{size}": sorted(_algorithms_in(payload_part))
-        for mode, per_size in (("simulation", sim), ("image", img))
-        for size, payload_part in per_size.items()
+    alg_present = {f"simulation:{size}": sorted(_algorithms_in(part)) for size, part in sim.items()}
+    for size, per_variant in img.items():
+        alg_present[f"image:{size}"] = sorted(set().union(*[_algorithms_in(p) for p in per_variant.values()] or [set()]))
+        for key, part in per_variant.items():
+            alg_present[f"image:{size}:{key}"] = sorted(_algorithms_in(part))
+    image_variant_meta = {
+        size: [{"key": v["key"], "label": v.get("label") or "",
+                "display_names": {str(k): str(n) for k, n in (v.get("display_names") or {}).items()},
+                "include": [str(a) for a in v.get("include_algorithms") or []],
+                "exclude": [str(a) for a in v.get("exclude_algorithms") or []]}
+               for v in image_variants(cfg, size)]
+        for size in DATA_SIZES
     }
     # A variant label the config does not list (a new ``__k=v`` suffix) takes
     # its arm's modes instead of defaulting to both tabs.
@@ -773,6 +811,7 @@ def build(config_path: Path, regen: bool, refresh: bool,
         "selectors": selectors,
         "exclude_algs": exclude_algs,
         "display_names": display_names,
+        "image_variants": image_variant_meta,
     }
     out_html.write_text(_HTML.replace("__DATA__", json.dumps(payload)))
     size_mb = out_html.stat().st_size / 1e6
@@ -894,6 +933,10 @@ _HTML = r"""<!DOCTYPE html>
     <span id="modelabel"></span>
   </div>
   <div class="selgroups">
+    <div class="selgroup" id="ivgroup" style="display:none;">
+      <div class="sellab">Image variant</div>
+      <select id="ivbtns" style="background:#1f232b;border:1px solid #333842;color:#dce6ff;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;"></select>
+    </div>
     <div class="selgroup">
       <div class="sellab">Mode</div>
       <div class="selbtns">
@@ -917,7 +960,10 @@ const DATA=__DATA__;
 const DOMAINS=DATA.domains, METRICS=DATA.metrics;
 // Both data sizes are in the payload; these read whichever is selected.
 function simData(){return (DATA.sim||{})[S.ds]||{};}
-function imgData(){return (DATA.image||{})[S.ds]||{};}
+const IVARIANTS=DATA.image_variants||{};
+function ivList(){return IVARIANTS[S.ds]||[];}
+function ivCur(){const l=ivList();return l.find(v=>v.key===S.iv)||l[0]||{key:"default",display_names:{},include:[],exclude:[]};}
+function imgData(){return ((DATA.image||{})[S.ds]||{})[ivCur().key]||{};}
 function masksOf(){return simData().masks||[];}
 function noisesOf(){return simData().noises||[];}
 const CDPS=DATA.cdps_series, ORACLE=DATA.oracle_series, ANCHORED=DATA.anchored_series;
@@ -928,15 +974,19 @@ function excluded(a){return (EXCLUDE.all||[]).indexOf(a)>=0||(EXCLUDE[S.ds]||[])
 function etMode(){return S.et==="sim"?"simulation":"image";}
 const ALG_PRESENT=DATA.alg_present||{};
 function algAllowed(a){
+  const img=S.et!=="sim";
+  const present=ALG_PRESENT[etMode()+":"+S.ds+(img?":"+ivCur().key:"")];
+  const here=!present||!present.length||present.indexOf(a)>=0;
+  if(img&&(ivCur().exclude||[]).indexOf(a)>=0)return false;
+  if(img&&(ivCur().include||[]).indexOf(a)>=0)return here;
   if(excluded(a))return false;
   const m=ALG_MODES[a]; if(m&&m.indexOf(etMode())<0)return false;
   // The two data sizes ran different arm sets, so a mode-only filter would
   // list arms that never ran in the selected pair.
-  const present=ALG_PRESENT[etMode()+":"+S.ds];
-  return !present||!present.length||present.indexOf(a)>=0;
+  return here;
 }
 const SEL=DATA.selectors||{};
-const S={et:(((SEL.default||{}).mode==="image")?"img":"sim"),ds:((SEL.default||{}).data_size||"small"),metric:METRICS[0].key,stat:"last",tab:"all",ltab:"all",cmp:((SEL.default||{}).view==="baselines"),band:DATA.error_band||"ci95",off:{},base:null};
+const S={et:(((SEL.default||{}).mode==="image")?"img":"sim"),ds:((SEL.default||{}).data_size||"small"),iv:(SEL.default||{}).image_variant||null,metric:METRICS[0].key,stat:"last",tab:"all",ltab:"all",cmp:((SEL.default||{}).view==="baselines"),band:DATA.error_band||"ci95",off:{},base:null};
 const $=id=>document.getElementById(id);
 const meta=k=>METRICS.find(m=>m.key===k)||{};
 const CONFIGS=[]; for(const m of masksOf())for(const n of noisesOf())CONFIGS.push([m,n]);
@@ -987,7 +1037,7 @@ function algStyle(a){if(a===CDPS)return{c:"#4b8fe2",dash:null};if(a===ORACLE)ret
  const named=namedColor(a);
  if(named)return{c:named,dash:dash};
  return{c:PAL[Math.max(0,BASES.indexOf(a))%PAL.length],dash:dash};}
-function algLabel(a){return a===ORACLE?"oracle":a===ANCHORED?"CDPS (anchored)":(DISPLAY[a]||a);}
+function algLabel(a){const v=S.et!=="sim"?(ivCur().display_names||{})[a]:null;return a===ORACLE?"oracle":a===ANCHORED?"CDPS (anchored)":(v||DISPLAY[a]||a);}
 function enabledAlgs(){return [CDPS,ORACLE,...(S.cmp?BASES:[])].filter(a=>!S.off[a]);}
 
 function curveSVG(cv){
@@ -1341,6 +1391,9 @@ function render(){
   $("metricnav").innerHTML=METRICS.map(m=>`<button class="${m.key===S.metric?'on':''}" onclick="setMetric('${m.key}')">${m.label}</button>`).join("");
   document.querySelectorAll(".et[data-et]").forEach(b=>b.classList.toggle("on",b.dataset.et===S.et));
   document.querySelectorAll(".ds[data-ds]").forEach(b=>b.classList.toggle("on",b.dataset.ds===S.ds));
+  const ivs=ivList(), ivg=$("ivgroup");
+  ivg.style.display=(S.et!=="sim"&&ivs.length>1)?"flex":"none";
+  $("ivbtns").innerHTML=ivs.map(v=>`<option value="${v.key}" ${v.key===ivCur().key?"selected":""}>${v.label||v.key}</option>`).join("");
   ctrlBar();
   const simEmpty=(S.et==="sim" && !Object.keys(simData().cells||{}).length);
   if(simEmpty){$("view").innerHTML=`<div class="card"><h4>Simulation · ${S.ds==="small"?"Small":"Large"} data</h4><div class="note">No experiments configured for this combination. Add prefixes under <code>simulation.${S.ds}.prefix</code> in dashboard_config.yaml.</div></div>`;return;}
@@ -1365,6 +1418,7 @@ function setTab(t){S.tab=t;renderCharts();}
 function zoom(src,cap){$("lbimg").src=src;$("lbcap").textContent=cap||"";$("lb").style.display="flex";}
 document.querySelectorAll(".et[data-et]").forEach(b=>b.onclick=()=>{S.et=b.dataset.et;render();});
 document.querySelectorAll(".ds[data-ds]").forEach(b=>b.onclick=()=>{S.ds=b.dataset.ds;render();});
+$("ivbtns").onchange=e=>{S.iv=e.target.value;render();};
 document.addEventListener("keydown",e=>{if(e.key==="Escape")$("lb").style.display="none";});
 render();
 </script></body></html>

@@ -1,4 +1,4 @@
-"""Building an image dashboard config from the variant records.
+"""Listing the dashboard's image variants from the experiments' records.
 
     python -m pytest benchmark/test_image_dashboard.py
 """
@@ -7,85 +7,70 @@ from pathlib import Path
 
 import pytest
 
-from benchmark.image_dashboard import (
-    build_config,
-    classifier_label,
-    find_experiments,
-    parse_classifier,
-    setup_display_names,
-)
-from benchmark.image_variant_config import RunVariant
+from benchmark.image_dashboard import display_name, image_variants, variant_key, variant_label
 from src.utils.atomic_json import write_json_atomic
-from src.utils.corpus_variant import CorpusVariant, ExampleProtocol
 from src.utils.gt_setup import GtSetup
 
-OFF = CorpusVariant("gpt-5.2", "off", ExampleProtocol.SHARED)
-MEDIUM = CorpusVariant("gpt-5.2", "medium", ExampleProtocol.SHARED)
 FAMILY = "TO=600__image-small"
-TEMPLATE = {"results_dashboard": {
-    "domains": ["gripper"], "display_names": {"ROSAME-I_26": "ROSAME-I 26"},
-    "selectors": {"data_size": {"label": "Data size", "options": {"small": "Small", "large": "Large"}}},
-}}
+OFF_BOTH = {"vlm_model": "gpt-5.2", "reasoning": "off", "example_protocol": "shared", "gt_setup": "init_final"}
+MEDIUM_INIT = {"vlm_model": "gpt-5.2", "reasoning": "medium", "example_protocol": "shared", "gt_setup": "init"}
 
 
-def _experiment(root: Path, name: str, variant: RunVariant, labels) -> Path:
-    experiment = root / "gripper" / name
+def _experiment(root: Path, domain: str, name: str, axes: dict, rows) -> None:
+    experiment = root / domain / name
     (experiment / "evaluation_results").mkdir(parents=True)
-    write_json_atomic(experiment / "evaluation_results" / "experiment_variant.json", variant.as_dict())
+    if axes:
+        write_json_atomic(experiment / "evaluation_results" / "experiment_variant.json", axes)
     cell = experiment / "testing" / "fold0_numtrajs3_gtrate0"
     cell.mkdir(parents=True)
-    write_json_atomic(cell / "fold_result.json", [{"algorithm": label} for label in labels])
-    return experiment
+    write_json_atomic(cell / "fold_result.json", rows)
 
 
 @pytest.fixture
 def results(tmp_path: Path) -> Path:
     root = tmp_path / "results"
-    _experiment(root, f"{FAMILY}__fs=shared__setup=init_final", RunVariant(OFF, GtSetup.INIT_FINAL),
-                ["PISAM", "PISAM_MILP_LOOP__gt=all_gt_states"])
-    _experiment(root, f"{FAMILY}__fs=shared__reason=medium__setup=init_final",
-                RunVariant(MEDIUM, GtSetup.INIT_FINAL), ["ROSAME_MILP_24", "ROSAME-I_26"])
-    _experiment(root, f"{FAMILY}__fs=shared", RunVariant(OFF, GtSetup.INIT), ["PISAM"])
+    for domain in ("gripper", "depot"):
+        _experiment(root, domain, f"{FAMILY}__fs=shared__setup=init_final", OFF_BOTH,
+                    [{"algorithm": "PISAM"}, {"algorithm": "ROSAME-I_26__res=native__ep=5000"}])
+    _experiment(root, "gripper", f"{FAMILY}__fs=shared__reason=medium", MEDIUM_INIT,
+                [{"algorithm": "ROSAME_MILP_24"}, {"algorithm": "PISAM__reasoning=off"}])
+    _experiment(root, "gripper", "TO=600__gripper_data_from_PV", {}, [{"algorithm": "CDPS"}])
     return root
 
 
-def test_parse_classifier() -> None:
-    assert parse_classifier("vlm=gpt-5.2,reasoning=medium") == MEDIUM
-    assert parse_classifier("vlm=gpt-5.2") == OFF
-    with pytest.raises(ValueError, match="--classifier expects"):
-        parse_classifier("reasoning=off")
-    assert classifier_label(MEDIUM) == "gpt-5.2, reasoning medium"
+def test_key_and_label_name_every_axis() -> None:
+    assert variant_key(OFF_BOTH) == "vlm_model=gpt-5.2__reasoning=off__example_protocol=shared__gt_setup=init_final"
+    assert variant_label(MEDIUM_INIT) == "gpt-5.2 · reasoning medium · init GT"
 
 
-def test_experiments_are_found_by_record(results: Path) -> None:
-    found = find_experiments(results, FAMILY, RunVariant(MEDIUM, GtSetup.INIT_FINAL), ["gripper"])
-    assert found["gripper"].endswith("__fs=shared__reason=medium__setup=init_final")
-    assert find_experiments(results, FAMILY, RunVariant(MEDIUM, GtSetup.FINAL), ["gripper"]) == {}
+@pytest.mark.parametrize("label, setup, row_setup, expected", [
+    ("PISAM", GtSetup.INIT_FINAL, None, "PI-SAM (init+final GT)"),
+    ("PISAM_MILP_LOOP__gt=all_gt_states", GtSetup.INIT_FINAL, None, "NPI-SAM (init+final GT)"),
+    ("ROSAME_24", GtSetup.INIT, None, "ROSAME (init GT)"),
+    ("ROSAME_MILP_24", GtSetup.INIT, None, "ROSAME+MILP (init+final GT)"),
+    ("ROSAME_MILP_24", GtSetup.INIT, "init", "ROSAME+MILP (init GT)"),
+    ("ROSAME-I_MILP_26__res=native__ep=5000", GtSetup.INIT, None, "ROSAME-I 26+MILP (init+final GT, native res)"),
+    ("ROSAME-I_24", GtSetup.INIT_FINAL, None, "ROSAME-I 24 (final GT)"),
+    ("CDPS", GtSetup.INIT, None, "CDPS"),
+])
+def test_display_names(label: str, setup: GtSetup, row_setup, expected: str) -> None:
+    assert display_name(label, setup, row_setup) == expected
 
 
-def test_only_setup_arms_are_renamed() -> None:
-    names = setup_display_names(
-        ["PISAM", "PISAM_MILP_LOOP__gt=all_gt_states", "ROSAME_24", "ROSAME_MILP_24", "ROSAME-I_26"],
-        GtSetup.INIT_FINAL)
-    assert names == {
-        "PISAM": "PI-SAM (init+final GT)", "PISAM_MILP_LOOP__gt=all_gt_states": "NPI-SAM (init+final GT)",
-        "ROSAME_24": "ROSAME (init+final GT)", "ROSAME_MILP_24": "ROSAME+MILP (init+final GT)"}
+def test_one_variant_per_recorded_axes_across_domains(results: Path) -> None:
+    variants = image_variants(results, FAMILY, ["gripper", "depot"])
+
+    assert [v["label"] for v in variants] == [
+        "gpt-5.2 · reasoning medium · init GT", "gpt-5.2 · reasoning off · init+final GT"]
+    both = variants[1]
+    assert sorted(both["experiment_dir"]) == ["depot", "gripper"]
+    assert both["include_algorithms"] == ["PISAM"]
+    assert both["display_names"]["ROSAME-I_26__res=native__ep=5000"] == "ROSAME-I 26 (init+final GT, native res)"
 
 
-def test_config_puts_each_classifier_in_a_slot(results: Path) -> None:
-    config = build_config(TEMPLATE, GtSetup.INIT_FINAL, [OFF, MEDIUM], FAMILY, results, "page")
-    dashboard = config["results_dashboard"]
+def test_rows_relabelled_with_a_data_variant_are_hidden(results: Path) -> None:
+    medium = image_variants(results, FAMILY, ["gripper"])[0]
 
-    assert dashboard["selectors"]["data_size"] == {
-        "label": "Classifier",
-        "options": {"small": "gpt-5.2, reasoning off", "large": "gpt-5.2, reasoning medium"}}
-    assert dashboard["image"]["small"]["experiment_dir"]["gripper"].endswith("__fs=shared__setup=init_final")
-    assert dashboard["image"]["large"]["experiment_dir"]["gripper"].endswith("__reason=medium__setup=init_final")
-    assert dashboard["display_names"]["ROSAME_MILP_24"] == "ROSAME+MILP (init+final GT)"
-    assert dashboard["display_names"]["ROSAME-I_26"] == "ROSAME-I 26"
-    assert TEMPLATE["results_dashboard"]["selectors"]["data_size"]["label"] == "Data size"
-
-
-def test_a_classifier_without_an_experiment_raises(results: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="no experiment"):
-        build_config(TEMPLATE, GtSetup.FINAL, [OFF], FAMILY, results, "page")
+    assert medium["exclude_algorithms"] == ["PISAM__reasoning=off"]
+    assert "PISAM__reasoning=off" not in medium["display_names"]
+    assert medium["display_names"]["ROSAME_MILP_24"] == "ROSAME+MILP (init+final GT)"

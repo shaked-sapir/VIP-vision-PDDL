@@ -1,0 +1,146 @@
+- key: vlm_model=gpt-5.2__reasoning=medium__example_protocol=shared__gt_setup=init
+  label: "gpt-5.2 \xB7 reasoning medium \xB7 init GT"
+  experiment_dir:
+    blocksworld: benchmark/running_results/blocksworld/TO=600__image-small__fs=shared__reason=medium
+    depot: benchmark/running_results/depot/TO=600__image-small__fs=shared__reason=medium
+    gripper: benchmark/running_results/gripper/TO=600__image-small__fs=shared__reason=medium
+    hanoi: benchmark/running_results/hanoi/TO=600__image-small__fs=shared__reason=medium
+    npuzzle: benchmark/running_results/npuzzle/TO=600__image-small__fs=shared__reason=medium
+  display_names:
+    PISAM: PI-SAM (init GT)
+    PISAM_MILP_LOOP__schema=pre_and_add: NPI-SAM (init GT)
+    ROSAME-I_24: ROSAME-I 24 (final GT)
+    ROSAME-I_26__ep=5000__mode=fixed: ROSAME-I 26 (init+final GT)
+    ROSAME-I_MILP_24: ROSAME-I 24+MILP (init+final GT)
+    ROSAME-I_MILP_26__ep=5000__mode=fixed: ROSAME-I 26+MILP (init+final GT)
+    ROSAME_24: ROSAME (init GT)
+    ROSAME_MILP_24: ROSAME+MILP (init+final GT)
+    ROSAME-I_24__res=native: ROSAME-I 24 (final GT, native res)
+    ROSAME-I_26__res=native__ep=5000__mode=fixed: ROSAME-I 26 (init+final GT, native
+      res)
+    ROSAME-I_MILP_24__res=native: ROSAME-I 24+MILP (init+final GT, native res)
+    ROSAME-I_MILP_26__res=native__ep=5000__mode=fixed: ROSAME-I 26+MILP (init+final
+      GT, native res)
+  include_algorithms:
+  - PISAM
+  - PISAM_MILP_LOOP__schema=pre_and_add
+  - ROSAME_24
+  - ROSAME_MILP_24
+  exclude_algorithms:
+  - PISAM_MILP_LOOP__schema=pre_and_add__reasoning=off
+  - PISAM__reasoning=off
+  - ROSAME_24__reasoning=off
+  - ROSAME_MILP_24__reasoning=off
+- key: vlm_model=gpt-5.2__reasoning=medium__example_protocol=shared__gt_setup=init_final
+  label: "gpt-5.2 \xB7 reasoning medium \xB7 init+final GT"
+  experiment_dir:
+    blocksworld: benchmark/running_results/blocksworld/TO=600__image-small__fs=shared__reason=medium__setup=init_final
+    depot: benchmark/running_results/depot/TO=600__image-small__fs=shared__reason=medium__setup=init_final
+    gripper: benchmark/running_results/gripper/TO=600__image-small__fs=shared__reason=medium__setup=init_final
+    hanoi: benchmark/running_results/hanoi/TO=600__image-small__fs=shared__reason=medium__setup=init_final
+    npuzzle: benchmark/running_results/npuzzle/TO=600__image-small__fs=shared__reason=medium__setup=init_final
+  display_names:
+    PISAM: PI-SAM (init+final GT)
+    PISAM_MILP_LOOP__gt=all_gt_states__schema=pre_and_add: NPI-SAM (init+final GT)
+    ROSAME-I_26__ep=5000__mode=fixed: ROSAME-I 26 (init+final GT)
+    ROSAME-I_MILP_24: ROSAME-I 24+MILP (init+final GT)
+    ROSAME-I_MILP_26__ep=5000__mode=fixed: ROSAME-I 26+MILP (init+final GT)
+    ROSAME_24: ROSAME (init+final GT)
+    ROSAME_MILP_24: ROSAME+MILP (init+final GT)
+    ROSAME-I_26__res=native__ep=5000__mode=fixed: ROSAME-I 26 (init+final GT, native
+      res)
+    ROSAME-I_MILP_24__res=native: ROSAME-I 24+MILP (init+final GT, native res)
+    ROSAME-I_MILP_26__res=native__ep=5000__mode=fixed: ROSAME-I 26+MILP (init+final
+      GT, native res)
+  include_algorithms:
+  - PISAM
+  - PISAM_MILP_LOOP__gt=all_gt_states__schema=pre_and_add
+  - ROSAME_24
+  - ROSAME_MILP_24
+  exclude_algorithms: []
+- key: vlm_model=gpt-5.2__reasoning=off__example_protocol=shared__gt_setup=init
+  label: "gpt-5.2 \xB7 reasoning off \xB7 init GT"
+  experiment_dir:
+    blocksworld: benchmark/running_results/blocksworld/TO=600__image-small__fs=shared
+    depot: benchmark/running_results/depot/TO=600__image-small__fs=shared
+    gripper: benchmark/running_results/gripper/TO=600__image-small__fs=shared
+    hanoi: benchmark/running_results/hanoi/TO=600__image-small__fs=shared
+    npuzzle: benchmark/running_results/npuzzle/TO=600__image-small__fs=shared
+  display_names:
+    PISAM: PI-SAM (init GT)
+    PISAM_MILP_LOOP__schema=pre_and_add: NPI-SAM (init GT)
+    ROSAME-I_24: ROSAME-I 24 (final GT)
+    ROSAME-I_26__ep=5000__mode=fixed: ROSAME-I 26 (init+final GT)
+    ROSAME-I_MILP_24: ROSAME-I 24+MILP (init+final GT)
+    ROSAME-I_MILP_26__ep=5000__mode=fixed: ROSAME-I 26+MILP (init+final GT)
+    ROSAME_24: ROSAME (init GT)
+    ROSAME_MILP_24: ROSAME+MILP (init+final GT)
+    ROSAME-I_24__res=native: ROSAME-I 24 (final GT, native res)
+    ROSAME-I_26__res=native__ep=5000__mode=fixed: ROSAME-I 26 (init+final GT, native
+      res)
+    ROSAME-I_MILP_24__res=native: ROSAME-I 24+MILP (init+final GT, native res)
+    ROSAME-I_MILP_26__res=native__ep=5000__mode=fixed: ROSAME-I 26+MILP (init+final
+      GT, native res)
+  include_algorithms:
+  - PISAM
+  - PISAM_MILP_LOOP__schema=pre_and_add
+  - ROSAME_24
+  - ROSAME_MILP_24
+  exclude_algorithms: []
+- key: vlm_model=gpt-5.2__reasoning=off__example_protocol=shared__gt_setup=init_final
+  label: "gpt-5.2 \xB7 reasoning off \xB7 init+final GT"
+  experiment_dir:
+    blocksworld: benchmark/running_results/blocksworld/TO=600__image-small__fs=shared__setup=init_final
+    depot: benchmark/running_results/depot/TO=600__image-small__fs=shared__setup=init_final
+    gripper: benchmark/running_results/gripper/TO=600__image-small__fs=shared__setup=init_final
+    hanoi: benchmark/running_results/hanoi/TO=600__image-small__fs=shared__setup=init_final
+    npuzzle: benchmark/running_results/npuzzle/TO=600__image-small__fs=shared__setup=init_final
+  display_names:
+    PISAM: PI-SAM (init+final GT)
+    PISAM_MILP_LOOP__gt=all_gt_states__schema=pre_and_add: NPI-SAM (init+final GT)
+    ROSAME-I_26__ep=5000__mode=fixed: ROSAME-I 26 (init+final GT)
+    ROSAME-I_MILP_24: ROSAME-I 24+MILP (init+final GT)
+    ROSAME-I_MILP_26__ep=5000__mode=fixed: ROSAME-I 26+MILP (init+final GT)
+    ROSAME_24: ROSAME (init+final GT)
+    ROSAME_MILP_24: ROSAME+MILP (init+final GT)
+    ROSAME-I_26__res=native__ep=5000__mode=fixed: ROSAME-I 26 (init+final GT, native
+      res)
+    ROSAME-I_MILP_24__res=native: ROSAME-I 24+MILP (init+final GT, native res)
+    ROSAME-I_MILP_26__res=native__ep=5000__mode=fixed: ROSAME-I 26+MILP (init+final
+      GT, native res)
+  include_algorithms:
+  - PISAM
+  - PISAM_MILP_LOOP__gt=all_gt_states__schema=pre_and_add
+  - ROSAME_24
+  - ROSAME_MILP_24
+  exclude_algorithms: []
+- key: vlm_model=qwen3.8-27b__reasoning=off__example_protocol=shared__gt_setup=init
+  label: "qwen3.8-27b \xB7 reasoning off \xB7 init GT"
+  experiment_dir:
+    gripper: benchmark/running_results/gripper/TO=600__image-small__fs=shared__vlm=qwen3.8-27b
+  display_names:
+    PISAM: PI-SAM (init GT)
+    PISAM_MILP_LOOP__schema=pre_and_add: NPI-SAM (init GT)
+    ROSAME_24: ROSAME (init GT)
+    ROSAME_MILP_24: ROSAME+MILP (init+final GT)
+  include_algorithms:
+  - PISAM
+  - PISAM_MILP_LOOP__schema=pre_and_add
+  - ROSAME_24
+  - ROSAME_MILP_24
+  exclude_algorithms: []
+- key: vlm_model=qwen3.8-27b__reasoning=on__example_protocol=shared__gt_setup=init
+  label: "qwen3.8-27b \xB7 reasoning on \xB7 init GT"
+  experiment_dir:
+    gripper: benchmark/running_results/gripper/TO=600__image-small__fs=shared__vlm=qwen3.8-27b-think
+  display_names:
+    PISAM: PI-SAM (init GT)
+    PISAM_MILP_LOOP__schema=pre_and_add: NPI-SAM (init GT)
+    ROSAME_24: ROSAME (init GT)
+    ROSAME_MILP_24: ROSAME+MILP (init+final GT)
+  include_algorithms:
+  - PISAM
+  - PISAM_MILP_LOOP__schema=pre_and_add
+  - ROSAME_24
+  - ROSAME_MILP_24
+  exclude_algorithms: []

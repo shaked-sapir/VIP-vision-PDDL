@@ -1,0 +1,15 @@
+- key: vlm_model=gpt-5.2__reasoning=off__example_protocol=shared__gt_setup=init
+  label: "gpt-5.2 \xB7 reasoning off \xB7 init GT"
+  experiment_dir:
+    blocksworld: benchmark/running_results/blocksworld/large-corpora__image-mini__N=100
+  display_names:
+    PISAM: PI-SAM (init GT)
+    PISAM_MILP_LOOP__schema=pre_and_add__m=4: NPI-SAM (init GT)
+    ROSAME_24: ROSAME (init GT)
+    ROSAME_MILP_24: ROSAME+MILP (init+final GT)
+  include_algorithms:
+  - PISAM
+  - PISAM_MILP_LOOP__schema=pre_and_add__m=4
+  - ROSAME_24
+  - ROSAME_MILP_24
+  exclude_algorithms: []
