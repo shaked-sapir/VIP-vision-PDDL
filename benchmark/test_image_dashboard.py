@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from benchmark.image_dashboard import display_name, image_variants, variant_key, variant_label
+from benchmark.image_dashboard import (
+    display_name,
+    image_only_config,
+    image_variants,
+    variant_key,
+    variant_label,
+)
 from src.utils.atomic_json import write_json_atomic
 from src.utils.gt_setup import GtSetup
 
@@ -74,3 +80,17 @@ def test_rows_relabelled_with_a_data_variant_are_hidden(results: Path) -> None:
     assert medium["exclude_algorithms"] == ["PISAM__reasoning=off"]
     assert "PISAM__reasoning=off" not in medium["display_names"]
     assert medium["display_names"]["ROSAME_MILP_24"] == "ROSAME+MILP (init+final GT)"
+
+
+def test_image_only_config_drops_simulation_and_opens_on_the_image_arms() -> None:
+    config = {"results_dashboard": {"output_html": "a.html", "domains": ["gripper"],
+                                    "simulation": {"small": {"prefix": {"gripper": "sim"}}},
+                                    "selectors": {"default": {"mode": "simulation", "data_size": "small"}}}}
+
+    trimmed = image_only_config(config, Path("out/image.html"))["results_dashboard"]
+
+    assert trimmed["output_html"] == "out/image.html"
+    assert all(block["prefix"] == {"gripper": "__not-in-this-page__"} for block in trimmed["simulation"].values())
+    assert set(trimmed["simulation"]) == {"small", "large"}
+    assert trimmed["selectors"]["default"] == {"mode": "image", "data_size": "small", "view": "baselines"}
+    assert config["results_dashboard"]["simulation"]["small"]["prefix"] == {"gripper": "sim"}

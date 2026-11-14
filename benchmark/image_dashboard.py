@@ -30,6 +30,9 @@ GENERATED_DIR = Path("benchmark/evaluation/cfm/generated")
 #: Experiment-name family of each data size's image runs.
 FAMILIES = {"small": "TO=600__image-small", "large": "large-corpora__image-mini__N=100"}
 
+#: An experiment-name prefix no simulation run has; an absent prefix matches every run.
+NO_SIMULATION_PREFIX = "__not-in-this-page__"
+
 SETUP_TEXT = {
     GtSetup.NONE: "no GT", GtSetup.INIT: "init GT",
     GtSetup.FINAL: "final GT", GtSetup.INIT_FINAL: "init+final GT",
@@ -129,11 +132,27 @@ def write_variant_files(results_root: Path, domains: List[str]) -> Dict[str, Pat
     return written
 
 
+def image_only_config(config: dict, output_html: Path) -> dict:
+    """A copy of a dashboard config with no simulation grids, opening on the image arms."""
+    trimmed = yaml.safe_load(yaml.safe_dump(config))
+    dashboard = trimmed["results_dashboard"]
+    dashboard["output_html"] = output_html.as_posix()
+    dashboard["simulation"] = {
+        size: {"prefix": {domain: NO_SIMULATION_PREFIX for domain in dashboard.get("domains", [])}}
+        for size in FAMILIES
+    }
+    selectors = dashboard.setdefault("selectors", {})
+    selectors["default"] = {**(selectors.get("default") or {}), "mode": "image", "view": "baselines"}
+    return trimmed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--config", type=Path, default=Path("benchmark/evaluation/cfm/dashboard_config.yaml"))
     parser.add_argument("--no-build", action="store_true", help="write the lists only")
     parser.add_argument("--embed", action="store_true", help="also write the self-contained page")
+    parser.add_argument("--image-only", action="store_true",
+                        help="build results_dashboard_image.html, the same page without the simulation grids")
     parser.add_argument("--regen-plots", action="store_true", help="passed to build_dashboard")
     parser.add_argument("--refresh-stats", action="store_true", help="passed to build_dashboard")
     args = parser.parse_args()
@@ -144,7 +163,13 @@ def main() -> int:
         print(f"{size}: {len(yaml.safe_load(path.read_text()) or [])} image variants -> {path}")
     if args.no_build:
         return 0
-    command = [sys.executable, "-m", "benchmark.evaluation.cfm.build_dashboard", "--config", str(args.config)]
+    config_path = args.config
+    if args.image_only:
+        config_path = GENERATED_DIR / "dashboard_config_image_only.yaml"
+        config_path.write_text(yaml.safe_dump(image_only_config(
+            yaml.safe_load(args.config.read_text()), results_root / "results_dashboard_image.html"),
+            sort_keys=False))
+    command = [sys.executable, "-m", "benchmark.evaluation.cfm.build_dashboard", "--config", str(config_path)]
     command += ["--regen-plots"] * args.regen_plots + ["--refresh-stats"] * args.refresh_stats
     code = subprocess.call(command)
     if code == 0 and args.embed:
