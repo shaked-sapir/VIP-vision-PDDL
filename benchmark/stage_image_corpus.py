@@ -26,6 +26,7 @@ from src.utils.corpus_layout import (
     pool_problem_dirs,
     problem_files,
 )
+from src.utils.corpus_variant import CORPUS_VARIANT_FILE
 from src.utils.trajectory_json_converter import convert_trajectory_to_json
 
 
@@ -85,6 +86,9 @@ def stage_corpus(source: Path, target: Path, exclude: Iterable[str] = (),
         stage_problem(source_dir, source / GT_SUBPATH / name,
                       target_pool / name, target / GT_SUBPATH / name, with_inferred)
         staged.append(name)
+    variant_file = source / CORPUS_VARIANT_FILE
+    if with_inferred and variant_file.exists():
+        shutil.copy2(variant_file, target / CORPUS_VARIANT_FILE)
     return staged
 
 

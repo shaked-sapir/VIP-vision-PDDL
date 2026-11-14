@@ -42,10 +42,11 @@ from benchmark.algorithm_adapters.lamanna.realised_rates import (
     gt_trajectory_lookup,
     realised_rates,
 )
-from benchmark.data_generator import _DOMAIN_REGISTRY, _build_handler
+from benchmark.data_generator import _DOMAIN_REGISTRY, _build_handler, _example_dir
 from benchmark.experiment_running_helpers.run_fold import cv_split, select_training_pool
 from src.utils.config import load_config
 from src.utils.corpus_layout import FRAME_GLOB, IMAGE_POOL_SUBPATH, pool_problem_dirs
+from src.utils.corpus_variant import CorpusVariant, write_corpus_variant
 
 USAGE_LOG_NAME = "inference_usage.jsonl"
 _TOKEN_FIELDS = ("calls", "prompt_tokens", "cached_tokens", "completion_tokens", "request_seconds")
@@ -185,9 +186,20 @@ def run(
     domain: str, data_dir: Path, problems: Sequence[Path], vendor: str,
     inference_workers: int, problem_workers: int,
 ) -> List[Dict[str, object]]:
-    """Classify every not-yet-inferred problem of ``problems``; return the new rows."""
+    """Classify every not-yet-inferred problem of ``problems``; return the new rows.
+
+    The corpus's ``corpus_variant.json`` is written first.
+
+    Raises:
+        ValueError: if the corpus was classified under another model, reasoning
+            mode or example protocol.
+    """
     registry = _DOMAIN_REGISTRY[domain]
-    domain_file = Path(load_config()["domains"][registry["config_key"]]["domain_file"])
+    config = load_config()
+    domain_config = config["domains"][registry["config_key"]]
+    domain_file = Path(domain_config["domain_file"])
+    write_corpus_variant(
+        data_dir, CorpusVariant.from_vendor_block(config[vendor], _example_dir(domain_config)))
     log_path = data_dir / USAGE_LOG_NAME
     todo = [p for p in problems if not is_inferred(p)]
     print(f"[{domain}] {len(problems)} selected, {len(problems) - len(todo)} already inferred, "

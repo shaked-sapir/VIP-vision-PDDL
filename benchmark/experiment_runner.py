@@ -42,6 +42,7 @@ from benchmark.experiment_running_helpers.resume import (
 )
 from src.observation_degradation.masking import MaskingType
 from src.utils.corpus_layout import IMAGE_POOL_SUBPATH, POOL_SUBPATH, pool_problem_dirs
+from src.utils.corpus_variant import write_experiment_variant
 from src.utils.gt_setup import GtSetup
 from src.observation_degradation.noising import NoisingType
 from src.milp.converter import GtAnchoring
@@ -347,6 +348,8 @@ def main(
             _save_run_params(run_params_path, run_params, skip_if_exists=True)
         else:
             _save_run_params(run_params_path, run_params)
+        if isinstance(data_source, ImageDataSource):
+            write_experiment_variant(evaluation_results_dir, data_dir, data_source.gt_setup)
 
     # ── Validate problem directories ─────────────────────────────────────
     testing_dir.mkdir(parents=True, exist_ok=True)

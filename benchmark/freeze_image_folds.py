@@ -42,6 +42,7 @@ from benchmark.experiment_running_helpers.normalize import normalize_experiment_
 from benchmark.experiment_running_helpers.resume import fold_instance_dir, fold_shared_dir
 from benchmark.experiment_running_helpers.run_fold import cv_split, select_training_pool
 from benchmark.experiment_running_helpers.trajectory_utils import save_fold_metadata
+from src.utils.corpus_variant import write_experiment_variant
 from src.utils.gt_setup import GtSetup
 from src.utils.atomic_json import write_json_atomic
 from src.utils.corpus_layout import IMAGE_POOL_SUBPATH, pool_problem_dirs
@@ -249,6 +250,8 @@ def freeze_domain(
         "frozen_by": "benchmark.freeze_image_folds",
         **({} if plan.gt_setup is GtSetup.INIT else {"gt_setup": plan.gt_setup.value}),
     })
+
+    write_experiment_variant(experiment_dir / "evaluation_results", data_dir, plan.gt_setup)
 
     written = skipped = 0
     for fold in (range(plan.n_folds) if folds is None else sorted(set(folds))):
